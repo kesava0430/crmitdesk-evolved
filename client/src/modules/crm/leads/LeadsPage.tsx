@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Target, Plus, ArrowRight, Trash2, CheckCircle2, Sparkles, Mail, Copy, Check, Zap, Calendar, Pencil } from 'lucide-react';
 import { useLeads, useCreateLead, useUpdateLead, useConvertLead, useDeleteLead } from '../../../api/crm';
 import { useScoreLead, useLeadFollowUp, useNurtureSequence } from '../../../api/ai';
-import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect , RowActions, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker } from '../../../shared/components';
+import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect , RowActions, CustomFieldsFormFields, RecordTemplatePicker } from '../../../shared/components';
 import { leadStatusVariant } from '../../../shared/components/Badge';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 

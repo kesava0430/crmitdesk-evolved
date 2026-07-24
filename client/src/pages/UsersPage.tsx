@@ -14,8 +14,6 @@ const roleVariant: Record<string, any> = {
 function UserForm({ initial, onSubmit, loading }: any) {
   const [form, setForm] = useState(initial || { name: '', email: '', password: '', role: 'EMPLOYEE', department: '', phone: '' });
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
-  const inp = 'ui-input';
-  const lbl = 'form-label';
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(form); }} className="space-y-3">
       <div className="form-section">
@@ -64,8 +62,6 @@ function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
   const [form, setForm] = useState({ email: '', role: 'EMPLOYEE' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const inp = 'ui-input';
-  const lbl = 'form-label';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

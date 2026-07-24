@@ -30,8 +30,6 @@ function TicketForm({ categories, onSubmit, loading }: any) {
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const aiDupes = useDetectDuplicates();
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
-  const inp = 'ui-input';
-  const lbl = 'form-label';
 
   useEffect(() => {
     if (form.title.length >= 10) {
