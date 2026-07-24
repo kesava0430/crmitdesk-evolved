@@ -32,8 +32,12 @@ export function useSSE() {
     if (!isAuthenticated || !accessToken) return;
     if (esRef.current) esRef.current.close();
 
-    // Pass token as query param — EventSource doesn't support custom headers
-    const es = new EventSource(`/api/events/stream?_t=${encodeURIComponent(accessToken)}`);
+    // Pass token as query param — EventSource doesn't support custom headers.
+    // Same VITE_API_URL bug as api/client.ts: EventSource can't go through
+    // the axios instance, so it needs its own base-URL resolution rather
+    // than a hardcoded relative '/api' path.
+    const apiBase = import.meta.env.VITE_API_URL || '/api';
+    const es = new EventSource(`${apiBase}/events/stream?_t=${encodeURIComponent(accessToken)}`);
     esRef.current = es;
 
     const handlers: Partial<Record<SSEEventType, Handler>> = {

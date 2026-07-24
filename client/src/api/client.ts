@@ -1,7 +1,14 @@
 import axios from 'axios';
 import { addToast } from '../shared/components/toastStore';
 
-export const api = axios.create({ baseURL: '/api' });
+// VITE_API_URL is required whenever the frontend and backend are on different
+// origins (e.g. Netlify frontend + Render backend) — this used to be
+// hardcoded to '/api', silently ignoring the env var entirely. That only
+// ever worked by accident on Render's own static-site option, which has an
+// explicit /api/* redirect proxy in render.yaml papering over it; any other
+// host (Netlify included) sent every request to its own domain instead of
+// the API, which doesn't exist there.
+export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
@@ -23,7 +30,10 @@ api.interceptors.response.use(
       original._retry = true;
       try {
         const refresh = localStorage.getItem('refreshToken');
-        const res = await axios.post('/api/auth/refresh', { refresh });
+        // api.post, not a bare axios.post('/api/auth/refresh', ...) — the
+        // bare call hardcoded a relative path that bypassed baseURL/
+        // VITE_API_URL entirely, same bug as the baseURL default above.
+        const res = await api.post('/auth/refresh', { refresh });
         localStorage.setItem('accessToken', res.data.access);
         if (res.data.refresh) localStorage.setItem('refreshToken', res.data.refresh);
         original.headers.Authorization = `Bearer ${res.data.access}`;

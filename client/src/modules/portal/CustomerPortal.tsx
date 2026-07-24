@@ -23,7 +23,10 @@ interface PortalTicket {
 
 // ─── Portal API ───────────────────────────────────────────────────────────────
 
-const BASE = '/api/portal';
+// Same VITE_API_URL bug as api/client.ts's baseURL — hardcoded to a relative
+// path, so on any host without a same-origin /api proxy (Netlify included)
+// this hits the frontend's own domain instead of the backend.
+const BASE = `${import.meta.env.VITE_API_URL || '/api'}/portal`;
 
 function portalApi(token: string) {
   return axios.create({ baseURL: BASE, headers: { Authorization: `Bearer ${token}` } });
