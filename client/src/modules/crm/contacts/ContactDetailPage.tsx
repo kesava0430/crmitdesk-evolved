@@ -46,8 +46,6 @@ function ActivityForm({ contactId, onSubmit, loading }: any) {
   // translated before being POSTed.
   const [form, setForm] = useState({ type: 'CALL', title: '', body: '', dueAt: '' });
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
-  const inp = 'ui-input';
-  const lbl = 'form-label';
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, contactId }); }} className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -90,8 +88,6 @@ function EditContactForm({ contact, accounts, onSubmit, loading }: any) {
     if (existingValues) setCustomValues(fromValueRecords(existingValues));
   }, [existingValues]);
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
-  const inp = 'ui-input';
-  const lbl = 'form-label';
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, __customFieldValues: customValues }); }} className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

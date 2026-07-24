@@ -23,8 +23,6 @@ function DealForm({ initial, contacts, accounts, users, stages, onSubmit, loadin
   const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '' });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
-  const inp = 'ui-input';
-  const lbl = 'form-label';
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, value: Number(form.value), probability: Number(form.probability), __customFieldValues: customValues }); }} className="space-y-3">
       <RecordTemplatePicker
