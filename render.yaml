@@ -11,7 +11,14 @@ services:
     runtime: node
     rootDir: server
     plan: free
-    buildCommand: npm ci && npx prisma generate && npm run build
+    # --include=dev: NODE_ENV=production is set below, and npm honors that
+    # during install too (not just at runtime) — silently pruning devDependencies,
+    # which is where every @types/* package used for type-checking lives.
+    # tsc itself still ran (it's a devDependency too, so it clearly wasn't
+    # pruned wholesale), which points to npm workspaces' hoisting picking
+    # inconsistently which dev-only packages survive under production mode —
+    # forcing --include=dev removes the ambiguity entirely.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
     startCommand: npx prisma migrate deploy && node dist/index.js
     healthCheckPath: /health
     envVars:
