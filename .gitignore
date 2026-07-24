@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment — NEVER commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+.next/
+
+# Prisma generated client (regenerated from schema)
+server/node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Uploads (user-uploaded files)
+server/uploads/
+
+# Playwright
+test-results/
+playwright-report/
+tests/playwright-report/
+results.txt
+resultnew.txt
+result*.txt
+
+# Editor/temp backups
+*.bak
+~$*.doc*
+~$*.xls*
+~$*.ppt*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript cache
+*.tsbuildinfo

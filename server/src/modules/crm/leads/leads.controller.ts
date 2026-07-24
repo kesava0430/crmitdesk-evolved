@@ -1,0 +1,140 @@
+import { Response, NextFunction } from 'express';
+import { z } from 'zod';
+import { prisma } from '../../../utils/prisma';
+import { AuthRequest } from '../../../middleware/authenticate';
+import { AppError } from '../../../middleware/errorHandler';
+import { parsePagination, paginate } from '../../../utils/pagination';
+import { runWorkflows } from '../../../utils/workflow-engine';
+import { slackNewLead } from '../../../utils/slack';
+import { logAction } from '../../../utils/auditLog';
+
+const Schema = z.object({
+  contactId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
+  source: z.string().optional(),
+  status: z.enum(['NEW','CONTACTED','QUALIFIED','UNQUALIFIED','CONVERTED']).optional(),
+  assignedTo: z.string().optional().or(z.literal('')).transform(v => v || undefined),
+  notes: z.string().optional(),
+  name: z.string().optional(),
+  email: z.string().email().optional().or(z.literal('')).transform(v => v || undefined),
+});
+
+const include = {
+  contact: { select: { id: true, name: true, email: true } },
+  assignee: { select: { id: true, name: true } },
+};
+
+export async function list(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const { status, search } = req.query as Record<string, string>;
+    const pag = parsePagination(req);
+    const where: any = { orgId };
+    if (status) where.status = status;
+    if (search) where.contact = { name: { contains: search, mode: 'insensitive' } };
+    const [leads, total] = await Promise.all([
+      prisma.lead.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
+      prisma.lead.count({ where }),
+    ]);
+    res.json(paginate(leads, total, pag));
+  } catch (err) { next(err); }
+}
+
+export async function create(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const data = Schema.parse(req.body);
+    const orgId = req.user!.orgId;
+    let contactId = data.contactId;
+    if (!contactId && data.name) {
+      const contact = await prisma.contact.create({
+        data: { name: data.name, email: data.email, source: data.source, orgId, ownerId: req.user!.id }
+      });
+      contactId = contact.id;
+    }
+    const lead = await prisma.lead.create({
+      data: { contactId, source: data.source, assignedTo: data.assignedTo || req.user!.id, notes: data.notes, orgId },
+      include
+    });
+    runWorkflows({ trigger: 'LEAD_CREATED', orgId, entityType: 'LEAD', entityId: lead.id, entity: lead as any }).catch(() => {});
+    slackNewLead(orgId, { id: lead.id, contact: lead.contact, source: lead.source }).catch(() => {});
+    logAction(req.user!.id, 'CREATE', 'Lead', lead.id, { contactId: lead.contactId, source: lead.source });
+    res.status(201).json(lead);
+  } catch (err) { next(err); }
+}
+
+export async function getOne(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const lead = await prisma.lead.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
+    if (!lead) throw new AppError(404, 'Lead not found');
+    res.json(lead);
+  } catch (err) { next(err); }
+}
+
+export async function update(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { name, email, ...leadData } = Schema.partial().parse(req.body);
+    const orgId = req.user!.orgId;
+
+    // `name`/`email` belong to the linked Contact, not the Lead itself — the
+    // Lead model has no such columns, so passing them straight into
+    // lead.updateMany() throws "Unknown argument" and the whole update fails
+    // (the edit modal then never closes, since it only closes after the
+    // mutation resolves). Apply them to the Contact instead, same as create().
+    if (name !== undefined || email !== undefined) {
+      const existing = await prisma.lead.findFirst({ where: { id: req.params.id, orgId } });
+      if (existing?.contactId) {
+        await prisma.contact.update({
+          where: { id: existing.contactId },
+          data: { ...(name !== undefined && { name }), ...(email !== undefined && { email }) },
+        });
+      }
+    }
+
+    await prisma.lead.updateMany({ where: { id: req.params.id, orgId }, data: leadData });
+    const lead = await prisma.lead.findUnique({ where: { id: req.params.id }, include });
+    logAction(req.user!.id, 'UPDATE', 'Lead', req.params.id, leadData as Record<string, unknown>);
+    res.json(lead);
+  } catch (err) { next(err); }
+}
+
+export async function convert(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const lead = await prisma.lead.findFirst({ where: { id: req.params.id, orgId }, include });
+    if (!lead) throw new AppError(404, 'Lead not found');
+    if (lead.status === 'CONVERTED') throw new AppError(400, 'Lead already converted');
+
+    const { dealTitle, dealValue, dealStage, dealProbability } = req.body;
+
+    const pipeline = await prisma.pipeline.findFirst({ where: { orgId, isDefault: true } })
+      ?? await prisma.pipeline.create({ data: { name: 'Sales Pipeline', stages: ['Prospecting','Proposal','Negotiation','Won','Lost'], isDefault: true, orgId } });
+
+    const stages = pipeline.stages as string[];
+    const deal = await prisma.deal.create({
+      data: {
+        orgId,
+        title: dealTitle || `Deal - ${lead.contact?.name || 'New Deal'}`,
+        stage: dealStage || stages[0],
+        value: dealValue ? Number(dealValue) : undefined,
+        probability: dealProbability ? Number(dealProbability) : 20,
+        pipelineId: pipeline.id,
+        contactId: lead.contactId ?? undefined,
+        assignedTo: req.user!.id,
+      }
+    });
+
+    const updated = await prisma.lead.update({
+      where: { id: req.params.id },
+      data: { status: 'CONVERTED', convertedAt: new Date(), dealId: deal.id },
+      include
+    });
+    res.json({ lead: updated, deal });
+  } catch (err) { next(err); }
+}
+
+export async function remove(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    await prisma.lead.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    logAction(req.user!.id, 'DELETE', 'Lead', req.params.id);
+    res.json({ message: 'Deleted' });
+  } catch (err) { next(err); }
+}

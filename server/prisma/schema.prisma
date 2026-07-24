@@ -1,0 +1,1114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id             String             @id @default(cuid())
+  name           String
+  slug           String             @unique
+  plan           String             @default("FREE")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  aiCustomRules     AICustomRule[]
+  businessContext   BusinessContext?
+  customAIFunctions CustomAIFunction[]
+  customScripts     CustomScript[]
+  accounts          Account[]
+  activities     Activity[]
+  apiKeys        ApiKey[]
+  assets         Asset[]
+  campaigns      Campaign[]
+  categories     Category[]
+  changeRequests ChangeRequest[]
+  contacts       Contact[]
+  conversations  Conversation[]
+  csatResponses  CsatResponse[]
+  customFields   CustomField[]
+  deals          Deal[]
+  recordTemplates RecordTemplate[]
+  replyTemplates  ReplyTemplate[]
+  emailTemplates  EmailTemplate[]
+  quoteTemplates  QuoteTemplate[]
+  emailAccount   EmailAccount?
+  inviteTokens   InviteToken[]
+  articles       KnowledgeArticle[]
+  leads          Lead[]
+  notifications  Notification[]
+  branding       OrgBranding?
+  pipelines      Pipeline[]
+  portalUsers    PortalUser[]
+  quotes         Quote[]
+  schedules      Schedule[]
+  slaPolicies    SlaPolicy[]
+  slackConfig    SlackConfig?
+  subscription   Subscription?
+  tags           Tag[]
+  teamsConfig    TeamsConfig?
+  tickets        Ticket[]
+  timeEntries    TimeEntry[]
+  users          User[]
+  whatsAppConfig WhatsAppConfig?
+  workflowRules  WorkflowRule[]
+
+  @@map("organizations")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model InviteToken {
+  id        String       @id @default(cuid())
+  orgId     String       @map("org_id")
+  email     String
+  role      UserRole     @default(EMPLOYEE)
+  token     String       @unique
+  expiresAt DateTime     @map("expires_at")
+  usedAt    DateTime?    @map("used_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("invite_tokens")
+}
+
+model User {
+  id                     String             @id @default(cuid())
+  name                   String
+  email                  String             @unique
+  passwordHash           String             @map("password_hash")
+  role                   UserRole           @default(EMPLOYEE)
+  department             String?
+  phone                  String? // E.164 format (e.g. +14155551234) — used to resolve the "ASSIGNEE" recipient for scheduled/workflow WhatsApp notifications
+  avatarUrl              String?            @map("avatar_url")
+  isActive               Boolean            @default(true) @map("is_active")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+  orgId                  String?            @map("org_id")
+  ownedAccounts          Account[]          @relation("AccountOwner")
+  activities             Activity[]
+  apiKeys                ApiKey[]
+  assignedAssets         Asset[]
+  attachments            Attachment[]
+  auditLogs              AuditLog[]
+  changeRequestsAssigned ChangeRequest[]    @relation("ChangeAssignee")
+  changeRequestsMade     ChangeRequest[]    @relation("ChangeRequester")
+  comments               Comment[]
+  ownedContacts          Contact[]          @relation("ContactOwner")
+  assignedConversations  Conversation[]
+  assignedDeals          Deal[]             @relation("DealAssignee")
+  knowledgeArticles      KnowledgeArticle[]
+  assignedLeads          Lead[]             @relation("LeadAssignee")
+  notifications          Notification[]
+  quotesCreated          Quote[]            @relation("QuoteCreator")
+  refreshTokens          RefreshToken[]
+  schedulesCreated       Schedule[]
+  assignedTickets        Ticket[]           @relation("TicketAssignee")
+  requestedTickets       Ticket[]           @relation("TicketRequester")
+  timeEntries            TimeEntry[]
+  totpSecret             TOTPSecret?
+  org                    Organization?      @relation(fields: [orgId], references: [id])
+
+  @@map("users")
+}
+
+model Comment {
+  id         String     @id @default(cuid())
+  authorId   String     @map("author_id")
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id")
+  body       String
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  author     User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@map("comments")
+}
+
+model Attachment {
+  id         String     @id @default(cuid())
+  uploaderId String     @map("uploader_id")
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id")
+  fileName   String     @map("file_name")
+  fileUrl    String     @map("file_url")
+  fileSize   Int        @map("file_size")
+  mimeType   String     @map("mime_type")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  uploader   User       @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@map("attachments")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  changes    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model Tag {
+  id          String       @id @default(cuid())
+  name        String
+  color       String       @default("#6B7280")
+  module      String       @default("ALL")
+  orgId       String       @map("org_id")
+  contactTags ContactTag[]
+  dealTags    DealTag[]
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@map("tags")
+}
+
+model Contact {
+  id         String       @id @default(cuid())
+  name       String
+  email      String?
+  phone      String?
+  jobTitle   String?      @map("job_title")
+  accountId  String?      @map("account_id")
+  source     String?
+  ownerId    String       @map("owner_id")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  orgId      String       @map("org_id")
+  activities Activity[]
+  tags       ContactTag[]
+  account    Account?     @relation(fields: [accountId], references: [id])
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner      User         @relation("ContactOwner", fields: [ownerId], references: [id])
+  deals      Deal[]
+  leads      Lead[]
+
+  @@index([orgId])
+  @@map("contacts")
+}
+
+model ContactTag {
+  contactId String  @map("contact_id")
+  tagId     String  @map("tag_id")
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@map("contact_tags")
+}
+
+model Account {
+  id        String       @id @default(cuid())
+  name      String
+  industry  String?
+  website   String?
+  phone     String?
+  address   String?
+  ownerId   String       @map("owner_id")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  orgId     String       @map("org_id")
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner     User         @relation("AccountOwner", fields: [ownerId], references: [id])
+  contacts  Contact[]
+  deals     Deal[]
+
+  @@index([orgId])
+  @@map("accounts")
+}
+
+model Pipeline {
+  id        String       @id @default(cuid())
+  name      String
+  stages    Json
+  isDefault Boolean      @default(false) @map("is_default")
+  createdAt DateTime     @default(now()) @map("created_at")
+  orgId     String       @map("org_id")
+  deals     Deal[]
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("pipelines")
+}
+
+model Lead {
+  id            String       @id @default(cuid())
+  contactId     String?      @map("contact_id")
+  source        String?
+  status        LeadStatus   @default(NEW)
+  assignedTo    String?      @map("assigned_to")
+  convertedAt   DateTime?    @map("converted_at")
+  dealId        String?      @map("deal_id")
+  notes         String?
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  aiScore       Int?         @map("ai_score")
+  aiScoreReason String?      @map("ai_score_reason")
+  orgId         String       @map("org_id")
+  assignee      User?        @relation("LeadAssignee", fields: [assignedTo], references: [id])
+  contact       Contact?     @relation(fields: [contactId], references: [id])
+  deal          Deal?        @relation(fields: [dealId], references: [id])
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("leads")
+}
+
+model Deal {
+  id          String        @id @default(cuid())
+  title       String
+  value       Decimal       @default(0) @db.Decimal(12, 2)
+  stage       String
+  probability Int           @default(0)
+  closeDate   DateTime?     @map("close_date")
+  pipelineId  String?       @map("pipeline_id")
+  contactId   String?       @map("contact_id")
+  accountId   String?       @map("account_id")
+  assignedTo  String?       @map("assigned_to")
+  status      DealStatus    @default(OPEN)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  orgId       String        @map("org_id")
+  activities  Activity[]
+  history     DealHistory[]
+  tags        DealTag[]
+  account     Account?      @relation(fields: [accountId], references: [id])
+  assignee    User?         @relation("DealAssignee", fields: [assignedTo], references: [id])
+  contact     Contact?      @relation(fields: [contactId], references: [id])
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  pipeline    Pipeline?     @relation(fields: [pipelineId], references: [id])
+  leads       Lead[]
+  quotes      Quote[]
+
+  @@index([orgId])
+  @@map("deals")
+}
+
+model DealTag {
+  dealId String @map("deal_id")
+  tagId  String @map("tag_id")
+  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([dealId, tagId])
+  @@map("deal_tags")
+}
+
+model DealHistory {
+  id        String   @id @default(cuid())
+  dealId    String   @map("deal_id")
+  fromStage String?  @map("from_stage")
+  toStage   String   @map("to_stage")
+  changedBy String   @map("changed_by")
+  changedAt DateTime @default(now()) @map("changed_at")
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@map("deal_history")
+}
+
+model Activity {
+  id            String       @id @default(cuid())
+  type          ActivityType
+  title         String
+  body          String?
+  dealId        String?      @map("deal_id")
+  contactId     String?      @map("contact_id")
+  dueAt         DateTime?    @map("due_at")
+  done          Boolean      @default(false)
+  createdBy     String       @map("created_by")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  orgId         String       @map("org_id")
+  contact       Contact?     @relation(fields: [contactId], references: [id])
+  createdByUser User         @relation(fields: [createdBy], references: [id])
+  deal          Deal?        @relation(fields: [dealId], references: [id])
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("activities")
+}
+
+model SlaPolicy {
+  id                String       @id @default(cuid())
+  name              String
+  responseHours     Int          @map("response_hours")
+  resolutionHours   Int          @map("resolution_hours")
+  priorityOverrides Json?        @map("priority_overrides")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  orgId             String       @map("org_id")
+  categories        Category[]
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("sla_policies")
+}
+
+model Category {
+  id              String             @id @default(cuid())
+  name            String
+  parentId        String?            @map("parent_id")
+  slaPolicyId     String?            @map("sla_policy_id")
+  autoAssignGroup String?            @map("auto_assign_group")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  orgId           String             @map("org_id")
+  org             Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  parent          Category?          @relation("CategoryParent", fields: [parentId], references: [id])
+  children        Category[]         @relation("CategoryParent")
+  slaPolicy       SlaPolicy?         @relation(fields: [slaPolicyId], references: [id])
+  articles        KnowledgeArticle[]
+  tickets         Ticket[]
+
+  @@index([orgId])
+  @@map("categories")
+}
+
+model Ticket {
+  id            String          @id @default(cuid())
+  title         String
+  body          String
+  categoryId    String?         @map("category_id")
+  priority      TicketPriority  @default(MEDIUM)
+  status        TicketStatus    @default(OPEN)
+  requesterId   String          @map("requester_id")
+  assignedTo    String?         @map("assigned_to")
+  slaDueAt      DateTime?       @map("sla_due_at")
+  resolvedAt    DateTime?       @map("resolved_at")
+  closedAt      DateTime?       @map("closed_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  orgId         String          @map("org_id")
+  portalUserId  String?         @map("portal_user_id")
+  sentiment     String?         @default("NEUTRAL")
+  csatResponses CsatResponse[]
+  breaches      SlaBreaches[]
+  assets        TicketAsset[]
+  history       TicketHistory[]
+  assignee      User?           @relation("TicketAssignee", fields: [assignedTo], references: [id])
+  category      Category?       @relation(fields: [categoryId], references: [id])
+  org           Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  requester     User            @relation("TicketRequester", fields: [requesterId], references: [id])
+  timeEntries   TimeEntry[]
+
+  @@index([orgId])
+  @@map("tickets")
+}
+
+model TicketHistory {
+  id         String        @id @default(cuid())
+  ticketId   String        @map("ticket_id")
+  fromStatus TicketStatus? @map("from_status")
+  toStatus   TicketStatus  @map("to_status")
+  changedBy  String        @map("changed_by")
+  changedAt  DateTime      @default(now()) @map("changed_at")
+  ticket     Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@map("ticket_history")
+}
+
+model SlaBreaches {
+  id         String        @id @default(cuid())
+  ticketId   String        @map("ticket_id")
+  breachType SlaBreachType @map("breach_type")
+  breachedAt DateTime      @default(now()) @map("breached_at")
+  ticket     Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@map("sla_breaches")
+}
+
+model KnowledgeArticle {
+  id          String        @id @default(cuid())
+  title       String
+  body        String
+  categoryId  String?       @map("category_id")
+  status      ArticleStatus @default(DRAFT)
+  authorId    String        @map("author_id")
+  publishedAt DateTime?     @map("published_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  orgId       String        @map("org_id")
+  author      User          @relation(fields: [authorId], references: [id])
+  category    Category?     @relation(fields: [categoryId], references: [id])
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("knowledge_articles")
+}
+
+model Asset {
+  id           String        @id @default(cuid())
+  name         String
+  type         String
+  serialNumber String?       @map("serial_number")
+  assignedTo   String?       @map("assigned_to")
+  status       String        @default("active")
+  purchaseDate DateTime?     @map("purchase_date")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  orgId        String        @map("org_id")
+  assignee     User?         @relation(fields: [assignedTo], references: [id])
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  tickets      TicketAsset[]
+
+  @@index([orgId])
+  @@map("assets")
+}
+
+model TicketAsset {
+  ticketId String @map("ticket_id")
+  assetId  String @map("asset_id")
+  asset    Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, assetId])
+  @@map("ticket_assets")
+}
+
+model EmailAccount {
+  id         String       @id @default(cuid())
+  orgId      String       @unique @map("org_id")
+  email      String
+  imapHost   String       @map("imap_host")
+  imapPort   Int          @default(993) @map("imap_port")
+  smtpHost   String       @map("smtp_host")
+  smtpPort   Int          @default(587) @map("smtp_port")
+  password   String
+  lastSyncAt DateTime?    @map("last_sync_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("email_accounts")
+}
+
+model WhatsAppConfig {
+  id           String       @id @default(cuid())
+  orgId        String       @unique @map("org_id")
+  accountSid   String       @map("account_sid")
+  authToken    String       @map("auth_token")
+  phoneNumber  String       @map("phone_number")
+  // Where "ORG_DEFAULT"-recipient Schedule/workflow notifications are sent —
+  // distinct from `phoneNumber` above, which is the org's own Twilio
+  // WhatsApp *sender* number customers message. Optional: falls back to
+  // `phoneNumber` if unset.
+  notifyNumber String?      @map("notify_number")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_configs")
+}
+
+model Conversation {
+  id            String       @id @default(cuid())
+  orgId         String       @map("org_id")
+  channel       String
+  contactName   String       @map("contact_name")
+  contactEmail  String?      @map("contact_email")
+  contactPhone  String?      @map("contact_phone")
+  subject       String?
+  status        String       @default("OPEN")
+  assignedTo    String?      @map("assigned_to")
+  externalId    String?      @map("external_id")
+  lastMessageAt DateTime?    @map("last_message_at")
+  unreadCount   Int          @default(0) @map("unread_count")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  assignee      User?        @relation(fields: [assignedTo], references: [id])
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  messages      Message[]
+
+  @@index([orgId])
+  @@index([orgId, channel])
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String       @map("conversation_id")
+  direction      String
+  fromAddress    String       @map("from_address")
+  toAddress      String       @map("to_address")
+  body           String
+  htmlBody       String?      @map("html_body")
+  externalId     String?      @map("external_id")
+  readAt         DateTime?    @map("read_at")
+  sentAt         DateTime     @default(now()) @map("sent_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+model Notification {
+  id         String       @id @default(cuid())
+  userId     String       @map("user_id")
+  title      String
+  body       String?
+  createdAt  DateTime     @default(now()) @map("created_at")
+  entityId   String?      @map("entity_id")
+  entityType String?      @map("entity_type")
+  orgId      String       @map("org_id")
+  readAt     DateTime?    @map("read_at")
+  type       String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId])
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model WorkflowRule {
+  id          String        @id @default(cuid())
+  orgId       String        @map("org_id")
+  name        String
+  description String?
+  trigger     String
+  conditions  Json
+  actions     Json
+  isActive    Boolean       @default(true) @map("is_active")
+  runCount    Int           @default(0) @map("run_count")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  logs        WorkflowLog[]
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("workflow_rules")
+}
+
+model WorkflowLog {
+  id         String       @id @default(cuid())
+  ruleId     String       @map("rule_id")
+  entityType String       @map("entity_type")
+  entityId   String       @map("entity_id")
+  result     String
+  detail     String?
+  createdAt  DateTime     @default(now()) @map("created_at")
+  rule       WorkflowRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@map("workflow_logs")
+}
+
+// A user-scheduled reminder/follow-up on a Deal or Ticket that fires a
+// WhatsApp notification when it's due. Polled by a lightweight in-process
+// scheduler (see server/src/utils/scheduler.ts) rather than a job queue —
+// this app runs as a single Node process, so a periodic DB poll is enough.
+model Schedule {
+  id            String       @id @default(cuid())
+  orgId         String       @map("org_id")
+  entityType    String       @map("entity_type") // TICKET | DEAL
+  entityId      String       @map("entity_id")
+  dueAt         DateTime     @map("due_at")
+  recurrence    String       @default("NONE") @map("recurrence") // NONE | DAILY | WEEKLY
+  message       String
+  recipientType String       @map("recipient_type") // CONTACT | ASSIGNEE | CUSTOM_NUMBER | ORG_DEFAULT
+  customNumber  String?      @map("custom_number")
+  status        String       @default("PENDING") @map("status") // PENDING | SENT | FAILED | CANCELLED
+  lastError     String?      @map("last_error")
+  createdBy     String       @map("created_by")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  sentAt        DateTime?    @map("sent_at")
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  creator       User         @relation(fields: [createdBy], references: [id])
+
+  @@index([orgId, entityType, entityId])
+  @@index([status, dueAt])
+  @@map("schedules")
+}
+
+model PortalUser {
+  id          String        @id @default(cuid())
+  orgId       String        @map("org_id")
+  name        String
+  email       String
+  isActive    Boolean       @default(true) @map("is_active")
+  lastLoginAt DateTime?     @map("last_login_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  tokens      PortalToken[]
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, email])
+  @@index([orgId])
+  @@map("portal_users")
+}
+
+model PortalToken {
+  id           String     @id @default(cuid())
+  portalUserId String     @map("portal_user_id")
+  tokenHash    String     @unique @map("token_hash")
+  expiresAt    DateTime   @map("expires_at")
+  usedAt       DateTime?  @map("used_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  portalUser   PortalUser @relation(fields: [portalUserId], references: [id], onDelete: Cascade)
+
+  @@map("portal_tokens")
+}
+
+model Subscription {
+  id                   String       @id @default(cuid())
+  orgId                String       @unique @map("org_id")
+  stripeCustomerId     String?      @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?      @unique @map("stripe_subscription_id")
+  plan                 String       @default("FREE")
+  status               String       @default("active")
+  currentPeriodEnd     DateTime?    @map("current_period_end")
+  cancelAtPeriodEnd    Boolean      @default(false) @map("cancel_at_period_end")
+  seats                Int          @default(5)
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+  org                  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model SlackConfig {
+  id                  String       @id @default(cuid())
+  orgId               String       @unique @map("org_id")
+  webhookUrl          String       @map("webhook_url")
+  channel             String       @default("#general")
+  notifyOnNewTicket   Boolean      @default(true) @map("notify_on_new_ticket")
+  notifyOnCritical    Boolean      @default(true) @map("notify_on_critical")
+  notifyOnSlaBreached Boolean      @default(true) @map("notify_on_sla_breached")
+  notifyOnDealWon     Boolean      @default(false) @map("notify_on_deal_won")
+  notifyOnNewLead     Boolean      @default(false) @map("notify_on_new_lead")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  org                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("slack_configs")
+}
+
+model CsatResponse {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  ticketId    String       @map("ticket_id")
+  rating      Int
+  comment     String?
+  submittedAt DateTime     @default(now()) @map("submitted_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([ticketId])
+  @@map("csat_responses")
+}
+
+model Campaign {
+  id         String       @id @default(cuid())
+  orgId      String       @map("org_id")
+  name       String
+  subject    String
+  body       String
+  targetType String       @default("LEADS") @map("target_type")
+  status     String       @default("DRAFT")
+  sentAt     DateTime?    @map("sent_at")
+  sentCount  Int          @default(0) @map("sent_count")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("campaigns")
+}
+
+model ChangeRequest {
+  id              String       @id @default(cuid())
+  orgId           String       @map("org_id")
+  title           String
+  description     String
+  type            String       @default("NORMAL")
+  priority        String       @default("MEDIUM")
+  status          String       @default("DRAFT")
+  requestedBy     String       @map("requested_by")
+  assignedTo      String?      @map("assigned_to")
+  plannedStart    DateTime?    @map("planned_start")
+  plannedEnd      DateTime?    @map("planned_end")
+  approvedBy      String?      @map("approved_by")
+  approvedAt      DateTime?    @map("approved_at")
+  rejectedBy      String?      @map("rejected_by")
+  rejectionReason String?      @map("rejection_reason")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  assignee        User?        @relation("ChangeAssignee", fields: [assignedTo], references: [id])
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  requester       User         @relation("ChangeRequester", fields: [requestedBy], references: [id])
+
+  @@index([orgId])
+  @@map("change_requests")
+}
+
+model ApiKey {
+  id         String       @id @default(cuid())
+  orgId      String       @map("org_id")
+  name       String
+  keyHash    String       @unique @map("key_hash")
+  keyPrefix  String       @map("key_prefix")
+  scopes     String[]     @default(["read"])
+  lastUsedAt DateTime?    @map("last_used_at")
+  expiresAt  DateTime?    @map("expires_at")
+  createdBy  String       @map("created_by")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  creator    User         @relation(fields: [createdBy], references: [id])
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("api_keys")
+}
+
+model CustomField {
+  id         String             @id @default(cuid())
+  orgId      String             @map("org_id")
+  entityType String             @map("entity_type")
+  label      String
+  fieldKey   String             @map("field_key")
+  fieldType  String             @map("field_type")
+  options    Json?
+  required   Boolean            @default(false)
+  position   Int                @default(0)
+  createdAt  DateTime           @default(now()) @map("created_at")
+  values     CustomFieldValue[]
+  org        Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, entityType, fieldKey])
+  @@index([orgId, entityType])
+  @@map("custom_fields")
+}
+
+model CustomFieldValue {
+  id            String      @id @default(cuid())
+  customFieldId String      @map("custom_field_id")
+  entityId      String      @map("entity_id")
+  value         String?
+  field         CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([customFieldId, entityId])
+  @@index([entityId])
+  @@map("custom_field_values")
+}
+
+// ─── Templates ────────────────────────────────────────────────────────────────
+
+// A named set of default field values (standard + custom) for one entity
+// type. Picking a template on the entity's "New" form pre-fills the form —
+// it does not create the record by itself.
+model RecordTemplate {
+  id                String       @id @default(cuid())
+  orgId             String       @map("org_id")
+  entityType        String       @map("entity_type") // TICKET | CONTACT | DEAL | LEAD
+  name              String
+  description       String?
+  fieldValues       Json         @map("field_values")       // default values for standard fields, e.g. { priority: "HIGH" }
+  customFieldValues Json?        @map("custom_field_values") // default values for custom fields, keyed by fieldKey
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, entityType, name])
+  @@index([orgId, entityType])
+  @@map("record_templates")
+}
+
+// Canned responses agents can insert while replying/commenting on a ticket.
+model ReplyTemplate {
+  id        String       @id @default(cuid())
+  orgId     String       @map("org_id")
+  name      String
+  body      String
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("reply_templates")
+}
+
+// Reusable subject/body pairs selectable when creating a Campaign.
+model EmailTemplate {
+  id        String       @id @default(cuid())
+  orgId     String       @map("org_id")
+  name      String
+  subject   String
+  body      String
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("email_templates")
+}
+
+// Predefined line-item bundles selectable when creating a Quote.
+model QuoteTemplate {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  name        String
+  description String?
+  lines       Json         // [{ description, quantity, unitPrice, discount? }]
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("quote_templates")
+}
+
+model OrgBranding {
+  id            String       @id @default(cuid())
+  orgId         String       @unique @map("org_id")
+  logoUrl       String?      @map("logo_url")
+  faviconUrl    String?      @map("favicon_url")
+  companyName   String?      @map("company_name")
+  primaryColor  String       @default("#2563eb") @map("primary_color")
+  supportEmail  String?      @map("support_email")
+  portalTitle   String       @default("Support Portal") @map("portal_title")
+  portalWelcome String?      @map("portal_welcome")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_branding")
+}
+
+model TeamsConfig {
+  id                  String       @id @default(cuid())
+  orgId               String       @unique @map("org_id")
+  webhookUrl          String       @map("webhook_url")
+  notifyOnNewTicket   Boolean      @default(true) @map("notify_on_new_ticket")
+  notifyOnCritical    Boolean      @default(true) @map("notify_on_critical")
+  notifyOnSlaBreached Boolean      @default(true) @map("notify_on_sla_breached")
+  notifyOnDealWon     Boolean      @default(false) @map("notify_on_deal_won")
+  notifyOnNewLead     Boolean      @default(false) @map("notify_on_new_lead")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  org                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("teams_configs")
+}
+
+model TimeEntry {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  ticketId    String       @map("ticket_id")
+  userId      String       @map("user_id")
+  description String?
+  minutes     Int
+  loggedAt    DateTime     @default(now()) @map("logged_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id])
+
+  @@index([orgId])
+  @@index([ticketId])
+  @@map("time_entries")
+}
+
+model Quote {
+  id         String       @id @default(cuid())
+  orgId      String       @map("org_id")
+  dealId     String?      @map("deal_id")
+  title      String
+  status     String       @default("DRAFT")
+  notes      String?
+  validUntil DateTime?    @map("valid_until")
+  createdBy  String       @map("created_by")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  lines      QuoteLine[]
+  creator    User         @relation("QuoteCreator", fields: [createdBy], references: [id])
+  deal       Deal?        @relation(fields: [dealId], references: [id])
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("quotes")
+}
+
+model QuoteLine {
+  id          String  @id @default(cuid())
+  quoteId     String  @map("quote_id")
+  description String
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  discount    Decimal @default(0) @db.Decimal(5, 2)
+  quote       Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@map("quote_lines")
+}
+
+model TOTPSecret {
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  secret      String
+  enabled     Boolean  @default(false)
+  backupCodes String[] @map("backup_codes")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("totp_secrets")
+}
+
+model AICustomRule {
+  id           String       @id @default(cuid())
+  orgId        String
+  name         String
+  description  String?
+  trigger      String
+  action       String
+  customPrompt String?
+  outputField  String?
+  isActive     Boolean      @default(true)
+  runCount     Int          @default(0)
+  lastRunAt    DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  CRM_MANAGER
+  SALES_REP
+  IT_MANAGER
+  IT_AGENT
+  EMPLOYEE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  UNQUALIFIED
+  CONVERTED
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  MEETING
+  TASK
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SlaBreachType {
+  RESPONSE
+  RESOLUTION
+}
+
+enum EntityType {
+  DEAL
+  TICKET
+  CONTACT
+}
+
+enum NotificationType {
+  ASSIGNMENT
+  COMMENT
+  STATUS_CHANGE
+  SLA_WARNING
+  MENTION
+}
+
+// ─── AI Studio ────────────────────────────────────────────────────────────────
+
+model BusinessContext {
+  id           String       @id @default(cuid())
+  orgId        String       @unique @map("org_id")
+  industry     String?
+  companyDesc  String?      @map("company_desc")
+  terminology  Json?        // Record<string, string> — custom term → definition
+  customSystem String?      @map("custom_system") // extra context injected into AI calls
+  tone         String       @default("professional") // professional | casual | technical
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("business_contexts")
+}
+
+model CustomAIFunction {
+  id           String       @id @default(cuid())
+  orgId        String       @map("org_id")
+  name         String
+  description  String?
+  systemPrompt String       @map("system_prompt")
+  inputSchema  Json         @map("input_schema") // [{name, type, label, required}]
+  outputType   String       @default("text") @map("output_type") // text | json | number
+  isActive     Boolean      @default(true) @map("is_active")
+  runCount     Int          @default(0) @map("run_count")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("custom_ai_functions")
+}
+
+model CustomScript {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  name        String
+  description String?
+  entityType  String       @map("entity_type") // ticket | contact | deal | lead | asset | global
+  trigger     String       // onLoad | onChange | onSubmit | onValidate | onFieldChange
+  fieldTarget String?      @map("field_target") // specific field name, null = entity-level
+  script      String       // sandboxed JS — runs in ScriptEngine
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, entityType, trigger])
+  @@map("custom_scripts")
+}

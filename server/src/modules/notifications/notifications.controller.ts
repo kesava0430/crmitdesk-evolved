@@ -1,0 +1,93 @@
+import { Response, NextFunction } from 'express';
+import { prisma } from '../../utils/prisma';
+import { AuthRequest } from '../../middleware/authenticate';
+import { AppError } from '../../middleware/errorHandler';
+
+// ─── List notifications for the current user ──────────────────────────────────
+
+export async function listNotifications(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.id;
+    const limit = Math.min(50, parseInt(req.query.limit as string) || 30);
+
+    const notifications = await prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    res.json({ data: notifications, total: notifications.length });
+  } catch (err) { next(err); }
+}
+
+// ─── Mark one notification as read ───────────────────────────────────────────
+
+export async function markRead(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.id;
+    const { id } = req.params;
+
+    const notif = await prisma.notification.findFirst({ where: { id, userId } });
+    if (!notif) throw new AppError(404, 'Notification not found');
+
+    const updated = await prisma.notification.update({
+      where: { id },
+      data: { readAt: new Date() },
+    });
+
+    res.json(updated);
+  } catch (err) { next(err); }
+}
+
+// ─── Mark all as read ─────────────────────────────────────────────────────────
+
+export async function markAllRead(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.id;
+
+    await prisma.notification.updateMany({
+      where: { userId, readAt: null },
+      data: { readAt: new Date() },
+    });
+
+    res.json({ message: 'All notifications marked as read' });
+  } catch (err) { next(err); }
+}
+
+// ─── Helper: create a notification (called internally by other controllers) ───
+
+export async function createNotification(params: {
+  orgId: string;
+  userId: string;
+  type: string;
+  title: string;
+  body?: string;
+  entityType?: string;
+  entityId?: string;
+}) {
+  return prisma.notification.create({ data: params });
+}
+
+// ─── Helper: notify all admins/managers in an org ────────────────────────────
+
+export async function notifyOrgAdmins(params: {
+  orgId: string;
+  type: string;
+  title: string;
+  body?: string;
+  entityType?: string;
+  entityId?: string;
+}) {
+  const { orgId, ...rest } = params;
+  const admins = await prisma.user.findMany({
+    where: { orgId, role: { in: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] }, isActive: true },
+    select: { id: true },
+  });
+
+  if (!admins.length) return;
+
+  await prisma.notification.createMany({
+    data: admins.map(a => ({ orgId, userId: a.id, ...rest })),
+    skipDuplicates: true,
+  });
+}

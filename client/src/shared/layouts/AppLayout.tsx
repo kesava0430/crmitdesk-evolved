@@ -1,0 +1,356 @@
+import { useState, useEffect } from "react";
+import { Outlet, NavLink, Link, useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import {
+  LayoutDashboard, Users, Target, TrendingUp,
+  Ticket, FolderTree, BookOpen, LogOut, Building2,
+  BarChart2, UserCog, Inbox, Zap, Globe, CreditCard, Slack, Monitor,
+  Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
+  FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate,
+} from "lucide-react";
+import { AISmartSearch } from "../components/AISmartSearch";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { NotificationBell } from "../components/NotificationBell";
+import { AiCommandBar } from "../components/AiCommandBar";
+import { ThemePicker } from "../components/ThemePicker";
+
+// Nav sections
+
+type NavItem = {
+  to: string;
+  label: string;
+  icon: React.ElementType;
+  roles?: string[];
+};
+
+type NavSection = {
+  label: string | null;
+  roles?: string[];
+  items: NavItem[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: null,
+    items: [
+      { to: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard },
+      { to: "/inbox",        label: "Inbox",       icon: Inbox },
+      { to: "/workflows",    label: "Automation",  icon: Zap,   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/portal-users", label: "Portal",      icon: Globe, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
+      { to: "/ai-builder",   label: "AI Builder",  icon: Wand2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/ai-studio",    label: "AI Studio",   icon: Brain, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+    ],
+  },
+  {
+    label: "CRM",
+    roles: ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP'],
+    items: [
+      { to: "/crm/contacts", label: "Contacts",  icon: Users },
+      { to: "/crm/leads",    label: "Leads",     icon: Target },
+      { to: "/crm/deals",    label: "Pipeline",  icon: TrendingUp },
+      { to: "/quotes",       label: "Quotes",    icon: FileText },
+      { to: "/campaigns",    label: "Campaigns", icon: Mail },
+    ],
+  },
+  {
+    label: "IT Desk",
+    items: [
+      { to: "/itdesk/tickets",    label: "Tickets",        icon: Ticket },
+      { to: "/itdesk/categories", label: "Categories",     icon: FolderTree },
+      { to: "/itdesk/articles",   label: "Knowledge Base", icon: BookOpen },
+      { to: "/itdesk/assets",     label: "Assets",         icon: Monitor,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'] },
+      { to: "/change-requests",   label: "Changes",        icon: GitBranch,  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'] },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { to: "/admin/users",   label: "Users",         icon: UserCog,  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/analytics",     label: "Analytics",     icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/reports",       label: "Reports",       icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/import",        label: "Import CSV",    icon: Upload,    roles: ['SUPER_ADMIN', 'CRM_MANAGER'] },
+      { to: "/custom-fields", label: "Custom Fields", icon: Settings2 },
+      { to: "/templates",     label: "Templates",     icon: LayoutTemplate },
+      { to: "/branding",      label: "Branding",      icon: Palette },
+      { to: "/audit-logs",    label: "Audit Log",     icon: Shield,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/api-keys",      label: "API Keys",      icon: Key,       roles: ['SUPER_ADMIN'] },
+    ],
+  },
+  {
+    label: "Integrations",
+    items: [
+      { to: "/slack",        label: "Slack",        icon: Slack,        roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
+      { to: "/teams",        label: "Teams",        icon: MessageSquare, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
+      { to: "/billing",      label: "Billing",      icon: CreditCard,   roles: ['SUPER_ADMIN'] },
+      { to: "/security/2fa", label: "2FA Security", icon: Shield },
+    ],
+  },
+];
+
+// Route -> page title map (for topbar)
+const PAGE_TITLES: Record<string, string> = {
+  "/dashboard":         "Dashboard",
+  "/inbox":             "Inbox",
+  "/workflows":         "Automation",
+  "/portal-users":      "Customer Portal",
+  "/crm/contacts":      "Contacts",
+  "/crm/leads":         "Leads",
+  "/crm/deals":         "Pipeline",
+  "/quotes":            "Quotes",
+  "/campaigns":         "Campaigns",
+  "/itdesk/tickets":    "Tickets",
+  "/itdesk/categories": "Categories",
+  "/itdesk/articles":   "Knowledge Base",
+  "/itdesk/assets":     "Assets",
+  "/change-requests":   "Change Requests",
+  "/admin/users":       "Users",
+  "/analytics":         "Analytics",
+  "/reports":           "Reports",
+  "/import":            "Bulk Import",
+  "/custom-fields":     "Custom Fields",
+  "/templates":         "Templates",
+  "/branding":          "Branding",
+  "/audit-logs":        "Audit Log",
+  "/api-keys":          "API Keys",
+  "/slack":             "Slack Integration",
+  "/teams":             "Microsoft Teams",
+  "/billing":           "Billing",
+  "/security/2fa":      "2FA Security",
+  "/ai-builder":        "AI Feature Builder",
+  "/ai-studio":         "AI Studio",
+  "/profile":           "My Profile",
+};
+
+// Sidebar nav item
+
+function SideNavItem({ to, label, icon: Icon, onClick }: {
+  to: string; label: string; icon: React.ElementType; onClick?: () => void;
+}) {
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      className={({ isActive }) =>
+        `group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
+          isActive
+            ? "bg-indigo-600/20 dark:bg-indigo-900/30 text-indigo-300 dark:text-indigo-400 font-semibold"
+            : "text-slate-400 hover:text-slate-200 hover:bg-white/5 dark:hover:bg-gray-800"
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <Icon size={15} className={isActive ? "text-white" : "text-slate-500 group-hover:text-slate-300"} />
+          <span className="truncate flex-1">{label}</span>
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+// Sidebar content
+
+function SidebarContent({ user, onLogout, onNavClick }: {
+  user: any; onLogout: () => void; onNavClick?: () => void;
+}) {
+  const userRole: string | undefined = user?.role;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Logo */}
+      <div className="px-4 py-5 border-b border-slate-800">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-lg">
+            <Building2 size={16} className="text-white" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-white font-semibold text-sm leading-tight truncate">CRM &amp; IT Desk</p>
+            {user?.org?.name && (
+              <p className="text-slate-400 text-xs truncate mt-0.5">{user.org.name}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-3 overflow-y-auto sidebar-scroll space-y-0.5">
+        {NAV_SECTIONS.map((section) => {
+          // Hide section if user's role is not allowed
+          if (section.roles && userRole && !section.roles.includes(userRole)) return null;
+
+          // Filter items by role
+          const visibleItems = section.items.filter(
+            item => !item.roles || !userRole || item.roles.includes(userRole)
+          );
+          if (visibleItems.length === 0) return null;
+
+          return (
+            <div key={section.label ?? "__top"} className={section.label ? "mt-5" : ""}>
+              {section.label && (
+                <p className="px-3 mb-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                  {section.label}
+                </p>
+              )}
+              {visibleItems.map(item => (
+                <SideNavItem key={item.to} to={item.to} label={item.label} icon={item.icon} onClick={onNavClick} />
+              ))}
+            </div>
+          );
+        })}
+      </nav>
+
+      {/* User footer */}
+      <div className="border-t border-slate-800 p-3">
+        <Link
+          to="/profile"
+          className="flex items-center gap-3 px-2 py-2 mb-1 rounded-lg hover:bg-white/5 transition-colors group"
+          title="My Profile"
+        >
+          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-brand-400 transition-all">
+            {user?.name?.[0]?.toUpperCase() ?? "?"}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-xs font-medium truncate">{user?.name}</p>
+            <p className="text-slate-500 text-[11px] truncate group-hover:text-slate-400">{user?.role ?? 'Edit profile'}</p>
+          </div>
+        </Link>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onLogout}
+            className="flex-1 flex items-center gap-2 px-3 py-2 text-[13px] text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+          >
+            <LogOut size={14} /> Sign out
+          </button>
+          <ThemePicker />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Main Layout
+
+export function AppLayout() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [aiBarOpen, setAiBarOpen] = useState(false);
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Close sidebar on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  // Cmd+K / Ctrl+K to toggle AI command bar
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setAiBarOpen(prev => !prev);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  function handleLogout() {
+    logout();
+    navigate("/login");
+  }
+
+  const pageTitle = PAGE_TITLES[location.pathname] ?? "CRM & IT Desk";
+
+  return (
+    <div className="flex h-screen bg-slate-50 overflow-hidden">
+
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden animate-fade-in"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-slate-950 shadow-2xl
+          transition-transform duration-200 ease-out
+          lg:relative lg:translate-x-0 lg:shadow-none lg:z-auto lg:pointer-events-auto
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"}
+        `}
+      >
+        <SidebarContent user={user} onLogout={handleLogout} onNavClick={() => setSidebarOpen(false)} />
+      </aside>
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* Top bar */}
+        <header className="flex-shrink-0 flex items-center gap-3 px-4 h-14 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-700/50 shadow-topbar z-30">
+          {/* Hamburger — mobile only */}
+          <button
+            className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu size={20} />
+          </button>
+
+          {/* Page title — use <p> not <h1> to avoid duplicate heading with PageHeader */}
+          <p className="text-sm font-semibold text-gray-800 hidden sm:block truncate">
+            {pageTitle}
+          </p>
+
+          <div className="flex-1" />
+
+          {/* Search — desktop */}
+          <div className="hidden md:block">
+            <AISmartSearch className="w-full max-w-sm" />
+          </div>
+
+          <NotificationBell />
+
+          {/* AI Command Bar button */}
+          <button
+            data-testid="ai-command-btn"
+            onClick={() => setAiBarOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-lg transition-colors"
+            title="AI Command (Ctrl+K)"
+          >
+            <Sparkles size={13} /> AI
+          </button>
+
+          {/* Avatar — mobile */}
+          <div className="lg:hidden w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            {user?.name?.[0]?.toUpperCase() ?? "?"}
+          </div>
+        </header>
+
+        {/* Mobile search bar */}
+        <div className="md:hidden px-4 py-2 bg-white border-b border-gray-100">
+          <AISmartSearch className="w-full" />
+        </div>
+
+        {/* Page content */}
+        <main className="flex-1 overflow-y-auto">
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </main>
+      </div>
+
+      <AiCommandBar open={aiBarOpen} onClose={() => setAiBarOpen(false)} />
+    </div>
+  );
+}

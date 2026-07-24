@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import { authenticate, requireRole } from '../../../middleware/authenticate';
+import * as c from './usersAdmin.controller';
+
+export const usersAdminRouter = Router();
+usersAdminRouter.use(authenticate, requireRole('SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'));
+usersAdminRouter.get('/', c.list);
+usersAdminRouter.post('/', c.create);
+usersAdminRouter.post('/invite', c.invite);
+usersAdminRouter.patch('/:id', c.update);
+usersAdminRouter.delete('/:id', c.deactivate);
