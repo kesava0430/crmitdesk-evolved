@@ -50,6 +50,8 @@ export function AcceptInvitePage() {
     }
   }
 
+  const inp = 'ui-input';
+  const lbl = 'form-label';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand-50 to-blue-100 flex items-center justify-center p-4">
