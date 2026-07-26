@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login, logout, ADMIN } from '../helpers/auth';
+import { getPendingOrgSignupToken } from '../helpers/db';
 
 // Unique org/user data for isolation
 const ORG_A = {
@@ -33,32 +34,42 @@ test.describe('Registration', () => {
     await expect(page.getByPlaceholder(/jane smith/i)).toBeVisible();
   });
 
-  test('registers a new org + admin and lands on dashboard', async ({ page }) => {
+  // Registration no longer creates the org/user (or a session) immediately —
+  // it holds a pending OrgSignupRequest and emails the admin a review link.
+  // The real link only ever reaches an inbox, so tests "click" it by pulling
+  // the token straight from the DB and hitting the approve endpoint directly,
+  // then logging in for real once the account actually exists.
+  async function submitAndApprove(page: import('@playwright/test').Page, request: import('@playwright/test').APIRequestContext, org: typeof ORG_A) {
     await page.goto('/login');
     await page.getByRole('button', { name: /create account/i }).click();
 
-    await page.getByPlaceholder(/acme inc/i).fill(ORG_A.orgName);
-    await page.getByPlaceholder(/jane smith/i).fill(ORG_A.name);
-    await page.getByPlaceholder(/jane@acme/i).fill(ORG_A.email);
+    await page.getByPlaceholder(/acme inc/i).fill(org.orgName);
+    await page.getByPlaceholder(/jane smith/i).fill(org.name);
+    await page.getByPlaceholder(/jane@acme/i).fill(org.email);
     // Password field — there are two password placeholders; fill the first (not confirm)
-    await page.getByPlaceholder(/min.*8.*char/i).first().fill(ORG_A.password);
+    await page.getByPlaceholder(/min.*8.*char/i).first().fill(org.password);
     await page.getByRole('button', { name: /create account/i }).last().click();
 
+    await expect(page.getByText(/submitted for approval/i)).toBeVisible({ timeout: 8_000 });
+
+    const token = await getPendingOrgSignupToken(org.email);
+    const res = await request.post('/api/auth/approve-org-signup', { data: { token, action: 'approve' } });
+    expect(res.ok()).toBeTruthy();
+
+    await page.goto('/login');
+    await page.getByPlaceholder(/you@company/i).fill(org.email);
+    await page.getByPlaceholder(/password/i).fill(org.password);
+    await page.getByRole('button', { name: /^sign in$/i }).last().click();
     await page.waitForURL(/\/dashboard/, { timeout: 10_000 });
+  }
+
+  test('shows pending-approval message after submitting, then reaches dashboard once approved', async ({ page, request }) => {
+    await submitAndApprove(page, request, ORG_A);
     await expect(page).toHaveURL(/\/dashboard/);
   });
 
-  test('sidebar shows org name after registration', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByRole('button', { name: /create account/i }).click();
-
-    await page.getByPlaceholder(/acme inc/i).fill(ORG_B.orgName);
-    await page.getByPlaceholder(/jane smith/i).fill(ORG_B.name);
-    await page.getByPlaceholder(/jane@acme/i).fill(ORG_B.email);
-    await page.getByPlaceholder(/min.*8.*char/i).first().fill(ORG_B.password);
-    await page.getByRole('button', { name: /create account/i }).last().click();
-
-    await page.waitForURL(/\/dashboard/, { timeout: 10_000 });
+  test('sidebar shows org name after approval + login', async ({ page, request }) => {
+    await submitAndApprove(page, request, ORG_B);
     await expect(page.getByText(ORG_B.orgName)).toBeVisible();
   });
 

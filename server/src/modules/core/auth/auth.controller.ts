@@ -9,6 +9,7 @@ import { AppError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { logAction } from '../../../utils/auditLog';
 import { verifyTotpLogin } from '../../totp/totp.controller';
+import { sendMail, emailTemplates } from '../../../utils/mailer';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -16,6 +17,17 @@ const RegisterSchema = z.object({
   password: z.string().min(8),
   organizationName: z.string().min(2),
 });
+
+const ApproveOrgSignupSchema = z.object({
+  token: z.string(),
+  action: z.enum(['approve', 'reject']).default('approve'),
+});
+
+// Every new-org signup is emailed here for review before anything is created —
+// see register()/approveOrgSignup() below. Override via env if the platform
+// owner's inbox changes; defaults to the account this app was built for.
+const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'kesava.harinath30@gmail.com';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -82,7 +94,12 @@ function userPayload(user: any, org: any) {
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 
-/** POST /auth/register — creates an org + first SUPER_ADMIN user */
+/**
+ * POST /auth/register — no org/user is created here. The submission is held
+ * as a pending OrgSignupRequest and emailed to ADMIN_NOTIFY_EMAIL for review;
+ * the org + first SUPER_ADMIN user are only created once that request is
+ * approved via approveOrgSignup() below (email link -> /approve-org page).
+ */
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
     const data = RegisterSchema.parse(req.body);
@@ -90,25 +107,114 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new AppError(409, 'Email already registered');
 
-    const slug = await uniqueSlug(slugify(data.organizationName));
     const passwordHash = await bcrypt.hash(data.password, 12);
+    const token = crypto.randomBytes(32).toString('hex');
 
+    // Re-submitting while still pending (e.g. the admin hasn't gotten to the
+    // first email, or the requester mistyped something) refreshes the same
+    // request in place — new token, latest details, one more email — rather
+    // than piling up duplicate requests or hard-rejecting a good-faith retry.
+    const existingRequest = await prisma.orgSignupRequest.findFirst({
+      where: { email: data.email, status: 'PENDING' },
+    });
+    if (existingRequest) {
+      await prisma.orgSignupRequest.update({
+        where: { id: existingRequest.id },
+        data: { organizationName: data.organizationName, name: data.name, passwordHash, token },
+      });
+    } else {
+      await prisma.orgSignupRequest.create({
+        data: {
+          organizationName: data.organizationName,
+          name: data.name,
+          email: data.email,
+          passwordHash,
+          token,
+        },
+      });
+    }
+
+    const approveLink = `${FRONTEND_URL}/approve-org?token=${token}`;
+    await sendMail(emailTemplates.orgSignupRequest(ADMIN_NOTIFY_EMAIL, {
+      organizationName: data.organizationName, name: data.name, email: data.email,
+    }, approveLink));
+
+    res.status(202).json({
+      pending: true,
+      message: "Your request has been submitted for approval. You'll get an email once it's approved.",
+    });
+  } catch (err) { next(err); }
+}
+
+/** GET /auth/org-signup-info?token=... — validate token before the approval page renders */
+export async function orgSignupInfo(req: Request, res: Response, next: NextFunction) {
+  try {
+    const token = req.query.token as string;
+    if (!token) throw new AppError(400, 'Token required');
+    const request = await prisma.orgSignupRequest.findUnique({ where: { token } });
+    if (!request) throw new AppError(404, 'Signup request not found');
+    res.json({
+      organizationName: request.organizationName,
+      name: request.name,
+      email: request.email,
+      status: request.status,
+      createdAt: request.createdAt,
+    });
+  } catch (err) { next(err); }
+}
+
+/**
+ * POST /auth/approve-org-signup — the only place that actually creates the
+ * org + SUPER_ADMIN user for a signup request. Secured by the random token
+ * (mirrors accept-invite/portal-verify), not a login, since the person
+ * clicking it is reviewing an email, not authenticated in the app.
+ */
+export async function approveOrgSignup(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token, action } = ApproveOrgSignupSchema.parse(req.body);
+
+    const request = await prisma.orgSignupRequest.findUnique({ where: { token } });
+    if (!request) throw new AppError(404, 'Signup request not found');
+    if (request.status !== 'PENDING') throw new AppError(400, `Request already ${request.status.toLowerCase()}`);
+
+    if (action === 'reject') {
+      await prisma.orgSignupRequest.update({
+        where: { id: request.id },
+        data: { status: 'REJECTED', decidedAt: new Date() },
+      });
+      return res.json({ status: 'REJECTED' });
+    }
+
+    // Re-check — email could've been registered by another route since the request was submitted
+    const existing = await prisma.user.findUnique({ where: { email: request.email } });
+    if (existing) {
+      await prisma.orgSignupRequest.update({
+        where: { id: request.id },
+        data: { status: 'REJECTED', decidedAt: new Date() },
+      });
+      throw new AppError(409, 'Email was already registered elsewhere — request auto-rejected');
+    }
+
+    const slug = await uniqueSlug(slugify(request.organizationName));
     const { user, org } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const org = await tx.organization.create({
-        data: { name: data.organizationName, slug },
+        data: { name: request.organizationName, slug },
       });
       const user = await tx.user.create({
-        data: { name: data.name, email: data.email, passwordHash, role: 'SUPER_ADMIN', orgId: org.id },
+        data: { name: request.name, email: request.email, passwordHash: request.passwordHash, role: 'SUPER_ADMIN', orgId: org.id },
         select: { id: true, name: true, email: true, role: true, orgId: true, avatarUrl: true },
       });
       return { user, org };
     });
 
-    const rawRefresh = generateRefreshToken();
-    await storeRefreshToken(user.id, rawRefresh);
+    await prisma.orgSignupRequest.update({
+      where: { id: request.id },
+      data: { status: 'APPROVED', decidedAt: new Date() },
+    });
 
-    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId: org.id });
-    res.status(201).json({ user: userPayload(user, org), access, refresh: rawRefresh });
+    await sendMail(emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`));
+
+    res.json({ status: 'APPROVED', org: { id: org.id, name: org.name, slug: org.slug } });
   } catch (err) { next(err); }
 }
 

@@ -58,6 +58,26 @@ model Organization {
   @@map("organizations")
 }
 
+// A "create new org" signup submitted via the public register form. Nothing
+// in Organization/User is written until an admin approves it (see
+// auth.controller.ts register()/approveOrgSignup()) — this table is the only
+// trace of the request until then, holding everything needed to create the
+// org + first SUPER_ADMIN user later without asking the requester to log in
+// again or re-enter their password.
+model OrgSignupRequest {
+  id               String    @id @default(cuid())
+  organizationName String    @map("organization_name")
+  name             String
+  email            String
+  passwordHash     String    @map("password_hash")
+  token            String    @unique
+  status           String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  createdAt        DateTime  @default(now()) @map("created_at")
+  decidedAt        DateTime? @map("decided_at")
+
+  @@map("org_signup_requests")
+}
+
 model RefreshToken {
   id        String   @id @default(cuid())
   userId    String   @map("user_id")

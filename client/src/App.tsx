@@ -6,6 +6,7 @@ import { AppLayout } from './shared/layouts/AppLayout';
 // Eagerly loaded — shown before auth or as portal (must be small/fast)
 import { LoginPage } from './pages/LoginPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
+import { OrgApprovalPage } from './pages/OrgApprovalPage';
 import { CustomerPortal } from './modules/portal/CustomerPortal';
 
 // Page skeleton fallback for Suspense
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="/portal/verify" element={<CustomerPortal />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
+        <Route path="/approve-org" element={<OrgApprovalPage />} />
         <Route path="/" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><AppLayout /></Suspense></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />

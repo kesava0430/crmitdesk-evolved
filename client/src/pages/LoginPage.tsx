@@ -67,6 +67,7 @@ export function LoginPage() {
   const [regForm, setRegForm] = useState({ name: '', email: '', password: '', organizationName: '' });
   const [needsTotp, setNeedsTotp] = useState(false);
   const [totpToken, setTotpToken] = useState('');
+  const [pendingMessage, setPendingMessage] = useState('');
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -94,14 +95,15 @@ export function LoginPage() {
     if (regForm.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
     setLoading(true); setError('');
     try {
-      await register(regForm.email, regForm.password, regForm.name, regForm.organizationName);
-      navigate('/dashboard');
+      const { message } = await register(regForm.email, regForm.password, regForm.name, regForm.organizationName);
+      setPendingMessage(message);
+      setRegForm({ name: '', email: '', password: '', organizationName: '' });
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Registration failed. Email may already be in use.');
+      setError(err?.response?.data?.message || err?.response?.data?.error || 'Registration failed. Email may already be in use.');
     } finally { setLoading(false); }
   }
 
-  const switchTab = (t: Tab) => { setTab(t); setError(''); };
+  const switchTab = (t: Tab) => { setTab(t); setError(''); setPendingMessage(''); };
 
   return (
     <div className="min-h-screen flex">
@@ -254,6 +256,20 @@ export function LoginPage() {
                 </p>
               </form>
               )
+            ) : pendingMessage ? (
+              <div className="text-center py-4">
+                <div className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center mx-auto mb-4 text-2xl">
+                  ✓
+                </div>
+                <p className="text-sm text-gray-700">{pendingMessage}</p>
+                <button
+                  type="button"
+                  onClick={() => switchTab('login')}
+                  className="mt-5 text-sm text-brand-600 hover:underline font-medium"
+                >
+                  Back to sign in
+                </button>
+              </div>
             ) : (
               <form onSubmit={handleRegister} className="space-y-4">
                 <InputField

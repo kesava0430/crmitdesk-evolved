@@ -126,6 +126,33 @@ export const emailTemplates = {
     };
   },
 
+  orgSignupRequest: (adminEmail: string, req: { organizationName: string; name: string; email: string }, approveLink: string) => ({
+    to: adminEmail,
+    subject: `New org signup request: ${req.organizationName}`,
+    html: base(`
+      <h2 style="color:#4f46e5">New Organization Signup Request</h2>
+      <p>Someone just requested a new workspace:</p>
+      ${highlight(`
+        <strong>${req.organizationName}</strong><br/>
+        ${req.name} &lt;${req.email}&gt;
+      `)}
+      <p>Nothing has been created yet — review and approve (or reject) below.</p>
+      ${btn(approveLink, 'Review request')}
+      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${approveLink}</code></p>
+    `),
+  }),
+
+  orgSignupApproved: (requesterEmail: string, requesterName: string, orgName: string, loginLink: string) => ({
+    to: requesterEmail,
+    subject: `You're approved — ${orgName} is ready`,
+    html: base(`
+      <h2 style="color:#16a34a">You're approved!</h2>
+      <p>Hi <strong>${requesterName}</strong>, your workspace <strong>${orgName}</strong> has been approved.</p>
+      <p>You can log in now with the email and password you signed up with.</p>
+      ${btn(loginLink, 'Log in', '#16a34a')}
+    `, '#16a34a'),
+  }),
+
   dealStageChanged: (deal: { title: string; stage: string }, assigneeName: string, assigneeEmail: string) => ({
     to: assigneeEmail,
     subject: `[CRM] Deal moved to ${deal.stage}: ${deal.title}`,

@@ -102,6 +102,7 @@ app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/accept-invite', authLimiter);
+app.use('/api/auth/approve-org-signup', authLimiter);
 app.use('/api/admin/users/invite', authLimiter);
 
 // ─── Health check ─────────────────────────────────────────────────────────────

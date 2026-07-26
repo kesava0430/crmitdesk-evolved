@@ -28,7 +28,10 @@ interface AuthContextType extends AuthState {
    *  has TOTP enabled and no valid code was supplied — call again with
    *  `totpToken` set once the user enters one. */
   login: (email: string, password: string, totpToken?: string) => Promise<{ requires2FA?: boolean }>;
-  register: (email: string, password: string, name: string, organizationName: string) => Promise<void>;
+  /** Submits a new-org signup request for admin approval — does not log the
+   *  caller in. Resolves with the message to show once approved (an org
+   *  isn't created, and no session starts, until the request is approved). */
+  register: (email: string, password: string, name: string, organizationName: string) => Promise<{ message: string }>;
   logout: () => void;
   updateProfile: (data: Partial<Pick<User, 'name' | 'email' | 'department' | 'avatarUrl'>>) => Promise<void>;
   isAuthenticated: boolean;
@@ -57,12 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (email: string, password: string, name: string, organizationName: string) => {
     const res = await api.post('/auth/register', { email, password, name, organizationName });
-    const { user, access, refresh } = res.data;
-    const normalized = { ...user, org: user.org ?? user.organization ?? null };
-    localStorage.setItem('accessToken', access);
-    localStorage.setItem('refreshToken', refresh);
-    localStorage.setItem('user', JSON.stringify(normalized));
-    setState({ user: normalized, accessToken: access });
+    // No org/user exists yet and no session starts — the request just sits
+    // pending until an admin approves it via the emailed /approve-org link.
+    return { message: res.data.message as string };
   }, []);
 
   const logout = useCallback(() => {
