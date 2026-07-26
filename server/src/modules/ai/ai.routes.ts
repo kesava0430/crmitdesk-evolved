@@ -56,6 +56,10 @@ aiRouter.post('/rules/:id/run',  requireRole(...ALL_STAFF),  ai.runAIRuleHandler
 // Business Context
 aiRouter.get('/studio/context',              requireRole(...MANAGERS),  studio.getBusinessContext);
 aiRouter.put('/studio/context',              requireRole(...MANAGERS),  studio.upsertBusinessContext);
+// Narrower than /studio/context — ALL_STAFF, not just MANAGERS, since
+// relabeled terminology needs to render for every staff member who sees
+// that entity, not just whoever configured it.
+aiRouter.get('/studio/labels',               requireRole(...ALL_STAFF), studio.getLabelOverrides);
 
 // Custom AI Functions
 aiRouter.get('/studio/functions',            requireRole(...MANAGERS),  studio.listFunctions);
@@ -70,3 +74,9 @@ aiRouter.post('/studio/scripts',             requireRole(...MANAGERS),  studio.c
 aiRouter.patch('/studio/scripts/:id',        requireRole(...MANAGERS),  studio.updateScript);
 aiRouter.delete('/studio/scripts/:id',       requireRole(...MANAGERS),  studio.deleteScript);
 aiRouter.post('/studio/scripts/validate',    requireRole(...MANAGERS),  studio.validateScript);
+
+// AI Setup Generator — propose (plan) then apply (confirm), same pattern as
+// AI Actions above. generateSetup never writes; applySetup is the only one
+// that persists label overrides / creates workflow rules.
+aiRouter.post('/studio/generate-setup',      requireRole(...MANAGERS),  studio.generateSetup);
+aiRouter.post('/studio/apply-setup',         requireRole(...MANAGERS),  studio.applySetup);

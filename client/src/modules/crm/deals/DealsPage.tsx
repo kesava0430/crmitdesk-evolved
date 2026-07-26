@@ -7,6 +7,7 @@ import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } f
 import { PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
+import { useLabels } from '../../../hooks/useLabels';
 
 const STAGE_COLORS: Record<string, string> = {
   Prospecting: 'bg-gray-100 border-gray-300',
@@ -23,6 +24,13 @@ function DealForm({ initial, contacts, accounts, users, stages, onSubmit, loadin
   const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '' });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
+  const { entityLabel, fieldLabel } = useLabels();
+  const singular = entityLabel('deal', 'singular', 'Deal');
+  // "Deal Title"/"Value ($)" aria-labels fall back to their exact original
+  // text when unset, so the e2e suite's getByLabel(/deal title/i) etc. keeps
+  // matching for the seeded test org (which never sets labelOverrides).
+  const titleLabel = fieldLabel('deal', 'title', 'Deal Title');
+  const valueLabel = fieldLabel('deal', 'value', 'Value ($)');
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, value: Number(form.value), probability: Number(form.probability), __customFieldValues: customValues }); }} className="space-y-3">
       <RecordTemplatePicker
@@ -33,24 +41,24 @@ function DealForm({ initial, contacts, accounts, users, stages, onSubmit, loadin
         }}
       />
       <div className="form-section">
-        <p className="form-section-title">Deal Information</p>
+        <p className="form-section-title">{singular} Information</p>
         <div className="space-y-4">
           <div>
-            <label className="form-label">Deal Title <span className="req">*</span></label>
-            <input aria-label="Deal Title" required className="ui-input" value={form.title} onChange={f('title')} placeholder="e.g. Enterprise License Q3" />
+            <label className="form-label">{titleLabel} <span className="req">*</span></label>
+            <input aria-label={titleLabel} required className="ui-input" value={form.title} onChange={f('title')} placeholder="e.g. Enterprise License Q3" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Value ($)</label>
-              <input aria-label="Value ($)" type="number" min="0" className="ui-input" value={form.value} onChange={f('value')} placeholder="0" />
+              <label className="form-label">{valueLabel}</label>
+              <input aria-label={valueLabel} type="number" min="0" className="ui-input" value={form.value} onChange={f('value')} placeholder="0" />
             </div>
             <div>
               <label className="form-label">Probability (%)</label>
               <input type="number" min="0" max="100" className="ui-input" value={form.probability} onChange={f('probability')} />
             </div>
             <div>
-              <label className="form-label">Stage</label>
-              <SearchableSelect ariaLabel="Stage" value={form.stage} onChange={val => setForm((p: any) => ({ ...p, stage: val }))} required options={(stages ?? []).map((s: string) => ({ value: s, label: s }))} />
+              <label className="form-label">{fieldLabel('deal', 'stage', 'Stage')}</label>
+              <SearchableSelect ariaLabel={fieldLabel('deal', 'stage', 'Stage')} value={form.stage} onChange={val => setForm((p: any) => ({ ...p, stage: val }))} required options={(stages ?? []).map((s: string) => ({ value: s, label: s }))} />
             </div>
             <div>
               <label className="form-label">Expected Close</label>
@@ -81,7 +89,7 @@ function DealForm({ initial, contacts, accounts, users, stages, onSubmit, loadin
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
-      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : 'Create Deal'}</Button></div>
+      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button></div>
     </form>
   );
 }
@@ -288,6 +296,9 @@ export function DealsPage() {
   const { data: dealFieldDefs } = useCustomFieldDefs('DEAL');
 
   const stages = pipelineData?.pipeline?.stages as string[] | undefined;
+  const { entityLabel } = useLabels();
+  const pageSingular = entityLabel('deal', 'singular', 'Deal');
+  const pagePlural = entityLabel('deal', 'plural', 'Pipeline');
 
   function handleDrop(e: React.DragEvent, toStage: string) {
     const dealId = e.dataTransfer.getData('dealId');
@@ -299,7 +310,7 @@ export function DealsPage() {
   return (
     <div className="p-4 sm:p-6 h-full flex flex-col animate-slide-up">
       <PageHeader
-        title="Pipeline"
+        title={pagePlural}
         subtitle={pipelineData?.pipeline?.name}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -308,7 +319,7 @@ export function DealsPage() {
               <button onClick={() => setView('reports')} className={`px-3 py-1.5 text-sm ${view === 'reports' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>Reports</button>
             </div>
             <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setPipelineHealthOpen(true)}>Pipeline Health</Button>
-            <Button icon={<Plus size={15} />} onClick={() => setModal(true)}>New Deal</Button>
+            <Button icon={<Plus size={15} />} onClick={() => setModal(true)}>New {pageSingular}</Button>
           </div>
         }
       />
@@ -364,7 +375,7 @@ export function DealsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title="New Deal" size="lg">
+      <Modal open={modal} onClose={() => setModal(false)} title={`New ${pageSingular}`} size="lg">
         <DealForm contacts={contacts} accounts={accounts} users={users} stages={stages}
           onSubmit={async (form: any) => {
             const { __customFieldValues, ...rest } = form;

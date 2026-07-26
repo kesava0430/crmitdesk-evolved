@@ -6,9 +6,11 @@ import {
 } from 'lucide-react';
 import {
   useBusinessContext, useSaveBusinessContext,
+  useGenerateSetup, useApplySetup,
   useCustomFunctions, useCreateFunction, useUpdateFunction, useDeleteFunction, useRunFunction,
   useCustomScripts, useCreateScript, useUpdateScript, useDeleteScript, useValidateScript,
   type CustomAIFunction, type CustomScript, type InputField,
+  type LabelOverrides, type DraftWorkflowRule,
 } from '../api/aiStudio';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -36,6 +38,256 @@ if (context.entity.title?.toLowerCase().includes('urgent')) {
   context.notify('Priority set to HIGH based on urgent keyword', 'info');
 }
 `;
+
+// ─── Generate Setup (labels + draft workflow rules from Business Context) ─────
+// Two-step propose/confirm: generateSetup only reads context and calls the
+// model (nothing persisted yet); this component lets the org admin review
+// and edit the result before applySetup actually writes anything. Same
+// pattern as the AI Command Bar's propose-then-confirm action cards.
+
+const ENTITY_DISPLAY: Record<string, string> = {
+  ticket: 'Ticket', deal: 'Deal', lead: 'Lead', contact: 'Contact',
+};
+const FIELD_DISPLAY: Record<string, Record<string, string>> = {
+  ticket:  { title: 'Title', priority: 'Priority', status: 'Status', description: 'Description' },
+  deal:    { title: 'Title', value: 'Value', stage: 'Stage' },
+  lead:    { name: 'Name', status: 'Status', source: 'Source' },
+  contact: { name: 'Name', email: 'Email', phone: 'Phone', jobTitle: 'Job Title' },
+};
+
+function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
+  const generate = useGenerateSetup();
+  const apply = useApplySetup();
+
+  const [labels, setLabels] = useState<LabelOverrides | null>(null);
+  const [enabledEntities, setEnabledEntities] = useState<Set<string>>(new Set());
+  const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set()); // "entity.field"
+  const [rules, setRules] = useState<DraftWorkflowRule[]>([]);
+  const [enabledRules, setEnabledRules] = useState<Set<string>>(new Set());
+  // Per-rule fill-ins for params the AI intentionally left blank (userId/to/url)
+  const [ruleInputs, setRuleInputs] = useState<Record<string, Record<string, string>>>({});
+
+  async function handleGenerate() {
+    const result = await generate.mutateAsync();
+    setLabels(result.labelOverrides);
+    setEnabledEntities(new Set(Object.keys(result.labelOverrides.entities ?? {})));
+    setEnabledFields(new Set(
+      Object.entries(result.labelOverrides.fields ?? {}).flatMap(([entity, fields]) =>
+        Object.keys(fields as object).map(f => `${entity}.${f}`))
+    ));
+    setRules(result.workflowRules);
+    setEnabledRules(new Set(result.workflowRules.map(r => r._draftId)));
+    setRuleInputs({});
+  }
+
+  function updateEntityLabel(entity: string, form: 'singular' | 'plural', value: string) {
+    setLabels(prev => prev && ({
+      ...prev,
+      entities: { ...prev.entities, [entity]: { ...(prev.entities as any)?.[entity], [form]: value } },
+    }));
+  }
+
+  function updateFieldLabel(entity: string, field: string, value: string) {
+    setLabels(prev => prev && ({
+      ...prev,
+      fields: { ...prev.fields, [entity]: { ...(prev.fields as any)?.[entity], [field]: value } },
+    }));
+  }
+
+  function toggle(set: Set<string>, setSet: (s: Set<string>) => void, key: string) {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setSet(next);
+  }
+
+  /** Merges any admin-filled ruleInputs into a rule's action params. */
+  function resolveRule(rule: DraftWorkflowRule): DraftWorkflowRule {
+    const fills = ruleInputs[rule._draftId] ?? {};
+    return {
+      ...rule,
+      actions: rule.actions.map(a => {
+        const filled = { ...a.params };
+        for (const need of rule.needsInput) {
+          const [type, key] = need.split('.');
+          if (a.type === type && fills[need]) filled[key] = fills[need];
+        }
+        return { ...a, params: filled };
+      }),
+    };
+  }
+
+  function stillNeedsInput(rule: DraftWorkflowRule): string[] {
+    const fills = ruleInputs[rule._draftId] ?? {};
+    return rule.needsInput.filter(need => !fills[need]?.trim());
+  }
+
+  async function handleApply() {
+    const selectedLabels: LabelOverrides = { entities: {}, fields: {} };
+    for (const entity of enabledEntities) {
+      if ((labels?.entities as any)?.[entity]) (selectedLabels.entities as any)[entity] = (labels!.entities as any)[entity];
+    }
+    for (const key of enabledFields) {
+      const [entity, field] = key.split('.');
+      const val = (labels?.fields as any)?.[entity]?.[field];
+      if (val === undefined) continue;
+      (selectedLabels.fields as any)[entity] = { ...(selectedLabels.fields as any)[entity], [field]: val };
+    }
+
+    const selectedRules = rules
+      .filter(r => enabledRules.has(r._draftId))
+      .map(resolveRule)
+      .filter(r => stillNeedsInput(r).length === 0); // server would drop these anyway — filter client-side so the result count is honest
+
+    await apply.mutateAsync({ labelOverrides: selectedLabels, workflowRules: selectedRules });
+    setLabels(null);
+    setRules([]);
+  }
+
+  const hasEntityLabels = labels && Object.keys(labels.entities ?? {}).length > 0;
+  const hasFieldLabels = labels && Object.keys(labels.fields ?? {}).length > 0;
+
+  return (
+    <div className="pt-6 mt-6 border-t border-gray-100">
+      <p className="form-label mb-1">Generate Setup</p>
+      <p className="text-xs text-gray-500 mb-3">
+        Uses your industry and company description above to propose relabeled terminology (e.g. "Tickets" → "Cases")
+        and a handful of draft automation rules tailored to your business — nothing changes until you review and apply.
+      </p>
+
+      {!hasContext && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+          Fill in and save your industry and company description above first.
+        </p>
+      )}
+
+      {!labels && !rules.length && (
+        <button
+          onClick={handleGenerate}
+          disabled={!hasContext || generate.isPending}
+          className="flex items-center gap-2 px-4 py-2 border border-brand-600 text-brand-600 rounded-lg text-sm font-semibold hover:bg-brand-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {generate.isPending ? <Loader2 size={16} className="animate-spin" /> : <Brain size={16} />}
+          {generate.isPending ? 'Generating…' : 'Generate setup'}
+        </button>
+      )}
+
+      {generate.isError && (
+        <p className="text-sm text-red-600 mt-2">
+          {(generate.error as any)?.response?.data?.error || 'Could not generate a setup — try again.'}
+        </p>
+      )}
+
+      {(hasEntityLabels || hasFieldLabels) && labels && (
+        <div className="mt-4 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 mb-2">Suggested terminology</p>
+            <div className="space-y-2">
+              {Object.entries(labels.entities ?? {}).map(([entity, names]) => (
+                <div key={entity} className="border border-gray-200 rounded-lg p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-800 mb-2">
+                    <input type="checkbox" checked={enabledEntities.has(entity)}
+                      onChange={() => toggle(enabledEntities, setEnabledEntities, entity)} />
+                    {ENTITY_DISPLAY[entity] ?? entity} → {(names as any).plural}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 pl-6 mb-2">
+                    <input value={(names as any).singular} placeholder="Singular"
+                      onChange={e => updateEntityLabel(entity, 'singular', e.target.value)}
+                      className="border border-gray-200 rounded-md px-2 py-1 text-xs" />
+                    <input value={(names as any).plural} placeholder="Plural"
+                      onChange={e => updateEntityLabel(entity, 'plural', e.target.value)}
+                      className="border border-gray-200 rounded-md px-2 py-1 text-xs" />
+                  </div>
+                  {(labels.fields as any)?.[entity] && (
+                    <div className="pl-6 space-y-1">
+                      {Object.entries((labels.fields as any)[entity] as Record<string, string>).map(([field, val]) => (
+                        <label key={field} className="flex items-center gap-2 text-xs text-gray-600">
+                          <input type="checkbox" checked={enabledFields.has(`${entity}.${field}`)}
+                            onChange={() => toggle(enabledFields, setEnabledFields, `${entity}.${field}`)} />
+                          {FIELD_DISPLAY[entity]?.[field] ?? field}:
+                          <input value={val} onChange={e => updateFieldLabel(entity, field, e.target.value)}
+                            className="flex-1 border border-gray-200 rounded-md px-2 py-0.5 text-xs" />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {rules.length > 0 && (
+            <div>
+              <p className="text-sm font-semibold text-gray-800 mb-2">Draft automation rules</p>
+              <div className="space-y-2">
+                {rules.map(rule => {
+                  const missing = stillNeedsInput(rule);
+                  return (
+                    <div key={rule._draftId} className="border border-gray-200 rounded-lg p-3">
+                      <label className="flex items-start gap-2 text-sm">
+                        <input type="checkbox" checked={enabledRules.has(rule._draftId)} className="mt-0.5"
+                          onChange={() => toggle(enabledRules, setEnabledRules, rule._draftId)} />
+                        <div>
+                          <p className="font-medium text-gray-800">{rule.name}</p>
+                          {rule.description && <p className="text-xs text-gray-500 mt-0.5">{rule.description}</p>}
+                          <p className="text-[11px] text-gray-400 mt-1">
+                            Trigger: {rule.trigger} · Actions: {rule.actions.map(a => a.type).join(', ')}
+                          </p>
+                        </div>
+                      </label>
+                      {rule.needsInput.length > 0 && (
+                        <div className="pl-6 mt-2 space-y-1.5">
+                          {rule.needsInput.map(need => (
+                            <div key={need} className="flex items-center gap-2">
+                              <span className="text-[11px] text-gray-500 w-32 shrink-0">{need}:</span>
+                              <input
+                                placeholder={need.endsWith('.userId') ? 'User ID' : need.endsWith('.to') ? 'Recipient email' : 'Webhook URL'}
+                                value={ruleInputs[rule._draftId]?.[need] ?? ''}
+                                onChange={e => setRuleInputs(p => ({ ...p, [rule._draftId]: { ...p[rule._draftId], [need]: e.target.value } }))}
+                                className="flex-1 border border-gray-200 rounded-md px-2 py-1 text-xs"
+                              />
+                            </div>
+                          ))}
+                          {missing.length > 0 && (
+                            <p className="text-[11px] text-amber-600">Fill these in, or this rule won't be created.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleApply}
+              disabled={apply.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
+            >
+              {apply.isPending ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+              Apply selected
+            </button>
+            <button
+              onClick={() => { setLabels(null); setRules([]); }}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Discard
+            </button>
+          </div>
+
+          {apply.isSuccess && apply.data && (
+            <p className="text-sm text-green-600 flex items-center gap-1.5">
+              <CheckCircle2 size={14} />
+              Applied — {apply.data.rulesCreated} rule{apply.data.rulesCreated === 1 ? '' : 's'} created
+              {apply.data.rulesSkipped > 0 ? `, ${apply.data.rulesSkipped} skipped (still missing required input)` : ''}.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Tab: Business Context ────────────────────────────────────────────────────
 
@@ -187,6 +439,8 @@ function BusinessContextTab() {
           <CheckCircle2 size={14} /> Saved — all AI features now use this context.
         </p>
       )}
+
+      <GenerateSetupSection hasContext={!!(current.industry || current.companyDesc)} />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useScoreLead, useLeadFollowUp, useNurtureSequence } from '../../../api/
 import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect , RowActions, CustomFieldsFormFields, RecordTemplatePicker } from '../../../shared/components';
 import { leadStatusVariant } from '../../../shared/components/Badge';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
+import { useLabels } from '../../../hooks/useLabels';
 
 const STATUSES = ['NEW','CONTACTED','QUALIFIED','UNQUALIFIED','CONVERTED'];
 const SOURCES = ['Web','Referral','Cold Outreach','Event','Social Media','Other'];
@@ -24,6 +25,11 @@ function LeadForm({ initial, entityId, onSubmit, loading }: any) {
     if (existingValues) setCustomValues(fromValueRecords(existingValues));
   }, [existingValues]);
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
+  const { entityLabel, fieldLabel } = useLabels();
+  const singular = entityLabel('lead', 'singular', 'Lead');
+  // Falls back to the exact original text when unset, so the e2e suite's
+  // getByLabel(/full name/i) keeps matching for the seeded test org.
+  const nameLabel = fieldLabel('lead', 'name', 'Full Name');
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, __customFieldValues: customValues }); }} className="space-y-3">
       {!initial && (
@@ -36,11 +42,11 @@ function LeadForm({ initial, entityId, onSubmit, loading }: any) {
         />
       )}
       <div className="form-section">
-        <p className="form-section-title">Lead Information</p>
+        <p className="form-section-title">{singular} Information</p>
         <div className="space-y-4">
           <div>
-            <label className="form-label">Full Name <span className="req">*</span></label>
-            <input aria-label="Full Name" required className="ui-input" value={form.name} onChange={f('name')} placeholder="e.g. John Doe" />
+            <label className="form-label">{nameLabel} <span className="req">*</span></label>
+            <input aria-label={nameLabel} required className="ui-input" value={form.name} onChange={f('name')} placeholder="e.g. John Doe" />
           </div>
           <div>
             <label className="form-label">Email</label>
@@ -52,12 +58,12 @@ function LeadForm({ initial, entityId, onSubmit, loading }: any) {
         <p className="form-section-title">Classification</p>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">Source</label>
-            <SearchableSelect ariaLabel="Source" value={form.source} onChange={val => setForm((p: any) => ({ ...p, source: val }))} options={SOURCES.map(s => ({ value: s, label: s }))} />
+            <label className="form-label">{fieldLabel('lead', 'source', 'Source')}</label>
+            <SearchableSelect ariaLabel={fieldLabel('lead', 'source', 'Source')} value={form.source} onChange={val => setForm((p: any) => ({ ...p, source: val }))} options={SOURCES.map(s => ({ value: s, label: s }))} />
           </div>
           <div>
-            <label className="form-label">Status</label>
-            <SearchableSelect ariaLabel="Status" value={form.status} onChange={val => setForm((p: any) => ({ ...p, status: val }))} required options={STATUSES.filter(s => s !== 'CONVERTED').map(s => ({ value: s, label: s }))} />
+            <label className="form-label">{fieldLabel('lead', 'status', 'Status')}</label>
+            <SearchableSelect ariaLabel={fieldLabel('lead', 'status', 'Status')} value={form.status} onChange={val => setForm((p: any) => ({ ...p, status: val }))} required options={STATUSES.filter(s => s !== 'CONVERTED').map(s => ({ value: s, label: s }))} />
           </div>
         </div>
       </div>
@@ -70,7 +76,7 @@ function LeadForm({ initial, entityId, onSubmit, loading }: any) {
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
-      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : 'Create Lead'}</Button></div>
+      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button></div>
     </form>
   );
 }
@@ -264,6 +270,9 @@ export function LeadsPage() {
   const score = useScoreLead();
   const saveCustomFields = useSaveCustomFieldValues();
   const { data: leadFieldDefs } = useCustomFieldDefs('LEAD');
+  const { entityLabel } = useLabels();
+  const singular = entityLabel('lead', 'singular', 'Lead');
+  const plural = entityLabel('lead', 'plural', 'Leads');
 
   async function handleSubmit(form: any) {
     const { __customFieldValues, ...rest } = form;
@@ -288,23 +297,23 @@ export function LeadsPage() {
   return (
     <div className="p-4 sm:p-6 animate-slide-up">
       <PageHeader
-        title="Leads"
-        subtitle={`${leads?.length ?? 0} leads`}
+        title={plural}
+        subtitle={`${leads?.length ?? 0} ${plural.toLowerCase()}`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search leads..." />
+            <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
               className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
               <option value="">All Statuses</option>
               {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>New Lead</Button>
+            <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>New {singular}</Button>
           </div>
         }
       />
 
       {isLoading ? <Spinner /> : leads?.length === 0 ? (
-        <EmptyState icon={<Target size={24} />} title="No leads yet" description="Capture your first lead to start the pipeline" action={{ label: 'New Lead', onClick: () => setModal('create') }} />
+        <EmptyState icon={<Target size={24} />} title={`No ${plural.toLowerCase()} yet`} description="Capture your first lead to start the pipeline" action={{ label: `New ${singular}`, onClick: () => setModal('create') }} />
       ) : (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
@@ -387,7 +396,7 @@ export function LeadsPage() {
       )}
 
       <Modal open={modal === 'create' || (typeof modal === 'object' && modal !== null && (modal as any).type === 'edit')}
-        onClose={() => setModal(null)} title={modal === 'create' ? 'New Lead' : 'Edit Lead'}>
+        onClose={() => setModal(null)} title={modal === 'create' ? `New ${singular}` : `Edit ${singular}`}>
         <LeadForm
           initial={modal && typeof modal === 'object' && (modal as any).type === 'edit'
             ? {

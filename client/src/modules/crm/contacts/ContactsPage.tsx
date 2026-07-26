@@ -6,6 +6,7 @@ import { useAccounts } from '../../../api/crm';
 import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions, CustomFieldsFormFields, RecordTemplatePicker } from '../../../shared/components';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useEffect } from 'react';
+import { useLabels } from '../../../hooks/useLabels';
 
 function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
   const [form, setForm] = useState(initial || { name: '', email: '', phone: '', jobTitle: '', accountId: '', source: '' });
@@ -15,6 +16,13 @@ function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
     if (existingValues) setCustomValues(fromValueRecords(existingValues));
   }, [existingValues]);
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
+  const { entityLabel, fieldLabel } = useLabels();
+  const singular = entityLabel('contact', 'singular', 'Contact');
+  // Fall back to the exact original text when unset, so the e2e suite's
+  // getByLabel(/^name$/i) etc. keeps matching for the seeded test org.
+  const nameLabel = fieldLabel('contact', 'name', 'Name');
+  const phoneLabel = fieldLabel('contact', 'phone', 'Phone');
+  const jobTitleLabel = fieldLabel('contact', 'jobTitle', 'Job Title');
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, __customFieldValues: customValues }); }} className="space-y-3">
       {!initial && (
@@ -30,20 +38,20 @@ function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
         <p className="form-section-title">Basic Information</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="form-label">Name <span className="req">*</span></label>
-            <input aria-label="Name" required className="ui-input" value={form.name} onChange={f('name')} placeholder="Full name" />
+            <label className="form-label">{nameLabel} <span className="req">*</span></label>
+            <input aria-label={nameLabel} required className="ui-input" value={form.name} onChange={f('name')} placeholder="Full name" />
           </div>
           <div>
             <label className="form-label">Email</label>
             <input aria-label="Email" type="email" className="ui-input" value={form.email} onChange={f('email')} placeholder="email@company.com" />
           </div>
           <div>
-            <label className="form-label">Phone</label>
-            <input aria-label="Phone" className="ui-input" value={form.phone} onChange={f('phone')} placeholder="+1 (555) 000-0000" />
+            <label className="form-label">{phoneLabel}</label>
+            <input aria-label={phoneLabel} className="ui-input" value={form.phone} onChange={f('phone')} placeholder="+1 (555) 000-0000" />
           </div>
           <div>
-            <label className="form-label">Job Title</label>
-            <input aria-label="Job Title" className="ui-input" value={form.jobTitle} onChange={f('jobTitle')} placeholder="e.g. Product Manager" />
+            <label className="form-label">{jobTitleLabel}</label>
+            <input aria-label={jobTitleLabel} className="ui-input" value={form.jobTitle} onChange={f('jobTitle')} placeholder="e.g. Product Manager" />
           </div>
         </div>
       </div>
@@ -66,7 +74,7 @@ function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
       <div className="flex justify-end pt-1">
-        <Button type="submit" loading={loading}>{initial ? 'Save Changes' : 'Create Contact'}</Button>
+        <Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button>
       </div>
     </form>
   );
@@ -82,6 +90,9 @@ export function ContactsPage() {
   const del = useDeleteContact();
   const saveCustomFields = useSaveCustomFieldValues();
   const { data: contactFieldDefs } = useCustomFieldDefs('CONTACT');
+  const { entityLabel } = useLabels();
+  const singular = entityLabel('contact', 'singular', 'Contact');
+  const plural = entityLabel('contact', 'plural', 'Contacts');
 
   async function handleSubmit(form: any) {
     const { __customFieldValues, ...rest } = form;
@@ -103,18 +114,18 @@ export function ContactsPage() {
   return (
     <div className="p-4 sm:p-6 animate-slide-up">
       <PageHeader
-        title="Contacts"
-        subtitle={`${contacts?.length ?? 0} contacts`}
+        title={plural}
+        subtitle={`${contacts?.length ?? 0} ${plural.toLowerCase()}`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search contacts..." />
-            <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>New Contact</Button>
+            <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
+            <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>New {singular}</Button>
           </div>
         }
       />
 
       {isLoading ? <Spinner /> : contacts?.length === 0 ? (
-        <EmptyState icon={<Users size={24} />} title="No contacts yet" description="Add your first contact to get started" action={{ label: 'New Contact', onClick: () => setModal('create') }} />
+        <EmptyState icon={<Users size={24} />} title={`No ${plural.toLowerCase()} yet`} description="Add your first contact to get started" action={{ label: `New ${singular}`, onClick: () => setModal('create') }} />
       ) : (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
@@ -163,7 +174,7 @@ export function ContactsPage() {
       <Modal
         open={modal === 'create' || (typeof modal === 'object' && modal !== null && (modal as any).type === 'edit')}
         onClose={() => setModal(null)}
-        title={modal === 'create' ? 'New Contact' : 'Edit Contact'}
+        title={modal === 'create' ? `New ${singular}` : `Edit ${singular}`}
       >
         <ContactForm
           initial={modal && typeof modal === 'object' && (modal as any).type === 'edit' ? (modal as any).contact : null}

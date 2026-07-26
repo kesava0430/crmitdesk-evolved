@@ -3,13 +3,48 @@ import { api } from './client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// Keep these entity/field keys in sync with the server whitelist in
+// aiStudio.controller.ts (ENTITY_KEYS / ENTITY_FIELD_KEYS) and with
+// useLabels.ts, which is what actually reads this shape in the UI.
+export interface LabelOverrides {
+  entities?: Partial<Record<'ticket' | 'deal' | 'lead' | 'contact', { singular: string; plural: string }>>;
+  fields?: Partial<Record<'ticket' | 'deal' | 'lead' | 'contact', Record<string, string>>>;
+}
+
 export interface BusinessContext {
-  id?:           string;
-  industry?:     string;
-  companyDesc?:  string;
-  terminology?:  Record<string, string>;
-  customSystem?: string;
-  tone?:         'professional' | 'casual' | 'technical';
+  id?:             string;
+  industry?:       string;
+  companyDesc?:    string;
+  terminology?:    Record<string, string>;
+  labelOverrides?: LabelOverrides;
+  customSystem?:   string;
+  tone?:           'professional' | 'casual' | 'technical';
+}
+
+export interface DraftWorkflowCondition {
+  field: string;
+  operator: 'eq' | 'neq' | 'gt' | 'lt' | 'contains' | 'in';
+  value: string | number | string[];
+}
+
+export interface DraftWorkflowAction {
+  type: 'ASSIGN_TO' | 'SET_PRIORITY' | 'SET_STATUS' | 'SEND_EMAIL' | 'SEND_WHATSAPP' | 'ADD_NOTE' | 'SEND_WEBHOOK';
+  params: Record<string, string | number>;
+}
+
+export interface DraftWorkflowRule {
+  _draftId: string;
+  name: string;
+  description?: string;
+  trigger: string;
+  conditions: DraftWorkflowCondition[];
+  actions: DraftWorkflowAction[];
+  needsInput: string[]; // e.g. "ASSIGN_TO.userId" — still needs a real value before it can be applied
+}
+
+export interface GeneratedSetup {
+  labelOverrides: LabelOverrides;
+  workflowRules: DraftWorkflowRule[];
 }
 
 export interface InputField {
@@ -50,6 +85,18 @@ export function useBusinessContext() {
   return useQuery<BusinessContext>({
     queryKey: ['ai-studio-context'],
     queryFn: () => api.get('/ai/studio/context').then(r => r.data),
+  });
+}
+
+// Separate from useBusinessContext — that hook calls a MANAGERS-only
+// endpoint, but every staff member needs relabeled terminology to render
+// correctly, not just managers. See getLabelOverrides in
+// aiStudio.controller.ts / the /ai/studio/labels route (ALL_STAFF).
+export function useLabelOverrides() {
+  return useQuery<{ labelOverrides: LabelOverrides | null }>({
+    queryKey: ['ai-studio-labels'],
+    queryFn: () => api.get('/ai/studio/labels').then(r => r.data),
+    staleTime: 5 * 60 * 1000, // labels change rarely — avoid refetching on every page nav
   });
 }
 
@@ -148,5 +195,27 @@ export function useValidateScript() {
     mutationFn: (script: string) =>
       api.post('/ai/studio/scripts/validate', { script }).then(r => r.data) as
         Promise<{ valid: boolean; error?: string }>,
+  });
+}
+
+// ─── AI Setup Generator (labels + workflow rules from Business Context) ───────
+
+export function useGenerateSetup() {
+  return useMutation({
+    mutationFn: () => api.post('/ai/studio/generate-setup').then(r => r.data) as Promise<GeneratedSetup>,
+  });
+}
+
+export function useApplySetup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { labelOverrides?: LabelOverrides; workflowRules: DraftWorkflowRule[] }) =>
+      api.post('/ai/studio/apply-setup', data).then(r => r.data) as
+        Promise<{ labelOverrides: LabelOverrides | null; rulesCreated: number; rulesSkipped: number }>,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-studio-context'] });
+      qc.invalidateQueries({ queryKey: ['ai-studio-labels'] }); // what useLabels() actually reads
+      qc.invalidateQueries({ queryKey: ['workflows'] }); // matches api/workflows.ts's useWorkflowRules query key
+    },
   });
 }

@@ -11,6 +11,7 @@ import { TimeTrackingPanel } from './TimeTrackingPanel';
 import { api } from '../../../api/client';
 import { ticketStatusVariant, priorityVariant } from '../../../shared/components/Badge';
 import { formatDistanceToNow } from 'date-fns';
+import { useLabels } from '../../../hooks/useLabels';
 
 const sentimentConfig: Record<string, { label: string; color: string }> = {
   POSITIVE:   { label: '😊 Positive',   color: 'text-green-600 bg-green-50 border-green-200' },
@@ -30,6 +31,8 @@ function TicketForm({ categories, onSubmit, loading }: any) {
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const aiDupes = useDetectDuplicates();
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
+  const { entityLabel, fieldLabel } = useLabels();
+  const singular = entityLabel('ticket', 'singular', 'Ticket');
 
   useEffect(() => {
     if (form.title.length >= 10) {
@@ -48,11 +51,15 @@ function TicketForm({ categories, onSubmit, loading }: any) {
         }}
       />
       <div className="form-section">
-        <p className="form-section-title">Ticket Details</p>
+        <p className="form-section-title">{singular} Details</p>
         <div className="space-y-4">
           <div>
-            <label className="form-label">Title <span className="req">*</span></label>
-            <input aria-label="Title" required className="ui-input" value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
+            <label className="form-label">{fieldLabel('ticket', 'title', 'Title')} <span className="req">*</span></label>
+            {/* aria-label stays "Title" (fieldLabel falls back to it when
+                unset) so getByLabel(/title/i) etc. across the e2e suite
+                keeps matching for the seeded test org, which never sets
+                labelOverrides. */}
+            <input aria-label={fieldLabel('ticket', 'title', 'Title')} required className="ui-input" value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
             {aiDupes.data?.duplicates && aiDupes.data.duplicates.length > 0 && (
               <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 space-y-1">
                 {aiDupes.data.duplicates.map((d: any) => (
@@ -65,8 +72,8 @@ function TicketForm({ categories, onSubmit, loading }: any) {
             )}
           </div>
           <div>
-            <label className="form-label">Description <span className="req">*</span></label>
-            <textarea aria-label="Description" required rows={4} className="ui-input" value={form.body} onChange={f('body')} placeholder="Provide details about the issue, steps to reproduce, expected vs actual behaviour…" />
+            <label className="form-label">{fieldLabel('ticket', 'description', 'Description')} <span className="req">*</span></label>
+            <textarea aria-label={fieldLabel('ticket', 'description', 'Description')} required rows={4} className="ui-input" value={form.body} onChange={f('body')} placeholder="Provide details about the issue, steps to reproduce, expected vs actual behaviour…" />
           </div>
         </div>
       </div>
@@ -78,8 +85,8 @@ function TicketForm({ categories, onSubmit, loading }: any) {
 <SearchableSelect ariaLabel="Category" value={form.categoryId} onChange={val => setForm((p: any) => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
           </div>
           <div>
-            <label className="form-label">Priority</label>
-<SearchableSelect ariaLabel="Priority" value={form.priority} onChange={val => setForm((p: any) => ({ ...p, priority: val }))} required options={PRIORITIES.map(p => ({ value: p, label: p }))} />
+            <label className="form-label">{fieldLabel('ticket', 'priority', 'Priority')}</label>
+<SearchableSelect ariaLabel={fieldLabel('ticket', 'priority', 'Priority')} value={form.priority} onChange={val => setForm((p: any) => ({ ...p, priority: val }))} required options={PRIORITIES.map(p => ({ value: p, label: p }))} />
           </div>
         </div>
       </div>
@@ -88,7 +95,7 @@ function TicketForm({ categories, onSubmit, loading }: any) {
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
-      <div className="flex justify-end pt-2"><Button type="submit" loading={loading}>Submit Ticket</Button></div>
+      <div className="flex justify-end pt-2"><Button type="submit" loading={loading}>Submit {singular}</Button></div>
     </form>
   );
 }
@@ -339,6 +346,9 @@ export function TicketsPage() {
   const { data: ticketFieldDefs } = useCustomFieldDefs('TICKET');
 
   const filtered = tickets?.filter((t: any) => !search || t.title.toLowerCase().includes(search.toLowerCase()));
+  const { entityLabel, fieldLabel } = useLabels();
+  const singular = entityLabel('ticket', 'singular', 'Ticket');
+  const plural = entityLabel('ticket', 'plural', 'Tickets');
 
   return (
     <div className="p-4 sm:p-6 space-y-5 animate-slide-up">
@@ -362,11 +372,11 @@ export function TicketsPage() {
       )}
 
       <PageHeader
-        title="Tickets"
-        subtitle={`${filtered?.length ?? 0} tickets`}
+        title={plural}
+        subtitle={`${filtered?.length ?? 0} ${plural.toLowerCase()}`}
         actions={<>
           <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search tickets..." />
+            <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
               <option value="">All Statuses</option>
               {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s] ?? s.replace('_',' ')}</option>)}
@@ -375,21 +385,21 @@ export function TicketsPage() {
               <option value="">All Priorities</option>
               {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            <Button icon={<Plus size={15} />} onClick={() => setCreateModal(true)}>New Ticket</Button>
+            <Button icon={<Plus size={15} />} onClick={() => setCreateModal(true)}>New {singular}</Button>
           </div>
         </>}
       />
 
       {isLoading ? <Spinner /> : filtered?.length === 0 ? (
-        <EmptyState icon={<Ticket size={24} />} title="No tickets found" description="All clear! No tickets match your filters." action={{ label: 'New Ticket', onClick: () => setCreateModal(true) }} />
+        <EmptyState icon={<Ticket size={24} />} title={`No ${plural.toLowerCase()} found`} description="All clear! No tickets match your filters." action={{ label: `New ${singular}`, onClick: () => setCreateModal(true) }} />
       ) : (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
           <div className="table-container">
             <table className="w-full text-sm min-w-[800px]">
               <thead><tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Title</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Priority</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{fieldLabel('ticket', 'title', 'Title')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{fieldLabel('ticket', 'status', 'Status')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{fieldLabel('ticket', 'priority', 'Priority')}</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Sentiment</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Category</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Requester</th>
@@ -437,7 +447,7 @@ export function TicketsPage() {
         </div>
       )}
 
-      <Modal open={createModal} onClose={() => setCreateModal(false)} title="Submit New Ticket" size="lg">
+      <Modal open={createModal} onClose={() => setCreateModal(false)} title={`Submit New ${singular}`} size="lg">
         <TicketForm categories={categories} loading={create.isPending}
           onSubmit={async (form: any) => {
             const { __customFieldValues, ...rest } = form;

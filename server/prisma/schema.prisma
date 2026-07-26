@@ -1063,16 +1063,24 @@ enum NotificationType {
 // ─── AI Studio ────────────────────────────────────────────────────────────────
 
 model BusinessContext {
-  id           String       @id @default(cuid())
-  orgId        String       @unique @map("org_id")
-  industry     String?
-  companyDesc  String?      @map("company_desc")
-  terminology  Json?        // Record<string, string> — custom term → definition
-  customSystem String?      @map("custom_system") // extra context injected into AI calls
-  tone         String       @default("professional") // professional | casual | technical
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  orgId          String       @unique @map("org_id")
+  industry       String?
+  companyDesc    String?      @map("company_desc")
+  terminology    Json?        // Record<string, string> — custom term → definition, fed into AI prompts only
+  // UI-facing relabeling, distinct from `terminology` above: that field only
+  // ever flavors AI prompt text, it was never read by the React UI. This one
+  // actually drives what the product displays — shape is
+  // { entities: { ticket: { singular, plural }, deal: {...}, ... },
+  //   fields:   { ticket: { priority: "Severity", ... }, ... } }
+  // Populated via the "Generate setup" AI flow (see aiStudio.controller.ts
+  // generateSetup/applySetup) or edited directly.
+  labelOverrides Json?        @map("label_overrides")
+  customSystem   String?      @map("custom_system") // extra context injected into AI calls
+  tone           String       @default("professional") // professional | casual | technical
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("business_contexts")
 }

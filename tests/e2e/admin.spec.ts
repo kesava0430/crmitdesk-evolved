@@ -61,7 +61,12 @@ test.describe('User Management', () => {
 
     await row.getByRole('button', { name: /row actions/i }).click();
     const deactivateBtn = page.getByRole('button', { name: /deactivate/i });
-    await expect(deactivateBtn).toBeVisible({ timeout: 3_000 });
+    // 3s was too tight under the 2-worker suite's concurrent load (the same
+    // class of flake fixed elsewhere in this file/suite) — the row-actions
+    // portal menu itself renders instantly, but the click that opens it can
+    // queue behind other work on a busy run. Match the 8s used for the
+    // equivalent post-menu-click assertions elsewhere in this suite.
+    await expect(deactivateBtn).toBeVisible({ timeout: 8_000 });
     await deactivateBtn.click();
     // "Inactive" text or a badge/class indicating deactivation
     await expect(

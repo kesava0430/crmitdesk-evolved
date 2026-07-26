@@ -42,6 +42,18 @@ services:
         sync: false   # set manually to your frontend URL
       - key: FRONTEND_URL
         sync: false   # set manually to your frontend URL
+      # Every AI feature in the app (lead scoring, ticket sentiment, the AI
+      # Command Bar, AI Studio, the "Generate setup" flow, all of it) checks
+      # for GROQ_API_KEY first, then falls back to OPENAI_API_KEY, then
+      # returns a "not configured" response with neither set. This was never
+      # in the Blueprint before now, so on a fresh deploy every AI feature
+      # is silently a no-op until one of these two is filled in manually.
+      # Groq's free tier is the cheaper way to get this working — a key from
+      # console.groq.com is enough, OPENAI_API_KEY isn't required alongside it.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

@@ -13,6 +13,18 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { NotificationBell } from "../components/NotificationBell";
 import { AiCommandBar } from "../components/AiCommandBar";
 import { ThemePicker } from "../components/ThemePicker";
+import { useLabels, type LabelEntityKey } from "../../hooks/useLabels";
+
+// Which nav routes / page-title routes correspond to a relabelable entity —
+// same 4 entities the AI Setup Generator can propose overrides for
+// (aiStudio.controller.ts ENTITY_KEYS). Anything not listed here just keeps
+// its hardcoded label, override or not.
+const ROUTE_ENTITY: Record<string, { key: LabelEntityKey; form: "singular" | "plural" }> = {
+  "/itdesk/tickets": { key: "ticket",  form: "plural" },
+  "/crm/deals":      { key: "deal",    form: "plural" },
+  "/crm/leads":      { key: "lead",    form: "plural" },
+  "/crm/contacts":   { key: "contact", form: "plural" },
+};
 
 // Nav sections
 
@@ -154,6 +166,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   user: any; onLogout: () => void; onNavClick?: () => void;
 }) {
   const userRole: string | undefined = user?.role;
+  const { entityLabel } = useLabels();
 
   return (
     <div className="flex flex-col h-full">
@@ -191,9 +204,11 @@ function SidebarContent({ user, onLogout, onNavClick }: {
                   {section.label}
                 </p>
               )}
-              {visibleItems.map(item => (
-                <SideNavItem key={item.to} to={item.to} label={item.label} icon={item.icon} onClick={onNavClick} />
-              ))}
+              {visibleItems.map(item => {
+                const override = ROUTE_ENTITY[item.to];
+                const label = override ? entityLabel(override.key, override.form, item.label) : item.label;
+                return <SideNavItem key={item.to} to={item.to} label={label} icon={item.icon} onClick={onNavClick} />;
+              })}
             </div>
           );
         })}
@@ -268,7 +283,11 @@ export function AppLayout() {
     navigate("/login");
   }
 
-  const pageTitle = PAGE_TITLES[location.pathname] ?? "CRM & IT Desk";
+  const { entityLabel } = useLabels();
+  const routeOverride = ROUTE_ENTITY[location.pathname];
+  const pageTitle = routeOverride
+    ? entityLabel(routeOverride.key, routeOverride.form, PAGE_TITLES[location.pathname] ?? "")
+    : (PAGE_TITLES[location.pathname] ?? "CRM & IT Desk");
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
