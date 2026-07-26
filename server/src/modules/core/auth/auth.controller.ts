@@ -134,10 +134,13 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       });
     }
 
+    // Fire-and-forget — the request is already durably saved above; the
+    // client shouldn't hang waiting on SMTP (same pattern as ticket/deal
+    // notification emails elsewhere in this codebase).
     const approveLink = `${FRONTEND_URL}/approve-org?token=${token}`;
-    await sendMail(emailTemplates.orgSignupRequest(ADMIN_NOTIFY_EMAIL, {
+    sendMail(emailTemplates.orgSignupRequest(ADMIN_NOTIFY_EMAIL, {
       organizationName: data.organizationName, name: data.name, email: data.email,
-    }, approveLink));
+    }, approveLink)).catch(() => {});
 
     res.status(202).json({
       pending: true,
@@ -212,7 +215,7 @@ export async function approveOrgSignup(req: Request, res: Response, next: NextFu
       data: { status: 'APPROVED', decidedAt: new Date() },
     });
 
-    await sendMail(emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`));
+    sendMail(emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`)).catch(() => {});
 
     res.json({ status: 'APPROVED', org: { id: org.id, name: org.name, slug: org.slug } });
   } catch (err) { next(err); }

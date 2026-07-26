@@ -14,6 +14,14 @@ function getTransporter() {
     port: Number(process.env.SMTP_PORT) || 587,
     secure: Number(process.env.SMTP_PORT) === 465,
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    // Nodemailer's defaults (2min connection, 10min socket) mean a blocked or
+    // slow-to-respond SMTP host hangs the *caller* for that long on every
+    // `await sendMail(...)` — e.g. register()/approve-org-signup silently not
+    // finishing when the network path to smtpout.secureserver.net is slow.
+    // Fail fast instead; email delivery isn't worth blocking a request over.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 10_000,
   });
 }
 
