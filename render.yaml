@@ -60,6 +60,11 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      # SMTP fallback (mailer.ts) — only reached when RESEND_API_KEY below is
+      # unset. Kept for local dev / a paid Render plan, but on THIS service's
+      # free plan Render blocks all outbound SMTP traffic (25/465/587)
+      # outright, so these alone won't actually deliver mail here — see
+      # RESEND_API_KEY.
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -69,6 +74,17 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: SMTP_FROM
+        sync: false
+      # Render's free web-service plan blocks outbound SMTP entirely — mail
+      # goes through Resend's HTTPS API instead (mailer.ts prefers this over
+      # SMTP whenever it's set). Get a key from resend.com, verify your
+      # sending domain there, then set this.
+      - key: RESEND_API_KEY
+        sync: false
+      # Optional — defaults to SMTP_FROM, then to Resend's shared test
+      # address if neither is set. Only needed if you want a different
+      # "from" identity for Resend specifically.
+      - key: RESEND_FROM
         sync: false
 
   # ─── Frontend (Static Site) ───────────────────────────────────────────────

@@ -6,6 +6,30 @@ interface MailOptions {
   html: string;
 }
 
+// Render's free web-service tier blocks all outbound SMTP traffic (ports 25,
+// 465, 587) — confirmed by the ETIMEDOUT/CONN errors nodemailer throws there
+// regardless of which SMTP host you point it at. Resend's HTTP API runs over
+// plain HTTPS (443), so it isn't affected. When RESEND_API_KEY is set, it's
+// used instead of SMTP entirely; SMTP remains as the fallback for local dev
+// or a paid Render plan where outbound SMTP isn't blocked.
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const FROM_ADDRESS = process.env.RESEND_FROM || process.env.SMTP_FROM || 'CRM & IT Desk <onboarding@resend.dev>';
+
+async function sendViaResend(opts: MailOptions): Promise<void> {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ from: FROM_ADDRESS, to: opts.to, subject: opts.subject, html: opts.html }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Resend API ${res.status}: ${body}`);
+  }
+}
+
 // Lazy transporter — only created when SMTP is configured
 function getTransporter() {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
@@ -26,17 +50,26 @@ function getTransporter() {
 }
 
 export async function sendMail(opts: MailOptions): Promise<void> {
+  if (RESEND_API_KEY) {
+    try {
+      await sendViaResend(opts);
+      console.log(`[Email sent via Resend] To: ${opts.to} | ${opts.subject}`);
+    } catch (err) {
+      console.error('[Email error — Resend]', err);
+    }
+    return;
+  }
+
   const transporter = getTransporter();
   if (!transporter) {
-    console.log(`[Email skipped — no SMTP] To: ${opts.to} | ${opts.subject}`);
+    console.log(`[Email skipped — no RESEND_API_KEY or SMTP configured] To: ${opts.to} | ${opts.subject}`);
     return;
   }
   try {
-    const from = process.env.SMTP_FROM || `"CRM & IT Desk" <${process.env.SMTP_USER}>`;
-    await transporter.sendMail({ from, ...opts });
-    console.log(`[Email sent] To: ${opts.to} | ${opts.subject}`);
+    await transporter.sendMail({ from: FROM_ADDRESS, ...opts });
+    console.log(`[Email sent via SMTP] To: ${opts.to} | ${opts.subject}`);
   } catch (err) {
-    console.error('[Email error]', err);
+    console.error('[Email error — SMTP]', err);
   }
 }
 

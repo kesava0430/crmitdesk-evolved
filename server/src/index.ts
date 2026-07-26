@@ -59,6 +59,16 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
 
+// Render (like most PaaS) sits the app behind a reverse proxy, which sets
+// X-Forwarded-For. Without telling Express to trust it, express-rate-limit
+// refuses to use that header at all — every request gets rate-limited as if
+// it came from the same IP (Render's proxy), and it throws/logs
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every single request. `1` trusts
+// exactly one hop (Render's own proxy), which is correct here — trusting
+// unlimited hops would let a client spoof X-Forwarded-For to dodge rate
+// limits entirely.
+app.set('trust proxy', 1);
+
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow avatar/file access from frontend
