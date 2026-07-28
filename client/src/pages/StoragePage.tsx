@@ -18,6 +18,7 @@ export default function StoragePage() {
   const connect = useConnectGoogleDrive();
   const connectHosted = useConnectHostedStorage();
   const disconnect = useDisconnectStorage();
+  const hostedQuotaBytes = status?.hosted.quotaBytes ?? 0;
 
   // The OAuth callback (storage.controller.ts) redirects the browser straight
   // back to this page with ?connected=1 or ?error=... — surface it once,
@@ -137,8 +138,8 @@ export default function StoragePage() {
               <div className="border border-gray-200 rounded-xl p-4">
                 <p className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-1.5"><Cloud size={14} /> Our hosted storage</p>
                 <p className="text-xs text-gray-500 mb-3">
-                  {status?.hosted.quotaBytes > 0
-                    ? `Included with your plan: ${formatGB(status.hosted.quotaBytes)}GB, no Google account needed.`
+                  {hostedQuotaBytes > 0
+                    ? `Included with your plan: ${formatGB(hostedQuotaBytes)}GB, no Google account needed.`
                     : "Not included on your current plan — upgrade to Pro (5GB) or Enterprise (50GB)."}
                 </p>
                 {!status?.hosted.available ? (
@@ -146,7 +147,7 @@ export default function StoragePage() {
                     <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-amber-700">Not set up on this deployment (missing S3_BUCKET/keys).</p>
                   </div>
-                ) : status?.hosted.quotaBytes === 0 ? (
+                ) : hostedQuotaBytes === 0 ? (
                   <Link to="/billing" className="text-xs font-medium text-brand-600 hover:underline">Upgrade plan →</Link>
                 ) : !isOwner ? (
                   <p className="text-xs text-gray-400">Only the org owner can connect this.</p>
