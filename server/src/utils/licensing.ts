@@ -1,14 +1,15 @@
 import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
 
-// Roles that actually count against a plan's seat limit. Sales/CRM roles,
-// SUPER_ADMIN, and plain EMPLOYEE logins are unrestricted — only the
-// technician-facing helpdesk roles are metered, similar to how many
-// helpdesk products charge per support agent rather than per total login.
-const METERED_ROLES = new Set(['IT_MANAGER', 'IT_AGENT']);
+// Every internal role counts against a plan's seat limit EXCEPT plain
+// EMPLOYEE — those are staff who just submit requests internally (not
+// technicians, sales reps, managers, or admins actually working the
+// platform), so they're free and unlimited. Everyone else — SUPER_ADMIN,
+// CRM_MANAGER, SALES_REP, IT_MANAGER, IT_AGENT — is a billable seat.
+const UNMETERED_ROLES = new Set(['EMPLOYEE']);
 
 export function isMeteredRole(role: string): boolean {
-  return METERED_ROLES.has(role);
+  return !UNMETERED_ROLES.has(role);
 }
 
 /** Same default-row pattern billing.controller.ts uses — never assume a
@@ -22,27 +23,29 @@ async function getOrCreateSubscription(orgId: string) {
 }
 
 /**
- * Throws AppError(402) if adding one more technician (IT_MANAGER/IT_AGENT)
- * would exceed the org's plan seat limit. No-op for any other role.
+ * Throws AppError(402) if adding one more billable-role user (anything
+ * other than EMPLOYEE) would exceed the org's plan seat limit. No-op for
+ * EMPLOYEE.
  *
- * Only active users count — deactivating a technician frees their seat
+ * Only active users count — deactivating someone frees their seat
  * immediately, and downgrading a plan never touches existing users
- * (grandfathered in place); this check only blocks *new* technician
- * seats once the org is at or over its limit.
+ * (grandfathered in place); this check only blocks *new* billable seats
+ * once the org is at or over its limit.
  */
 export async function assertSeatAvailable(orgId: string, role: string): Promise<void> {
   if (!isMeteredRole(role)) return;
 
   const sub = await getOrCreateSubscription(orgId);
-  const technicianCount = await prisma.user.count({
-    where: { orgId, isActive: true, role: { in: ['IT_MANAGER', 'IT_AGENT'] } },
+  const billableCount = await prisma.user.count({
+    where: { orgId, isActive: true, role: { not: 'EMPLOYEE' } },
   });
 
-  if (technicianCount >= sub.seats) {
+  if (billableCount >= sub.seats) {
     throw new AppError(
       402,
-      `Your ${sub.plan} plan includes ${sub.seats} technician seat${sub.seats === 1 ? '' : 's'} (IT Manager / IT Agent). ` +
-      `You're already using all ${technicianCount}. Upgrade your plan to add more technicians.`
+      `Your ${sub.plan} plan includes ${sub.seats} seat${sub.seats === 1 ? '' : 's'}. ` +
+      `You're already using all ${billableCount} (every role except Employee counts toward this). ` +
+      `Upgrade your plan to add more people.`
     );
   }
 }

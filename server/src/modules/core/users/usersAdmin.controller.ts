@@ -111,10 +111,11 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!target) throw new AppError(404, 'User not found');
     // Only re-check the seat limit if this update actually turns someone INTO
-    // a metered technician role who wasn't one already. A lateral move between
-    // the two metered roles (IT_MANAGER <-> IT_AGENT) doesn't change the
-    // technician headcount, so it must NOT be re-checked here — the target's
-    // own existing seat would otherwise cause a false "at limit" block.
+    // a billable role (anything but EMPLOYEE) who wasn't one already. A
+    // lateral move between two billable roles (e.g. SALES_REP -> CRM_MANAGER)
+    // doesn't change the billable headcount, so it must NOT be re-checked
+    // here — the target's own existing seat would otherwise cause a false
+    // "at limit" block.
     if (data.role && data.role !== target.role && !isMeteredRole(target.role)) {
       await assertSeatAvailable(req.user!.orgId, data.role);
     }
