@@ -37,8 +37,13 @@ async function main() {
   }
 
   // 1. ORGANISATION
+  // Enterprise, not Pro: this org is the showcase/demo login (see the
+  // printed credentials at the end of this script) — it should have every
+  // currently-gated feature unlocked (custom branding, full 50GB hosted
+  // storage quota, effectively-unlimited seats) so nothing looks paywalled
+  // when demoing to a prospective customer, locally or in production.
   const org = await prisma.organization.create({
-    data: { name: 'TechCorp Solutions', slug: 'techcorp', plan: 'PRO' },
+    data: { name: 'TechCorp Solutions', slug: 'techcorp', plan: 'ENTERPRISE' },
   });
   console.log('Org created:', org.name);
 
@@ -56,7 +61,7 @@ async function main() {
   await prisma.orgBranding.create({ data: { orgId: org.id, primaryColor: '#4F46E5', supportEmail: 'support@techcorp.io', portalTitle: 'TechCorp Support', portalWelcome: 'Welcome! Submit and track your IT requests here.' } });
 
   // 4. SUBSCRIPTION
-  await prisma.subscription.create({ data: { orgId: org.id, plan: 'PRO', status: 'active', seats: 25, currentPeriodEnd: daysFromNow(30) } });
+  await prisma.subscription.create({ data: { orgId: org.id, plan: 'ENTERPRISE', status: 'active', seats: 999, currentPeriodEnd: daysFromNow(30) } });
 
   // 5. TAGS
   const [tagVip, tagHot, tagEnterprise] = await Promise.all([
@@ -361,6 +366,7 @@ async function main() {
   console.log('    sales@crmitdesk.com       -> Sales Rep');
   console.log('    itmanager@crmitdesk.com   -> IT Manager');
   console.log('    itagent@crmitdesk.com     -> IT Agent');
+  console.log('  Plan: ENTERPRISE (every feature gate unlocked, 999 seats, 50GB hosted storage quota)');
   console.log('  Data: 8 contacts, 7 leads, 8 deals, 10 tickets, 10 assets, 6 articles');
   console.log('  Plus: workflows, campaigns, change requests, quotes, AI rules, inbox, CSAT');
 }
