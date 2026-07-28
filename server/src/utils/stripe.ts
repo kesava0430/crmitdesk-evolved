@@ -127,8 +127,20 @@ export function verifyStripeWebhook(payload: Buffer, signature: string): any {
 
 // ─── Plan config ─────────────────────────────────────────────────────────────
 
+// Feature keys gated by plan (see utils/licensing.ts requireFeature()).
+// Deliberately coarse-grained: 25+ distinct AI endpoints all fall under the
+// single 'ai_advanced' key rather than per-endpoint keys, since the actual
+// business decision was binary (Free gets core lead-scoring/ticket-sentiment/
+// auto-routing/auto-tagging; everything else AI-related is Pro+), not a
+// per-feature matrix. Lead scoring, ticket sentiment, auto-routing, and
+// auto-tagging are NOT listed here because they're free on every plan and
+// have no gate at all.
+export type FeatureKey = 'ai_advanced' | 'workflow_automation' | 'customer_portal' | 'advanced_analytics' | 'custom_branding';
+
 export const PLANS = {
-  FREE:       { name: 'Free',       seats: 5,   price: 0,    priceId: null },
-  PRO:        { name: 'Pro',        seats: 25,  price: 49,   priceId: process.env.STRIPE_PRO_PRICE_ID || '' },
-  ENTERPRISE: { name: 'Enterprise', seats: 999, price: 149,  priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || '' },
+  FREE:       { name: 'Free',       seats: 5,   price: 0,    priceId: null, features: [] as FeatureKey[] },
+  PRO:        { name: 'Pro',        seats: 25,  price: 49,   priceId: process.env.STRIPE_PRO_PRICE_ID || '',
+    features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics'] as FeatureKey[] },
+  ENTERPRISE: { name: 'Enterprise', seats: 999, price: 149,  priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
+    features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding'] as FeatureKey[] },
 } as const;

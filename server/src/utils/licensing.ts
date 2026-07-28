@@ -1,5 +1,8 @@
+import { Response, NextFunction } from 'express';
 import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
+import { AuthRequest } from '../middleware/authenticate';
+import { PLANS, FeatureKey } from './stripe';
 
 // Every internal role counts against a plan's seat limit EXCEPT plain
 // EMPLOYEE — those are staff who just submit requests internally (not
@@ -22,6 +25,13 @@ async function getOrCreateSubscription(orgId: string) {
   });
 }
 
+/** Active users whose role counts against the seat limit (everything but EMPLOYEE). */
+export async function getBillableSeatCount(orgId: string): Promise<number> {
+  return prisma.user.count({
+    where: { orgId, isActive: true, role: { not: 'EMPLOYEE' } },
+  });
+}
+
 /**
  * Throws AppError(402) if adding one more billable-role user (anything
  * other than EMPLOYEE) would exceed the org's plan seat limit. No-op for
@@ -32,13 +42,6 @@ async function getOrCreateSubscription(orgId: string) {
  * (grandfathered in place); this check only blocks *new* billable seats
  * once the org is at or over its limit.
  */
-/** Active users whose role counts against the seat limit (everything but EMPLOYEE). */
-export async function getBillableSeatCount(orgId: string): Promise<number> {
-  return prisma.user.count({
-    where: { orgId, isActive: true, role: { not: 'EMPLOYEE' } },
-  });
-}
-
 export async function assertSeatAvailable(orgId: string, role: string): Promise<void> {
   if (!isMeteredRole(role)) return;
 
@@ -53,4 +56,39 @@ export async function assertSeatAvailable(orgId: string, role: string): Promise<
       `Upgrade your plan to add more people.`
     );
   }
+}
+
+// ─── Feature gating ──────────────────────────────────────────────────────────
+//
+// Coarse-grained on purpose — see the FeatureKey comment in utils/stripe.ts.
+// A plan value that isn't a known key in PLANS (e.g. a future CUSTOM tier,
+// before it has real feature config) fails safe to "no gated features"
+// rather than throwing, so an unrecognized plan blocks access to Pro+
+// features instead of accidentally granting them.
+
+function planFeatures(plan: string): FeatureKey[] {
+  return (PLANS as Record<string, { features: readonly FeatureKey[] }>)[plan]?.features as FeatureKey[] || [];
+}
+
+export async function hasFeature(orgId: string, feature: FeatureKey): Promise<boolean> {
+  const sub = await getOrCreateSubscription(orgId);
+  return planFeatures(sub.plan).includes(feature);
+}
+
+/** Express middleware factory — 402s with an upgrade message if the org's
+ * plan doesn't include `feature`. Mirrors requireRole()'s call shape
+ * (middleware/authenticate.ts) so route tables read consistently. */
+export function requireFeature(feature: FeatureKey) {
+  return async (req: AuthRequest, _res: Response, next: NextFunction) => {
+    try {
+      const sub = await getOrCreateSubscription(req.user!.orgId);
+      if (!planFeatures(sub.plan).includes(feature)) {
+        throw new AppError(
+          402,
+          `This feature isn't included in your ${sub.plan} plan. Upgrade your plan to unlock it.`
+        );
+      }
+      next();
+    } catch (err) { next(err); }
+  };
 }

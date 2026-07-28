@@ -5,6 +5,7 @@ import { authenticate, requireRole, AuthRequest,
 import * as ai from './ai.controller';
 import * as studio from './aiStudio.controller';
 import { recordUsage } from '../../utils/usageTracking';
+import { requireFeature } from '../../utils/licensing';
 
 export const aiRouter = Router();
 aiRouter.use(authenticate);
@@ -20,77 +21,88 @@ function trackAiCall(req: AuthRequest, _res: Response, next: NextFunction) {
   next();
 }
 
+// Feature-gated to Pro/Enterprise (utils/licensing.ts requireFeature). Free
+// keeps exactly four capabilities ungated below: lead scoring, ticket
+// sentiment, auto-routing, and auto-tagging — everything else AI-related
+// requires the 'ai_advanced' feature. Placed after requireRole so a 403
+// (wrong role) always wins over a 402 (wrong plan) when both would apply.
+const aiAdvanced = requireFeature('ai_advanced');
+
 // ── CRM AI (leads, deals, contacts) ──────────────────────────────────────────
-aiRouter.post('/lead/:id/score',           requireRole(...CRM_STAFF),    trackAiCall, ai.scoreLeadHandler);
-aiRouter.post('/lead/:id/follow-up',       requireRole(...CRM_STAFF),    trackAiCall, ai.leadFollowUpHandler);
-aiRouter.post('/lead/:id/nurture-sequence',requireRole(...CRM_STAFF),    trackAiCall, ai.nurtureSequenceHandler);
-aiRouter.post('/deal/:id/follow-up',       requireRole(...CRM_STAFF),    trackAiCall, ai.dealFollowUpHandler);
-aiRouter.post('/deal/:id/win-probability', requireRole(...CRM_STAFF),    trackAiCall, ai.winProbabilityHandler);
-aiRouter.post('/deal/:id/close-date',      requireRole(...CRM_STAFF),    trackAiCall, ai.dealCloseDateHandler);
-aiRouter.post('/pipeline/health',          requireRole(...CRM_MANAGERS), trackAiCall, ai.pipelineHealthHandler);
-aiRouter.post('/contact/:id/churn-risk',   requireRole(...CRM_STAFF),    trackAiCall, ai.churnRiskHandler);
-aiRouter.post('/contact/:id/health',       requireRole(...CRM_STAFF),    trackAiCall, ai.contactHealthHandler);
-aiRouter.post('/detect-competitors',       requireRole(...CRM_STAFF),    trackAiCall, ai.competitorDetectHandler);
-aiRouter.post('/leads/bulk-score',         requireRole(...CRM_MANAGERS), trackAiCall, ai.bulkScoreHandler);
+aiRouter.post('/lead/:id/score',           requireRole(...CRM_STAFF),    trackAiCall, ai.scoreLeadHandler); // Free
+aiRouter.post('/lead/:id/follow-up',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.leadFollowUpHandler);
+aiRouter.post('/lead/:id/nurture-sequence',requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.nurtureSequenceHandler);
+aiRouter.post('/deal/:id/follow-up',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.dealFollowUpHandler);
+aiRouter.post('/deal/:id/win-probability', requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.winProbabilityHandler);
+aiRouter.post('/deal/:id/close-date',      requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.dealCloseDateHandler);
+aiRouter.post('/pipeline/health',          requireRole(...CRM_MANAGERS), aiAdvanced, trackAiCall, ai.pipelineHealthHandler);
+aiRouter.post('/contact/:id/churn-risk',   requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.churnRiskHandler);
+aiRouter.post('/contact/:id/health',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.contactHealthHandler);
+aiRouter.post('/detect-competitors',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.competitorDetectHandler);
+aiRouter.post('/leads/bulk-score',         requireRole(...CRM_MANAGERS), aiAdvanced, trackAiCall, ai.bulkScoreHandler);
 
 // ── IT Desk AI (tickets) ─────────────────────────────────────────────────────
-aiRouter.post('/ticket/:id/sentiment',     requireRole(...IT_STAFF),     trackAiCall, ai.ticketSentimentHandler);
-aiRouter.post('/ticket/:id/reply',         requireRole(...IT_STAFF),     trackAiCall, ai.ticketReplyHandler);
-aiRouter.post('/ticket/:id/auto-route',    requireRole(...IT_STAFF),     trackAiCall, ai.autoRouteHandler);
-aiRouter.post('/ticket/check-duplicate',   requireRole(...IT_STAFF),     trackAiCall, ai.duplicateDetectHandler);
-aiRouter.post('/ticket/:id/kb-article',    requireRole(...IT_STAFF),     trackAiCall, ai.kbArticleHandler);
-aiRouter.post('/ticket/:id/summarize',     requireRole(...IT_STAFF),     trackAiCall, ai.summarizeHandler);
-aiRouter.post('/ticket/:id/estimate',      requireRole(...IT_STAFF),     trackAiCall, ai.estimateHandler);
-aiRouter.post('/ticket/:id/sla-risk',      requireRole(...IT_STAFF),     trackAiCall, ai.slaRiskHandler);
-aiRouter.post('/ticket/:id/auto-tag',      requireRole(...IT_STAFF),     trackAiCall, ai.autoTagHandler);
+aiRouter.post('/ticket/:id/sentiment',     requireRole(...IT_STAFF),     trackAiCall, ai.ticketSentimentHandler); // Free
+aiRouter.post('/ticket/:id/reply',         requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.ticketReplyHandler);
+aiRouter.post('/ticket/:id/auto-route',    requireRole(...IT_STAFF),     trackAiCall, ai.autoRouteHandler); // Free
+aiRouter.post('/ticket/check-duplicate',   requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.duplicateDetectHandler);
+aiRouter.post('/ticket/:id/kb-article',    requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.kbArticleHandler);
+aiRouter.post('/ticket/:id/summarize',     requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.summarizeHandler);
+aiRouter.post('/ticket/:id/estimate',      requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.estimateHandler);
+aiRouter.post('/ticket/:id/sla-risk',      requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.slaRiskHandler);
+aiRouter.post('/ticket/:id/auto-tag',      requireRole(...IT_STAFF),     trackAiCall, ai.autoTagHandler); // Free
 
 // ── Cross-functional AI ───────────────────────────────────────────────────────
-aiRouter.post('/query',          requireRole(...MANAGERS),   trackAiCall, ai.nlQueryHandler);   // dashboard NL query
-aiRouter.post('/insights',       requireRole(...MANAGERS),   trackAiCall, ai.insightsHandler);  // proactive insights
-aiRouter.post('/meeting-notes',  requireRole(...ALL_STAFF),  trackAiCall, ai.meetingNotesHandler);
-aiRouter.post('/tone-check',     requireRole(...ALL_STAFF),  trackAiCall, ai.toneCheckHandler);
-aiRouter.post('/command',        requireRole(...ALL_STAFF),  trackAiCall, ai.nlCommandHandler);
+aiRouter.post('/query',          requireRole(...MANAGERS),   aiAdvanced, trackAiCall, ai.nlQueryHandler);   // dashboard NL query
+aiRouter.post('/insights',       requireRole(...MANAGERS),   aiAdvanced, trackAiCall, ai.insightsHandler);  // proactive insights
+aiRouter.post('/meeting-notes',  requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.meetingNotesHandler);
+aiRouter.post('/tone-check',     requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.toneCheckHandler);
+aiRouter.post('/command',        requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.nlCommandHandler);
 
 // ── AI Actions (whitelisted "do it for me" commands) ─────────────────────────
 // Route-level gate is just "must be staff" — the real, per-action role check
 // happens inside executeActionHandler against each action's own allowedRoles.
 // Both tracked: plan always calls the LLM to parse the command, and most
 // whitelisted actions execute() calls also go through AI helpers.
-aiRouter.post('/actions/plan',    requireRole(...ALL_STAFF), trackAiCall, ai.planActionHandler);
-aiRouter.post('/actions/execute', requireRole(...ALL_STAFF), trackAiCall, ai.executeActionHandler);
+aiRouter.post('/actions/plan',    requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.planActionHandler);
+aiRouter.post('/actions/execute', requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.executeActionHandler);
 
 // ── AI Feature Builder (custom rules) ────────────────────────────────────────
+// List stays open (grandfathered rules from a since-downgraded plan remain
+// visible/readable); creating, editing, deleting, or running one is gated.
 aiRouter.get('/rules',           requireRole(...MANAGERS),   ai.listAIRulesHandler);
-aiRouter.post('/rules',          requireRole(...MANAGERS),   ai.createAIRuleHandler);
-aiRouter.patch('/rules/:id',     requireRole(...MANAGERS),   ai.updateAIRuleHandler);
-aiRouter.delete('/rules/:id',    requireRole(...MANAGERS),   ai.deleteAIRuleHandler);
-aiRouter.post('/rules/:id/run',  requireRole(...ALL_STAFF),  trackAiCall, ai.runAIRuleHandler);
+aiRouter.post('/rules',          requireRole(...MANAGERS),   aiAdvanced, ai.createAIRuleHandler);
+aiRouter.patch('/rules/:id',     requireRole(...MANAGERS),   aiAdvanced, ai.updateAIRuleHandler);
+aiRouter.delete('/rules/:id',    requireRole(...MANAGERS),   ai.deleteAIRuleHandler); // deleting/turning off is never gated
+aiRouter.post('/rules/:id/run',  requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.runAIRuleHandler);
 
 // ── AI Studio ─────────────────────────────────────────────────────────────────
-// Business Context
+// Business Context — reads stay open (harmless/already-applied config);
+// only writing new context is gated.
 aiRouter.get('/studio/context',              requireRole(...MANAGERS),  studio.getBusinessContext);
-aiRouter.put('/studio/context',              requireRole(...MANAGERS),  studio.upsertBusinessContext);
+aiRouter.put('/studio/context',              requireRole(...MANAGERS),  aiAdvanced, studio.upsertBusinessContext);
 // Narrower than /studio/context — ALL_STAFF, not just MANAGERS, since
 // relabeled terminology needs to render for every staff member who sees
-// that entity, not just whoever configured it.
+// that entity, not just whoever configured it. Never gated: a downgraded
+// org's staff should keep seeing whatever terminology was already applied.
 aiRouter.get('/studio/labels',               requireRole(...ALL_STAFF), studio.getLabelOverrides);
 
 // Custom AI Functions
 aiRouter.get('/studio/functions',            requireRole(...MANAGERS),  studio.listFunctions);
-aiRouter.post('/studio/functions',           requireRole(...MANAGERS),  studio.createFunction);
-aiRouter.patch('/studio/functions/:id',      requireRole(...MANAGERS),  studio.updateFunction);
+aiRouter.post('/studio/functions',           requireRole(...MANAGERS),  aiAdvanced, studio.createFunction);
+aiRouter.patch('/studio/functions/:id',      requireRole(...MANAGERS),  aiAdvanced, studio.updateFunction);
 aiRouter.delete('/studio/functions/:id',     requireRole(...MANAGERS),  studio.deleteFunction);
-aiRouter.post('/studio/functions/:id/run',   requireRole(...ALL_STAFF), trackAiCall, studio.runFunction);
+aiRouter.post('/studio/functions/:id/run',   requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, studio.runFunction);
 
 // Custom Scripts
 aiRouter.get('/studio/scripts',              requireRole(...MANAGERS),  studio.listScripts);
-aiRouter.post('/studio/scripts',             requireRole(...MANAGERS),  studio.createScript);
-aiRouter.patch('/studio/scripts/:id',        requireRole(...MANAGERS),  studio.updateScript);
+aiRouter.post('/studio/scripts',             requireRole(...MANAGERS),  aiAdvanced, studio.createScript);
+aiRouter.patch('/studio/scripts/:id',        requireRole(...MANAGERS),  aiAdvanced, studio.updateScript);
 aiRouter.delete('/studio/scripts/:id',       requireRole(...MANAGERS),  studio.deleteScript);
-aiRouter.post('/studio/scripts/validate',    requireRole(...MANAGERS),  studio.validateScript);
+aiRouter.post('/studio/scripts/validate',    requireRole(...MANAGERS),  aiAdvanced, studio.validateScript);
 
 // AI Setup Generator — propose (plan) then apply (confirm), same pattern as
 // AI Actions above. generateSetup never writes; applySetup is the only one
 // that persists label overrides / creates workflow rules.
-aiRouter.post('/studio/generate-setup',      requireRole(...MANAGERS),  trackAiCall, studio.generateSetup);
-aiRouter.post('/studio/apply-setup',         requireRole(...MANAGERS),  studio.applySetup);
+aiRouter.post('/studio/generate-setup',      requireRole(...MANAGERS),  aiAdvanced, trackAiCall, studio.generateSetup);
+aiRouter.post('/studio/apply-setup',         requireRole(...MANAGERS),  aiAdvanced, studio.applySetup);
