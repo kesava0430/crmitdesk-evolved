@@ -16,4 +16,5 @@ storageRouter.use(authenticate);
 // decision, same level as billing.
 storageRouter.get('/status',           requireRole(...MANAGERS), c.getStatus);
 storageRouter.get('/google/connect',   requireRole(...ADMIN),    c.connectGoogleDrive);
+storageRouter.post('/hosted/connect',  requireRole(...ADMIN),    c.connectHosted);
 storageRouter.delete('/',              requireRole(...ADMIN),    c.disconnect);

@@ -208,12 +208,17 @@ model Attachment {
 model StorageConfig {
   id                String       @id @default(cuid())
   orgId             String       @unique @map("org_id")
+  // 'GOOGLE_DRIVE' (bring-your-own, OAuth) or 'HOSTED_S3' (we host it,
+  // requires a paid plan with a storage quota — see PLANS.storageQuotaGB
+  // in utils/stripe.ts). The five fields below are OAuth-only and stay
+  // null for HOSTED_S3, which has no per-org connection details — just a
+  // shared bucket keyed by orgId (see utils/s3Storage.ts).
   provider          String       @default("GOOGLE_DRIVE") @map("provider")
-  accessToken       String       @map("access_token")
-  refreshToken      String       @map("refresh_token")
-  tokenExpiresAt    DateTime     @map("token_expires_at")
-  rootFolderId      String       @map("root_folder_id")
-  connectedEmail    String       @map("connected_email")
+  accessToken       String?      @map("access_token")
+  refreshToken      String?      @map("refresh_token")
+  tokenExpiresAt    DateTime?    @map("token_expires_at")
+  rootFolderId      String?      @map("root_folder_id")
+  connectedEmail    String?      @map("connected_email")
   connectedByUserId String       @map("connected_by_user_id")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")

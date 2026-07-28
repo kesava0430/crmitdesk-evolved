@@ -92,3 +92,65 @@ export function requireFeature(feature: FeatureKey) {
     } catch (err) { next(err); }
   };
 }
+
+// ─── Hosted storage quota ─────────────────────────────────────────────────
+//
+// Separate from the seat/feature checks above: this gates the "use our
+// hosted storage" option in Settings → Storage (utils/s3Storage.ts), an
+// alternative to bring-your-own Google Drive. Same fail-safe-to-0 pattern
+// as planFeatures() for an unrecognized plan value.
+
+function planStorageQuotaGB(plan: string): number {
+  return (PLANS as Record<string, { storageQuotaGB: number }>)[plan]?.storageQuotaGB ?? 0;
+}
+
+export async function getStorageQuotaBytes(orgId: string): Promise<number> {
+  const sub = await getOrCreateSubscription(orgId);
+  return planStorageQuotaGB(sub.plan) * 1024 * 1024 * 1024;
+}
+
+/** Sums fileSize across every attachment this org has stored in OUR bucket
+ * (provider === 'HOSTED_S3'). Computed on the fly rather than a running
+ * counter, so it can never drift out of sync with what's actually stored —
+ * a delete always reflects immediately. Google Drive attachments don't
+ * count here at all; that storage is the customer's own, not ours. */
+// Attachment has no direct orgId column (it's polymorphic — see
+// utils/entityAccess.ts) — but every attachment stored under HOSTED_S3 was
+// necessarily uploaded by this org (storage.ts only ever uploads to the
+// caller's own StorageConfig), so filtering by uploader.orgId is equivalent
+// and avoids a join through nine different entity tables.
+export async function getHostedStorageUsageBytes(orgId: string): Promise<number> {
+  const result = await prisma.attachment.aggregate({
+    where: { provider: 'HOSTED_S3', uploader: { orgId } },
+    _sum: { fileSize: true },
+  });
+  return result._sum.fileSize ?? 0;
+}
+
+/**
+ * Throws AppError(402) before an upload would push the org over its plan's
+ * hosted-storage quota (or if the plan doesn't include hosted storage at
+ * all, i.e. quota is 0 — FREE orgs must use their own Google Drive).
+ * `additionalBytes` is the size of the file about to be uploaded.
+ */
+export async function assertHostedStorageAvailable(orgId: string, additionalBytes: number): Promise<void> {
+  const sub = await getOrCreateSubscription(orgId);
+  const quotaBytes = await getStorageQuotaBytes(orgId);
+
+  if (quotaBytes === 0) {
+    throw new AppError(
+      402,
+      `Hosted storage isn't included in your ${sub.plan} plan — connect your own Google Drive in Settings → Storage instead, or upgrade to Pro for 5GB of hosted storage.`
+    );
+  }
+
+  const usedBytes = await getHostedStorageUsageBytes(orgId);
+  if (usedBytes + additionalBytes > quotaBytes) {
+    const usedGB = (usedBytes / (1024 * 1024 * 1024)).toFixed(2);
+    const quotaGB = (quotaBytes / (1024 * 1024 * 1024)).toFixed(0);
+    throw new AppError(
+      402,
+      `This upload would exceed your ${sub.plan} plan's ${quotaGB}GB hosted storage quota (${usedGB}GB used). Delete some files, switch to your own Google Drive, or upgrade your plan.`
+    );
+  }
+}

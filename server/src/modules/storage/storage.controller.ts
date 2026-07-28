@@ -5,6 +5,8 @@ import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { encryptSecret } from '../../utils/crypto';
 import * as googleDrive from '../../utils/googleDrive';
+import * as s3Storage from '../../utils/s3Storage';
+import { getStorageQuotaBytes, getHostedStorageUsageBytes } from '../../utils/licensing';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 // The backend's own public URL — Google redirects the browser straight back
@@ -23,13 +25,26 @@ interface OAuthState {
 // GET /api/storage/status
 export async function getStatus(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const config = await prisma.storageConfig.findUnique({ where: { orgId: req.user!.orgId } });
+    const orgId = req.user!.orgId;
+    const config = await prisma.storageConfig.findUnique({ where: { orgId } });
+    const quotaBytes = await getStorageQuotaBytes(orgId);
+    const usedBytes = quotaBytes > 0 ? await getHostedStorageUsageBytes(orgId) : 0;
+
     res.json({
       configured: googleDrive.isGoogleDriveConfigured(),
       connected: !!config,
       provider: config?.provider || null,
       connectedEmail: config?.connectedEmail || null,
       connectedAt: config?.createdAt || null,
+      hosted: {
+        // Whether THIS deployment has S3 credentials set at all (an admin
+        // hasn't configured GOOGLE_CLIENT_ID-equivalent env vars yet).
+        available: s3Storage.isS3Configured(),
+        // Whether the org's PLAN includes any hosted storage at all — 0 on
+        // Free, so those orgs only ever see the BYO-Drive option.
+        quotaBytes,
+        usedBytes,
+      },
     });
   } catch (err) { next(err); }
 }
@@ -108,6 +123,45 @@ export async function googleCallback(req: AuthRequest, res: Response, next: Next
   } catch (err: any) {
     res.redirect(`${FRONTEND_URL}/storage?error=${encodeURIComponent(err.message || 'Connection failed')}`);
   }
+}
+
+// POST /api/storage/hosted/connect — switches the org to our hosted (S3)
+// storage instead of Google Drive. No OAuth involved: just checks the
+// plan's quota is non-zero and this deployment has S3 credentials set, then
+// upserts a StorageConfig row with every Drive-only field left null. Any
+// files already uploaded under a previous provider are unaffected — this
+// only changes where NEW uploads go.
+export async function connectHosted(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (!s3Storage.isS3Configured()) {
+      throw new AppError(400, 'Hosted storage isn’t configured on this deployment yet (missing S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY).');
+    }
+    const orgId = req.user!.orgId;
+    const quotaBytes = await getStorageQuotaBytes(orgId);
+    if (quotaBytes === 0) {
+      throw new AppError(402, 'Hosted storage isn’t included in your current plan. Upgrade to Pro or Enterprise, or connect your own Google Drive instead.');
+    }
+
+    await prisma.storageConfig.upsert({
+      where: { orgId },
+      create: {
+        orgId,
+        provider: 'HOSTED_S3',
+        connectedByUserId: req.user!.id,
+      },
+      update: {
+        provider: 'HOSTED_S3',
+        accessToken: null,
+        refreshToken: null,
+        tokenExpiresAt: null,
+        rootFolderId: null,
+        connectedEmail: null,
+        connectedByUserId: req.user!.id,
+      },
+    });
+
+    res.json({ message: 'Hosted storage connected. New attachments will upload here.' });
+  } catch (err) { next(err); }
 }
 
 // DELETE /api/storage

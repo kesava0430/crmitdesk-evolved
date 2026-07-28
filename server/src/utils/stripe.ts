@@ -137,10 +137,16 @@ export function verifyStripeWebhook(payload: Buffer, signature: string): any {
 // have no gate at all.
 export type FeatureKey = 'ai_advanced' | 'workflow_automation' | 'customer_portal' | 'advanced_analytics' | 'custom_branding';
 
+// storageQuotaGB is how much of OUR storage (the "use our hosted storage"
+// option in Settings → Storage, utils/s3Storage.ts) each plan gets, in
+// gigabytes. 0 means the plan can't use it at all — those orgs must bring
+// their own Google Drive instead, which costs us nothing. This is entirely
+// separate from BYO-Drive, which has no quota on any plan since it's the
+// customer's own storage.
 export const PLANS = {
-  FREE:       { name: 'Free',       seats: 5,   price: 0,    priceId: null, features: [] as FeatureKey[] },
+  FREE:       { name: 'Free',       seats: 5,   price: 0,    priceId: null, features: [] as FeatureKey[], storageQuotaGB: 0 },
   PRO:        { name: 'Pro',        seats: 25,  price: 49,   priceId: process.env.STRIPE_PRO_PRICE_ID || '',
-    features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics'] as FeatureKey[] },
+    features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics'] as FeatureKey[], storageQuotaGB: 5 },
   ENTERPRISE: { name: 'Enterprise', seats: 999, price: 149,  priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
-    features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding'] as FeatureKey[] },
+    features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding'] as FeatureKey[], storageQuotaGB: 50 },
 } as const;
