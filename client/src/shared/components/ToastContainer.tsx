@@ -28,7 +28,14 @@ export function ToastContainer() {
             {/* colour bar on left */}
             <span className={`absolute left-0 top-0 bottom-0 w-1 ${bar} rounded-l-lg`} />
             <span className="shrink-0 mt-0.5 ml-2">{icon}</span>
-            <p className="text-sm flex-1 leading-snug">{t.message}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm leading-snug">{t.message}</p>
+              {t.actionHref && (
+                <a href={t.actionHref} className="inline-block mt-1 text-sm font-semibold underline underline-offset-2 hover:opacity-80">
+                  {t.actionLabel || 'View'}
+                </a>
+              )}
+            </div>
             <button
               onClick={() => removeToast(t.id)}
               className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"

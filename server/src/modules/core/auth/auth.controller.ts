@@ -10,6 +10,7 @@ import { AuthRequest } from '../../../middleware/authenticate';
 import { logAction } from '../../../utils/auditLog';
 import { verifyTotpLogin } from '../../totp/totp.controller';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
+import { assertSeatAvailable } from '../../../utils/licensing';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -134,10 +135,13 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       });
     }
 
+    // Fire-and-forget — the request is already durably saved above; the
+    // client shouldn't hang waiting on SMTP (same pattern as ticket/deal
+    // notification emails elsewhere in this codebase).
     const approveLink = `${FRONTEND_URL}/approve-org?token=${token}`;
-    await sendMail(emailTemplates.orgSignupRequest(ADMIN_NOTIFY_EMAIL, {
+    sendMail(emailTemplates.orgSignupRequest(ADMIN_NOTIFY_EMAIL, {
       organizationName: data.organizationName, name: data.name, email: data.email,
-    }, approveLink));
+    }, approveLink)).catch(() => {});
 
     res.status(202).json({
       pending: true,
@@ -212,7 +216,7 @@ export async function approveOrgSignup(req: Request, res: Response, next: NextFu
       data: { status: 'APPROVED', decidedAt: new Date() },
     });
 
-    await sendMail(emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`));
+    sendMail(emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`)).catch(() => {});
 
     res.json({ status: 'APPROVED', org: { id: org.id, name: org.name, slug: org.slug } });
   } catch (err) { next(err); }
@@ -273,6 +277,11 @@ export async function acceptInvite(req: Request, res: Response, next: NextFuncti
 
     const existing = await prisma.user.findUnique({ where: { email: invite.email } });
     if (existing) throw new AppError(409, 'Email already registered');
+
+    // Re-check the seat limit here too — seats can fill up in the gap between
+    // an invite being sent and it being accepted (e.g. several invites sent
+    // concurrently, or the org's plan got downgraded in the meantime).
+    await assertSeatAvailable(invite.orgId, invite.role);
 
     const passwordHash = await bcrypt.hash(data.password, 12);
     const user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {

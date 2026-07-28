@@ -57,6 +57,12 @@ api.interceptors.response.use(
       );
     } else if (status === 403) {
       addToast("You don't have permission to perform this action.", 'warning');
+    } else if (status === 402) {
+      addToast(serverMsg || "You've hit your plan's seat limit.", 'warning', {
+        duration: 10000,
+        actionLabel: 'Upgrade plan',
+        actionHref: '/billing',
+      });
     } else if (status === 409) {
       addToast(serverMsg || 'A conflict occurred — this item may already exist.', 'warning');
     } else if (status === 422) {

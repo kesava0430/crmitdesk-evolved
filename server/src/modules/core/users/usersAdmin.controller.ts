@@ -7,6 +7,7 @@ import { parsePagination, paginate } from '../../../utils/pagination';
 import { sendMail } from '../../../utils/mailer';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
+import { assertSeatAvailable, isMeteredRole } from '../../../utils/licensing';
 
 // phone is preprocessed so an empty string (the form's untouched default)
 // doesn't get stored as '' — the WhatsApp "assignee" recipient resolver
@@ -59,6 +60,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     const data = CreateSchema.parse(req.body);
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new AppError(409, 'Email already registered');
+    await assertSeatAvailable(req.user!.orgId, data.role);
     // Destructure password out so it is not spread into the Prisma create call
     // (the User model has `passwordHash`, not `password`)
     const { password, ...rest } = data;
@@ -72,6 +74,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 export async function invite(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { email, role } = InviteSchema.parse(req.body);
+    await assertSeatAvailable(req.user!.orgId, role);
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
@@ -107,6 +110,14 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     // Ensure target user is in same org
     const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!target) throw new AppError(404, 'User not found');
+    // Only re-check the seat limit if this update actually turns someone INTO
+    // a metered technician role who wasn't one already. A lateral move between
+    // the two metered roles (IT_MANAGER <-> IT_AGENT) doesn't change the
+    // technician headcount, so it must NOT be re-checked here — the target's
+    // own existing seat would otherwise cause a false "at limit" block.
+    if (data.role && data.role !== target.role && !isMeteredRole(target.role)) {
+      await assertSeatAvailable(req.user!.orgId, data.role);
+    }
     const user = await prisma.user.update({ where: { id: req.params.id }, data, select });
     res.json(user);
   } catch (err) { next(err); }

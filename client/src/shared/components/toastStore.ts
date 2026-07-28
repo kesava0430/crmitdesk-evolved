@@ -6,6 +6,8 @@ export interface Toast {
   id: string;
   message: string;
   type: ToastType;
+  actionLabel?: string;
+  actionHref?: string;
 }
 
 type Listener = (toasts: Toast[]) => void;
@@ -18,9 +20,17 @@ function notify() {
   listeners.forEach(l => l(snapshot));
 }
 
-export function addToast(message: string, type: ToastType = 'error', duration = 6000): string {
+export interface ToastOptions {
+  duration?: number;
+  actionLabel?: string;
+  actionHref?: string;
+}
+
+export function addToast(message: string, type: ToastType = 'error', durationOrOptions: number | ToastOptions = 6000): string {
+  const opts: ToastOptions = typeof durationOrOptions === 'number' ? { duration: durationOrOptions } : durationOrOptions;
+  const duration = opts.duration ?? 6000;
   const id = Math.random().toString(36).slice(2, 9);
-  toasts = [...toasts, { id, message, type }];
+  toasts = [...toasts, { id, message, type, actionLabel: opts.actionLabel, actionHref: opts.actionHref }];
   notify();
   if (duration > 0) setTimeout(() => removeToast(id), duration);
   return id;
