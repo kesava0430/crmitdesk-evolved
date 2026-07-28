@@ -1,13 +1,13 @@
-import { useState } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Sparkles, Activity, Copy, Check, Mail } from 'lucide-react';
-import { usePipeline, useCreateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
+import { useEffect, useState } from 'react';
+import { TrendingUp, Plus, Trash2, DollarSign, Sparkles, Activity, Copy, Check, Mail, Pencil } from 'lucide-react';
+import { usePipeline, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
 import { useContacts, useAccounts } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
 import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } from '../../../api/ai';
 import { PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
-import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
+import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useLabels } from '../../../hooks/useLabels';
 
 const STAGE_COLORS: Record<string, string> = {
@@ -21,9 +21,13 @@ const STAGE_HEADER: Record<string, string> = {
   Prospecting: 'bg-gray-500', Proposal: 'bg-blue-500', Negotiation: 'bg-yellow-500', Won: 'bg-green-500', Lost: 'bg-red-500',
 };
 
-function DealForm({ initial, contacts, accounts, users, stages, onSubmit, loading }: any) {
+function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading }: any) {
   const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '' });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const { data: existingValues } = useCustomFieldValues(entityId);
+  useEffect(() => {
+    if (existingValues) setCustomValues(fromValueRecords(existingValues));
+  }, [existingValues]);
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
   const { entityLabel, fieldLabel } = useLabels();
   const singular = entityLabel('deal', 'singular', 'Deal');
@@ -34,13 +38,15 @@ function DealForm({ initial, contacts, accounts, users, stages, onSubmit, loadin
   const valueLabel = fieldLabel('deal', 'value', 'Value ($)');
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, value: Number(form.value), probability: Number(form.probability), __customFieldValues: customValues }); }} className="space-y-3">
-      <RecordTemplatePicker
-        entityType="DEAL"
-        onApply={t => {
-          setForm((p: any) => ({ ...p, ...t.fieldValues }));
-          if (t.customFieldValues) setCustomValues(p => ({ ...p, ...t.customFieldValues as Record<string, string> }));
-        }}
-      />
+      {!initial && (
+        <RecordTemplatePicker
+          entityType="DEAL"
+          onApply={t => {
+            setForm((p: any) => ({ ...p, ...t.fieldValues }));
+            if (t.customFieldValues) setCustomValues(p => ({ ...p, ...t.customFieldValues as Record<string, string> }));
+          }}
+        />
+      )}
       <div className="form-section">
         <p className="form-section-title">{singular} Information</p>
         <div className="space-y-4">
@@ -283,6 +289,7 @@ function PipelineHealthModal({ open, onClose }: { open: boolean; onClose: () => 
 export function DealsPage() {
   const [modal, setModal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<any>(null);
+  const [editingDeal, setEditingDeal] = useState<any>(null);
   const [view, setView] = useState<'kanban' | 'reports'>('kanban');
   const [pipelineHealthOpen, setPipelineHealthOpen] = useState(false);
   const { data: pipelineData, isLoading } = usePipeline();
@@ -291,6 +298,7 @@ export function DealsPage() {
   const { data: accounts } = useAccounts();
   const { data: users } = useUsers();
   const create = useCreateDeal();
+  const update = useUpdateDeal();
   const moveStage = useMoveDealStage();
   const del = useDeleteDeal();
   const saveCustomFields = useSaveCustomFieldValues();
@@ -376,23 +384,42 @@ export function DealsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title={`New ${pageSingular}`} size="lg">
+      <Modal open={modal || !!editingDeal} onClose={() => { setModal(false); setEditingDeal(null); }} title={editingDeal ? `Edit ${pageSingular}` : `New ${pageSingular}`} size="lg">
         <DealForm contacts={contacts} accounts={accounts} users={users} stages={stages}
+          initial={editingDeal ? {
+            title: editingDeal.title,
+            value: editingDeal.value,
+            stage: editingDeal.stage,
+            probability: editingDeal.probability,
+            closeDate: editingDeal.closeDate ? editingDeal.closeDate.split('T')[0] : '',
+            contactId: editingDeal.contactId ?? editingDeal.contact?.id ?? '',
+            accountId: editingDeal.accountId ?? editingDeal.account?.id ?? '',
+            assignedTo: editingDeal.assignedTo ?? editingDeal.assignee?.id ?? '',
+          } : null}
+          entityId={editingDeal?.id}
           onSubmit={async (form: any) => {
             const { __customFieldValues, ...rest } = form;
-            const created = await create.mutateAsync(rest);
+            const saved = editingDeal
+              ? await update.mutateAsync({ id: editingDeal.id, ...rest })
+              : await create.mutateAsync(rest);
             if (__customFieldValues && dealFieldDefs?.length) {
               const values = toValuesPayload(dealFieldDefs, __customFieldValues);
-              if (values.length) await saveCustomFields.mutateAsync({ entityId: created.id, values });
+              if (values.length) await saveCustomFields.mutateAsync({ entityId: saved.id, values });
             }
             setModal(false);
+            setEditingDeal(null);
           }}
-          loading={create.isPending} />
+          loading={create.isPending || update.isPending} />
       </Modal>
 
       <Modal open={!!selectedDeal} onClose={() => setSelectedDeal(null)} title={selectedDeal?.title || ''} size="lg">
         {selectedDeal && (
           <div className="space-y-3">
+            <div className="flex justify-end">
+              <Button size="sm" variant="secondary" icon={<Pencil size={13} />} onClick={() => { setEditingDeal(selectedDeal); setSelectedDeal(null); }}>
+                Edit {pageSingular}
+              </Button>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Stage</p><p className="font-medium">{selectedDeal.stage}</p></div>
               <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Value</p><p className="font-medium text-green-600">${Number(selectedDeal.value).toLocaleString()}</p></div>
