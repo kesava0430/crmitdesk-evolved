@@ -6,6 +6,7 @@ import { useUsers } from '../../../api/users';
 import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } from '../../../api/ai';
 import { PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
+import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
 import { useLabels } from '../../../hooks/useLabels';
 
@@ -402,6 +403,7 @@ export function DealsPage() {
             <CustomFieldsDisplay entityType="DEAL" entityId={selectedDeal.id} card />
             <ScheduleReminderPanel entityType="DEAL" entityId={selectedDeal.id} />
             <Comments entityType="DEAL" entityId={selectedDeal.id} />
+            <Attachments entityType="DEAL" entityId={selectedDeal.id} />
           </div>
         )}
       </Modal>

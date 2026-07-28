@@ -9,6 +9,7 @@ import { useContact, useUpdateContact, useAccounts, useCreateActivity } from '..
 import { useChurnRisk } from '../../../api/ai';
 import { Badge, Button, Modal, Spinner, EmptyState, CustomFieldsDisplay, CustomFieldsFormFields } from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
+import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useEffect } from 'react';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -307,6 +308,7 @@ export function ContactDetailPage() {
 
           <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
             <Comments entityType="CONTACT" entityId={contact.id} />
+            <Attachments entityType="CONTACT" entityId={contact.id} />
           </div>
         </div>
       </div>

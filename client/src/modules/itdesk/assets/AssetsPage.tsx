@@ -6,6 +6,7 @@ import {
   Package, Wrench, Archive, Activity
 } from 'lucide-react';
 import { SearchableSelect, RowActions } from '../../../shared/components';
+import { Attachments } from '../../../shared/components/Attachments';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ function AssetModal({ asset, users, onClose }: {
               </div>
             </div>
           </div>
+          {asset && <Attachments entityType="ASSET" entityId={asset.id} />}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             <button type="submit" disabled={save.isPending} className="flex-1 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">

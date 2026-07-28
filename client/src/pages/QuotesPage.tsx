@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { RowActions, SearchableSelect } from '../shared/components';
+import { Attachments } from '../shared/components/Attachments';
 import { FileText, Plus, Pencil, Trash2, Send, CheckCircle, XCircle, DollarSign, LayoutTemplate } from 'lucide-react';
 import { useQuoteTemplates } from '../api/templates';
 
@@ -256,6 +257,8 @@ export default function QuotesPage() {
               </div>
 
               </div>
+
+              {editing && <Attachments entityType="QUOTE" entityId={editing.id} />}
 
               {/* Total */}
               <div className="flex justify-end pt-2 border-t border-gray-100">

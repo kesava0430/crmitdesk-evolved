@@ -6,6 +6,7 @@ import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, Sea
 import { leadStatusVariant } from '../../../shared/components/Badge';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useLabels } from '../../../hooks/useLabels';
+import { Attachments } from '../../../shared/components/Attachments';
 
 const STATUSES = ['NEW','CONTACTED','QUALIFIED','UNQUALIFIED','CONVERTED'];
 const SOURCES = ['Web','Referral','Cold Outreach','Event','Social Media','Other'];
@@ -76,6 +77,7 @@ function LeadForm({ initial, entityId, onSubmit, loading }: any) {
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
+      {entityId && <Attachments entityType="LEAD" entityId={entityId} />}
       <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button></div>
     </form>
   );

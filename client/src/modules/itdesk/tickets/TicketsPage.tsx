@@ -7,6 +7,7 @@ import { useTicketReply, useTicketSentiment, useSummarizeThread, useEstimateReso
 import { PageHeader, Button, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
 import { Comments } from '../../../shared/components/Comments';
+import { Attachments } from '../../../shared/components/Attachments';
 import { TimeTrackingPanel } from './TimeTrackingPanel';
 import { api } from '../../../api/client';
 import { ticketStatusVariant, priorityVariant } from '../../../shared/components/Badge';
@@ -323,6 +324,7 @@ function TicketDetailModal({ ticket, users }: any) {
       <TimeTrackingPanel ticketId={ticket.id} />
       <ScheduleReminderPanel entityType="TICKET" entityId={ticket.id} />
       <Comments entityType="TICKET" entityId={ticket.id} />
+      <Attachments entityType="TICKET" entityId={ticket.id} />
     </div>
   );
 }
