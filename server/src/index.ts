@@ -48,6 +48,8 @@ import { replyTemplatesRouter } from './modules/templates/replyTemplates.routes'
 import { emailTemplatesRouter } from './modules/templates/emailTemplates.routes';
 import { quoteTemplatesRouter } from './modules/templates/quoteTemplates.routes';
 import { schedulesRouter } from './modules/schedules/schedules.routes';
+import { storageRouter } from './modules/storage/storage.routes';
+import { attachmentsRouter } from './modules/attachments/attachments.routes';
 import { startSchedulePoller } from './utils/scheduler';
 import { syncAllEmailAccounts } from './utils/email-sync';
 import { errorHandler } from './middleware/errorHandler';
@@ -58,6 +60,16 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
+
+// Render (like most PaaS) sits the app behind a reverse proxy, which sets
+// X-Forwarded-For. Without telling Express to trust it, express-rate-limit
+// refuses to use that header at all — every request gets rate-limited as if
+// it came from the same IP (Render's proxy), and it throws/logs
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every single request. `1` trusts
+// exactly one hop (Render's own proxy), which is correct here — trusting
+// unlimited hops would let a client spoof X-Forwarded-For to dodge rate
+// limits entirely.
+app.set('trust proxy', 1);
 
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({
@@ -160,6 +172,8 @@ app.use('/api/templates/replies', replyTemplatesRouter);
 app.use('/api/templates/emails', emailTemplatesRouter);
 app.use('/api/templates/quotes', quoteTemplatesRouter);
 app.use('/api/schedules', schedulesRouter);
+app.use('/api/storage', storageRouter);
+app.use('/api/attachments', attachmentsRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);

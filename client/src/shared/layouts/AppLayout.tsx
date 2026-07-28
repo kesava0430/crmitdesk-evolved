@@ -6,7 +6,7 @@ import {
   Ticket, FolderTree, BookOpen, LogOut, Building2,
   BarChart2, UserCog, Inbox, Zap, Globe, CreditCard, Slack, Monitor,
   Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
-  FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate,
+  FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive,
 } from "lucide-react";
 import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -93,6 +93,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: "/slack",        label: "Slack",        icon: Slack,        roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
       { to: "/teams",        label: "Teams",        icon: MessageSquare, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
+      { to: "/storage",      label: "Storage",      icon: HardDrive,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/billing",      label: "Billing",      icon: CreditCard,   roles: ['SUPER_ADMIN'] },
       { to: "/security/2fa", label: "2FA Security", icon: Shield },
     ],
@@ -126,6 +127,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/api-keys":          "API Keys",
   "/slack":             "Slack Integration",
   "/teams":             "Microsoft Teams",
+  "/storage":           "Storage",
   "/billing":           "Billing",
   "/security/2fa":      "2FA Security",
   "/ai-builder":        "AI Feature Builder",

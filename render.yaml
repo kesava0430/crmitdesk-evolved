@@ -60,6 +60,11 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      # SMTP fallback (mailer.ts) — only reached when RESEND_API_KEY below is
+      # unset. Kept for local dev / a paid Render plan, but on THIS service's
+      # free plan Render blocks all outbound SMTP traffic (25/465/587)
+      # outright, so these alone won't actually deliver mail here — see
+      # RESEND_API_KEY.
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -69,6 +74,36 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: SMTP_FROM
+        sync: false
+      # Render's free web-service plan blocks outbound SMTP entirely — mail
+      # goes through Resend's HTTPS API instead (mailer.ts prefers this over
+      # SMTP whenever it's set). Get a key from resend.com, verify your
+      # sending domain there, then set this.
+      - key: RESEND_API_KEY
+        sync: false
+      # Optional — defaults to SMTP_FROM, then to Resend's shared test
+      # address if neither is set. Only needed if you want a different
+      # "from" identity for Resend specifically.
+      - key: RESEND_FROM
+        sync: false
+      # The backend's own public URL — used wherever the code needs to build
+      # a link back to itself rather than to the frontend: CSAT survey links
+      # (mailer.ts) and, now, the Google OAuth redirect_uri (storage.controller.ts)
+      # that Google's consent screen sends the browser back to after
+      # approval. Must be internet-reachable, not localhost. Defaulting to
+      # this service's own Render URL since it's already known here.
+      - key: APP_URL
+        value: https://crm-itdesk-server.onrender.com
+      # Attachments' "connect your own Drive" feature (storage.controller.ts /
+      # utils/googleDrive.ts). Create an OAuth 2.0 Client ID (Web application
+      # type) in Google Cloud Console, enable the Google Drive API for that
+      # project, and add {APP_URL}/api/storage/google/callback as an
+      # authorized redirect URI. Until both of these are set, Settings →
+      # Storage tells the user Google Drive isn't configured rather than
+      # erroring at connect time.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
         sync: false
 
   # ─── Frontend (Static Site) ───────────────────────────────────────────────

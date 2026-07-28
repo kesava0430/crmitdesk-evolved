@@ -54,6 +54,7 @@ const TemplatesPage      = lazy(() => import('./pages/TemplatesPage'));
 const BulkImportPage     = lazy(() => import('./pages/BulkImportPage'));
 const TeamsPage          = lazy(() => import('./pages/TeamsPage'));
 const BrandingPage       = lazy(() => import('./pages/BrandingPage'));
+const StoragePage        = lazy(() => import('./pages/StoragePage'));
 const QuotesPage         = lazy(() => import('./pages/QuotesPage'));
 const TwoFactorPage      = lazy(() => import('./pages/TwoFactorPage'));
 const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
@@ -101,6 +102,7 @@ export default function App() {
           <Route path="import" element={<BulkImportPage />} />
           <Route path="teams" element={<TeamsPage />} />
           <Route path="branding" element={<BrandingPage />} />
+          <Route path="storage" element={<StoragePage />} />
           <Route path="quotes" element={<QuotesPage />} />
           <Route path="security/2fa" element={<TwoFactorPage />} />
           <Route path="ai-builder" element={<AIFeaturePage />} />

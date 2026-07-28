@@ -3,27 +3,15 @@ import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
+import { assertEntityInOrg } from '../../../utils/entityAccess';
 
 const include = { author: { select: { id: true, name: true, avatarUrl: true } } };
 
 // Comment is a polymorphic model (entityType + entityId) with no orgId
-// column of its own — unlike every other controller in the codebase, this
-// one previously never verified that the referenced Deal/Ticket/Contact
-// actually belongs to the caller's organization, which meant a guessed
-// entityId from another tenant could be used to read or write comments
-// across org boundaries. Every entry point below now confirms the
-// underlying entity is in-org before touching its comments.
-const ENTITY_MODEL: Record<string, { findFirst: (args: any) => Promise<any> }> = {
-  DEAL: prisma.deal,
-  TICKET: prisma.ticket,
-  CONTACT: prisma.contact,
-};
-
-async function assertEntityInOrg(entityType: string, entityId: string, orgId: string) {
-  const model = ENTITY_MODEL[entityType];
-  const record = model && await model.findFirst({ where: { id: entityId, orgId }, select: { id: true } });
-  if (!record) throw new AppError(404, 'Not found');
-}
+// column of its own — every entry point below confirms the underlying
+// entity is in-org before touching its comments (assertEntityInOrg,
+// utils/entityAccess.ts — shared with the Attachments module so both stay
+// in sync on which entity types are supported).
 
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {

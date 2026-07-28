@@ -55,6 +55,7 @@ model Organization {
   usageEvents    UsageEvent[]
   whatsAppConfig WhatsAppConfig?
   workflowRules  WorkflowRule[]
+  storageConfig  StorageConfig?
 
   @@map("organizations")
 }
@@ -158,6 +159,7 @@ model User {
   timeEntries            TimeEntry[]
   totpSecret             TOTPSecret?
   org                    Organization?      @relation(fields: [orgId], references: [id])
+  storageConfigsConnected StorageConfig[]
 
   @@map("users")
 }
@@ -176,20 +178,49 @@ model Comment {
   @@map("comments")
 }
 
+// Files never touch our own storage — fileUrl/providerFileId point at wherever
+// the org's connected drive (see StorageConfig below) actually holds the
+// bytes. provider is snapshotted per-row (not just read off StorageConfig)
+// so an attachment uploaded before an org switches providers still knows
+// which API to call for its own download/delete.
 model Attachment {
-  id         String     @id @default(cuid())
-  uploaderId String     @map("uploader_id")
-  entityType EntityType @map("entity_type")
-  entityId   String     @map("entity_id")
-  fileName   String     @map("file_name")
-  fileUrl    String     @map("file_url")
-  fileSize   Int        @map("file_size")
-  mimeType   String     @map("mime_type")
-  createdAt  DateTime   @default(now()) @map("created_at")
-  uploader   User       @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  id             String     @id @default(cuid())
+  uploaderId     String     @map("uploader_id")
+  entityType     EntityType @map("entity_type")
+  entityId       String     @map("entity_id")
+  fileName       String     @map("file_name")
+  fileUrl        String     @map("file_url")
+  provider       String     @default("GOOGLE_DRIVE") @map("provider")
+  providerFileId String     @map("provider_file_id")
+  fileSize       Int        @map("file_size")
+  mimeType       String     @map("mime_type")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  uploader       User       @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
 
   @@index([entityType, entityId])
   @@map("attachments")
+}
+
+// Org-level "bring your own drive" connection. Only one provider connected
+// per org at a time (unique orgId) — reconnecting with a different provider
+// overwrites this row; existing Attachment rows keep working since each one
+// already recorded its own provider/providerFileId at upload time.
+model StorageConfig {
+  id                String       @id @default(cuid())
+  orgId             String       @unique @map("org_id")
+  provider          String       @default("GOOGLE_DRIVE") @map("provider")
+  accessToken       String       @map("access_token")
+  refreshToken      String       @map("refresh_token")
+  tokenExpiresAt    DateTime     @map("token_expires_at")
+  rootFolderId      String       @map("root_folder_id")
+  connectedEmail    String       @map("connected_email")
+  connectedByUserId String       @map("connected_by_user_id")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  connectedBy       User         @relation(fields: [connectedByUserId], references: [id])
+
+  @@map("storage_configs")
 }
 
 model AuditLog {
@@ -1088,6 +1119,12 @@ enum EntityType {
   DEAL
   TICKET
   CONTACT
+  LEAD
+  ACCOUNT
+  CHANGE_REQUEST
+  QUOTE
+  ASSET
+  CAMPAIGN
 }
 
 enum NotificationType {
