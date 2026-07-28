@@ -32,13 +32,18 @@ async function getOrCreateSubscription(orgId: string) {
  * (grandfathered in place); this check only blocks *new* billable seats
  * once the org is at or over its limit.
  */
+/** Active users whose role counts against the seat limit (everything but EMPLOYEE). */
+export async function getBillableSeatCount(orgId: string): Promise<number> {
+  return prisma.user.count({
+    where: { orgId, isActive: true, role: { not: 'EMPLOYEE' } },
+  });
+}
+
 export async function assertSeatAvailable(orgId: string, role: string): Promise<void> {
   if (!isMeteredRole(role)) return;
 
   const sub = await getOrCreateSubscription(orgId);
-  const billableCount = await prisma.user.count({
-    where: { orgId, isActive: true, role: { not: 'EMPLOYEE' } },
-  });
+  const billableCount = await getBillableSeatCount(orgId);
 
   if (billableCount >= sub.seats) {
     throw new AppError(

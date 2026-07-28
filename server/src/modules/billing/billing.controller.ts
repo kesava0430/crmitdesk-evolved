@@ -3,6 +3,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { stripe, verifyStripeWebhook, PLANS } from '../../utils/stripe';
+import { getBillableSeatCount } from '../../utils/licensing';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -20,7 +21,11 @@ async function getOrCreateSubscription(orgId: string) {
 export async function getSubscription(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const sub = await getOrCreateSubscription(req.user!.orgId);
-    res.json({ ...sub, planConfig: PLANS[sub.plan as keyof typeof PLANS] });
+    // seatsUsed counts every active user except EMPLOYEE (see utils/licensing.ts)
+    // — mirrors exactly what assertSeatAvailable() checks, so the billing page
+    // never shows a number that disagrees with what actually gets blocked.
+    const seatsUsed = await getBillableSeatCount(req.user!.orgId);
+    res.json({ ...sub, seatsUsed, planConfig: PLANS[sub.plan as keyof typeof PLANS] });
   } catch (err) { next(err); }
 }
 

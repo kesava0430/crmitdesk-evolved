@@ -11,6 +11,7 @@ export interface Subscription {
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   seats: number;
+  seatsUsed: number;
   createdAt: string;
   planConfig: { name: string; seats: number; price: number; priceId: string | null };
 }

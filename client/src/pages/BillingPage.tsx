@@ -11,9 +11,9 @@ const PLAN_COLORS = {
 };
 
 const FEATURES: Record<string, string[]> = {
-  FREE:       ['Up to 5 users', 'CRM + IT Desk', 'Email notifications', 'AI features (limited)', 'Community support'],
-  PRO:        ['Up to 25 users', 'Everything in Free', 'Unlimited inbox messages', 'Workflow automation', 'Customer portal', 'Advanced analytics', 'Priority support'],
-  ENTERPRISE: ['Unlimited users', 'Everything in Pro', 'SSO / SAML', 'Custom branding', 'SLA guarantees', 'Dedicated account manager'],
+  FREE:       ['5 billable seats (Employees are unlimited)', 'CRM + IT Desk', 'Email notifications', 'AI features (limited)', 'Community support'],
+  PRO:        ['25 billable seats (Employees are unlimited)', 'Everything in Free', 'Unlimited inbox messages', 'Workflow automation', 'Customer portal', 'Advanced analytics', 'Priority support'],
+  ENTERPRISE: ['Unlimited billable seats', 'Everything in Pro', 'SSO / SAML', 'Custom branding', 'SLA guarantees', 'Dedicated account manager'],
 };
 
 export function BillingPage() {
@@ -86,6 +86,26 @@ export function BillingPage() {
                 <p className="text-sm font-medium text-gray-700">{new Date(sub.currentPeriodEnd).toLocaleDateString()}</p>
               </div>
             )}
+          </div>
+
+          {/* Seat usage */}
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs font-medium text-gray-500">Billable seats used</p>
+              <p className={`text-xs font-semibold ${sub.seatsUsed >= sub.seats ? 'text-red-600' : 'text-gray-700'}`}>
+                {sub.seatsUsed} / {sub.seats}
+              </p>
+            </div>
+            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${sub.seatsUsed >= sub.seats ? 'bg-red-500' : sub.seatsUsed / sub.seats >= 0.8 ? 'bg-amber-400' : 'bg-brand-500'}`}
+                style={{ width: `${Math.min(100, (sub.seatsUsed / sub.seats) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Every role counts except Employee — those logins are free and unlimited.
+              {sub.seatsUsed >= sub.seats && ' You\'re at your limit; upgrade to add more people in a billable role.'}
+            </p>
           </div>
         </div>
       )}
