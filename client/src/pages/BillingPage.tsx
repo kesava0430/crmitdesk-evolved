@@ -11,9 +11,9 @@ const PLAN_COLORS = {
 };
 
 const FEATURES: Record<string, string[]> = {
-  FREE:       ['5 billable seats (Employees are unlimited)', 'CRM + IT Desk', 'Email notifications', 'AI features (limited)', 'Community support'],
-  PRO:        ['25 billable seats (Employees are unlimited)', 'Everything in Free', 'Unlimited inbox messages', 'Workflow automation', 'Customer portal', 'Advanced analytics', 'Priority support'],
-  ENTERPRISE: ['Unlimited billable seats', 'Everything in Pro', 'SSO / SAML', 'Custom branding', 'SLA guarantees', 'Dedicated account manager'],
+  FREE:       ['5 billable seats (Employees are unlimited)', 'CRM + IT Desk', 'Email notifications', 'AI features (limited)', 'Attachments via your own Google Drive', 'Community support'],
+  PRO:        ['25 billable seats (Employees are unlimited)', 'Everything in Free', 'Unlimited inbox messages', 'Workflow automation', 'Customer portal', 'Advanced analytics', '5GB hosted attachment storage (or keep using your own Drive)', 'Priority support'],
+  ENTERPRISE: ['Unlimited billable seats', 'Everything in Pro', 'SSO / SAML', 'Custom branding', '50GB hosted attachment storage', 'SLA guarantees', 'Dedicated account manager'],
 };
 
 export function BillingPage() {

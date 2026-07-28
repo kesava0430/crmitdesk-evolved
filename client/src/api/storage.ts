@@ -7,6 +7,11 @@ export interface StorageStatus {
   provider: string | null;
   connectedEmail: string | null;
   connectedAt: string | null;
+  hosted: {
+    available: boolean;
+    quotaBytes: number;
+    usedBytes: number;
+  };
 }
 
 export function useStorageStatus() {
@@ -20,6 +25,14 @@ export function useConnectGoogleDrive() {
   return useMutation({
     mutationFn: () => api.get('/storage/google/connect').then(r => r.data),
     onSuccess: (data: { url: string }) => { window.location.href = data.url; },
+  });
+}
+
+export function useConnectHostedStorage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post('/storage/hosted/connect').then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-status'] }),
   });
 }
 
