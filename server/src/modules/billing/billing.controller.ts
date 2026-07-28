@@ -4,6 +4,7 @@ import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { stripe, verifyStripeWebhook, PLANS } from '../../utils/stripe';
 import { getBillableSeatCount } from '../../utils/licensing';
+import { getUsageSummary } from '../../utils/usageTracking';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -24,8 +25,13 @@ export async function getSubscription(req: AuthRequest, res: Response, next: Nex
     // seatsUsed counts every active user except EMPLOYEE (see utils/licensing.ts)
     // — mirrors exactly what assertSeatAvailable() checks, so the billing page
     // never shows a number that disagrees with what actually gets blocked.
-    const seatsUsed = await getBillableSeatCount(req.user!.orgId);
-    res.json({ ...sub, seatsUsed, planConfig: PLANS[sub.plan as keyof typeof PLANS] });
+    const [seatsUsed, usage] = await Promise.all([
+      getBillableSeatCount(req.user!.orgId),
+      // No plan reads this yet (no included quotas exist) — purely so orgs
+      // (and we) can see real AI/WhatsApp usage before any limit is set.
+      getUsageSummary(req.user!.orgId),
+    ]);
+    res.json({ ...sub, seatsUsed, usage, planConfig: PLANS[sub.plan as keyof typeof PLANS] });
   } catch (err) { next(err); }
 }
 

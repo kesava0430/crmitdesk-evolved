@@ -1,5 +1,6 @@
 import https from 'https';
 import { prisma } from './prisma';
+import { recordUsage } from './usageTracking';
 
 /**
  * Low-level Twilio REST call (no SDK — direct HTTPS request). Mirrors the
@@ -72,5 +73,7 @@ export async function sendWhatsApp(orgId: string, toNumber: string, body: string
   const to = toNumber.startsWith('whatsapp:') ? toNumber : `whatsapp:${toNumber}`;
   const from = waConfig.phoneNumber.startsWith('whatsapp:') ? waConfig.phoneNumber : `whatsapp:${waConfig.phoneNumber}`;
 
-  return sendTwilioMessage(waConfig.accountSid, waConfig.authToken, from, to, body);
+  const result = await sendTwilioMessage(waConfig.accountSid, waConfig.authToken, from, to, body);
+  recordUsage(orgId, 'WHATSAPP_SEND');
+  return result;
 }

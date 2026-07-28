@@ -8,6 +8,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { syncEmailAccount } from '../../utils/email-sync';
 import { sseManager, SSEEvent } from '../../utils/sse';
 import { encryptSecret, decryptSecretOrPlain } from '../../utils/crypto';
+import { recordUsage } from '../../utils/usageTracking';
 
 // ─── Twilio REST helper (no SDK — direct HTTPS call) ──────────────────────────
 
@@ -189,6 +190,7 @@ export async function sendReply(req: AuthRequest, res: Response, next: NextFunct
         body,
       );
       outboundId = result.sid;
+      recordUsage(orgId, 'WHATSAPP_SEND');
     } else {
       throw new AppError(400, 'Unknown channel');
     }

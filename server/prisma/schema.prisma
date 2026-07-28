@@ -52,10 +52,28 @@ model Organization {
   tickets        Ticket[]
   timeEntries    TimeEntry[]
   users          User[]
+  usageEvents    UsageEvent[]
   whatsAppConfig WhatsAppConfig?
   workflowRules  WorkflowRule[]
 
   @@map("organizations")
+}
+
+// Lightweight per-event usage log — currently AI_CALL and WHATSAPP_SEND.
+// No billing enforcement reads this yet (see utils/usageTracking.ts); it
+// exists purely so real usage patterns are visible before we set any
+// included-quota/overage numbers, rather than guessing at limits with no
+// data. One row per event rather than a rolling counter, so it can be
+// sliced by day/type once there's enough history to actually decide.
+model UsageEvent {
+  id        String       @id @default(cuid())
+  orgId     String       @map("org_id")
+  type      String
+  createdAt DateTime     @default(now()) @map("created_at")
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, type, createdAt])
+  @@map("usage_events")
 }
 
 // A "create new org" signup submitted via the public register form. Nothing

@@ -12,6 +12,7 @@ export interface Subscription {
   cancelAtPeriodEnd: boolean;
   seats: number;
   seatsUsed: number;
+  usage: { aiCalls: number; whatsappSends: number; periodStart: string; periodEnd: string };
   createdAt: string;
   planConfig: { name: string; seats: number; price: number; priceId: string | null };
 }

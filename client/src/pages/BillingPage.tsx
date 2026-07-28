@@ -110,6 +110,27 @@ export function BillingPage() {
         </div>
       )}
 
+      {/* Usage this month — informational only, nothing here is billed or
+          capped yet. Purely visibility until real limits get set. */}
+      {sub && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-8">
+          <p className="text-xs text-gray-500 mb-3">
+            Usage this month <span className="text-gray-400">({new Date(sub.usage.periodStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {new Date(sub.usage.periodEnd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})</span>
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{sub.usage.aiCalls.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 mt-0.5">AI calls</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{sub.usage.whatsappSends.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 mt-0.5">WhatsApp messages sent</p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-3">Not currently limited or billed separately — shown for visibility only.</p>
+        </div>
+      )}
+
       {/* Plan cards */}
       <h2 className="text-base font-semibold text-gray-900 mb-4">Available Plans</h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
