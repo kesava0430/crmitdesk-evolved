@@ -3,7 +3,7 @@ import { Outlet, NavLink, Link, useNavigate, useLocation } from "react-router-do
 import { useAuth } from "../../contexts/AuthContext";
 import {
   LayoutDashboard, Users, Target, TrendingUp,
-  Ticket, FolderTree, BookOpen, LogOut, Building2,
+  Ticket, FolderTree, BookOpen, LogOut,
   BarChart2, UserCog, Inbox, Zap, Globe, CreditCard, Slack, Monitor,
   Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
   FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive,
@@ -175,9 +175,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
       {/* Logo */}
       <div className="px-4 py-5 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-lg">
-            <Building2 size={16} className="text-white" />
-          </div>
+          <img src="/logo.svg" alt="Logo" className="w-8 h-8 shrink-0" />
           <div className="min-w-0">
             <p className="text-white font-semibold text-sm leading-tight truncate">CRM &amp; IT Desk</p>
             {user?.org?.name && (

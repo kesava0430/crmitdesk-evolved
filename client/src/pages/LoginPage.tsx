@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Building2, Ticket, TrendingUp, Users, Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Ticket, TrendingUp, Users, Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 type Tab = 'login' | 'register';
 
@@ -115,9 +115,7 @@ export function LoginPage() {
 
         {/* Logo */}
         <div className="flex items-center gap-3 mb-16 relative z-10">
-          <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center shadow-lg">
-            <Building2 size={20} />
-          </div>
+          <img src="/logo.svg" alt="Logo" className="w-10 h-10" />
           <div>
             <p className="font-bold text-lg leading-tight">CRM & IT Desk</p>
             <p className="text-slate-400 text-xs">All-in-one business platform</p>
@@ -161,9 +159,7 @@ export function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 justify-center mb-8">
-            <div className="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center">
-              <Building2 size={18} className="text-white" />
-            </div>
+            <img src="/logo.svg" alt="Logo" className="w-9 h-9" />
             <span className="font-bold text-xl text-gray-900">CRM & IT Desk</span>
           </div>
 

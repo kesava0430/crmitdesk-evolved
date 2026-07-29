@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { MessageSquare, Plus, ArrowLeft, Send, LogOut, Ticket, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Plus, ArrowLeft, Send, LogOut, Ticket, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { Spinner } from '../../shared/components';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -84,9 +84,7 @@ function LoginView({ orgId }: { orgId: string }) {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-brand-600 flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <MessageSquare size={24} className="text-white" />
-          </div>
+          <img src="/logo.svg" alt="Logo" className="w-14 h-14 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900">Support Portal</h1>
           <p className="text-sm text-gray-500 mt-1">Submit and track your support tickets</p>
         </div>
@@ -325,9 +323,7 @@ export function CustomerPortal() {
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
-              <MessageSquare size={14} className="text-white" />
-            </div>
+            <img src="/logo.svg" alt="Logo" className="w-7 h-7" />
             <span className="font-semibold text-gray-900 text-sm">Support Portal</span>
           </div>
           <div className="flex items-center gap-3">
