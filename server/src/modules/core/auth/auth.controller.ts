@@ -11,6 +11,7 @@ import { logAction } from '../../../utils/auditLog';
 import { verifyTotpLogin } from '../../totp/totp.controller';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
 import { assertSeatAvailable } from '../../../utils/licensing';
+import { DEMO_LOGIN_EMAIL } from '../../../utils/seedDemoData';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -258,6 +259,35 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 
     const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId });
     logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email });
+    res.json({ user: userPayload(user, user.org), access, refresh: rawRefresh });
+  } catch (err) { next(err); }
+}
+
+/**
+ * POST /auth/demo-login — public, no credentials required. Logs in as the
+ * fixed showcase account (see utils/seedDemoData.ts) so a "Try Demo" button
+ * on the public demo landing page can drop a visitor straight into a
+ * populated workspace. Deliberately narrow: this only ever authenticates
+ * that one hardcoded account — it cannot be used to log into anything else,
+ * and skips the password/2FA checks entirely since there's no credential
+ * being supplied by the caller in the first place.
+ */
+export async function demoLogin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email: DEMO_LOGIN_EMAIL },
+      include: { org: { select: { id: true, name: true, slug: true } } },
+    });
+    if (!user || !user.isActive) {
+      throw new AppError(503, 'Demo is temporarily unavailable — please try again shortly.');
+    }
+
+    const orgId = user.orgId ?? '';
+    const rawRefresh = generateRefreshToken();
+    await storeRefreshToken(user.id, rawRefresh);
+
+    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId });
+    logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email, demo: true });
     res.json({ user: userPayload(user, user.org), access, refresh: rawRefresh });
   } catch (err) { next(err); }
 }

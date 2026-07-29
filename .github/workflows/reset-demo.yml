@@ -1,0 +1,36 @@
+name: Reset demo data
+
+# Nightly re-seed of the public "TechCorp Solutions" showcase org so the
+# demo.quantiqsystems.com "Try Demo" button always drops visitors into a
+# clean, realistic workspace, even after other visitors have poked at it
+# during the day. Hits POST /api/demo/reset on the live API — see
+# server/src/modules/demo for the endpoint itself.
+#
+# Requires a repo secret DEMO_RESET_SECRET whose value matches the
+# DEMO_RESET_SECRET environment variable set on the Render API service.
+# Without that secret configured, the API endpoint refuses every request
+# (404), so this workflow failing with a 404 almost always means the two
+# secrets don't match yet or DEMO_RESET_SECRET isn't set on Render.
+
+on:
+  schedule:
+    # 03:00 UTC every day — adjust to whatever "overnight" means for your
+    # primary customer time zone.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {} # manual "Run workflow" button in the Actions tab
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call demo reset endpoint
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "https://crm-itdesk-server.onrender.com/api/demo/reset" \
+            -H "X-Demo-Reset-Secret: ${{ secrets.DEMO_RESET_SECRET }}")
+          echo "HTTP status: $status"
+          cat /tmp/response.json
+          if [ "$status" != "200" ]; then
+            echo "Demo reset failed"
+            exit 1
+          fi

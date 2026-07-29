@@ -50,6 +50,7 @@ import { quoteTemplatesRouter } from './modules/templates/quoteTemplates.routes'
 import { schedulesRouter } from './modules/schedules/schedules.routes';
 import { storageRouter } from './modules/storage/storage.routes';
 import { attachmentsRouter } from './modules/attachments/attachments.routes';
+import { demoRouter } from './modules/demo/demo.routes';
 import { startSchedulePoller } from './utils/scheduler';
 import { syncAllEmailAccounts } from './utils/email-sync';
 import { errorHandler } from './middleware/errorHandler';
@@ -112,6 +113,7 @@ const apiLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/demo-login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/accept-invite', authLimiter);
 app.use('/api/auth/approve-org-signup', authLimiter);
@@ -174,6 +176,7 @@ app.use('/api/templates/quotes', quoteTemplatesRouter);
 app.use('/api/schedules', schedulesRouter);
 app.use('/api/storage', storageRouter);
 app.use('/api/attachments', attachmentsRouter);
+app.use('/api/demo', demoRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);

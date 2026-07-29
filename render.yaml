@@ -42,6 +42,14 @@ services:
         sync: false   # set manually to your frontend URL
       - key: FRONTEND_URL
         sync: false   # set manually to your frontend URL
+      # Shared secret for POST /api/demo/reset (server/src/modules/demo) —
+      # the nightly re-seed of the public showcase org, called by
+      # .github/workflows/reset-demo.yml. Generate any long random string
+      # and set the *same* value here and as the DEMO_RESET_SECRET secret
+      # in the GitHub repo (Settings → Secrets and variables → Actions).
+      # Leave unset to disable the reset endpoint entirely (it 404s).
+      - key: DEMO_RESET_SECRET
+        sync: false
       # Where "new org signup" approval-request emails go (register() in
       # auth.controller.ts). Code falls back to this same address if the env
       # var is ever unset, so this line is just documentation/override — no

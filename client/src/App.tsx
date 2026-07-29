@@ -1,10 +1,11 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppLayout } from './shared/layouts/AppLayout';
 
 // Eagerly loaded — shown before auth or as portal (must be small/fast)
 import { LoginPage } from './pages/LoginPage';
+import { DemoLandingPage } from './pages/DemoLandingPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { OrgApprovalPage } from './pages/OrgApprovalPage';
 import { CustomerPortal } from './modules/portal/CustomerPortal';
@@ -61,7 +62,14 @@ const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  const location = useLocation();
+  if (isAuthenticated) return <>{children}</>;
+  // Bare "/" is the site's front door — send logged-out visitors to the
+  // public demo landing page instead of straight to a login form. Any
+  // other deep link (e.g. a bookmarked /crm/deals) still goes to /login,
+  // same as before.
+  const fallback = location.pathname === '/' ? '/demo' : '/login';
+  return <Navigate to={fallback} replace />;
 }
 
 export default function App() {
@@ -72,6 +80,7 @@ export default function App() {
         <Route path="/portal" element={<CustomerPortal />} />
         <Route path="/portal/verify" element={<CustomerPortal />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/demo" element={<DemoLandingPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/approve-org" element={<OrgApprovalPage />} />
         <Route path="/" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><AppLayout /></Suspense></ProtectedRoute>}>

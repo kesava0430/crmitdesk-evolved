@@ -1,10 +1,12 @@
 import { Router } from 'express';
-import { register, login, refreshToken, logout, me, updateMe, changePassword, acceptInvite, inviteInfo, orgSignupInfo, approveOrgSignup } from './auth.controller';
+import { register, login, demoLogin, refreshToken, logout, me, updateMe, changePassword, acceptInvite, inviteInfo, orgSignupInfo, approveOrgSignup } from './auth.controller';
 import { authenticate } from '../../../middleware/authenticate';
 
 export const authRouter = Router();
 authRouter.post('/register', register);
 authRouter.post('/login', login);
+// Public, no body required — see demoLogin() for why this is safe.
+authRouter.post('/demo-login', demoLogin);
 authRouter.post('/refresh', refreshToken);
 authRouter.post('/logout', logout);
 authRouter.get('/invite-info', inviteInfo);
