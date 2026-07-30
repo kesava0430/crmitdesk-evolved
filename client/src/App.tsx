@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppLayout } from './shared/layouts/AppLayout';
 
@@ -62,14 +62,7 @@ const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
-  const location = useLocation();
-  if (isAuthenticated) return <>{children}</>;
-  // Bare "/" is the site's front door — send logged-out visitors to the
-  // public demo landing page instead of straight to a login form. Any
-  // other deep link (e.g. a bookmarked /crm/deals) still goes to /login,
-  // same as before.
-  const fallback = location.pathname === '/' ? '/demo' : '/login';
-  return <Navigate to={fallback} replace />;
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
 export default function App() {

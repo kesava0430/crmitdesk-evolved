@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Ticket, TrendingUp, Users, Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Ticket, TrendingUp, Users, Shield, Eye, EyeOff, Loader2, Sparkles, ArrowRight } from 'lucide-react';
 
 type Tab = 'login' | 'register';
 
@@ -148,8 +148,25 @@ export function LoginPage() {
           ))}
         </div>
 
+        {/* Try Demo CTA */}
+        <Link
+          to="/demo"
+          className="mt-auto relative z-10 flex items-center justify-between gap-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl px-5 py-4 transition-colors group"
+        >
+          <span className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-lg bg-brand-600/20 text-brand-400 flex items-center justify-center shrink-0">
+              <Sparkles size={16} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-white">Just exploring?</span>
+              <span className="block text-xs text-slate-400">Try the live demo — no signup needed</span>
+            </span>
+          </span>
+          <ArrowRight size={16} className="text-slate-400 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0" />
+        </Link>
+
         {/* Footer note */}
-        <p className="mt-auto pt-16 relative z-10 text-xs text-slate-600">
+        <p className="pt-6 relative z-10 text-xs text-slate-600">
           Secure · Multi-tenant · Enterprise-ready
         </p>
       </div>
@@ -158,10 +175,24 @@ export function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-6 bg-slate-50">
         <div className="w-full max-w-md">
           {/* Mobile logo */}
-          <div className="lg:hidden flex items-center gap-2 justify-center mb-8">
+          <div className="lg:hidden flex items-center gap-2 justify-center mb-6">
             <img src="/logo.svg" alt="Logo" className="w-9 h-9" />
             <span className="font-bold text-xl text-gray-900">CRM & IT Desk</span>
           </div>
+
+          {/* Mobile Try Demo CTA */}
+          <Link
+            to="/demo"
+            className="lg:hidden flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-2xl px-4 py-3 mb-6 shadow-sm hover:border-brand-300 transition-colors group"
+          >
+            <span className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                <Sparkles size={14} />
+              </span>
+              <span className="text-sm font-medium text-gray-800">Try the live demo</span>
+            </span>
+            <ArrowRight size={15} className="text-gray-400 group-hover:text-brand-600 group-hover:translate-x-0.5 transition-all" />
+          </Link>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             {/* Header */}
