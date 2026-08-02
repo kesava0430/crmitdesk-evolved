@@ -58,7 +58,7 @@ function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field:
       fieldType: form.fieldType,
       required: form.required,
       isPrimary: form.isPrimary,
-      options: form.fieldType === 'DROPDOWN' ? form.options.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+      options: form.fieldType === 'DROPDOWN' ? form.options.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
     };
     if (field) await update.mutateAsync({ moduleId, fieldId: field.id, ...payload });
     else await add.mutateAsync({ moduleId, ...payload });
@@ -402,7 +402,7 @@ export default function CustomModulesPage() {
               >
                 <span className="truncate">{m.name}</span>
                 <span className="flex items-center gap-1 flex-shrink-0">
-                  {m.syncConfig?.isActive && <Zap size={11} className="text-indigo-400" title="Sync enabled" />}
+                  {m.syncConfig?.isActive && <span title="Sync enabled"><Zap size={11} className="text-indigo-400" /></span>}
                   <span className="text-xs text-gray-400">{m._count?.records ?? 0}</span>
                 </span>
               </button>
