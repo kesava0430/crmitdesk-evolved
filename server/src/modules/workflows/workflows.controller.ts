@@ -8,7 +8,7 @@ import { runDateRuleNow } from '../../utils/dateAutomation';
 // Only present (and required) when trigger === 'DATE_FIELD_REACHED'. See
 // utils/dateAutomation.ts's DateConfig for the runtime shape this mirrors.
 const DateConfigSchema = z.object({
-  entityType: z.enum(['CONTACT', 'CUSTOM_MODULE']),
+  entityType: z.enum(['CONTACT', 'DEAL', 'TICKET', 'LEAD', 'CUSTOM_MODULE']),
   moduleId: z.string().optional(),
   dateField: z.string().min(1),
   offsetDays: z.number().int(),

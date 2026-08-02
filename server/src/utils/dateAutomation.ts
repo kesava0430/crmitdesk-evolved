@@ -10,13 +10,59 @@ import { runWorkflows, WorkflowContext } from './workflow-engine';
 // this app runs as a single Node process, so a periodic DB scan is enough).
 const POLL_INTERVAL_MS = 60 * 60 * 1000; // hourly is plenty for a day-granularity trigger
 
+// The four "default modules" this also supports, in addition to CUSTOM_MODULE
+// (an org's own no-code object). Matches exactly the set of entity types the
+// CustomField system already supports (see api/customFields.ts's
+// CustomFieldDef['entityType']) — that's what makes "any custom date field"
+// meaningful here, not just the couple of hardcoded built-ins.
+type StandardEntityType = 'CONTACT' | 'DEAL' | 'TICKET' | 'LEAD';
+
 interface DateConfig {
-  entityType: 'CONTACT' | 'CUSTOM_MODULE';
+  entityType: StandardEntityType | 'CUSTOM_MODULE';
   moduleId?: string;   // required when entityType === 'CUSTOM_MODULE'
-  dateField: string;   // 'dateOfBirth' for CONTACT, a module field's fieldKey for CUSTOM_MODULE
+  // Either a built-in column (see BUILTIN_DATE_FIELDS) or a custom DATE
+  // field's fieldKey (standard entities) / a module field's fieldKey
+  // (CUSTOM_MODULE) — resolved dynamically, see processStandardEntityRule.
+  dateField: string;
   offsetDays: number;  // negative = before the date, positive = after, 0 = on the day
   recurrence: 'ONCE' | 'YEARLY';
 }
+
+// Built-in date columns every standard entity exposes without needing a
+// custom field. createdAt/updatedAt are universal; dateOfBirth is
+// Contact-specific (see schema.prisma's comment on that column). Anything
+// selected that ISN'T in this list is assumed to be a custom DATE field's
+// fieldKey and is looked up via CustomField/CustomFieldValue instead — see
+// WorkflowsPage.tsx's DateConfigEditor for where these two lists get merged
+// into one dropdown.
+const BUILTIN_DATE_FIELDS: Record<StandardEntityType, string[]> = {
+  CONTACT: ['createdAt', 'updatedAt', 'dateOfBirth'],
+  DEAL: ['createdAt', 'updatedAt'],
+  TICKET: ['createdAt', 'updatedAt'],
+  LEAD: ['createdAt', 'updatedAt'],
+};
+
+// Same relations each entity's own controller already includes when it
+// fires other triggers (TICKET_CREATED, DEAL_STAGE_CHANGED, ...) — kept
+// matching here so an action like SEND_CSAT_SURVEY (needs entity.requester)
+// or CREATE_NOTIFICATION's ASSIGNEE fallback works identically no matter
+// which trigger fired the rule.
+const ENTITY_INCLUDE: Record<StandardEntityType, Record<string, unknown> | undefined> = {
+  CONTACT: undefined,
+  DEAL: {
+    contact: { select: { id: true, name: true, email: true } },
+    account: { select: { id: true, name: true } },
+    assignee: { select: { id: true, name: true, email: true } },
+  },
+  TICKET: {
+    requester: { select: { id: true, name: true, email: true } },
+    assignee: { select: { id: true, name: true, email: true } },
+  },
+  LEAD: {
+    contact: { select: { id: true, name: true, email: true } },
+    assignee: { select: { id: true, name: true } },
+  },
+};
 
 /** Date-only (calendar day) comparison — ignores time-of-day entirely. */
 function sameDay(a: Date, b: Date, ignoreYear: boolean): boolean {
@@ -53,24 +99,58 @@ async function alreadyProcessedToday(ruleId: string, entityId: string, recurrenc
   return !!existing;
 }
 
-async function processContactRules(orgId: string, ruleId: string, config: DateConfig, skipDedupe: boolean): Promise<number> {
+async function fetchStandardEntities(entityType: StandardEntityType, orgId: string): Promise<Record<string, any>[]> {
+  const include = ENTITY_INCLUDE[entityType];
+  switch (entityType) {
+    case 'CONTACT': return prisma.contact.findMany({ where: { orgId } });
+    case 'DEAL': return prisma.deal.findMany({ where: { orgId }, include: include as any });
+    case 'TICKET': return prisma.ticket.findMany({ where: { orgId }, include: include as any });
+    case 'LEAD': return prisma.lead.findMany({ where: { orgId }, include: include as any });
+  }
+}
+
+/**
+ * Handles all four "default module" entity types (Contact, Deal, Ticket,
+ * Lead) against either a built-in date column or a custom DATE field —
+ * replaces the old Contact-only processContactRules with something that
+ * covers "created time, last updated time, and any custom date field",
+ * for every standard entity, not just Contact's birthday.
+ */
+async function processStandardEntityRule(orgId: string, ruleId: string, entityType: StandardEntityType, config: DateConfig, skipDedupe: boolean): Promise<number> {
   const target = targetDate(config.offsetDays);
-  const contacts = await prisma.contact.findMany({
-    where: { orgId, dateOfBirth: { not: null } },
-  });
+  const isBuiltin = BUILTIN_DATE_FIELDS[entityType].includes(config.dateField);
+
+  // Custom DATE field: batch-fetch every saved value for it once (keyed by
+  // entityId) rather than a per-record query — same values.findMany +
+  // in-memory Map pattern the custom-module path already used for its own
+  // records, just against CustomFieldValue instead of CustomModuleRecord.data.
+  let valueByEntityId: Map<string, string> | null = null;
+  if (!isBuiltin) {
+    const field = await prisma.customField.findFirst({
+      where: { orgId, entityType, fieldKey: config.dateField, fieldType: 'DATE' },
+    });
+    if (!field) return 0; // field was renamed/deleted since the rule was configured — nothing to evaluate
+    const values = await prisma.customFieldValue.findMany({ where: { customFieldId: field.id } });
+    valueByEntityId = new Map(values.filter(v => v.value).map(v => [v.entityId, v.value as string]));
+  }
+
+  const records = await fetchStandardEntities(entityType, orgId);
 
   let fired = 0;
-  for (const contact of contacts) {
-    if (!contact.dateOfBirth) continue;
-    if (!sameDay(contact.dateOfBirth, target, config.recurrence === 'YEARLY')) continue;
-    if (!skipDedupe && await alreadyProcessedToday(ruleId, contact.id, config.recurrence)) continue;
+  for (const record of records) {
+    const raw = isBuiltin ? record[config.dateField] : valueByEntityId?.get(record.id);
+    if (!raw) continue;
+    const fieldDate = raw instanceof Date ? raw : new Date(raw);
+    if (Number.isNaN(fieldDate.getTime())) continue;
+    if (!sameDay(fieldDate, target, config.recurrence === 'YEARLY')) continue;
+    if (!skipDedupe && await alreadyProcessedToday(ruleId, record.id, config.recurrence)) continue;
 
     const ctx: WorkflowContext = {
       trigger: 'DATE_FIELD_REACHED',
       orgId,
-      entityType: 'CONTACT',
-      entityId: contact.id,
-      entity: contact as unknown as Record<string, any>,
+      entityType,
+      entityId: record.id,
+      entity: record,
     };
     await runWorkflows(ctx);
     fired += 1;
@@ -114,9 +194,8 @@ async function evaluateRule(rule: { id: string; orgId: string; dateConfig: unkno
   const config = rule.dateConfig as unknown as DateConfig;
   if (!config?.entityType || !config?.dateField || typeof config.offsetDays !== 'number') return 0;
 
-  if (config.entityType === 'CONTACT') return processContactRules(rule.orgId, rule.id, config, skipDedupe);
   if (config.entityType === 'CUSTOM_MODULE') return processCustomModuleRules(rule.orgId, rule.id, config, skipDedupe);
-  return 0;
+  return processStandardEntityRule(rule.orgId, rule.id, config.entityType, config, skipDedupe);
 }
 
 /** Evaluates every active DATE_FIELD_REACHED rule across every org — the hourly poller. */

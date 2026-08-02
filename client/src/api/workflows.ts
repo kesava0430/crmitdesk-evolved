@@ -15,7 +15,7 @@ export interface Action {
 // Only present (and required) when trigger === 'DATE_FIELD_REACHED' — see
 // server/src/utils/dateAutomation.ts's DateConfig for the runtime shape.
 export interface DateConfig {
-  entityType: 'CONTACT' | 'CUSTOM_MODULE';
+  entityType: 'CONTACT' | 'DEAL' | 'TICKET' | 'LEAD' | 'CUSTOM_MODULE';
   moduleId?: string;
   dateField: string;
   offsetDays: number;

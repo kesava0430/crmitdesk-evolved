@@ -11,6 +11,7 @@ import {
   type WorkflowRule, type Condition, type Action, type DateConfig,
 } from '../../api/workflows';
 import { useCustomModules, useCustomModule } from '../../api/customModules';
+import { useCustomFieldDefs } from '../../api/customFields';
 import { Spinner } from '../../shared/components';
 import { addToast } from '../../shared/components/toastStore';
 
@@ -128,7 +129,8 @@ const empty = (): Omit<WorkflowRule, 'id' | 'createdAt' | 'runCount' | '_count'>
 // trigger which maps 1:1 to a fixed entity.
 function getEntityForTrigger(trigger: string, dateConfig?: DateConfig | null): string {
   if (trigger === 'DATE_FIELD_REACHED') {
-    return dateConfig?.entityType === 'CUSTOM_MODULE' ? 'CUSTOM_MODULE_RECORD' : 'CONTACT';
+    if (dateConfig?.entityType === 'CUSTOM_MODULE') return 'CUSTOM_MODULE_RECORD';
+    return dateConfig?.entityType || 'CONTACT';
   }
   return TRIGGERS.find(t => t.value === trigger)?.entity || 'TICKET';
 }
@@ -230,10 +232,50 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
 
 // ─── Date-config sub-form (only for trigger === 'DATE_FIELD_REACHED') ─────────
 
+// Built-in date columns every "default module" (standard entity) exposes
+// without needing a custom field — mirrors server/src/utils/dateAutomation.ts's
+// BUILTIN_DATE_FIELDS exactly (see that file's comment for why these two
+// lists have to agree). createdAt/updatedAt are universal; dateOfBirth is
+// Contact-only.
+const BUILTIN_DATE_FIELDS: Record<string, { value: string; label: string }[]> = {
+  CONTACT: [
+    { value: 'dateOfBirth', label: 'Date of Birth' },
+    { value: 'createdAt', label: 'Created' },
+    { value: 'updatedAt', label: 'Last Updated' },
+  ],
+  DEAL: [
+    { value: 'createdAt', label: 'Created' },
+    { value: 'updatedAt', label: 'Last Updated' },
+  ],
+  TICKET: [
+    { value: 'createdAt', label: 'Created' },
+    { value: 'updatedAt', label: 'Last Updated' },
+  ],
+  LEAD: [
+    { value: 'createdAt', label: 'Created' },
+    { value: 'updatedAt', label: 'Last Updated' },
+  ],
+};
+
+const STANDARD_ENTITY_LABELS: Record<string, string> = {
+  CONTACT: 'Contacts',
+  DEAL: 'Deals',
+  TICKET: 'Tickets',
+  LEAD: 'Leads',
+};
+
 function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: (c: DateConfig) => void }) {
   const { data: modules = [] } = useCustomModules();
   const { data: selectedModule } = useCustomModule(config.entityType === 'CUSTOM_MODULE' ? config.moduleId : undefined);
-  const dateFields = (selectedModule?.fields || []).filter((f: any) => f.fieldType === 'DATE');
+  const moduleDateFields = (selectedModule?.fields || []).filter((f: any) => f.fieldType === 'DATE');
+
+  const isStandardEntity = config.entityType !== 'CUSTOM_MODULE';
+  // Org-defined custom fields (Settings → Custom Fields) of type DATE for
+  // whichever standard entity is selected — the "if there are any custom
+  // date fields they also need to be displayed" half of this feature.
+  const { data: customFieldDefs = [] } = useCustomFieldDefs(isStandardEntity ? config.entityType : '');
+  const customDateFields = customFieldDefs.filter(f => f.fieldType === 'DATE');
+  const builtinFields = isStandardEntity ? (BUILTIN_DATE_FIELDS[config.entityType] || []) : [];
 
   const isBefore = config.offsetDays < 0;
   const dayCount = Math.abs(config.offsetDays);
@@ -246,16 +288,46 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
           value={config.entityType}
           onChange={e => {
             const entityType = e.target.value as DateConfig['entityType'];
-            onChange(entityType === 'CONTACT'
-              ? { ...config, entityType, dateField: 'dateOfBirth', moduleId: undefined }
-              : { ...config, entityType, dateField: '', moduleId: undefined });
+            const defaultField = entityType === 'CONTACT' ? 'dateOfBirth' : entityType === 'CUSTOM_MODULE' ? '' : 'createdAt';
+            onChange({ ...config, entityType, dateField: defaultField, moduleId: undefined });
           }}
           className="ui-input text-sm"
         >
-          <option value="CONTACT">Contacts (Date of Birth)</option>
+          <option value="CONTACT">Contacts</option>
+          <option value="DEAL">Deals</option>
+          <option value="TICKET">Tickets</option>
+          <option value="LEAD">Leads</option>
           <option value="CUSTOM_MODULE">A Custom Module's date field</option>
         </select>
       </div>
+
+      {isStandardEntity && (
+        <div>
+          <label className="form-label">Date Field</label>
+          <select
+            value={config.dateField}
+            onChange={e => onChange({ ...config, dateField: e.target.value })}
+            className="ui-input text-sm"
+          >
+            <option value="">— select a field —</option>
+            {builtinFields.length > 0 && (
+              <optgroup label="Built-in">
+                {builtinFields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </optgroup>
+            )}
+            {customDateFields.length > 0 && (
+              <optgroup label="Custom fields">
+                {customDateFields.map(f => <option key={f.fieldKey} value={f.fieldKey}>{f.label}</option>)}
+              </optgroup>
+            )}
+          </select>
+          {customDateFields.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1">
+              Add a custom Date field to {STANDARD_ENTITY_LABELS[config.entityType]} under Settings → Custom Fields to see more options here.
+            </p>
+          )}
+        </div>
+      )}
 
       {config.entityType === 'CUSTOM_MODULE' && (
         <>
@@ -273,7 +345,7 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
           {config.moduleId && (
             <div>
               <label className="form-label">Date Field</label>
-              {dateFields.length === 0 ? (
+              {moduleDateFields.length === 0 ? (
                 <p className="text-xs text-amber-600">This module has no Date-type field yet — add one on the module's Fields tab first.</p>
               ) : (
                 <select
@@ -282,7 +354,7 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
                   className="ui-input text-sm"
                 >
                   <option value="">— select a field —</option>
-                  {dateFields.map((f: any) => <option key={f.fieldKey} value={f.fieldKey}>{f.label}</option>)}
+                  {moduleDateFields.map((f: any) => <option key={f.fieldKey} value={f.fieldKey}>{f.label}</option>)}
                 </select>
               )}
             </div>
