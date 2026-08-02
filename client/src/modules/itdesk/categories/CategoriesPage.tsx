@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { FolderTree, Plus } from 'lucide-react';
-import { useCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, useSLAPolicies, useCreateSLAPolicy } from '../../../api/itdesk';
+import { FolderTree, Plus, BellRing } from 'lucide-react';
+import { useCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, useSLAPolicies, useCreateSLAPolicy, useUpdateSLAPolicy, useDeleteSLAPolicy } from '../../../api/itdesk';
+import { useUsers } from '../../../api/users';
 import { PageHeader, Button, Modal, Badge, EmptyState, Spinner, SearchableSelect, RowActions } from '../../../shared/components';
 import { Pencil, Trash2 } from 'lucide-react';
 
@@ -34,8 +35,8 @@ function CategoryForm({ initial, slaPolices, onSubmit, loading }: any) {
   );
 }
 
-function SLAForm({ onSubmit, loading }: any) {
-  const [form, setForm] = useState({ name: '', responseHours: 4, resolutionHours: 24 });
+function SLAForm({ initial, users, onSubmit, loading }: any) {
+  const [form, setForm] = useState(initial || { name: '', responseHours: 4, resolutionHours: 24, notifyUserId: '' });
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: k.includes('Hours') ? Number(e.target.value) : e.target.value }));
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(form); }} className="space-y-3">
@@ -59,20 +60,40 @@ function SLAForm({ onSubmit, loading }: any) {
           </div>
         </div>
       </div>
-      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>Create SLA Policy</Button></div>
+      <div className="form-section">
+        <p className="form-section-title">Breach Notification</p>
+        <div>
+          <label className="form-label">Notify</label>
+          <SearchableSelect
+            ariaLabel="Notify"
+            value={form.notifyUserId}
+            onChange={val => setForm((p: any) => ({ ...p, notifyUserId: val }))}
+            options={(users ?? []).map((u: any) => ({ value: u.id, label: `${u.name} (${u.role.replace(/_/g, ' ')})` }))}
+            placeholder="— nobody (use a Workflows rule instead) —"
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Gets an in-app + push notification the moment a ticket under this policy misses its resolution deadline.
+            Independent of Workflows — you can use this, an SLA Breach workflow rule, or both.
+          </p>
+        </div>
+      </div>
+      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : 'Create SLA Policy'}</Button></div>
     </form>
   );
 }
 
 export function CategoriesPage() {
   const [catModal, setCatModal] = useState<null | 'create' | { type: 'edit'; cat: any }>(null);
-  const [slaModal, setSlaModal] = useState(false);
+  const [slaModal, setSlaModal] = useState<null | 'create' | { type: 'edit'; policy: any }>(null);
   const { data: categories, isLoading } = useCategories();
   const { data: slaPolicies } = useSLAPolicies();
+  const { data: users } = useUsers();
   const createCat = useCreateCategory();
   const updateCat = useUpdateCategory();
   const deleteCat = useDeleteCategory();
   const createSLA = useCreateSLAPolicy();
+  const updateSLA = useUpdateSLAPolicy();
+  const deleteSLA = useDeleteSLAPolicy();
 
   return (
     <div className="p-6 space-y-6">
@@ -80,7 +101,7 @@ export function CategoriesPage() {
         title="Categories & SLA"
         subtitle="Manage ticket categories and service level agreements"
         actions={<>
-          <Button variant="secondary" icon={<Plus size={15} />} onClick={() => setSlaModal(true)}>New SLA Policy</Button>
+          <Button variant="secondary" icon={<Plus size={15} />} onClick={() => setSlaModal('create')}>New SLA Policy</Button>
           <Button icon={<Plus size={15} />} onClick={() => setCatModal('create')}>New Category</Button>
         </>}
       />
@@ -116,16 +137,29 @@ export function CategoriesPage() {
         <div>
           <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">SLA Policies</p>
           {slaPolicies?.length === 0 ? (
-            <EmptyState icon={<FolderTree size={22} />} title="No SLA policies" description="Create SLA policies to set response and resolution targets" action={{ label: 'New SLA Policy', onClick: () => setSlaModal(true) }} />
+            <EmptyState icon={<FolderTree size={22} />} title="No SLA policies" description="Create SLA policies to set response and resolution targets" action={{ label: 'New SLA Policy', onClick: () => setSlaModal('create') }} />
           ) : (
             <div className="space-y-2">
               {slaPolicies?.map((p: any) => (
-                <div key={p.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 hover:border-brand-200 transition-colors">
-                  <p className="font-medium text-gray-800 mb-1">{p.name}</p>
-                  <div className="flex gap-3">
-                    <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Response: {p.responseHours}h</span>
-                    <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Resolution: {p.resolutionHours}h</span>
+                <div key={p.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between group hover:border-brand-200 transition-colors">
+                  <div>
+                    <p className="font-medium text-gray-800 mb-1">{p.name}</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Response: {p.responseHours}h</span>
+                      <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Resolution: {p.resolutionHours}h</span>
+                      {p.notifyUser ? (
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                          <BellRing size={11} /> Notifies {p.notifyUser.name} on breach
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-300">No breach notification set</span>
+                      )}
+                    </div>
                   </div>
+                  <RowActions items={[
+                    { label: 'Edit SLA policy', icon: <Pencil size={14} />, onClick: () => setSlaModal({ type: 'edit', policy: p }) },
+                    { label: 'Delete SLA policy', icon: <Trash2 size={14} />, onClick: () => deleteSLA.mutate(p.id), variant: 'danger' },
+                  ]} />
                 </div>
               ))}
             </div>
@@ -150,9 +184,25 @@ export function CategoriesPage() {
         />
       </Modal>
 
-      <Modal open={slaModal} onClose={() => setSlaModal(false)} title="New SLA Policy">
-        <SLAForm loading={createSLA.isPending}
-          onSubmit={async (form: any) => { await createSLA.mutateAsync(form); setSlaModal(false); }} />
+      <Modal open={!!slaModal} onClose={() => setSlaModal(null)} title={slaModal === 'create' ? 'New SLA Policy' : 'Edit SLA Policy'}>
+        <SLAForm
+          initial={slaModal && typeof slaModal === 'object' ? {
+            name: slaModal.policy.name,
+            responseHours: slaModal.policy.responseHours,
+            resolutionHours: slaModal.policy.resolutionHours,
+            notifyUserId: slaModal.policy.notifyUserId || '',
+          } : null}
+          users={users}
+          loading={createSLA.isPending || updateSLA.isPending}
+          onSubmit={async (form: any) => {
+            try {
+              if (slaModal === 'create') await createSLA.mutateAsync(form);
+              else if (slaModal && typeof slaModal === 'object') await updateSLA.mutateAsync({ id: slaModal.policy.id, ...form });
+            } finally {
+              setSlaModal(null);
+            }
+          }}
+        />
       </Modal>
     </div>
   );

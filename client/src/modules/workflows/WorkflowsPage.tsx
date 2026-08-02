@@ -75,6 +75,7 @@ const ACTION_TYPES = [
   { value: 'CREATE_NOTIFICATION', label: 'Create In-App Notification' },
   { value: 'CREATE_TICKET', label: 'Create Follow-up Ticket' },
   { value: 'SCORE_LEAD',    label: 'AI-Score Lead (Lead only)' },
+  { value: 'SEND_CSAT_SURVEY', label: 'Send Feedback Survey (Ticket only)' },
 ];
 
 // Mirrors the RECIPIENT_OPTIONS in ScheduleReminderPanel — same four
@@ -218,6 +219,10 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
       </div>;
     case 'SCORE_LEAD':
       return <p className="flex-1 text-[11px] text-gray-400 italic px-1 py-1.5">No parameters — uses AI to score the lead and stores the result on the lead record.</p>;
+    case 'SEND_CSAT_SURVEY':
+      return <p className="flex-1 text-[11px] text-gray-400 italic px-1 py-1.5">
+        No parameters — emails the ticket's requester a 1–5 star rating link. {entity !== 'TICKET' && <span className="text-amber-600">Only applies to Ticket-triggered rules — this action will be skipped otherwise.</span>}
+      </p>;
     default:
       return null;
   }

@@ -68,6 +68,16 @@ export const useCreateSLAPolicy = () => {
   return useMutation({ mutationFn: (data: any) => api.post('/itdesk/sla-policies', data).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sla-policies'] }) });
 };
+export const useUpdateSLAPolicy = () => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: ({ id, ...data }: any) => api.patch(`/itdesk/sla-policies/${id}`, data).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sla-policies'] }) });
+};
+export const useDeleteSLAPolicy = () => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.delete(`/itdesk/sla-policies/${id}`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sla-policies'] }) });
+};
 
 // ─── Articles ─────────────────────────────────────────────────────────────────
 export const useArticles = (params?: Record<string, string>) =>

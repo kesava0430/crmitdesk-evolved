@@ -4,7 +4,11 @@ import * as c from './csat.controller';
 
 const router = Router();
 
-// Public: customer submits rating via emailed link (no auth)
+// Public: customer feedback page + submission, reached from the emailed
+// CSAT survey link (no auth). GET renders the form (no DB writes — see
+// csat.controller.ts's file-level comment on why); POST is the form's own
+// target and records the rating/comment.
+router.get('/submit/:ticketId', c.showForm);
 router.post('/submit/:ticketId', c.submitRating);
 
 router.use(authenticate);

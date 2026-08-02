@@ -2,6 +2,7 @@ import { prisma } from './prisma';
 import { runWorkflows } from './workflow-engine';
 import { slackSlaBreached } from './slack';
 import { teamsSlaBreached } from './teams';
+import { createNotification } from '../modules/notifications/notifications.controller';
 
 /**
  * Detects tickets that have crossed their SLA resolution deadline
@@ -11,7 +12,11 @@ import { teamsSlaBreached } from './teams';
  * codebase but was never actually wired to anything: the workflow engine's
  * SLA_BREACH trigger (any org's user-configured rule), plus Slack and Teams
  * (both already gated by their own per-org notifyOnSlaBreached toggle —
- * slackSlaBreached()/teamsSlaBreached() just needed a caller).
+ * slackSlaBreached()/teamsSlaBreached() just needed a caller). Also directly
+ * notifies (in-app + push) SlaPolicy.notifyUserId, if the policy that
+ * governs this ticket's category has one configured — see the "Notify"
+ * field on the SLA Policy form (CategoriesPage.tsx). That's independent of
+ * the workflow trigger: an org can use one, the other, both, or neither.
  *
  * The SlaBreaches table (schema.prisma) already existed for this too, but
  * nothing ever wrote to it — it's used here as both the audit trail and the
@@ -29,6 +34,7 @@ export async function checkSlaBreaches(): Promise<void> {
       status: { notIn: ['RESOLVED', 'CLOSED'] },
       breaches: { none: { breachType: 'RESOLUTION' } },
     },
+    include: { category: { include: { slaPolicy: { select: { notifyUserId: true } } } } },
   });
 
   for (const ticket of breached) {
@@ -46,6 +52,19 @@ export async function checkSlaBreaches(): Promise<void> {
       });
       await slackSlaBreached(ticket.orgId, ticket);
       await teamsSlaBreached(ticket.orgId, ticket);
+
+      const notifyUserId = ticket.category?.slaPolicy?.notifyUserId;
+      if (notifyUserId) {
+        await createNotification({
+          orgId: ticket.orgId,
+          userId: notifyUserId,
+          type: 'TICKET_SLA_BREACH', // matching "TICKET" is what NotificationBell.tsx's icon heuristic keys off of
+          title: `SLA breached: ${ticket.title}`,
+          body: `This ticket's resolution deadline was ${ticket.slaDueAt?.toLocaleString() ?? 'due'}.`,
+          entityType: 'TICKET',
+          entityId: ticket.id,
+        });
+      }
     } catch (err: any) {
       console.error(`[sla-monitor] Failed processing ticket ${ticket.id}:`, err?.message || err);
     }

@@ -5,6 +5,7 @@ import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
 import { scoreLead } from './ai';
 import { sendPushToUser } from './webPush';
+import { sendMail, emailTemplates } from './mailer';
 
 // ─── Outbound webhook delivery (signed + retried) ─────────────────────────────
 // Previously this action fired a single, unsigned fetch() with no retry —
@@ -77,7 +78,8 @@ interface Action {
     | 'SEND_WEBHOOK'        // POST to external URL
     | 'CREATE_TICKET'       // auto-create a follow-up ticket
     | 'SCORE_LEAD'          // trigger AI lead scoring
-    | 'CREATE_NOTIFICATION'; // in-app notification (bell icon), independent of email/WhatsApp
+    | 'CREATE_NOTIFICATION' // in-app notification (bell icon), independent of email/WhatsApp
+    | 'SEND_CSAT_SURVEY';   // feedback request — TICKET only, emails the requester the 1-5 star rating link
   params: Record<string, string | number>;
 }
 
@@ -272,6 +274,21 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
       const result = await scoreLead(lead as any);
       await prisma.lead.update({ where: { id: entityId }, data: { aiScore: result.score, aiScoreReason: result.reason } });
       return `Lead scored ${result.score}/100 — ${result.reason}`;
+    }
+
+    case 'SEND_CSAT_SURVEY': {
+      // Previously hardcoded as a setTimeout in tickets.controller.ts's
+      // changeStatus(), firing unconditionally 5s after every RESOLVED —
+      // now a normal workflow action so it can be retimed, conditioned
+      // (e.g. only for certain categories), or turned off per org without
+      // a code change. entity.requester comes from the ticket `include` on
+      // every trigger that fires on a Ticket, so no extra query needed.
+      if (entityType !== 'TICKET') return 'SEND_CSAT_SURVEY skipped — only applies to tickets';
+      const requesterEmail = entity.requester?.email;
+      if (!requesterEmail) return 'SEND_CSAT_SURVEY skipped — ticket has no requester email on file';
+      const requesterName = entity.requester?.name || 'there';
+      await sendMail(emailTemplates.csatSurvey({ id: entityId, title: String(entity.title || '') }, requesterName, requesterEmail));
+      return `CSAT survey sent to ${requesterEmail}`;
     }
 
     case 'CREATE_NOTIFICATION': {

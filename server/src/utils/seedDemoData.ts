@@ -762,6 +762,11 @@ async function buildOrg(preset: VerticalPreset) {
     prisma.workflowRule.create({ data: { orgId: org.id, name: 'Score new leads automatically', description: 'Runs AI scoring the moment a lead is created.', trigger: 'LEAD_CREATED', conditions: [], actions: [{ type: 'SCORE_LEAD', params: {} }], isActive: true, runCount: 0 } }),
     prisma.workflowRule.create({ data: { orgId: org.id, name: 'Notify on completed follow-up', description: 'Notifies the CRM manager whenever a lead follow-up activity is marked done.', trigger: 'LEAD_ACTIVITY_COMPLETED', conditions: [], actions: [{ type: 'CREATE_NOTIFICATION', params: { title: 'Follow-up completed', body: 'A lead follow-up was just marked done', userId: crmMgr.id } }], isActive: true, runCount: 0 } }),
     prisma.workflowRule.create({ data: { orgId: org.id, name: 'Auto-assign critical tickets to IT Manager', description: 'When a critical ticket is created, assign it to the IT manager.', trigger: 'TICKET_CREATED', conditions: [{ field: 'priority', operator: 'eq', value: 'CRITICAL' }], actions: [{ type: 'ASSIGN_TO', params: { userId: itMgr.id } }], isActive: true, runCount: 3 } }),
+    // Feedback survey — previously a hardcoded 5s-after-resolve setTimeout
+    // in tickets.controller.ts; now a normal, editable/disable-able rule
+    // (see workflow-engine.ts's SEND_CSAT_SURVEY case) so every org can
+    // condition or turn off customer feedback requests without a code change.
+    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Send Feedback Survey', description: 'Emails the requester a 1-5 star feedback request whenever their ticket is marked Resolved.', trigger: 'TICKET_STATUS_CHANGED', conditions: [{ field: 'status', operator: 'eq', value: 'RESOLVED' }], actions: [{ type: 'SEND_CSAT_SURVEY', params: {} }], isActive: true, runCount: 0 } }),
     // Date-driven follow-ups (see utils/dateAutomation.ts) — the "salon
     // CRM" style automations: birthday wishes here (identical across every
     // vertical, since it only depends on Contact.dateOfBirth), plus one

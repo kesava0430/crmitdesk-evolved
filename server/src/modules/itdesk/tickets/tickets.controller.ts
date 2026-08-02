@@ -113,10 +113,11 @@ export async function changeStatus(req: AuthRequest, res: Response, next: NextFu
     notifyOrgAdmins({ orgId: req.user!.orgId, type: 'TICKET_STATUS', title: `Ticket "${ticket.title}" → ${status}`, entityType: 'TICKET', entityId: ticket.id }).catch(() => {});
     if (status === 'RESOLVED' && ticket.requester?.email) {
       sendMail(emailTemplates.ticketResolved(ticket, ticket.requester.name, ticket.requester.email)).catch(() => {});
-      // Send CSAT survey after a short delay
-      setTimeout(() => {
-        sendMail(emailTemplates.csatSurvey(ticket, ticket.requester!.name, ticket.requester!.email!)).catch(() => {});
-      }, 5_000);
+      // Feedback survey is no longer hardcoded here — it's a SEND_CSAT_SURVEY
+      // workflow action (see workflow-engine.ts), fired via the
+      // TICKET_STATUS_CHANGED runWorkflows() call above. Configurable per
+      // org: condition it on status/category, or turn it off entirely, from
+      // the Workflows UI rather than a code change.
     } else if (ticket.requester?.email) {
       sendMail(emailTemplates.ticketStatusChanged(ticket, status, ticket.requester.name, ticket.requester.email)).catch(() => {});
     }

@@ -158,6 +158,7 @@ model User {
   quotesCreated          Quote[]            @relation("QuoteCreator")
   refreshTokens          RefreshToken[]
   schedulesCreated       Schedule[]
+  slaPoliciesToNotify    SlaPolicy[]        @relation("SlaPolicyNotifyUser")
   assignedTickets        Ticket[]           @relation("TicketAssignee")
   requestedTickets       Ticket[]           @relation("TicketRequester")
   timeEntries            TimeEntry[]
@@ -449,10 +450,18 @@ model SlaPolicy {
   responseHours     Int          @map("response_hours")
   resolutionHours   Int          @map("resolution_hours")
   priorityOverrides Json?        @map("priority_overrides")
+  // Who gets an in-app + push notification when a ticket under this policy
+  // breaches its resolution deadline (see utils/slaMonitor.ts). Optional —
+  // orgs that would rather route breaches through a Workflows rule (any
+  // recipient logic, Slack/Teams/email/WhatsApp) can leave this unset and
+  // build an SLA_BREACH-triggered rule instead; the two aren't exclusive,
+  // both fire on the same breach event.
+  notifyUserId      String?      @map("notify_user_id")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
   orgId             String       @map("org_id")
   categories        Category[]
+  notifyUser        User?        @relation("SlaPolicyNotifyUser", fields: [notifyUserId], references: [id])
   org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
