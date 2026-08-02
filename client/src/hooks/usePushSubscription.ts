@@ -12,14 +12,22 @@ export type PushPermission = 'unsupported' | 'default' | 'granted' | 'denied';
 const isSupported =
   typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
-/** VAPID public keys are base64url; pushManager.subscribe() wants a raw Uint8Array. */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+/**
+ * VAPID public keys are base64url; pushManager.subscribe() wants a raw
+ * BufferSource. Returned as a plain ArrayBuffer (rather than a Uint8Array)
+ * since newer TS/lib.dom typings make Uint8Array generic over its backing
+ * buffer (defaulting to the too-loose ArrayBufferLike, which SharedArrayBuffer
+ * also satisfies) and applicationServerKey specifically wants an
+ * ArrayBufferView<ArrayBuffer> — an ArrayBuffer itself sidesteps the
+ * mismatch entirely.
+ */
+function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
   const output = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
-  return output;
+  return output.buffer;
 }
 
 export function usePushSubscription() {
