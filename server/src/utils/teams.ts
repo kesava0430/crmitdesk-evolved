@@ -72,6 +72,21 @@ export async function teamsNewTicket(orgId: string, ticket: { id: string; title:
   )).catch(err => console.error('[teams] newTicket error:', err.message));
 }
 
+export async function teamsSlaBreached(orgId: string, ticket: { title: string; priority: string; slaDueAt: Date | null }) {
+  const cfg = await prisma.teamsConfig.findUnique({ where: { orgId } });
+  if (!cfg || !cfg.notifyOnSlaBreached) return;
+
+  await postToTeams(cfg.webhookUrl, teamCard(
+    '⏰ SLA Breached',
+    'red',
+    [
+      { name: 'Ticket', value: ticket.title },
+      { name: 'Priority', value: ticket.priority },
+      { name: 'Due was', value: ticket.slaDueAt?.toISOString() ?? 'N/A' },
+    ],
+  )).catch(err => console.error('[teams] slaBreached error:', err.message));
+}
+
 export async function teamsDealWon(orgId: string, deal: { title: string; value: number | string; assignee?: { name: string } | null }) {
   const cfg = await prisma.teamsConfig.findUnique({ where: { orgId } });
   if (!cfg || !cfg.notifyOnDealWon) return;

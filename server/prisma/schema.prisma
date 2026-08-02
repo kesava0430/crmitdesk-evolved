@@ -44,6 +44,7 @@ model Organization {
   branding       OrgBranding?
   pipelines      Pipeline[]
   portalUsers    PortalUser[]
+  pushSubscriptions PushSubscription[]
   quotes         Quote[]
   schedules      Schedule[]
   slaPolicies    SlaPolicy[]
@@ -153,6 +154,7 @@ model User {
   knowledgeArticles      KnowledgeArticle[]
   assignedLeads          Lead[]             @relation("LeadAssignee")
   notifications          Notification[]
+  pushSubscriptions      PushSubscription[]
   quotesCreated          Quote[]            @relation("QuoteCreator")
   refreshTokens          RefreshToken[]
   schedulesCreated       Schedule[]
@@ -668,6 +670,29 @@ model Notification {
   @@index([orgId, userId])
   @@index([userId, readAt])
   @@map("notifications")
+}
+
+// Browser Push API subscriptions (see utils/webPush.ts). One row per
+// browser/device a user has granted notification permission on — a user
+// with the app open on a laptop and a phone gets two rows, both targeted
+// whenever a push is sent to that userId. `endpoint` is unique because it's
+// the push service's own per-registration URL (FCM/Mozilla/etc.) — the
+// browser hands back the same one on re-subscribe, so this also makes
+// re-subscribing idempotent rather than piling up duplicate rows.
+model PushSubscription {
+  id        String       @id @default(cuid())
+  orgId     String       @map("org_id")
+  userId    String       @map("user_id")
+  endpoint  String       @unique
+  p256dh    String // subscription encryption key
+  auth      String // subscription auth secret
+  createdAt DateTime     @default(now()) @map("created_at")
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 model WorkflowRule {

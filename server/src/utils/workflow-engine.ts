@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
 import { scoreLead } from './ai';
+import { sendPushToUser } from './webPush';
 
 // ─── Outbound webhook delivery (signed + retried) ─────────────────────────────
 // Previously this action fired a single, unsigned fetch() with no retry —
@@ -285,17 +286,21 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
         targetUserId = entity.assignedTo || entity.assignee?.id || entity.ownerId;
       }
       if (!targetUserId) return 'Notification skipped — no recipient resolved';
+      const notifTitle = resolve(String(title || 'Workflow automation'));
+      const notifBody = resolve(String(body || ''));
       await prisma.notification.create({
         data: {
           orgId,
           userId: targetUserId,
           type: 'STATUS_CHANGE',
-          title: resolve(String(title || 'Workflow automation')),
-          body: resolve(String(body || '')),
+          title: notifTitle,
+          body: notifBody,
           entityId,
           entityType,
         },
       });
+      // Real browser push, on top of the in-app bell — see utils/webPush.ts.
+      sendPushToUser(targetUserId, { title: notifTitle, body: notifBody }).catch(() => {});
       return `Notification created for user ${targetUserId}`;
     }
 

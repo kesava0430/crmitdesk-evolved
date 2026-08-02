@@ -134,6 +134,22 @@ services:
         sync: false
       - key: S3_SECRET_ACCESS_KEY
         sync: false
+      # Real browser/OS push notifications (utils/webPush.ts + the
+      # NotificationBell "Enable push" toggle) — separate from the in-app
+      # SSE/polling notifications, which only work while a tab is open.
+      # Generate a keypair with `npx web-push generate-vapid-keys` and paste
+      # the two values in below. Until both are set, /push/vapid-public-key
+      # 404s and the client-side toggle silently no-ops rather than erroring
+      # — same "off by default" pattern as GROQ_API_KEY/RESEND_API_KEY.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # Contact address the push service (FCM/Mozilla's autopush/etc.) may
+      # use to reach you about this VAPID identity — required format is
+      # "mailto:you@example.com". Defaults to a placeholder if unset.
+      - key: VAPID_SUBJECT
+        sync: false
 
   # ─── Frontend (Static Site) ───────────────────────────────────────────────
   - type: web

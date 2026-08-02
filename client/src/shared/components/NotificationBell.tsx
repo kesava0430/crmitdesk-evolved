@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, X, Ticket, MessageSquare, Target, CheckCircle } from 'lucide-react';
+import { Bell, BellRing, BellOff, X, Ticket, MessageSquare, Target, CheckCircle } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useSSE, setSSEToastHandler, type SSEEventType } from '../../hooks/useSSE';
+import { usePushSubscription } from '../../hooks/usePushSubscription';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
 export function NotificationBell() {
   // Start SSE connection for this component tree
   useSSE();
+  const push = usePushSubscription();
 
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -133,11 +135,30 @@ export function NotificationBell() {
           <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-900">Notifications</h3>
-              {unread > 0 && (
-                <button onClick={markAllRead} className="text-xs text-brand-600 hover:text-brand-700 font-medium">
-                  Mark all read
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {push.isSupported && (
+                  <button
+                    onClick={() => (push.subscribed ? push.unsubscribe() : push.subscribe())}
+                    disabled={push.busy || push.status === 'denied'}
+                    title={
+                      push.status === 'denied'
+                        ? 'Notifications blocked in your browser settings'
+                        : push.subscribed
+                        ? 'Turn off desktop push notifications'
+                        : 'Get desktop push notifications, even when this tab is closed'
+                    }
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {push.subscribed ? <BellRing size={13} className="text-brand-500" /> : <BellOff size={13} />}
+                    {push.subscribed ? 'Push on' : push.status === 'denied' ? 'Push blocked' : 'Enable push'}
+                  </button>
+                )}
+                {unread > 0 && (
+                  <button onClick={markAllRead} className="text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    Mark all read
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">

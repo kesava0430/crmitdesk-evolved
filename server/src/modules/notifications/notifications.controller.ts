@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
+import { sendPushToUser } from '../../utils/webPush';
 
 // ─── List notifications for the current user ──────────────────────────────────
 
@@ -65,7 +66,12 @@ export async function createNotification(params: {
   entityType?: string;
   entityId?: string;
 }) {
-  return prisma.notification.create({ data: params });
+  const notification = await prisma.notification.create({ data: params });
+  // Real browser push, on top of the in-app bell — see utils/webPush.ts.
+  // Fire-and-forget: a push failure shouldn't fail whatever action
+  // triggered this notification.
+  sendPushToUser(params.userId, { title: params.title, body: params.body }).catch(() => {});
+  return notification;
 }
 
 // ─── Helper: notify all admins/managers in an org ────────────────────────────
@@ -90,4 +96,5 @@ export async function notifyOrgAdmins(params: {
     data: admins.map(a => ({ orgId, userId: a.id, ...rest })),
     skipDuplicates: true,
   });
+  await Promise.all(admins.map(a => sendPushToUser(a.id, { title: rest.title, body: rest.body }).catch(() => {})));
 }

@@ -53,9 +53,11 @@ import { storageRouter } from './modules/storage/storage.routes';
 import { attachmentsRouter } from './modules/attachments/attachments.routes';
 import { demoRouter } from './modules/demo/demo.routes';
 import { customModulesRouter } from './modules/custom-modules/customModules.routes';
+import { pushRouter } from './modules/push/push.routes';
 import { startSchedulePoller } from './utils/scheduler';
 import { startCustomModuleSyncPoller } from './utils/customModuleSync';
 import { startDateAutomationPoller } from './utils/dateAutomation';
+import { startSlaMonitorPoller } from './utils/slaMonitor';
 import { syncAllEmailAccounts } from './utils/email-sync';
 import { errorHandler } from './middleware/errorHandler';
 import { prisma } from './utils/prisma';
@@ -183,6 +185,7 @@ app.use('/api/storage', storageRouter);
 app.use('/api/attachments', attachmentsRouter);
 app.use('/api/demo', demoRouter);
 app.use('/api/custom-modules', customModulesRouter);
+app.use('/api/push', pushRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -211,6 +214,11 @@ startCustomModuleSyncPoller();
 // Date-driven follow-ups (birthdays, appointment/service-due reminders):
 // day-granularity, so hourly is enough — see utils/dateAutomation.ts
 startDateAutomationPoller();
+
+// SLA breach detection: fires the SLA_BREACH workflow trigger + Slack/Teams
+// notifications for any ticket that just crossed its resolution deadline —
+// see utils/slaMonitor.ts
+startSlaMonitorPoller();
 
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal: string) {
