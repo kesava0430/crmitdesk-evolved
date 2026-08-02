@@ -17,3 +17,4 @@ workflowsRouter.put('/:id',           requireRole(...MANAGERS), wf.update);
 workflowsRouter.delete('/:id',        requireRole(...MANAGERS), wf.remove);
 workflowsRouter.get('/:id/logs',      requireRole(...MANAGERS), wf.getLogs);
 workflowsRouter.patch('/:id/toggle',  requireRole(...MANAGERS), wf.toggleActive);
+workflowsRouter.post('/:id/run-now',  requireRole(...MANAGERS), wf.runDateRule);

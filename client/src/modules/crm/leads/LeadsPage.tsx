@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Target, Plus, ArrowRight, Trash2, CheckCircle2, Sparkles, Mail, Copy, Check, Zap, Calendar, Pencil } from 'lucide-react';
-import { useLeads, useCreateLead, useUpdateLead, useConvertLead, useDeleteLead } from '../../../api/crm';
+import { Target, Plus, ArrowRight, Trash2, CheckCircle2, Sparkles, Mail, Copy, Check, Zap, Calendar, Pencil, ListTodo, Circle, Phone, Users as UsersIcon, ClipboardList } from 'lucide-react';
+import { useLeads, useCreateLead, useUpdateLead, useConvertLead, useDeleteLead, useLead, useCreateActivity, useUpdateActivity, useDeleteActivity, usePipeline } from '../../../api/crm';
 import { useScoreLead, useLeadFollowUp, useNurtureSequence } from '../../../api/ai';
 import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect , RowActions, CustomFieldsFormFields, RecordTemplatePicker } from '../../../shared/components';
 import { leadStatusVariant } from '../../../shared/components/Badge';
@@ -10,7 +10,6 @@ import { Attachments } from '../../../shared/components/Attachments';
 
 const STATUSES = ['NEW','CONTACTED','QUALIFIED','UNQUALIFIED','CONVERTED'];
 const SOURCES = ['Web','Referral','Cold Outreach','Event','Social Media','Other'];
-const STAGES = ['Prospecting','Proposal','Negotiation','Won','Lost'];
 
 function scoreColor(score: number) {
   if (score >= 75) return 'bg-green-100 text-green-700 border-green-200';
@@ -85,13 +84,19 @@ function LeadForm({ initial, entityId, onSubmit, loading }: any) {
 
 function ConvertLeadModal({ lead, onClose }: { lead: any; onClose: () => void }) {
   const convert = useConvertLead();
+  const { data: pipelineData } = usePipeline();
+  const stageOptions: string[] = (pipelineData?.pipeline?.stages ?? []).map((s: any) => typeof s === 'string' ? s : s.label);
   const contactName = lead.contact?.name || 'New Deal';
   const [form, setForm] = useState({
     dealTitle: `Deal - ${contactName}`,
     dealValue: '',
-    dealStage: 'Prospecting',
+    dealStage: '',
     dealProbability: '20',
   });
+  useEffect(() => {
+    if (!form.dealStage && stageOptions.length) setForm(p => ({ ...p, dealStage: stageOptions[0] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageOptions.length]);
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
 
   async function handleConvert(e: React.FormEvent) {
@@ -131,7 +136,7 @@ function ConvertLeadModal({ lead, onClose }: { lead: any; onClose: () => void })
           </div>
           <div>
             <label className="form-label">Stage</label>
-            <SearchableSelect ariaLabel="Stage" value={form.dealStage} onChange={val => setForm(p => ({ ...p, dealStage: val }))} required options={STAGES.map(s => ({ value: s, label: s }))} />
+            <SearchableSelect ariaLabel="Stage" value={form.dealStage} onChange={val => setForm(p => ({ ...p, dealStage: val }))} required options={stageOptions.map(s => ({ value: s, label: s }))} />
           </div>
         </div>
       </div>
@@ -261,10 +266,89 @@ function NurtureSequenceModal({ lead, onClose }: { lead: any; onClose: () => voi
   );
 }
 
+const ACTIVITY_TYPES = ['CALL', 'EMAIL', 'MEETING', 'TASK'] as const;
+const ACTIVITY_ICON: Record<string, any> = { CALL: Phone, EMAIL: Mail, MEETING: UsersIcon, TASK: ClipboardList };
+
+function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
+  const { data: fresh, isLoading } = useLead(lead.id);
+  const activities = fresh?.activities ?? [];
+  const createActivity = useCreateActivity();
+  const updateActivity = useUpdateActivity();
+  const deleteActivity = useDeleteActivity();
+  const [form, setForm] = useState({ type: 'CALL' as typeof ACTIVITY_TYPES[number], title: '', dueAt: '' });
+
+  function addFollowUp(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.title.trim()) return;
+    createActivity.mutate(
+      { leadId: lead.id, contactId: lead.contactId ?? lead.contact?.id, type: form.type, title: form.title.trim(), dueAt: form.dueAt || undefined },
+      { onSuccess: () => setForm({ type: 'CALL', title: '', dueAt: '' }) }
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center"><ListTodo size={18} className="text-indigo-600" /></div>
+        <div>
+          <p className="font-semibold text-gray-900">{lead.contact?.name || 'Lead'}</p>
+          <p className="text-xs text-gray-500">Scheduled calls, emails, meetings and tasks for this lead — separate from deal-side activity once it converts.</p>
+        </div>
+      </div>
+
+      {isLoading ? <Spinner /> : activities.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-4">No follow-ups scheduled yet.</p>
+      ) : (
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {activities.map((a: any) => {
+            const Icon = ACTIVITY_ICON[a.type] || ClipboardList;
+            return (
+              <div key={a.id} className={`flex items-start gap-2.5 border rounded-xl p-3 ${a.done ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
+                <button
+                  type="button"
+                  onClick={() => updateActivity.mutate({ id: a.id, done: !a.done })}
+                  className={`mt-0.5 flex-shrink-0 ${a.done ? 'text-green-500' : 'text-gray-300 hover:text-gray-400'}`}
+                  aria-label={a.done ? 'Mark as not done' : 'Mark as done'}
+                >
+                  {a.done ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                </button>
+                <Icon size={14} className="text-gray-400 mt-1 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${a.done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{a.title}</p>
+                  {a.body && <p className="text-xs text-gray-500 mt-0.5">{a.body}</p>}
+                  <div className="flex items-center gap-2 mt-1">
+                    {a.dueAt && <span className="text-[11px] text-gray-400">Due {new Date(a.dueAt).toLocaleDateString()}</span>}
+                    {a.createdByUser?.name && <span className="text-[11px] text-gray-300">· {a.createdByUser.name}</span>}
+                  </div>
+                </div>
+                <button type="button" onClick={() => deleteActivity.mutate(a.id)} className="text-gray-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <form onSubmit={addFollowUp} className="border-t border-gray-100 pt-3 space-y-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Schedule a follow-up</p>
+        <div className="flex flex-wrap gap-2">
+          <select aria-label="Follow-up type" value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value as any }))} className="ui-input w-32">
+            {ACTIVITY_TYPES.map(t => <option key={t} value={t}>{t[0] + t.slice(1).toLowerCase()}</option>)}
+          </select>
+          <input aria-label="Follow-up title" className="ui-input flex-1 min-w-[160px]" placeholder="e.g. Call to discuss pricing" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
+          <input aria-label="Follow-up due date" type="date" className="ui-input w-40" value={form.dueAt} onChange={e => setForm(p => ({ ...p, dueAt: e.target.value }))} />
+          <Button type="submit" size="sm" icon={<Plus size={13} />} loading={createActivity.isPending}>Add</Button>
+        </div>
+      </form>
+
+      <div className="flex justify-end"><Button variant="secondary" onClick={onClose}>Close</Button></div>
+    </div>
+  );
+}
+
 export function LeadsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [modal, setModal] = useState<null | 'create' | { type: 'edit'; lead: any } | { type: 'convert'; lead: any } | { type: 'followup'; lead: any } | { type: 'nurture'; lead: any }>(null);
+  const [modal, setModal] = useState<null | 'create' | { type: 'edit'; lead: any } | { type: 'convert'; lead: any } | { type: 'followup'; lead: any } | { type: 'nurture'; lead: any } | { type: 'followups'; lead: any }>(null);
   const { data: leads, isLoading } = useLeads({ ...(search && { search }), ...(statusFilter && { status: statusFilter }) });
   const create = useCreateLead();
   const update = useUpdateLead();
@@ -366,6 +450,13 @@ export function LeadsPage() {
                     <td className="hidden sm:table-cell px-4 py-3 text-gray-400 text-xs max-w-xs truncate">{lead.notes}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 flex-wrap">
+                        <button onClick={() => setModal({ type: 'followups', lead })} title="Follow-up activities"
+                          className="relative p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors">
+                          <ListTodo size={14} />
+                          {lead._count?.activities > 0 && (
+                            <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-indigo-500 text-white text-[9px] leading-[14px] text-center">{lead._count.activities}</span>
+                          )}
+                        </button>
                         <button onClick={() => setModal({ type: 'followup', lead })} title="AI follow-up email"
                           className="p-1.5 hover:bg-violet-50 rounded-lg text-gray-400 hover:text-violet-600 transition-colors">
                           <Mail size={14} />
@@ -439,6 +530,16 @@ export function LeadsPage() {
       >
         {modal && typeof modal === 'object' && (modal as any).type === 'nurture' && (
           <NurtureSequenceModal lead={(modal as any).lead} onClose={() => setModal(null)} />
+        )}
+      </Modal>
+
+      <Modal
+        open={typeof modal === 'object' && modal !== null && (modal as any).type === 'followups'}
+        onClose={() => setModal(null)}
+        title="Follow-up Activities"
+      >
+        {modal && typeof modal === 'object' && (modal as any).type === 'followups' && (
+          <FollowUpsModal lead={(modal as any).lead} onClose={() => setModal(null)} />
         )}
       </Modal>
     </div>

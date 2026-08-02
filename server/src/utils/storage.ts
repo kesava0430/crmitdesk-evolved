@@ -52,6 +52,40 @@ export async function hasStorageConnected(orgId: string): Promise<boolean> {
   return !!(await prisma.storageConfig.findUnique({ where: { orgId } }));
 }
 
+/** Like getConfig, but also asserts the org's *current* connection is still
+ * Google Drive with live credentials. A StorageConfig row can exist while
+ * holding no usable Drive credentials — the org may have since switched to
+ * hosted storage (connectHosted nulls the Drive fields) or reconnected a
+ * different Drive account (googleCallback overwrites the tokens). Older
+ * attachments still have provider === 'GOOGLE_DRIVE' recorded on them but
+ * can no longer be reached through the current config, so this throws a
+ * clean, explanatory error instead of letting decryptSecretOrPlain blow up
+ * on a null accessToken or Drive reject a token that belongs to someone
+ * else's account. Callers that create controller-level guards to prevent
+ * this situation (storage.controller.ts) still need this as a backstop for
+ * attachments that were orphaned before those guards existed. */
+async function getGoogleDriveConfig(orgId: string) {
+  const config = await getConfig(orgId);
+  if (config.provider !== 'GOOGLE_DRIVE' || !config.accessToken || !config.refreshToken || !config.tokenExpiresAt) {
+    throw new AppError(
+      400,
+      "This organization's Google Drive connection has changed since this file was uploaded, so it can no longer be reached here. It may still exist in the previously connected Google Drive account.",
+    );
+  }
+  return config as typeof config & { accessToken: string; refreshToken: string; tokenExpiresAt: Date };
+}
+
+/** Number of attachments currently stored in this org's connected Google
+ * Drive. Used by storage.controller.ts to block actions that would
+ * silently orphan them — switching to hosted storage, disconnecting, or
+ * reconnecting a different Drive account all overwrite or remove the
+ * credentials those attachments need to stay reachable. */
+export async function countGoogleDriveAttachments(orgId: string): Promise<number> {
+  return prisma.attachment.count({
+    where: { provider: 'GOOGLE_DRIVE', uploader: { orgId } },
+  });
+}
+
 export async function uploadAttachment(orgId: string, file: { buffer: Buffer; filename: string; mimeType: string }): Promise<UploadResult> {
   const config = await getConfig(orgId);
 
@@ -70,7 +104,7 @@ export async function uploadAttachment(orgId: string, file: { buffer: Buffer; fi
 
 export async function downloadAttachment(orgId: string, provider: string, providerFileId: string): Promise<Buffer> {
   if (provider === 'GOOGLE_DRIVE') {
-    const config = await getConfig(orgId);
+    const config = await getGoogleDriveConfig(orgId);
     const accessToken = await getValidGoogleAccessToken(orgId, config);
     return googleDrive.downloadFile(accessToken, providerFileId);
   }
@@ -82,7 +116,7 @@ export async function downloadAttachment(orgId: string, provider: string, provid
 
 export async function deleteAttachmentFile(orgId: string, provider: string, providerFileId: string): Promise<void> {
   if (provider === 'GOOGLE_DRIVE') {
-    const config = await getConfig(orgId);
+    const config = await getGoogleDriveConfig(orgId);
     const accessToken = await getValidGoogleAccessToken(orgId, config);
     // Swallow a 404 (file already gone from Drive, e.g. someone deleted it
     // manually) — the point of this call is making sure it's gone, and it is.

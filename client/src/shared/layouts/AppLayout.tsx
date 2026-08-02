@@ -6,7 +6,7 @@ import {
   Ticket, FolderTree, BookOpen, LogOut,
   BarChart2, UserCog, Inbox, Zap, Globe, CreditCard, Slack, Monitor,
   Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
-  FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive,
+  FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive, Layers,
 } from "lucide-react";
 import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -82,6 +82,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: "/reports",       label: "Reports",       icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/import",        label: "Import CSV",    icon: Upload,    roles: ['SUPER_ADMIN', 'CRM_MANAGER'] },
       { to: "/custom-fields", label: "Custom Fields", icon: Settings2 },
+      { to: "/custom-modules", label: "Custom Modules", icon: Layers, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/templates",     label: "Templates",     icon: LayoutTemplate },
       { to: "/branding",      label: "Branding",      icon: Palette },
       { to: "/audit-logs",    label: "Audit Log",     icon: Shield,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
@@ -121,6 +122,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/reports":           "Reports",
   "/import":            "Bulk Import",
   "/custom-fields":     "Custom Fields",
+  "/custom-modules":    "Custom Modules",
   "/templates":         "Templates",
   "/branding":          "Branding",
   "/audit-logs":        "Audit Log",

@@ -8,9 +8,9 @@
  * reset) without shelling out to this script.
  */
 
-import { seedDemoOrg } from '../src/utils/seedDemoData';
+import { seedAllDemoOrgs } from '../src/utils/seedDemoData';
 import { prisma } from '../src/utils/prisma';
 
-seedDemoOrg()
+seedAllDemoOrgs()
   .catch(e => { console.error('Seed failed:', e); process.exit(1); })
   .finally(() => prisma.$disconnect());

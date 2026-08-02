@@ -6,6 +6,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { encryptSecret } from '../../utils/crypto';
 import * as googleDrive from '../../utils/googleDrive';
 import * as s3Storage from '../../utils/s3Storage';
+import * as storage from '../../utils/storage';
 import { getStorageQuotaBytes, getHostedStorageUsageBytes } from '../../utils/licensing';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -20,6 +21,24 @@ const REDIRECT_URI = `${APP_URL}/api/storage/google/callback`;
 interface OAuthState {
   orgId: string;
   userId: string;
+}
+
+/** Throws AppError(409) if the org currently has GOOGLE_DRIVE attachments
+ * that `action` would strand — i.e. the org's active connection is still
+ * that same Drive account, so those files are reachable right now, but
+ * `action` is about to overwrite or remove the credentials they need
+ * (disconnecting, switching to hosted storage, or reconnecting a
+ * *different* Drive account). Deliberately does NOT block when the
+ * attachments are already unreachable for some other reason (e.g. the org
+ * already switched away previously) — no point blocking someone from
+ * finishing a transition that already happened. */
+async function assertWontOrphanDriveAttachments(orgId: string, action: string): Promise<void> {
+  const count = await storage.countGoogleDriveAttachments(orgId);
+  if (count === 0) return;
+  throw new AppError(
+    409,
+    `${action} would make ${count} attachment${count === 1 ? '' : 's'} stored in your connected Google Drive account permanently inaccessible in CRMITdesk (they'd remain in Drive itself, just not reachable from here). Delete ${count === 1 ? 'it' : 'them'} first, or keep this Google Drive account connected.`,
+  );
 }
 
 // GET /api/storage/status
@@ -94,6 +113,16 @@ export async function googleCallback(req: AuthRequest, res: Response, next: Next
     }
 
     const connectedEmail = await googleDrive.getConnectedEmail(tokens.access_token);
+
+    // Reconnecting the SAME Drive account just refreshes tokens — harmless.
+    // Reconnecting a DIFFERENT one overwrites the credentials old Drive
+    // attachments need, exactly like disconnecting does, just less
+    // obviously — so it gets the same guard.
+    const existing = await prisma.storageConfig.findUnique({ where: { orgId: payload.orgId } });
+    if (existing?.provider === 'GOOGLE_DRIVE' && existing.connectedEmail && existing.connectedEmail !== connectedEmail) {
+      await assertWontOrphanDriveAttachments(payload.orgId, `Connecting a different Google account (${connectedEmail} instead of ${existing.connectedEmail})`);
+    }
+
     const rootFolderId = await googleDrive.createAppFolder(tokens.access_token, 'CRMITdesk Evolved Attachments');
 
     await prisma.storageConfig.upsert({
@@ -128,9 +157,13 @@ export async function googleCallback(req: AuthRequest, res: Response, next: Next
 // POST /api/storage/hosted/connect — switches the org to our hosted (S3)
 // storage instead of Google Drive. No OAuth involved: just checks the
 // plan's quota is non-zero and this deployment has S3 credentials set, then
-// upserts a StorageConfig row with every Drive-only field left null. Any
-// files already uploaded under a previous provider are unaffected — this
-// only changes where NEW uploads go.
+// upserts a StorageConfig row with every Drive-only field left null. This
+// only changes where NEW uploads go — files already uploaded to hosted
+// storage under a previous connection are unaffected either way. Files
+// uploaded to Google Drive are a different story: nulling the Drive fields
+// here would strand them, so assertWontOrphanDriveAttachments blocks the
+// switch while any exist (see storage.ts's getGoogleDriveConfig for what
+// happens to an attachment that predates this guard).
 export async function connectHosted(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!s3Storage.isS3Configured()) {
@@ -140,6 +173,11 @@ export async function connectHosted(req: AuthRequest, res: Response, next: NextF
     const quotaBytes = await getStorageQuotaBytes(orgId);
     if (quotaBytes === 0) {
       throw new AppError(402, 'Hosted storage isn’t included in your current plan. Upgrade to Pro or Enterprise, or connect your own Google Drive instead.');
+    }
+
+    const existing = await prisma.storageConfig.findUnique({ where: { orgId } });
+    if (existing?.provider === 'GOOGLE_DRIVE') {
+      await assertWontOrphanDriveAttachments(orgId, 'Switching to hosted storage');
     }
 
     await prisma.storageConfig.upsert({
@@ -167,7 +205,13 @@ export async function connectHosted(req: AuthRequest, res: Response, next: NextF
 // DELETE /api/storage
 export async function disconnect(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.storageConfig.deleteMany({ where: { orgId: req.user!.orgId } });
+    const orgId = req.user!.orgId;
+    const existing = await prisma.storageConfig.findUnique({ where: { orgId } });
+    if (existing?.provider === 'GOOGLE_DRIVE') {
+      await assertWontOrphanDriveAttachments(orgId, 'Disconnecting');
+    }
+
+    await prisma.storageConfig.deleteMany({ where: { orgId } });
     res.json({ message: 'Storage disconnected. Existing attachments already uploaded are unaffected until deleted individually.' });
   } catch (err) { next(err); }
 }

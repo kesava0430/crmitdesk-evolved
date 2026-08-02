@@ -8,6 +8,7 @@ import { parsePagination, paginate } from '../../../utils/pagination';
 import { runWorkflows } from '../../../utils/workflow-engine';
 import { slackDealWon } from '../../../utils/slack';
 import { logAction } from '../../../utils/auditLog';
+import { ensureDefaultPipeline, normalizeStages } from '../pipelines/pipelines.service';
 
 const Schema = z.object({
   title: z.string().min(1),
@@ -27,16 +28,6 @@ const include = {
   assignee: { select: { id: true, name: true, email: true } },
   pipeline: { select: { id: true, name: true, stages: true } },
 };
-
-async function ensureDefaultPipeline(orgId: string) {
-  let pipeline = await prisma.pipeline.findFirst({ where: { orgId, isDefault: true } });
-  if (!pipeline) {
-    pipeline = await prisma.pipeline.create({
-      data: { name: 'Sales Pipeline', stages: ['Prospecting','Proposal','Negotiation','Won','Lost'], isDefault: true, orgId }
-    });
-  }
-  return pipeline;
-}
 
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -59,10 +50,10 @@ export async function pipeline(req: AuthRequest, res: Response, next: NextFuncti
   try {
     const orgId = req.user!.orgId;
     const p = await ensureDefaultPipeline(orgId);
-    const stages = p.stages as string[];
+    const stages = normalizeStages(p.stages);
     const deals = await prisma.deal.findMany({ where: { orgId, status: 'OPEN' }, include, orderBy: { createdAt: 'desc' } });
-    const grouped = stages.map(stage => ({ stage, deals: deals.filter(d => d.stage === stage) }));
-    res.json({ pipeline: p, columns: grouped });
+    const grouped = stages.map(s => ({ stage: s.label, color: s.color, probability: s.probability, deals: deals.filter(d => d.stage === s.label) }));
+    res.json({ pipeline: { ...p, stages }, columns: grouped });
   } catch (err) { next(err); }
 }
 
@@ -71,13 +62,13 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     const orgId = req.user!.orgId;
     const data = Schema.parse(req.body);
     const p = await ensureDefaultPipeline(orgId);
-    const stages = p.stages as string[];
+    const stages = normalizeStages(p.stages);
     const deal = await prisma.deal.create({
       data: {
         orgId,
         title: data.title,
         value: data.value ?? 0,
-        stage: data.stage || stages[0],
+        stage: data.stage || stages[0]?.label,
         probability: data.probability ?? 20,
         closeDate: data.closeDate ? new Date(data.closeDate) : undefined,
         contactId: data.contactId,
@@ -126,6 +117,13 @@ export async function moveStage(req: AuthRequest, res: Response, next: NextFunct
     const { stage } = z.object({ stage: z.string() }).parse(req.body);
     const existing = await prisma.deal.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!existing) throw new AppError(404, 'Deal not found');
+    if (existing.pipelineId) {
+      const p = await prisma.pipeline.findUnique({ where: { id: existing.pipelineId } });
+      const validLabels = normalizeStages(p?.stages).map(s => s.label);
+      if (validLabels.length && !validLabels.includes(stage)) {
+        throw new AppError(400, `"${stage}" is not a stage on this deal's pipeline`);
+      }
+    }
     const deal = await prisma.deal.update({ where: { id: req.params.id }, data: { stage }, include });
     await prisma.dealHistory.create({ data: { dealId: deal.id, fromStage: existing.stage, toStage: stage, changedBy: req.user!.id } });
     if (deal.assignee?.email) {
@@ -140,7 +138,7 @@ export async function reports(req: AuthRequest, res: Response, next: NextFunctio
   try {
     const orgId = req.user!.orgId;
     const p = await ensureDefaultPipeline(orgId);
-    const stages = p.stages as string[];
+    const stages = normalizeStages(p.stages).map(s => s.label);
     const deals = await prisma.deal.findMany({ where: { orgId, status: 'OPEN' } });
     const funnel = stages.map(stage => {
       const stageDeals = deals.filter(d => d.stage === stage);

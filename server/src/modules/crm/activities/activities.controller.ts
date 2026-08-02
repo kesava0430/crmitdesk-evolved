@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
+import { runWorkflows } from '../../../utils/workflow-engine';
 
 const Schema = z.object({
   type: z.enum(['CALL','EMAIL','MEETING','TASK']),
@@ -9,6 +10,10 @@ const Schema = z.object({
   body: z.string().optional(),
   dealId: z.string().optional(),
   contactId: z.string().optional(),
+  // Follow-up activities against a Lead — the CRM had no way to schedule a
+  // call/email/task on a lead before converting it to a deal; this closes
+  // that gap without a separate lead-only activity model.
+  leadId: z.string().optional(),
   dueAt: z.string().optional(),
   done: z.boolean().optional(),
 });
@@ -18,11 +23,12 @@ const include = { createdByUser: { select: { id: true, name: true } } };
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { dealId, contactId } = req.query as Record<string, string>;
+    const { dealId, contactId, leadId } = req.query as Record<string, string>;
     const where: any = { orgId };
     if (dealId) where.dealId = dealId;
     if (contactId) where.contactId = contactId;
-    const activities = await prisma.activity.findMany({ where, include, orderBy: { createdAt: 'desc' } });
+    if (leadId) where.leadId = leadId;
+    const activities = await prisma.activity.findMany({ where, include, orderBy: [{ done: 'asc' }, { dueAt: 'asc' }, { createdAt: 'desc' }] });
     res.json(activities);
   } catch (err) { next(err); }
 }
@@ -46,11 +52,24 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    const orgId = req.user!.orgId;
+    const existing = await prisma.activity.findFirst({ where: { id: req.params.id, orgId } });
     await prisma.activity.updateMany({
-      where: { id: req.params.id, orgId: req.user!.orgId },
+      where: { id: req.params.id, orgId },
       data: { ...data, dueAt: data.dueAt ? new Date(data.dueAt) : undefined },
     });
-    const activity = await prisma.activity.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
+    const activity = await prisma.activity.findFirst({ where: { id: req.params.id, orgId }, include });
+    // Completing a lead follow-up is a meaningful automation trigger point
+    // (e.g. "notify manager when a lead's first-touch call is logged done").
+    if (activity?.leadId && data.done === true && existing?.done === false) {
+      runWorkflows({
+        trigger: 'LEAD_ACTIVITY_COMPLETED',
+        orgId,
+        entityType: 'LEAD',
+        entityId: activity.leadId,
+        entity: activity as any,
+      }).catch(() => {});
+    }
     res.json(activity);
   } catch (err) { next(err); }
 }

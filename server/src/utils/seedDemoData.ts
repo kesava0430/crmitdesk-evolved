@@ -1,24 +1,27 @@
 /**
- * Seeds (or re-seeds) the public demo/showcase organization ("TechCorp
- * Solutions", slug "techcorp"). Re-runnable: deletes the existing org
- * (cascade) plus any orphaned seed users, then recreates everything.
+ * Seeds (or re-seeds) the public demo/showcase organizations — one per
+ * industry vertical (see VERTICALS below), each with its own slug, its own
+ * "Try Demo" login, and data flavored for that industry (account/contact
+ * names, pipeline stage names, ticket topics, one example custom module).
+ * Re-runnable per vertical: deletes the existing org for that slug (cascade)
+ * plus any orphaned seed users, then recreates everything.
  *
  * This is the single source of truth for demo data — used by:
  *   - prisma/seed.ts (the `npm run db:seed` / `prisma db seed` CLI command)
  *   - POST /api/demo/reset (the nightly automated reset, see modules/demo)
+ *   - POST /api/auth/demo-login?vertical=<slug> (see auth.controller.ts)
  *
  * Uses the app's shared Prisma client (utils/prisma.ts) rather than creating
  * its own, since this now also runs in-process inside the live server.
  */
 
-import { UserRole, LeadStatus, DealStatus, TicketPriority, TicketStatus, ArticleStatus, ActivityType } from '@prisma/client';
+import { UserRole, LeadStatus, DealStatus, TicketPriority, TicketStatus, ArticleStatus, ActivityType, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { prisma } from './prisma';
 
 async function hash(plain: string) {
   return bcrypt.hash(plain, 10);
 }
-
 function daysFromNow(n: number): Date {
   const d = new Date();
   d.setDate(d.getDate() + n);
@@ -27,364 +30,835 @@ function daysFromNow(n: number): Date {
 function daysAgo(n: number): Date {
   return daysFromNow(-n);
 }
+/**
+ * A contact's date of birth, expressed as "N days from today" so at least
+ * one seeded contact per vertical turns 30-something *today* — the
+ * DATE_FIELD_REACHED "Birthday Wishes" rule (see buildOrg below) then fires
+ * immediately via the workflow's "Run now" test button rather than only
+ * ever being demonstrable by waiting for a real birthday to occur.
+ */
+function birthdayOn(daysFromToday: number, ageYears: number): string {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + daysFromToday);
+  d.setUTCFullYear(d.getUTCFullYear() - ageYears);
+  return d.toISOString();
+}
 
-export const DEMO_ORG_SLUG = 'techcorp';
-export const DEMO_SEED_EMAILS = [
-  'admin@crmitdesk.com',
-  'crm@crmitdesk.com',
-  'sales@crmitdesk.com',
-  'itmanager@crmitdesk.com',
-  'itagent@crmitdesk.com',
+// ─── Vertical content packs ─────────────────────────────────────────────────
+
+interface AccountSeed { name: string; industry: string; website: string; phone: string; address: string }
+interface ContactSeed { name: string; email: string; phone: string; jobTitle: string; accountIdx: number; source: string; dateOfBirth?: string }
+interface DealSeed { title: string; value: number; stage: string; probability: number; contactIdx: number; accountIdx: number; status: DealStatus; closeDays: number }
+interface LeadSeed { contactIdx: number; source: string; status: LeadStatus; notes: string; aiScore: number; aiScoreReason: string; followUps: { type: ActivityType; title: string; body: string; dueDays: number; done: boolean }[] }
+interface TicketSeed { title: string; body: string; category: string; priority: TicketPriority; status: TicketStatus }
+interface KbSeed { title: string; body: string; category: string }
+interface CustomModuleFieldSeed { label: string; fieldKey: string; fieldType: string; options?: string[]; required?: boolean; isPrimary?: boolean }
+
+interface VerticalPreset {
+  slug: string;
+  orgName: string;
+  industry: string;
+  primaryColor: string;
+  supportEmail: string;
+  stages: { label: string; color: string; probability: number; isWon?: boolean; isLost?: boolean }[];
+  accounts: AccountSeed[];
+  contacts: ContactSeed[];
+  deals: DealSeed[];
+  leads: LeadSeed[];
+  tickets: TicketSeed[];
+  kb: KbSeed[];
+  customModule: { name: string; icon: string; description: string; fields: CustomModuleFieldSeed[]; records: Record<string, unknown>[] };
+  // The vertical-flavored half of the date-driven follow-up automations
+  // (see utils/dateAutomation.ts) — built on customModule's own DATE field.
+  // Every vertical additionally gets an identical, unconditional "Birthday
+  // Wishes" rule against Contact.dateOfBirth — that one needs no per-vertical
+  // data, so it isn't part of this preset.
+  dateAutomation: { dateField: string; offsetDays: number; name: string; description: string; message: string };
+}
+
+const STAGE_COLORS = { p1: '#6366f1', p2: '#8b5cf6', p3: '#f59e0b', won: '#10b981', lost: '#ef4444' };
+
+function stages(labels: [string, string, string, string]) {
+  return [
+    { label: labels[0], color: STAGE_COLORS.p1, probability: 20 },
+    { label: labels[1], color: STAGE_COLORS.p2, probability: 45 },
+    { label: labels[2], color: STAGE_COLORS.p3, probability: 70 },
+    { label: labels[3], color: '#0ea5e9', probability: 90 },
+    { label: 'Closed Won', color: STAGE_COLORS.won, probability: 100, isWon: true },
+    { label: 'Closed Lost', color: STAGE_COLORS.lost, probability: 0, isLost: true },
+  ];
+}
+
+export const VERTICALS: VerticalPreset[] = [
+  {
+    slug: 'techcorp', orgName: 'TechCorp Solutions', industry: 'Technology / SaaS', primaryColor: '#4F46E5', supportEmail: 'support@techcorp.io',
+    // Keep "Prospecting" / "Proposal" / "Negotiation" as literal stage names —
+    // tests/e2e/deals.spec.ts:13-15 asserts these exact strings are visible
+    // on the kanban board (this is the org tests/e2e/ logs into; see the
+    // domainFor() comment above for the same constraint on login emails).
+    stages: stages(['Prospecting', 'Demo Scheduled', 'Proposal', 'Negotiation']),
+    accounts: [
+      { name: 'Acme Corporation', industry: 'Manufacturing', website: 'https://acme.example.com', phone: '+1-555-0100', address: '123 Main St, Springfield, IL' },
+      { name: 'Globex Industries', industry: 'Technology', website: 'https://globex.example.com', phone: '+1-555-0200', address: '456 Silicon Ave, San Francisco, CA' },
+      { name: 'Initech Ltd', industry: 'Finance', website: 'https://initech.example.com', phone: '+1-555-0300', address: '789 Wall St, New York, NY' },
+    ],
+    contacts: [
+      { name: 'Alice Whitman', email: 'alice@acme.example.com', phone: '+1-555-1001', jobTitle: 'CTO', accountIdx: 0, source: 'Referral', dateOfBirth: birthdayOn(0, 41) },
+      { name: 'Bob Lumbly', email: 'bob@acme.example.com', phone: '+1-555-1002', jobTitle: 'Procurement Manager', accountIdx: 0, source: 'Cold Email', dateOfBirth: birthdayOn(140, 36) },
+      { name: 'Carol Simmons', email: 'carol@globex.example.com', phone: '+1-555-2001', jobTitle: 'VP Engineering', accountIdx: 1, source: 'Conference' },
+      { name: 'Daniel Park', email: 'daniel@globex.example.com', phone: '+1-555-2002', jobTitle: 'IT Director', accountIdx: 1, source: 'LinkedIn' },
+      { name: 'Eva Martinez', email: 'eva@initech.example.com', phone: '+1-555-3001', jobTitle: 'CFO', accountIdx: 2, source: 'Referral' },
+      { name: 'Frank Torres', email: 'frank@initech.example.com', phone: '+1-555-3002', jobTitle: 'Operations Lead', accountIdx: 2, source: 'Website' },
+    ],
+    deals: [
+      { title: 'Acme ERP Implementation', value: 85000, stage: 'Negotiation', probability: 70, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 45 },
+      { title: 'Acme Cloud Migration', value: 42000, stage: 'Trial', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 20 },
+      { title: 'Globex Platform Licence', value: 120000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -10 },
+      { title: 'Globex Support Contract', value: 24000, stage: 'Demo Scheduled', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 60 },
+      { title: 'Initech Analytics Suite', value: 67000, stage: 'Prospecting', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 90 },
+      { title: 'Initech Data Warehouse', value: 150000, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -5 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Website', status: LeadStatus.QUALIFIED, notes: 'Very interested in ERP module. Requested full demo.', aiScore: 87, aiScoreReason: 'Senior decision-maker, enterprise account', followUps: [
+        { type: ActivityType.CALL, title: 'Discovery call', body: 'Walk through current stack and pain points.', dueDays: -8, done: true },
+        { type: ActivityType.TASK, title: 'Send case study', body: 'Share Globex case study before next call.', dueDays: 2, done: false },
+      ] },
+      { contactIdx: 2, source: 'Conference', status: LeadStatus.CONTACTED, notes: 'Met at TechSummit 2024. Wants follow-up call next week.', aiScore: 72, aiScoreReason: 'Engaged at event, large company', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send follow-up deck', body: 'Recap of booth conversation + pricing one-pager.', dueDays: -2, done: true },
+        { type: ActivityType.CALL, title: 'Follow-up call', body: 'Confirm timeline and stakeholders.', dueDays: 4, done: false },
+      ] },
+      { contactIdx: 4, source: 'Referral', status: LeadStatus.QUALIFIED, notes: 'Referred by Acme. Budget confirmed at $60K+.', aiScore: 91, aiScoreReason: 'Referral source, confirmed budget', followUps: [
+        { type: ActivityType.MEETING, title: 'Budget alignment meeting', body: 'Confirm scope vs. confirmed budget.', dueDays: 3, done: false },
+      ] },
+      { contactIdx: 5, source: 'Cold Email', status: LeadStatus.NEW, notes: 'Replied with mild interest, wants pricing.', aiScore: 45, aiScoreReason: 'Cold outreach, unconfirmed budget', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send pricing sheet', body: 'Standard tiered pricing PDF.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 3, source: 'LinkedIn', status: LeadStatus.CONTACTED, notes: 'IT Director, evaluating vendors.', aiScore: 63, aiScoreReason: 'Multiple touchpoints, mid-size company', followUps: [
+        { type: ActivityType.CALL, title: 'Vendor comparison call', body: 'Address competitor comparison questions.', dueDays: 5, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'Laptop not turning on after Windows update', body: 'Dell XPS 15 stopped booting after last night\'s update. Blue screen 0x0000007E.', category: 'Hardware', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Cannot connect to company VPN', body: 'Authentication failed connecting to VPN from home. Blocking work completely.', category: 'Network & Connectivity', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+      { title: 'Need access to Salesforce sandbox', body: 'Please grant read/write access for testing the new integration.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Printer on 3rd floor offline', body: 'HP LaserJet has shown offline since Monday. Multiple users affected.', category: 'Hardware', priority: TicketPriority.MEDIUM, status: TicketStatus.RESOLVED },
+      { title: 'Microsoft Teams crashes on startup', body: 'Teams crashes immediately after launching on MacBook Pro M2.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Invoice discrepancy in billing portal', body: 'November invoice shows $4,500 but we were quoted $3,900.', category: 'Billing & Accounts', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'How to connect to the company VPN', body: 'Open Cisco AnyConnect, enter vpn.techcorp.io, sign in, complete MFA.', category: 'Network & Connectivity' },
+      { title: 'Setting up Microsoft 365 on a new device', body: 'Visit office.com, sign in, Install Office.', category: 'Software' },
+      { title: 'Common printer issues and fixes', body: 'Offline: Settings > Printers > Use Printer Online. Paper jam: pull in direction of travel only.', category: 'Hardware' },
+    ],
+    customModule: {
+      name: 'API Usage Logs', icon: 'Activity', description: 'Per-customer API call volume synced from the metering service.',
+      fields: [
+        { label: 'Customer', fieldKey: 'customer', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'Plan', fieldKey: 'plan', fieldType: 'DROPDOWN', options: ['Free', 'Pro', 'Enterprise'], required: true },
+        { label: 'Calls This Month', fieldKey: 'calls_this_month', fieldType: 'NUMBER', required: true },
+        { label: 'Overage Flag', fieldKey: 'overage', fieldType: 'BOOLEAN' },
+        { label: 'Contract Renewal Date', fieldKey: 'renewal_date', fieldType: 'DATE' },
+      ],
+      records: [
+        { customer: 'Acme Corporation', plan: 'Enterprise', calls_this_month: 482_311, overage: false, renewal_date: daysFromNow(3).toISOString() },
+        { customer: 'Globex Industries', plan: 'Pro', calls_this_month: 91_204, overage: true, renewal_date: daysFromNow(45).toISOString() },
+        { customer: 'Initech Ltd', plan: 'Pro', calls_this_month: 12_880, overage: false },
+      ],
+    },
+    dateAutomation: {
+      dateField: 'renewal_date', offsetDays: -3,
+      name: 'Contract Renewal Reminder',
+      description: 'Notifies the CRM manager 3 days before an API customer\'s contract renewal date.',
+      message: 'A customer\'s contract renews in 3 days — confirm the renewal or flag churn risk.',
+    },
+  },
+  {
+    slug: 'meridian-health', orgName: 'Meridian Health Partners', industry: 'Healthcare', primaryColor: '#0891B2', supportEmail: 'support@meridianhealth.io',
+    stages: stages(['Inquiry', 'Needs Assessment', 'Proposal Sent', 'Contract Review']),
+    accounts: [
+      { name: 'Lakeside Medical Group', industry: 'Multi-specialty Clinic', website: 'https://lakesidemed.example.com', phone: '+1-555-0410', address: '200 Lakeside Dr, Austin, TX' },
+      { name: 'Summit Regional Hospital', industry: 'Hospital', website: 'https://summitregional.example.com', phone: '+1-555-0420', address: '88 Summit Rd, Denver, CO' },
+      { name: 'Harborview Urgent Care', industry: 'Urgent Care', website: 'https://harborviewuc.example.com', phone: '+1-555-0430', address: '14 Harbor Blvd, Seattle, WA' },
+    ],
+    contacts: [
+      { name: 'Dr. Priya Nair', email: 'priya.nair@lakesidemed.example.com', phone: '+1-555-4101', jobTitle: 'Medical Director', accountIdx: 0, source: 'Referral', dateOfBirth: birthdayOn(0, 47) },
+      { name: 'Marcus Webb', email: 'marcus.webb@lakesidemed.example.com', phone: '+1-555-4102', jobTitle: 'Practice Administrator', accountIdx: 0, source: 'Website', dateOfBirth: birthdayOn(95, 33) },
+      { name: 'Dr. Elena Ruiz', email: 'elena.ruiz@summitregional.example.com', phone: '+1-555-4201', jobTitle: 'CMIO', accountIdx: 1, source: 'Conference' },
+      { name: 'Tom Bradley', email: 'tom.bradley@summitregional.example.com', phone: '+1-555-4202', jobTitle: 'IT Director', accountIdx: 1, source: 'LinkedIn' },
+      { name: 'Dr. Aisha Bello', email: 'aisha.bello@harborviewuc.example.com', phone: '+1-555-4301', jobTitle: 'Owner-Physician', accountIdx: 2, source: 'Referral' },
+      { name: 'Greg Simms', email: 'greg.simms@harborviewuc.example.com', phone: '+1-555-4302', jobTitle: 'Office Manager', accountIdx: 2, source: 'Cold Call' },
+    ],
+    deals: [
+      { title: 'Lakeside Patient Records Platform', value: 96000, stage: 'Contract Review', probability: 70, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 30 },
+      { title: 'Lakeside Front-Desk Rollout', value: 21000, stage: 'Proposal Sent', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 25 },
+      { title: 'Summit Regional Enterprise Deployment', value: 210000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -14 },
+      { title: 'Summit Regional Helpdesk Add-on', value: 38000, stage: 'Needs Assessment', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 60 },
+      { title: 'Harborview Urgent Care Starter Bundle', value: 15500, stage: 'Inquiry', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 40 },
+      { title: 'Harborview Billing Integration', value: 27000, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -6 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Referral', status: LeadStatus.QUALIFIED, notes: 'Referred by a partner clinic. Wants HIPAA compliance details.', aiScore: 85, aiScoreReason: 'Referral, clinical decision-maker', followUps: [
+        { type: ActivityType.CALL, title: 'HIPAA compliance call', body: 'Walk through BAA and audit-log capabilities.', dueDays: -5, done: true },
+        { type: ActivityType.TASK, title: 'Send compliance packet', body: 'HIPAA + SOC2 documentation.', dueDays: 2, done: false },
+      ] },
+      { contactIdx: 2, source: 'Conference', status: LeadStatus.CONTACTED, notes: 'Met at HIMSS. Evaluating for enterprise rollout.', aiScore: 78, aiScoreReason: 'Enterprise account, clinical IT lead', followUps: [
+        { type: ActivityType.MEETING, title: 'Technical deep-dive', body: 'EHR integration walkthrough with IT team.', dueDays: 6, done: false },
+      ] },
+      { contactIdx: 4, source: 'Referral', status: LeadStatus.QUALIFIED, notes: 'Owner-physician, fast decision cycle expected.', aiScore: 80, aiScoreReason: 'Owner-operator, referral source', followUps: [
+        { type: ActivityType.CALL, title: 'Pricing discussion', body: 'Confirm starter bundle pricing.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 5, source: 'Cold Call', status: LeadStatus.UNQUALIFIED, notes: 'Budget below minimum for this cycle.', aiScore: 22, aiScoreReason: 'Budget constraint', followUps: [] },
+      { contactIdx: 1, source: 'Website', status: LeadStatus.NEW, notes: 'Downloaded pricing guide from website.', aiScore: 50, aiScoreReason: 'Inbound, unconfirmed budget', followUps: [
+        { type: ActivityType.EMAIL, title: 'Intro email', body: 'Send intro + book discovery call.', dueDays: 1, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'EHR workstation frozen mid-charting', body: 'Nurse station 3 workstation froze while charting a patient visit. Needs urgent restart support.', category: 'Hardware', priority: TicketPriority.CRITICAL, status: TicketStatus.IN_PROGRESS },
+      { title: 'Cannot access patient portal remotely', body: 'VPN authentication failing for on-call physician.', category: 'Network & Connectivity', priority: TicketPriority.HIGH, status: TicketStatus.OPEN },
+      { title: 'New nurse needs system access', body: 'New hire starting Monday needs EHR + scheduling access provisioned.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Label printer in lab offline', body: 'Specimen label printer showing offline since this morning.', category: 'Hardware', priority: TicketPriority.MEDIUM, status: TicketStatus.RESOLVED },
+      { title: 'Scheduling software crashing on check-in', body: 'Front desk app crashes when checking in patients with hyphenated names.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Insurance billing discrepancy', body: 'Claim amount doesn\'t match the pre-authorization on file.', category: 'Billing & Accounts', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'Resetting an EHR workstation safely', body: 'Hold power 10s, wait 30s, restart. Chart drafts auto-save every 60s.', category: 'Hardware' },
+      { title: 'Provisioning access for new clinical staff', body: 'Submit under Access & Permissions with role, department, and supervisor approval.', category: 'Access & Permissions' },
+      { title: 'VPN setup for remote/on-call physicians', body: 'Install Cisco AnyConnect, connect to vpn.meridianhealth.io, complete MFA.', category: 'Network & Connectivity' },
+    ],
+    customModule: {
+      name: 'Patient Referrals', icon: 'Stethoscope', description: 'Inbound referrals synced from partner clinics\' referral system.',
+      fields: [
+        { label: 'Referring Provider', fieldKey: 'referring_provider', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'Patient Initials', fieldKey: 'patient_initials', fieldType: 'TEXT', required: true },
+        { label: 'Procedure', fieldKey: 'procedure', fieldType: 'TEXT', required: true },
+        { label: 'Referral Date', fieldKey: 'referral_date', fieldType: 'DATE' },
+      ],
+      records: [
+        { referring_provider: 'Dr. Sam Okafor', patient_initials: 'J.T.', procedure: 'Cardiology Consult', referral_date: daysAgo(3).toISOString() },
+        { referring_provider: 'Dr. Lin Wei', patient_initials: 'M.G.', procedure: 'Physical Therapy Eval', referral_date: daysAgo(1).toISOString() },
+      ],
+    },
+    dateAutomation: {
+      dateField: 'referral_date', offsetDays: 3,
+      name: 'Referral Follow-up Reminder',
+      description: 'Notifies the CRM manager 3 days after a referral is received to confirm the patient scheduled.',
+      message: 'It\'s been 3 days since a patient referral came in — confirm they\'ve booked their consult.',
+    },
+  },
+  {
+    slug: 'coastal-retail', orgName: 'Coastal Retail Group', industry: 'Retail', primaryColor: '#EA580C', supportEmail: 'support@coastalretail.io',
+    stages: stages(['Lead', 'Store Visit', 'Quote Sent', 'PO Received']),
+    accounts: [
+      { name: 'Brightway Home Goods', industry: 'Home & Garden Retail', website: 'https://brightwayhome.example.com', phone: '+1-555-0510', address: '55 Market St, Portland, OR' },
+      { name: 'Northgate Apparel Co.', industry: 'Apparel Retail', website: 'https://northgateapparel.example.com', phone: '+1-555-0520', address: '900 Fashion Ave, Chicago, IL' },
+      { name: 'Trailhead Outdoor Supply', industry: 'Outdoor Retail', website: 'https://trailheadsupply.example.com', phone: '+1-555-0530', address: '12 Ridge Rd, Boulder, CO' },
+    ],
+    contacts: [
+      { name: 'Nora Fields', email: 'nora.fields@brightwayhome.example.com', phone: '+1-555-5101', jobTitle: 'Store Operations Manager', accountIdx: 0, source: 'Website', dateOfBirth: birthdayOn(0, 38) },
+      { name: 'Owen Patel', email: 'owen.patel@brightwayhome.example.com', phone: '+1-555-5102', jobTitle: 'Buyer', accountIdx: 0, source: 'Trade Show', dateOfBirth: birthdayOn(210, 29) },
+      { name: 'Layla Hassan', email: 'layla.hassan@northgateapparel.example.com', phone: '+1-555-5201', jobTitle: 'VP Merchandising', accountIdx: 1, source: 'Referral' },
+      { name: 'Chris Doyle', email: 'chris.doyle@northgateapparel.example.com', phone: '+1-555-5202', jobTitle: 'IT Manager', accountIdx: 1, source: 'Cold Email' },
+      { name: 'Renee Ford', email: 'renee.ford@trailheadsupply.example.com', phone: '+1-555-5301', jobTitle: 'Owner', accountIdx: 2, source: 'Referral' },
+      { name: 'Ivan Petrov', email: 'ivan.petrov@trailheadsupply.example.com', phone: '+1-555-5302', jobTitle: 'Store Manager', accountIdx: 2, source: 'Inbound' },
+    ],
+    deals: [
+      { title: 'Brightway POS Rollout (12 stores)', value: 54000, stage: 'PO Received', probability: 90, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 15 },
+      { title: 'Brightway Loyalty Program Setup', value: 18000, stage: 'Quote Sent', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 25 },
+      { title: 'Northgate Omnichannel Platform', value: 132000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -20 },
+      { title: 'Northgate Support Renewal', value: 26000, stage: 'Store Visit', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 50 },
+      { title: 'Trailhead Inventory System', value: 22500, stage: 'Lead', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 45 },
+      { title: 'Trailhead Seasonal Kiosk Bundle', value: 9800, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -8 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Website', status: LeadStatus.QUALIFIED, notes: 'Requested POS demo for 12-store rollout.', aiScore: 88, aiScoreReason: 'Multi-store operator, budget confirmed', followUps: [
+        { type: ActivityType.MEETING, title: 'POS demo', body: 'Live demo with ops team.', dueDays: -6, done: true },
+        { type: ActivityType.TASK, title: 'Send rollout timeline', body: 'Draft 12-store phased rollout plan.', dueDays: 2, done: false },
+      ] },
+      { contactIdx: 2, source: 'Referral', status: LeadStatus.CONTACTED, notes: 'VP Merchandising, evaluating omnichannel vendors.', aiScore: 76, aiScoreReason: 'Senior title, referral source', followUps: [
+        { type: ActivityType.CALL, title: 'Vendor eval call', body: 'Address omnichannel integration questions.', dueDays: 3, done: false },
+      ] },
+      { contactIdx: 4, source: 'Referral', status: LeadStatus.NEW, notes: 'Owner interested in inventory system.', aiScore: 58, aiScoreReason: 'Owner-operator, small chain', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send product overview', body: 'Inventory system overview PDF.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 5, source: 'Inbound', status: LeadStatus.UNQUALIFIED, notes: 'Seasonal-only need, low budget.', aiScore: 20, aiScoreReason: 'Seasonal, budget too low', followUps: [] },
+      { contactIdx: 1, source: 'Trade Show', status: LeadStatus.CONTACTED, notes: 'Met at retail trade show, interested in loyalty add-on.', aiScore: 64, aiScoreReason: 'Trade show engagement, existing customer upsell', followUps: [
+        { type: ActivityType.CALL, title: 'Loyalty program pricing call', body: 'Discuss tiers and rollout cost.', dueDays: 4, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'POS terminal offline at register 3', body: 'Register 3 POS terminal lost connection mid-transaction during Saturday rush.', category: 'Hardware', priority: TicketPriority.CRITICAL, status: TicketStatus.IN_PROGRESS },
+      { title: 'Store WiFi dropping during peak hours', body: 'Guest and staff WiFi drops every afternoon around 2-4pm.', category: 'Network & Connectivity', priority: TicketPriority.HIGH, status: TicketStatus.OPEN },
+      { title: 'New seasonal staff need POS access', body: '6 seasonal hires starting this week need POS logins provisioned.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Receipt printer out of paper sensor stuck', body: 'Printer shows out-of-paper even after reload.', category: 'Hardware', priority: TicketPriority.LOW, status: TicketStatus.RESOLVED },
+      { title: 'Inventory app crashing on stock count', body: 'App crashes when scanning more than 200 items in one session.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Vendor invoice does not match PO', body: 'Vendor billed for 500 units, PO was for 450.', category: 'Billing & Accounts', priority: TicketPriority.MEDIUM, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'Restarting a frozen POS terminal', body: 'Hold power 8s, wait, restart. Offline transactions auto-sync on reconnect.', category: 'Hardware' },
+      { title: 'Provisioning seasonal staff POS access', body: 'Submit under Access & Permissions with start/end date for auto-expiry.', category: 'Access & Permissions' },
+      { title: 'Store WiFi troubleshooting checklist', body: 'Check AP load, restart in off-hours, escalate if peak-hour pattern persists.', category: 'Network & Connectivity' },
+    ],
+    customModule: {
+      name: 'Store Inventory Requests', icon: 'Package', description: 'Restock requests synced from the store inventory system.',
+      fields: [
+        { label: 'Store', fieldKey: 'store', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'SKU', fieldKey: 'sku', fieldType: 'TEXT', required: true },
+        { label: 'Product Name', fieldKey: 'product_name', fieldType: 'TEXT', required: true },
+        { label: 'Quantity Requested', fieldKey: 'quantity_requested', fieldType: 'NUMBER', required: true },
+        { label: 'Expected Restock Date', fieldKey: 'expected_restock_date', fieldType: 'DATE' },
+      ],
+      records: [
+        { store: 'Brightway - Downtown', sku: 'BW-1042', product_name: 'Ceramic Planter Set', quantity_requested: 120, expected_restock_date: daysFromNow(2).toISOString() },
+        { store: 'Northgate - Mall Outlet', sku: 'NG-3390', product_name: 'Winter Jacket - Navy L', quantity_requested: 60, expected_restock_date: daysFromNow(30).toISOString() },
+      ],
+    },
+    dateAutomation: {
+      dateField: 'expected_restock_date', offsetDays: -2,
+      name: 'Restock Arrival Reminder',
+      description: 'Notifies the CRM manager 2 days before a requested item is expected back in stock.',
+      message: 'A requested item restocks in 2 days — line up the waiting customers for outreach.',
+    },
+  },
+  {
+    slug: 'summit-financial', orgName: 'Summit Financial Partners', industry: 'Financial Services', primaryColor: '#065F46', supportEmail: 'support@summitfinancial.io',
+    stages: stages(['Prospecting', 'Discovery', 'Underwriting', 'Approval']),
+    accounts: [
+      { name: 'Ridgeline Manufacturing', industry: 'Industrial Manufacturing', website: 'https://ridgelinemfg.example.com', phone: '+1-555-0610', address: '77 Foundry Ln, Pittsburgh, PA' },
+      { name: 'Harper & Cole LLP', industry: 'Professional Services', website: 'https://harpercole.example.com', phone: '+1-555-0620', address: '10 Legal Plaza, Boston, MA' },
+      { name: 'Vantage Logistics', industry: 'Logistics', website: 'https://vantagelogistics.example.com', phone: '+1-555-0630', address: '333 Freight Way, Memphis, TN' },
+    ],
+    contacts: [
+      { name: 'Diane Cooper', email: 'diane.cooper@ridgelinemfg.example.com', phone: '+1-555-6101', jobTitle: 'CFO', accountIdx: 0, source: 'Referral', dateOfBirth: birthdayOn(0, 52) },
+      { name: 'Marcus Lee', email: 'marcus.lee@ridgelinemfg.example.com', phone: '+1-555-6102', jobTitle: 'Controller', accountIdx: 0, source: 'Website', dateOfBirth: birthdayOn(65, 40) },
+      { name: 'Sophia Harper', email: 'sophia.harper@harpercole.example.com', phone: '+1-555-6201', jobTitle: 'Managing Partner', accountIdx: 1, source: 'Referral' },
+      { name: 'Ben Coleman', email: 'ben.coleman@harpercole.example.com', phone: '+1-555-6202', jobTitle: 'Operations Director', accountIdx: 1, source: 'LinkedIn' },
+      { name: 'Rachel Kim', email: 'rachel.kim@vantagelogistics.example.com', phone: '+1-555-6301', jobTitle: 'VP Finance', accountIdx: 2, source: 'Cold Call' },
+      { name: 'Tariq Ahmed', email: 'tariq.ahmed@vantagelogistics.example.com', phone: '+1-555-6302', jobTitle: 'IT Director', accountIdx: 2, source: 'Website' },
+    ],
+    deals: [
+      { title: 'Ridgeline Equipment Financing', value: 340000, stage: 'Approval', probability: 90, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 12 },
+      { title: 'Ridgeline Working Capital Line', value: 150000, stage: 'Underwriting', probability: 70, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 25 },
+      { title: 'Harper & Cole Practice Loan', value: 220000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -18 },
+      { title: 'Harper & Cole Advisory Retainer', value: 48000, stage: 'Discovery', probability: 45, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 40 },
+      { title: 'Vantage Fleet Financing', value: 410000, stage: 'Prospecting', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 70 },
+      { title: 'Vantage Trade Credit Line', value: 95000, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -9 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Referral', status: LeadStatus.QUALIFIED, notes: 'CFO referred by existing client, needs equipment financing fast.', aiScore: 90, aiScoreReason: 'Referral, urgent need, confirmed budget', followUps: [
+        { type: ActivityType.CALL, title: 'Financing needs call', body: 'Confirm equipment list and timeline.', dueDays: -4, done: true },
+        { type: ActivityType.TASK, title: 'Prep underwriting docs', body: 'Request financials for underwriting.', dueDays: 2, done: false },
+      ] },
+      { contactIdx: 2, source: 'Referral', status: LeadStatus.CONTACTED, notes: 'Managing partner, interested in practice loan.', aiScore: 82, aiScoreReason: 'Referral, decision-maker', followUps: [
+        { type: ActivityType.MEETING, title: 'Loan structure meeting', body: 'Present term options.', dueDays: 5, done: false },
+      ] },
+      { contactIdx: 4, source: 'Cold Call', status: LeadStatus.NEW, notes: 'VP Finance, large fleet financing need.', aiScore: 55, aiScoreReason: 'Large opportunity, unconfirmed timeline', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send financing options', body: 'Fleet financing rate sheet.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 5, source: 'Website', status: LeadStatus.UNQUALIFIED, notes: 'Credit profile did not meet minimum.', aiScore: 18, aiScoreReason: 'Credit risk', followUps: [] },
+      { contactIdx: 1, source: 'Website', status: LeadStatus.CONTACTED, notes: 'Controller researching working capital options.', aiScore: 60, aiScoreReason: 'Mid-level contact, active research', followUps: [
+        { type: ActivityType.CALL, title: 'Working capital intro call', body: 'Explain line-of-credit product.', dueDays: 3, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'Underwriting portal login failure', body: 'Analyst locked out of underwriting portal after password change.', category: 'Access & Permissions', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Secure document upload failing', body: 'Client financial documents fail to upload, error 413.', category: 'Software', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+      { title: 'New loan officer needs CRM access', body: 'New hire needs CRM + underwriting system access provisioned.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Conference room video system down', body: 'Video conferencing not connecting for client calls.', category: 'Hardware', priority: TicketPriority.MEDIUM, status: TicketStatus.RESOLVED },
+      { title: 'Risk scoring tool returning errors', body: 'Automated risk scoring throws error on applications over $250K.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Billing statement totals incorrect', body: 'Monthly servicing fee statement totals don\'t match ledger.', category: 'Billing & Accounts', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'Resetting underwriting portal access', body: 'Submit under Access & Permissions with employee ID for verification.', category: 'Access & Permissions' },
+      { title: 'Secure document upload troubleshooting', body: 'Max file size 25MB per doc; split large PDFs before upload.', category: 'Software' },
+      { title: 'Provisioning a new loan officer', body: 'Requires compliance sign-off before CRM/underwriting access is granted.', category: 'Access & Permissions' },
+    ],
+    customModule: {
+      name: 'Loan Applications', icon: 'FileText', description: 'Applications synced from the online loan application portal.',
+      fields: [
+        { label: 'Applicant', fieldKey: 'applicant', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'Loan Type', fieldKey: 'loan_type', fieldType: 'DROPDOWN', options: ['Equipment Financing', 'Working Capital', 'Trade Credit', 'Practice Loan'], required: true },
+        { label: 'Amount Requested', fieldKey: 'amount_requested', fieldType: 'CURRENCY', required: true },
+        { label: 'Credit Score', fieldKey: 'credit_score', fieldType: 'NUMBER' },
+        { label: 'Next Review Date', fieldKey: 'next_review_date', fieldType: 'DATE' },
+      ],
+      records: [
+        { applicant: 'Ridgeline Manufacturing', loan_type: 'Equipment Financing', amount_requested: 340000, credit_score: 742, next_review_date: daysFromNow(4).toISOString() },
+        { applicant: 'Vantage Logistics', loan_type: 'Trade Credit', amount_requested: 95000, credit_score: 611, next_review_date: daysFromNow(18).toISOString() },
+      ],
+    },
+    dateAutomation: {
+      dateField: 'next_review_date', offsetDays: -4,
+      name: 'Application Review Reminder',
+      description: 'Notifies the CRM manager 4 days before a loan application\'s next underwriting review.',
+      message: 'A loan application is due for underwriting review in 4 days.',
+    },
+  },
+  {
+    slug: 'ironforge-mfg', orgName: 'IronForge Manufacturing', industry: 'Manufacturing', primaryColor: '#B45309', supportEmail: 'support@ironforgemfg.io',
+    stages: stages(['Inquiry', 'RFQ', 'Sample / Prototype', 'PO Negotiation']),
+    accounts: [
+      { name: 'Delta Auto Components', industry: 'Automotive Supply', website: 'https://deltaautocomp.example.com', phone: '+1-555-0710', address: '4 Assembly Row, Detroit, MI' },
+      { name: 'Skyline Aerospace', industry: 'Aerospace', website: 'https://skylineaero.example.com', phone: '+1-555-0720', address: '900 Runway Dr, Wichita, KS' },
+      { name: 'Pioneer Appliance Co.', industry: 'Consumer Appliances', website: 'https://pioneerappliance.example.com', phone: '+1-555-0730', address: '210 Plant St, Louisville, KY' },
+    ],
+    contacts: [
+      { name: 'Walter Nash', email: 'walter.nash@deltaautocomp.example.com', phone: '+1-555-7101', jobTitle: 'VP Procurement', accountIdx: 0, source: 'Trade Show', dateOfBirth: birthdayOn(0, 44) },
+      { name: 'Julia Byrne', email: 'julia.byrne@deltaautocomp.example.com', phone: '+1-555-7102', jobTitle: 'Quality Manager', accountIdx: 0, source: 'Referral', dateOfBirth: birthdayOn(175, 31) },
+      { name: 'Adam Krueger', email: 'adam.krueger@skylineaero.example.com', phone: '+1-555-7201', jobTitle: 'Sourcing Director', accountIdx: 1, source: 'Cold Call' },
+      { name: 'Ngozi Adeyemi', email: 'ngozi.adeyemi@skylineaero.example.com', phone: '+1-555-7202', jobTitle: 'Plant IT Manager', accountIdx: 1, source: 'Website' },
+      { name: 'Derek Holt', email: 'derek.holt@pioneerappliance.example.com', phone: '+1-555-7301', jobTitle: 'Operations VP', accountIdx: 2, source: 'Referral' },
+      { name: 'Melissa Ortiz', email: 'melissa.ortiz@pioneerappliance.example.com', phone: '+1-555-7302', jobTitle: 'Buyer', accountIdx: 2, source: 'Inbound' },
+    ],
+    deals: [
+      { title: 'Delta Auto Stamped Components Contract', value: 275000, stage: 'PO Negotiation', probability: 70, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 20 },
+      { title: 'Delta Auto Tooling Upgrade', value: 64000, stage: 'RFQ', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 35 },
+      { title: 'Skyline Aerospace Bracket Supply', value: 410000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -25 },
+      { title: 'Skyline Aerospace Prototype Batch', value: 38000, stage: 'Sample / Prototype', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 50 },
+      { title: 'Pioneer Appliance Housing Parts', value: 118000, stage: 'Inquiry', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 65 },
+      { title: 'Pioneer Appliance Trial Order', value: 22000, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -11 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Trade Show', status: LeadStatus.QUALIFIED, notes: 'Met at MFG Expo. Needs stamped components RFQ.', aiScore: 86, aiScoreReason: 'Trade show, urgent RFQ', followUps: [
+        { type: ActivityType.TASK, title: 'Prepare RFQ response', body: 'Pull pricing for stamped components spec.', dueDays: -3, done: true },
+        { type: ActivityType.CALL, title: 'RFQ follow-up call', body: 'Review submitted RFQ and timeline.', dueDays: 2, done: false },
+      ] },
+      { contactIdx: 2, source: 'Cold Call', status: LeadStatus.CONTACTED, notes: 'Sourcing director, evaluating for aerospace-grade parts.', aiScore: 74, aiScoreReason: 'Enterprise account, sourcing authority', followUps: [
+        { type: ActivityType.MEETING, title: 'Capability review meeting', body: 'Present AS9100 certification and capacity.', dueDays: 4, done: false },
+      ] },
+      { contactIdx: 4, source: 'Referral', status: LeadStatus.NEW, notes: 'Referred by Delta Auto contact.', aiScore: 62, aiScoreReason: 'Referral, unconfirmed volume', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send capabilities overview', body: 'Share plant capabilities and cert list.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 5, source: 'Inbound', status: LeadStatus.UNQUALIFIED, notes: 'Trial order volume too small for our minimums.', aiScore: 25, aiScoreReason: 'Below minimum order volume', followUps: [] },
+      { contactIdx: 1, source: 'Referral', status: LeadStatus.CONTACTED, notes: 'Quality manager, needs cert documentation first.', aiScore: 58, aiScoreReason: 'Quality gatekeeper, mid-priority', followUps: [
+        { type: ActivityType.TASK, title: 'Send quality certifications', body: 'ISO 9001 + IATF 16949 docs.', dueDays: 2, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'CNC machine controller unresponsive', body: 'Line 3 CNC controller frozen mid-run, production halted.', category: 'Hardware', priority: TicketPriority.CRITICAL, status: TicketStatus.IN_PROGRESS },
+      { title: 'Plant floor WiFi coverage gap', body: 'New warehouse extension has no WiFi coverage for handheld scanners.', category: 'Network & Connectivity', priority: TicketPriority.HIGH, status: TicketStatus.OPEN },
+      { title: 'New quality inspector needs MES access', body: 'New hire needs manufacturing execution system access.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Barcode scanner battery not charging', body: 'Handheld scanner #14 shows charging but battery stays at 0%.', category: 'Hardware', priority: TicketPriority.LOW, status: TicketStatus.RESOLVED },
+      { title: 'ERP inventory sync lagging', body: 'Inventory counts in ERP are 6+ hours behind shop floor system.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Vendor invoice quantity mismatch', body: 'Raw material invoice quantity doesn\'t match receiving log.', category: 'Billing & Accounts', priority: TicketPriority.MEDIUM, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'Restarting a frozen CNC controller', body: 'Follow lockout/tagout procedure before power cycling. Contact IT before restart during a run.', category: 'Hardware' },
+      { title: 'Extending WiFi coverage to new floor areas', body: 'Log ticket under Network & Connectivity with area/zone for a site survey.', category: 'Network & Connectivity' },
+      { title: 'MES access provisioning for new staff', body: 'Requires supervisor + safety training sign-off before access is granted.', category: 'Access & Permissions' },
+    ],
+    customModule: {
+      name: 'Production Orders', icon: 'Factory', description: 'Shop-floor production orders synced from the MES.',
+      fields: [
+        { label: 'Order Number', fieldKey: 'order_number', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'Part Number', fieldKey: 'part_number', fieldType: 'TEXT', required: true },
+        { label: 'Quantity', fieldKey: 'quantity', fieldType: 'NUMBER', required: true },
+        { label: 'Due Date', fieldKey: 'due_date', fieldType: 'DATE' },
+      ],
+      records: [
+        { order_number: 'PO-88213', part_number: 'DA-STMP-004', quantity: 12000, due_date: daysFromNow(14).toISOString() },
+        { order_number: 'PO-88214', part_number: 'SK-BRKT-019', quantity: 3200, due_date: daysFromNow(21).toISOString() },
+      ],
+    },
+    dateAutomation: {
+      dateField: 'due_date', offsetDays: -14,
+      name: 'Production Due Reminder',
+      description: 'Notifies the CRM manager 14 days before a production order\'s due date.',
+      message: 'A production order is due in 2 weeks — confirm the line is on schedule.',
+    },
+  },
+  {
+    slug: 'glow-salon-spa', orgName: 'Glow Salon & Spa Collective', industry: 'Salon / Spa', primaryColor: '#DB2777', supportEmail: 'support@glowsalonspa.io',
+    stages: stages(['Inquiry', 'Consultation Booked', 'Package Proposed', 'Membership Signed']),
+    accounts: [
+      { name: 'Glow Downtown', industry: 'Full-Service Salon', website: 'https://glowsalonspa.example.com/downtown', phone: '+1-555-0810', address: '5 Beauty Row, Miami, FL' },
+      { name: 'Glow Uptown Spa', industry: 'Day Spa', website: 'https://glowsalonspa.example.com/uptown', phone: '+1-555-0820', address: '210 Wellness Ave, Miami, FL' },
+      { name: 'Glow Franchise Partners', industry: 'Franchise Group', website: 'https://glowsalonspa.example.com/franchise', phone: '+1-555-0830', address: '77 Corporate Ct, Orlando, FL' },
+    ],
+    contacts: [
+      { name: 'Stephanie Cruz', email: 'stephanie.cruz@glowdowntown.example.com', phone: '+1-555-8101', jobTitle: 'Salon Owner', accountIdx: 0, source: 'Referral', dateOfBirth: birthdayOn(0, 39) },
+      { name: 'Marco Diaz', email: 'marco.diaz@glowdowntown.example.com', phone: '+1-555-8102', jobTitle: 'Front Desk Lead', accountIdx: 0, source: 'Walk-in', dateOfBirth: birthdayOn(260, 27) },
+      { name: 'Jenna Wolfe', email: 'jenna.wolfe@glowuptown.example.com', phone: '+1-555-8201', jobTitle: 'Spa Director', accountIdx: 1, source: 'Instagram' },
+      { name: 'Paul Nguyen', email: 'paul.nguyen@glowuptown.example.com', phone: '+1-555-8202', jobTitle: 'Operations Lead', accountIdx: 1, source: 'Website' },
+      { name: 'Angela Ross', email: 'angela.ross@glowfranchise.example.com', phone: '+1-555-8301', jobTitle: 'Franchise Development Manager', accountIdx: 2, source: 'Referral' },
+      { name: 'Devon Blake', email: 'devon.blake@glowfranchise.example.com', phone: '+1-555-8302', jobTitle: 'IT Coordinator', accountIdx: 2, source: 'Cold Email' },
+    ],
+    deals: [
+      { title: 'Glow Downtown Membership Program Launch', value: 18000, stage: 'Membership Signed', probability: 90, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 10 },
+      { title: 'Glow Downtown Booking System Upgrade', value: 6400, stage: 'Package Proposed', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 18 },
+      { title: 'Glow Uptown Spa Full Platform', value: 24000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -12 },
+      { title: 'Glow Uptown Staff Scheduling Add-on', value: 4200, stage: 'Consultation Booked', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 22 },
+      { title: 'Glow Franchise Multi-Location Rollout', value: 62000, stage: 'Inquiry', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 55 },
+      { title: 'Glow Franchise Pilot Location', value: 5200, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -7 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Referral', status: LeadStatus.QUALIFIED, notes: 'Owner referred by another salon client. Wants membership program.', aiScore: 84, aiScoreReason: 'Referral, owner-operator, ready to buy', followUps: [
+        { type: ActivityType.CALL, title: 'Membership program call', body: 'Walk through tiered membership setup.', dueDays: -4, done: true },
+        { type: ActivityType.TASK, title: 'Send membership contract', body: 'Draft agreement for review.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 2, source: 'Instagram', status: LeadStatus.CONTACTED, notes: 'Spa director, found us via Instagram ad.', aiScore: 68, aiScoreReason: 'Inbound, engaged social lead', followUps: [
+        { type: ActivityType.MEETING, title: 'Spa platform walkthrough', body: 'Demo booking + POS features.', dueDays: 3, done: false },
+      ] },
+      { contactIdx: 4, source: 'Referral', status: LeadStatus.NEW, notes: 'Franchise dev manager exploring multi-location rollout.', aiScore: 71, aiScoreReason: 'Franchise-level opportunity', followUps: [
+        { type: ActivityType.CALL, title: 'Franchise discovery call', body: 'Understand rollout timeline across locations.', dueDays: 2, done: false },
+      ] },
+      { contactIdx: 5, source: 'Cold Email', status: LeadStatus.UNQUALIFIED, notes: 'Pilot location decided to stay with current vendor.', aiScore: 15, aiScoreReason: 'Lost to incumbent vendor', followUps: [] },
+      { contactIdx: 1, source: 'Walk-in', status: LeadStatus.CONTACTED, notes: 'Front desk lead asking about booking system upgrade.', aiScore: 52, aiScoreReason: 'Operational contact, smaller deal size', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send booking system overview', body: 'Feature comparison vs. current system.', dueDays: 2, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'Booking system down during peak hours', body: 'Online booking widget returning 500 error since this morning, front desk can\'t book.', category: 'Software', priority: TicketPriority.CRITICAL, status: TicketStatus.IN_PROGRESS },
+      { title: 'Card reader not connecting at Uptown', body: 'Payment terminal at Glow Uptown won\'t pair with checkout tablet.', category: 'Hardware', priority: TicketPriority.HIGH, status: TicketStatus.OPEN },
+      { title: 'New stylist needs scheduling access', body: 'New hire starting Thursday needs calendar + client notes access.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Receipt printer jamming', body: 'Front desk printer jams on every third receipt.', category: 'Hardware', priority: TicketPriority.LOW, status: TicketStatus.RESOLVED },
+      { title: 'Client app push notifications not sending', body: 'Appointment reminder notifications stopped going out 2 days ago.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Membership billing charged twice', body: 'A member was charged twice for their monthly membership fee.', category: 'Billing & Accounts', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'Troubleshooting the online booking widget', body: 'Clear widget cache, verify calendar sync, re-embed snippet if still failing.', category: 'Software' },
+      { title: 'Pairing a card reader with checkout tablet', body: 'Settings > Payment Devices > Add Reader, hold pairing button 5s.', category: 'Hardware' },
+      { title: 'Setting up a new stylist\'s access', body: 'Submit under Access & Permissions with location and role for calendar setup.', category: 'Access & Permissions' },
+    ],
+    customModule: {
+      name: 'Membership Renewals', icon: 'Sparkles', description: 'Upcoming membership renewals synced from the billing system.',
+      fields: [
+        { label: 'Member Name', fieldKey: 'member_name', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'Plan', fieldKey: 'plan', fieldType: 'DROPDOWN', options: ['Essentials', 'Signature', 'VIP Unlimited'], required: true },
+        { label: 'Renewal Date', fieldKey: 'renewal_date', fieldType: 'DATE', required: true },
+        { label: 'Auto Renew', fieldKey: 'auto_renew', fieldType: 'BOOLEAN' },
+      ],
+      records: [
+        { member_name: 'Priya Shah', plan: 'Signature', renewal_date: daysFromNow(5).toISOString(), auto_renew: true },
+        { member_name: 'Kevin Marsh', plan: 'VIP Unlimited', renewal_date: daysFromNow(9).toISOString(), auto_renew: false },
+      ],
+    },
+    // The flagship example for the "salon follow-up" scenario this feature
+    // was built for: appointment/service-due reminders, birthday wishes, and
+    // personalized win-back offers are all the same DATE_FIELD_REACHED
+    // mechanism pointed at different date fields — this one's the renewal
+    // date, styled as a personalized renewal offer rather than a bare
+    // reminder.
+    dateAutomation: {
+      dateField: 'renewal_date', offsetDays: -5,
+      name: 'Membership Renewal Offer',
+      description: 'Notifies the CRM manager 5 days before a member\'s renewal date to send a personalized offer.',
+      message: 'A membership renews in 5 days — send a personalized "renew now" offer before they lapse.',
+    },
+  },
+  {
+    slug: 'apex-auto-group', orgName: 'Apex Auto Group', industry: 'Automotive Dealers', primaryColor: '#1D4ED8', supportEmail: 'support@apexautogroup.io',
+    stages: stages(['Lead', 'Test Drive Scheduled', 'Financing', 'Paperwork']),
+    accounts: [
+      { name: 'Apex Downtown Motors', industry: 'New Car Dealership', website: 'https://apexautogroup.example.com/downtown', phone: '+1-555-0910', address: '1 Auto Mall Dr, Phoenix, AZ' },
+      { name: 'Apex Certified Pre-Owned', industry: 'Used Car Dealership', website: 'https://apexautogroup.example.com/cpo', phone: '+1-555-0920', address: '450 Highway 10, Phoenix, AZ' },
+      { name: 'Apex Fleet Sales', industry: 'Fleet / Commercial', website: 'https://apexautogroup.example.com/fleet', phone: '+1-555-0930', address: '88 Industrial Pkwy, Tempe, AZ' },
+    ],
+    contacts: [
+      { name: 'Ray Sullivan', email: 'ray.sullivan@apexdowntown.example.com', phone: '+1-555-9101', jobTitle: 'General Manager', accountIdx: 0, source: 'Referral', dateOfBirth: birthdayOn(0, 49) },
+      { name: 'Monica Alvarez', email: 'monica.alvarez@apexdowntown.example.com', phone: '+1-555-9102', jobTitle: 'Sales Manager', accountIdx: 0, source: 'Walk-in', dateOfBirth: birthdayOn(320, 34) },
+      { name: 'Terrence Boyd', email: 'terrence.boyd@apexcpo.example.com', phone: '+1-555-9201', jobTitle: 'Lot Manager', accountIdx: 1, source: 'Website' },
+      { name: 'Wendy Zhao', email: 'wendy.zhao@apexcpo.example.com', phone: '+1-555-9202', jobTitle: 'Finance Manager', accountIdx: 1, source: 'Inbound' },
+      { name: 'Oscar Reyes', email: 'oscar.reyes@apexfleet.example.com', phone: '+1-555-9301', jobTitle: 'Fleet Sales Director', accountIdx: 2, source: 'Cold Call' },
+      { name: 'Brianna Foster', email: 'brianna.foster@apexfleet.example.com', phone: '+1-555-9302', jobTitle: 'IT Manager', accountIdx: 2, source: 'LinkedIn' },
+    ],
+    deals: [
+      { title: 'Downtown Q4 Inventory Financing Deal', value: 58000, stage: 'Paperwork', probability: 90, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 8 },
+      { title: 'Downtown Trade-In Bundle - Sullivan Family', value: 32000, stage: 'Financing', probability: 70, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 14 },
+      { title: 'CPO Fleet Refresh - 15 Units', value: 410000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -16 },
+      { title: 'CPO Certified Warranty Upsell', value: 12500, stage: 'Test Drive Scheduled', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 20 },
+      { title: 'Apex Fleet Commercial Van Order', value: 275000, stage: 'Lead', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 60 },
+      { title: 'Apex Fleet Trial Lease', value: 41000, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -13 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Referral', status: LeadStatus.QUALIFIED, notes: 'GM referred by regional office, ready to move on financing.', aiScore: 89, aiScoreReason: 'Referral, decision-maker, urgent timeline', followUps: [
+        { type: ActivityType.CALL, title: 'Financing terms call', body: 'Confirm rate and term for inventory financing.', dueDays: -3, done: true },
+        { type: ActivityType.TASK, title: 'Prep paperwork packet', body: 'Assemble documents for signing.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 2, source: 'Website', status: LeadStatus.CONTACTED, notes: 'Lot manager interested in fleet refresh warranty upsell.', aiScore: 66, aiScoreReason: 'Existing customer, upsell opportunity', followUps: [
+        { type: ActivityType.MEETING, title: 'Warranty upsell meeting', body: 'Present extended warranty options.', dueDays: 3, done: false },
+      ] },
+      { contactIdx: 4, source: 'Cold Call', status: LeadStatus.NEW, notes: 'Fleet sales director evaluating commercial van order.', aiScore: 70, aiScoreReason: 'Large fleet deal, early stage', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send fleet pricing sheet', body: 'Commercial van bulk pricing.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 5, source: 'LinkedIn', status: LeadStatus.UNQUALIFIED, notes: 'Trial lease fell through, budget reallocated.', aiScore: 20, aiScoreReason: 'Budget reallocated elsewhere', followUps: [] },
+      { contactIdx: 1, source: 'Walk-in', status: LeadStatus.CONTACTED, notes: 'Sales manager following up on trade-in bundle.', aiScore: 61, aiScoreReason: 'Active buyer, trade-in dependent', followUps: [
+        { type: ActivityType.CALL, title: 'Trade-in appraisal call', body: 'Schedule in-person appraisal.', dueDays: 2, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'DMS crashed during closing', body: 'Dealer management system crashed while finalizing a sale — customer waiting in F&I office.', category: 'Software', priority: TicketPriority.CRITICAL, status: TicketStatus.IN_PROGRESS },
+      { title: 'Showroom WiFi down', body: 'Showroom guest WiFi has been down since opening, customers can\'t browse inventory app.', category: 'Network & Connectivity', priority: TicketPriority.HIGH, status: TicketStatus.OPEN },
+      { title: 'New salesperson needs DMS access', body: 'New hire starting today needs DMS + CRM login provisioned.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Key fob programmer not working', body: 'Service department key fob programmer stopped recognizing new fobs.', category: 'Hardware', priority: TicketPriority.LOW, status: TicketStatus.RESOLVED },
+      { title: 'Credit check integration failing', body: 'F&I credit check integration returning timeout errors on all applications.', category: 'Software', priority: TicketPriority.CRITICAL, status: TicketStatus.IN_PROGRESS },
+      { title: 'Finance statement discrepancy', body: 'Monthly floor-plan interest statement doesn\'t match lender records.', category: 'Billing & Accounts', priority: TicketPriority.HIGH, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'Recovering from a DMS crash mid-transaction', body: 'Do not restart — open a critical ticket immediately, deals-in-progress are recoverable from the transaction log.', category: 'Software' },
+      { title: 'Provisioning DMS + CRM for new sales staff', body: 'Submit under Access & Permissions with manager approval and F&I certification status.', category: 'Access & Permissions' },
+      { title: 'Showroom WiFi outage checklist', body: 'Check AP status, restart router, escalate to Critical if guest-facing and unresolved after 15 min.', category: 'Network & Connectivity' },
+    ],
+    customModule: {
+      name: 'Vehicle Trade-Ins', icon: 'Car', description: 'Trade-in appraisals synced from the appraisal tool.',
+      fields: [
+        { label: 'Customer Name', fieldKey: 'customer_name', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'Vehicle VIN', fieldKey: 'vehicle_vin', fieldType: 'TEXT', required: true },
+        { label: 'Trade-In Value', fieldKey: 'trade_in_value', fieldType: 'CURRENCY', required: true },
+        { label: 'Appraisal Date', fieldKey: 'appraisal_date', fieldType: 'DATE' },
+      ],
+      records: [
+        { customer_name: 'Ray Sullivan', vehicle_vin: '1HGCM82633A004352', trade_in_value: 14200, appraisal_date: daysAgo(2).toISOString() },
+        { customer_name: 'Monica Alvarez', vehicle_vin: '5TFEV54178X021458', trade_in_value: 9800, appraisal_date: daysAgo(1).toISOString() },
+      ],
+    },
+    dateAutomation: {
+      dateField: 'appraisal_date', offsetDays: 2,
+      name: 'Trade-In Follow-up Reminder',
+      description: 'Notifies the CRM manager 2 days after a trade-in appraisal to close the deal.',
+      message: 'A trade-in was appraised 2 days ago and hasn\'t closed yet — follow up before the offer goes stale.',
+    },
+  },
 ];
-// The account the "Try Demo" button (POST /api/auth/demo-login) logs in as —
-// Super Admin so nothing in the product looks locked during a walkthrough.
-export const DEMO_LOGIN_EMAIL = process.env.DEMO_LOGIN_EMAIL || 'admin@crmitdesk.com';
 
-export async function seedDemoOrg() {
-  console.log('Starting seed...');
+export const DEFAULT_VERTICAL = 'techcorp';
+export const DEMO_VERTICAL_SLUGS = VERTICALS.map(v => v.slug);
 
-  // Reset: delete existing org (cascade removes all related data) + orphaned seed users
-  const existing = await prisma.organization.findUnique({ where: { slug: DEMO_ORG_SLUG } });
+// The default vertical (techcorp) keeps the original @crmitdesk.com domain
+// rather than the new @<slug>.demo scheme used by the other 6 verticals —
+// the large pre-existing Playwright suite under tests/e2e/ (role-login,
+// rbac, rbac-ui, security, pagination, refresh-token, and tests/helpers/
+// auth.ts's ADMIN constant) hardcodes admin@crmitdesk.com / crm@crmitdesk.com
+// / sales@crmitdesk.com / itmanager@crmitdesk.com / itagent@crmitdesk.com for
+// this exact org. Changing this domain for techcorp breaks login for that
+// entire suite; every other vertical is free to use the new scheme since
+// nothing outside the new client/e2e/ specs depends on their emails.
+function domainFor(slug: string): string {
+  return slug === DEFAULT_VERTICAL ? 'crmitdesk.com' : `${slug}.demo`;
+}
+
+function seedEmailsFor(slug: string): string[] {
+  const domain = domainFor(slug);
+  return [`admin@${domain}`, `crm@${domain}`, `sales@${domain}`, `itmanager@${domain}`, `itagent@${domain}`];
+}
+
+/** The email the "Try Demo" button logs in as for a given vertical — Super Admin so nothing looks locked during a walkthrough. */
+export function loginEmailFor(slug: string): string {
+  return `admin@${domainFor(slug)}`;
+}
+
+// ─── Generator ──────────────────────────────────────────────────────────────
+
+async function buildOrg(preset: VerticalPreset) {
+  const seedEmails = seedEmailsFor(preset.slug);
+  const existing = await prisma.organization.findUnique({ where: { slug: preset.slug } });
   if (existing) {
-    console.log('Existing org found - deleting and re-seeding...');
     await prisma.organization.delete({ where: { id: existing.id } });
-    await prisma.user.deleteMany({ where: { email: { in: DEMO_SEED_EMAILS } } });
-    console.log('Cleared.');
+    await prisma.user.deleteMany({ where: { email: { in: seedEmails } } });
   }
 
-  // 1. ORGANISATION
-  // Enterprise, not Pro: this org is the showcase/demo login (see the
-  // printed credentials at the end of this script) — it should have every
-  // currently-gated feature unlocked (custom branding, full 50GB hosted
-  // storage quota, effectively-unlimited seats) so nothing looks paywalled
-  // when demoing to a prospective customer, locally or in production.
-  const org = await prisma.organization.create({
-    data: { name: 'TechCorp Solutions', slug: DEMO_ORG_SLUG, plan: 'ENTERPRISE' },
-  });
-  console.log('Org created:', org.name);
+  const org = await prisma.organization.create({ data: { name: preset.orgName, slug: preset.slug, plan: 'ENTERPRISE' } });
 
-  // 2. USERS
   const [admin, crmMgr, salesRep, itMgr, itAgent] = await Promise.all([
-    prisma.user.create({ data: { orgId: org.id, name: 'Alex Admin', email: 'admin@crmitdesk.com', passwordHash: await hash('Admin@123'), role: UserRole.SUPER_ADMIN, department: 'Operations' } }),
-    prisma.user.create({ data: { orgId: org.id, name: 'Carla Chen', email: 'crm@crmitdesk.com', passwordHash: await hash('Admin@123'), role: UserRole.CRM_MANAGER, department: 'Sales' } }),
-    prisma.user.create({ data: { orgId: org.id, name: 'Sam Sales', email: 'sales@crmitdesk.com', passwordHash: await hash('Admin@123'), role: UserRole.SALES_REP, department: 'Sales' } }),
-    prisma.user.create({ data: { orgId: org.id, name: 'Ivy IT', email: 'itmanager@crmitdesk.com', passwordHash: await hash('Admin@123'), role: UserRole.IT_MANAGER, department: 'IT' } }),
-    prisma.user.create({ data: { orgId: org.id, name: 'Dave Desk', email: 'itagent@crmitdesk.com', passwordHash: await hash('Admin@123'), role: UserRole.IT_AGENT, department: 'IT' } }),
+    prisma.user.create({ data: { orgId: org.id, name: 'Alex Admin', email: seedEmails[0], passwordHash: await hash('Admin@123'), role: UserRole.SUPER_ADMIN, department: 'Operations' } }),
+    // 'Carla Chen' (not a made-up name) — tests/e2e/role-login.spec.ts,
+    // rbac.spec.ts and rbac-ui.spec.ts all assert this exact display name for
+    // the CRM_MANAGER seed user.
+    prisma.user.create({ data: { orgId: org.id, name: 'Carla Chen', email: seedEmails[1], passwordHash: await hash('Admin@123'), role: UserRole.CRM_MANAGER, department: 'Sales' } }),
+    prisma.user.create({ data: { orgId: org.id, name: 'Sam Sales', email: seedEmails[2], passwordHash: await hash('Admin@123'), role: UserRole.SALES_REP, department: 'Sales' } }),
+    prisma.user.create({ data: { orgId: org.id, name: 'Ivy IT', email: seedEmails[3], passwordHash: await hash('Admin@123'), role: UserRole.IT_MANAGER, department: 'IT' } }),
+    prisma.user.create({ data: { orgId: org.id, name: 'Dave Desk', email: seedEmails[4], passwordHash: await hash('Admin@123'), role: UserRole.IT_AGENT, department: 'IT' } }),
   ]);
-  console.log('Users created (5)');
 
-  // 3. ORG BRANDING
-  await prisma.orgBranding.create({ data: { orgId: org.id, primaryColor: '#4F46E5', supportEmail: 'support@techcorp.io', portalTitle: 'TechCorp Support', portalWelcome: 'Welcome! Submit and track your IT requests here.' } });
-
-  // 4. SUBSCRIPTION
+  await prisma.orgBranding.create({ data: { orgId: org.id, primaryColor: preset.primaryColor, supportEmail: preset.supportEmail, portalTitle: `${preset.orgName} Support`, portalWelcome: 'Welcome! Submit and track your requests here.' } });
   await prisma.subscription.create({ data: { orgId: org.id, plan: 'ENTERPRISE', status: 'active', seats: 999, currentPeriodEnd: daysFromNow(30) } });
 
-  // 5. TAGS
-  const [tagVip, tagHot, tagEnterprise] = await Promise.all([
+  const [tagVip, tagHot, tagEnterprise, tagUrgent] = await Promise.all([
     prisma.tag.create({ data: { orgId: org.id, name: 'VIP', color: '#F59E0B', module: 'CRM' } }),
     prisma.tag.create({ data: { orgId: org.id, name: 'Hot Lead', color: '#EF4444', module: 'CRM' } }),
-    prisma.tag.create({ data: { orgId: org.id, name: 'Enterprise', color: '#6366F1', module: 'CRM' } }),
+    prisma.tag.create({ data: { orgId: org.id, name: 'Key Account', color: '#6366F1', module: 'CRM' } }),
     prisma.tag.create({ data: { orgId: org.id, name: 'Urgent', color: '#DC2626', module: 'ITDESK' } }),
-    prisma.tag.create({ data: { orgId: org.id, name: 'Billing', color: '#10B981', module: 'CRM' } }),
-  ]);
-  console.log('Tags created');
-
-  // 6. ACCOUNTS
-  const [acmeAccount, globexAccount, initechAccount] = await Promise.all([
-    prisma.account.create({ data: { orgId: org.id, name: 'Acme Corporation', industry: 'Manufacturing', website: 'https://acme.example.com', phone: '+1-555-0100', address: '123 Main St, Springfield, IL', ownerId: crmMgr.id } }),
-    prisma.account.create({ data: { orgId: org.id, name: 'Globex Industries', industry: 'Technology', website: 'https://globex.example.com', phone: '+1-555-0200', address: '456 Silicon Ave, San Francisco, CA', ownerId: salesRep.id } }),
-    prisma.account.create({ data: { orgId: org.id, name: 'Initech Ltd', industry: 'Finance', website: 'https://initech.example.com', phone: '+1-555-0300', address: '789 Wall St, New York, NY', ownerId: crmMgr.id } }),
-  ]);
-  console.log('Accounts created (3)');
-
-  // 7. CONTACTS
-  const contacts = await Promise.all([
-    prisma.contact.create({ data: { orgId: org.id, ownerId: crmMgr.id, name: 'Alice Whitman', email: 'alice@acme.example.com', phone: '+1-555-1001', jobTitle: 'CTO', accountId: acmeAccount.id, source: 'Referral' } }),
-    prisma.contact.create({ data: { orgId: org.id, ownerId: crmMgr.id, name: 'Bob Lumbly', email: 'bob@acme.example.com', phone: '+1-555-1002', jobTitle: 'Procurement Manager', accountId: acmeAccount.id, source: 'Cold Email' } }),
-    prisma.contact.create({ data: { orgId: org.id, ownerId: salesRep.id, name: 'Carol Simmons', email: 'carol@globex.example.com', phone: '+1-555-2001', jobTitle: 'VP Engineering', accountId: globexAccount.id, source: 'Conference' } }),
-    prisma.contact.create({ data: { orgId: org.id, ownerId: salesRep.id, name: 'Daniel Park', email: 'daniel@globex.example.com', phone: '+1-555-2002', jobTitle: 'IT Director', accountId: globexAccount.id, source: 'LinkedIn' } }),
-    prisma.contact.create({ data: { orgId: org.id, ownerId: crmMgr.id, name: 'Eva Martinez', email: 'eva@initech.example.com', phone: '+1-555-3001', jobTitle: 'CFO', accountId: initechAccount.id, source: 'Referral' } }),
-    prisma.contact.create({ data: { orgId: org.id, ownerId: crmMgr.id, name: 'Frank Torres', email: 'frank@initech.example.com', phone: '+1-555-3002', jobTitle: 'Operations Lead', accountId: initechAccount.id, source: 'Website' } }),
-    prisma.contact.create({ data: { orgId: org.id, ownerId: salesRep.id, name: 'Grace Kim', email: 'grace@startup.example.com', phone: '+1-555-4001', jobTitle: 'Founder', source: 'Inbound' } }),
-    prisma.contact.create({ data: { orgId: org.id, ownerId: salesRep.id, name: 'Henry Brown', email: 'henry@corp.example.com', phone: '+1-555-5001', jobTitle: 'Purchasing Director', source: 'Cold Call' } }),
   ]);
 
+  const accounts = await Promise.all(preset.accounts.map((a, i) =>
+    prisma.account.create({ data: { orgId: org.id, name: a.name, industry: a.industry, website: a.website, phone: a.phone, address: a.address, ownerId: i % 2 === 0 ? crmMgr.id : salesRep.id } })
+  ));
+
+  const contacts = await Promise.all(preset.contacts.map(c =>
+    prisma.contact.create({ data: { orgId: org.id, ownerId: c.accountIdx % 2 === 0 ? crmMgr.id : salesRep.id, name: c.name, email: c.email, phone: c.phone, jobTitle: c.jobTitle, accountId: accounts[c.accountIdx].id, source: c.source, dateOfBirth: c.dateOfBirth ? new Date(c.dateOfBirth) : undefined } })
+  ));
   await Promise.all([
     prisma.contactTag.create({ data: { contactId: contacts[0].id, tagId: tagVip.id } }),
     prisma.contactTag.create({ data: { contactId: contacts[0].id, tagId: tagEnterprise.id } }),
     prisma.contactTag.create({ data: { contactId: contacts[2].id, tagId: tagEnterprise.id } }),
-    prisma.contactTag.create({ data: { contactId: contacts[4].id, tagId: tagVip.id } }),
-  ]);
-  console.log('Contacts created (8)');
-
-  // 8. PIPELINE + DEALS
-  const pipeline = await prisma.pipeline.create({
-    data: { orgId: org.id, name: 'Standard Sales Pipeline', isDefault: true, stages: ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost'] },
-  });
-
-  const deals = await Promise.all([
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Acme ERP Implementation', value: 85000, stage: 'Proposal', probability: 60, contactId: contacts[0].id, accountId: acmeAccount.id, assignedTo: salesRep.id, status: DealStatus.OPEN, closeDate: daysFromNow(45) } }),
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Acme Cloud Migration', value: 42000, stage: 'Negotiation', probability: 80, contactId: contacts[1].id, accountId: acmeAccount.id, assignedTo: crmMgr.id, status: DealStatus.OPEN, closeDate: daysFromNow(20) } }),
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Globex Platform Licence', value: 120000, stage: 'Closed Won', probability: 100, contactId: contacts[2].id, accountId: globexAccount.id, assignedTo: salesRep.id, status: DealStatus.WON, closeDate: daysAgo(10) } }),
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Globex Support Contract', value: 24000, stage: 'Qualification', probability: 40, contactId: contacts[3].id, accountId: globexAccount.id, assignedTo: salesRep.id, status: DealStatus.OPEN, closeDate: daysFromNow(60) } }),
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Initech Analytics Suite', value: 67000, stage: 'Prospecting', probability: 20, contactId: contacts[4].id, accountId: initechAccount.id, assignedTo: crmMgr.id, status: DealStatus.OPEN, closeDate: daysFromNow(90) } }),
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Initech Data Warehouse', value: 150000, stage: 'Closed Lost', probability: 0, contactId: contacts[5].id, accountId: initechAccount.id, assignedTo: salesRep.id, status: DealStatus.LOST, closeDate: daysAgo(5) } }),
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Grace Kim Startup Bundle', value: 9500, stage: 'Proposal', probability: 55, contactId: contacts[6].id, assignedTo: salesRep.id, status: DealStatus.OPEN, closeDate: daysFromNow(30) } }),
-    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: 'Henry Brown Enterprise Seat', value: 18000, stage: 'Negotiation', probability: 75, contactId: contacts[7].id, assignedTo: crmMgr.id, status: DealStatus.OPEN, closeDate: daysFromNow(15) } }),
   ]);
 
+  const pipeline = await prisma.pipeline.create({ data: { orgId: org.id, name: `${preset.industry} Pipeline`, isDefault: true, stages: preset.stages as any } });
+
+  const deals = await Promise.all(preset.deals.map(d =>
+    prisma.deal.create({ data: { orgId: org.id, pipelineId: pipeline.id, title: d.title, value: d.value, stage: d.stage, probability: d.probability, contactId: contacts[d.contactIdx].id, accountId: accounts[d.accountIdx].id, assignedTo: d.contactIdx % 2 === 0 ? salesRep.id : crmMgr.id, status: d.status, closeDate: daysFromNow(d.closeDays) } })
+  ));
+  await Promise.all(deals.slice(0, 2).map((deal, i) =>
+    prisma.dealHistory.create({ data: { dealId: deal.id, toStage: deal.stage, changedBy: salesRep.id, changedAt: daysAgo(15 - i * 5) } })
+  ));
+  await prisma.dealTag.create({ data: { dealId: deals[2].id, tagId: tagVip.id } });
+
+  // LEADS + follow-up activities — the "leads only convert, no follow-up"
+  // gap this whole feature closes: every lead here gets 1-2 scheduled
+  // activities (call/email/task/meeting), some already done, some pending.
+  const leads = await Promise.all(preset.leads.map(l =>
+    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[l.contactIdx].id, source: l.source, status: l.status, assignedTo: l.contactIdx % 2 === 0 ? salesRep.id : crmMgr.id, notes: l.notes, aiScore: l.aiScore, aiScoreReason: l.aiScoreReason } })
+  ));
+  await Promise.all(preset.leads.flatMap((l, li) => l.followUps.map(f =>
+    prisma.activity.create({ data: { orgId: org.id, type: f.type, title: f.title, body: f.body, leadId: leads[li].id, contactId: contacts[l.contactIdx].id, createdBy: li % 2 === 0 ? salesRep.id : crmMgr.id, dueAt: daysFromNow(f.dueDays), done: f.done } })
+  )));
+  // A couple of deal-side activities too, same as before.
   await Promise.all([
-    prisma.dealHistory.create({ data: { dealId: deals[0].id, fromStage: 'Prospecting', toStage: 'Qualification', changedBy: salesRep.id, changedAt: daysAgo(20) } }),
-    prisma.dealHistory.create({ data: { dealId: deals[0].id, fromStage: 'Qualification', toStage: 'Proposal', changedBy: salesRep.id, changedAt: daysAgo(10) } }),
-    prisma.dealHistory.create({ data: { dealId: deals[2].id, fromStage: 'Negotiation', toStage: 'Closed Won', changedBy: salesRep.id, changedAt: daysAgo(10) } }),
-    prisma.dealTag.create({ data: { dealId: deals[0].id, tagId: tagEnterprise.id } }),
-    prisma.dealTag.create({ data: { dealId: deals[2].id, tagId: tagVip.id } }),
-    prisma.dealTag.create({ data: { dealId: deals[4].id, tagId: tagHot.id } }),
+    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.CALL, title: 'Discovery call', body: 'Initial discovery and needs assessment.', contactId: contacts[0].id, dealId: deals[0].id, createdBy: salesRep.id, dueAt: daysAgo(8), done: true } }),
+    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.MEETING, title: 'Quarterly business review', body: 'Present YTD value and roadmap.', contactId: contacts[4].id, createdBy: admin.id, dueAt: daysFromNow(7), done: false } }),
   ]);
-  console.log('Pipeline + Deals created (8)');
 
-  // 9. LEADS
-  await Promise.all([
-    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[0].id, source: 'Website', status: LeadStatus.QUALIFIED, assignedTo: salesRep.id, dealId: deals[0].id, notes: 'Very interested in ERP module. Requested full demo.', aiScore: 87, aiScoreReason: 'Senior decision-maker, enterprise account, explicit product interest' } }),
-    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[2].id, source: 'Conference', status: LeadStatus.CONTACTED, assignedTo: crmMgr.id, notes: 'Met at TechSummit 2024. Wants follow-up call next week.', aiScore: 72, aiScoreReason: 'Engaged at event, large company, VP-level contact' } }),
-    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[4].id, source: 'Referral', status: LeadStatus.QUALIFIED, assignedTo: crmMgr.id, notes: 'Referred by Acme. Budget confirmed at $60K+.', aiScore: 91, aiScoreReason: 'Referral source, confirmed budget, C-level contact' } }),
-    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[6].id, source: 'Inbound', status: LeadStatus.NEW, assignedTo: salesRep.id, notes: 'Submitted contact form asking about startup pricing.', aiScore: 54, aiScoreReason: 'Inbound interest, small company, early stage' } }),
-    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[7].id, source: 'Cold Call', status: LeadStatus.CONTACTED, assignedTo: salesRep.id, notes: 'Cold called, mild interest. Requested brochure.', aiScore: 38, aiScoreReason: 'Cold outreach, vague interest' } }),
-    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[1].id, source: 'Cold Email', status: LeadStatus.UNQUALIFIED, assignedTo: salesRep.id, notes: 'Replied but budget is below minimum.', aiScore: 15, aiScoreReason: 'Budget constraint, no immediate need' } }),
-    prisma.lead.create({ data: { orgId: org.id, contactId: contacts[3].id, source: 'LinkedIn', status: LeadStatus.CONVERTED, assignedTo: crmMgr.id, dealId: deals[3].id, convertedAt: daysAgo(15), notes: 'Converted after 3 meetings. Now a deal.', aiScore: 80, aiScoreReason: 'IT Director, multiple touchpoints, clear need' } }),
-  ]);
-  console.log('Leads created (7)');
-
-  // 10. ACTIVITIES
-  await Promise.all([
-    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.CALL, title: 'Discovery call with Alice', body: 'Discussed ERP needs and integration requirements.', contactId: contacts[0].id, dealId: deals[0].id, createdBy: salesRep.id, dueAt: daysAgo(8), done: true } }),
-    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.MEETING, title: 'Product demo - Acme ERP', body: 'Full platform demo. Alice requested proposal by Friday.', contactId: contacts[0].id, dealId: deals[0].id, createdBy: salesRep.id, dueAt: daysAgo(3), done: true } }),
-    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.EMAIL, title: 'Sent proposal to Acme', body: 'Emailed 12-page proposal PDF. Awaiting response.', contactId: contacts[1].id, dealId: deals[1].id, createdBy: crmMgr.id, dueAt: daysAgo(1), done: true } }),
-    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.CALL, title: 'Negotiation call - Globex', body: 'Agreed on 5% discount for 3-year commitment.', contactId: contacts[2].id, dealId: deals[2].id, createdBy: salesRep.id, dueAt: daysAgo(12), done: true } }),
-    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.TASK, title: 'Follow up with Eva re: Analytics', body: 'Send ROI calculator and case studies.', contactId: contacts[4].id, dealId: deals[4].id, createdBy: crmMgr.id, dueAt: daysFromNow(2), done: false } }),
-    prisma.activity.create({ data: { orgId: org.id, type: ActivityType.MEETING, title: 'Quarterly business review - Initech', body: 'Present YTD value and roadmap for next year.', contactId: contacts[5].id, createdBy: admin.id, dueAt: daysFromNow(7), done: false } }),
-  ]);
-  console.log('Activities created (6)');
-
-  // 11. SLA POLICIES + CATEGORIES
   const [slaStandard, slaPremium, slaCritical] = await Promise.all([
     prisma.slaPolicy.create({ data: { orgId: org.id, name: 'Standard SLA', responseHours: 8, resolutionHours: 48 } }),
     prisma.slaPolicy.create({ data: { orgId: org.id, name: 'Premium SLA', responseHours: 4, resolutionHours: 24 } }),
     prisma.slaPolicy.create({ data: { orgId: org.id, name: 'Critical Response SLA', responseHours: 1, resolutionHours: 4 } }),
   ]);
+  const categoryNames = ['Hardware', 'Software', 'Network & Connectivity', 'Access & Permissions', 'Billing & Accounts'];
+  const categoryPolicies = [slaStandard, slaStandard, slaPremium, slaPremium, slaCritical];
+  const categories: Record<string, { id: string }> = {};
+  for (let i = 0; i < categoryNames.length; i++) {
+    categories[categoryNames[i]] = await prisma.category.create({ data: { orgId: org.id, name: categoryNames[i], slaPolicyId: categoryPolicies[i].id } });
+  }
 
-  const [catHardware, catSoftware, catNetwork, catAccess, catBilling] = await Promise.all([
-    prisma.category.create({ data: { orgId: org.id, name: 'Hardware', slaPolicyId: slaStandard.id } }),
-    prisma.category.create({ data: { orgId: org.id, name: 'Software', slaPolicyId: slaStandard.id } }),
-    prisma.category.create({ data: { orgId: org.id, name: 'Network & Connectivity', slaPolicyId: slaPremium.id } }),
-    prisma.category.create({ data: { orgId: org.id, name: 'Access & Permissions', slaPolicyId: slaPremium.id } }),
-    prisma.category.create({ data: { orgId: org.id, name: 'Billing & Accounts', slaPolicyId: slaCritical.id } }),
-  ]);
-
-  await Promise.all([
-    prisma.category.create({ data: { orgId: org.id, name: 'Laptop & Desktop', parentId: catHardware.id, slaPolicyId: slaStandard.id } }),
-    prisma.category.create({ data: { orgId: org.id, name: 'Printers & Peripherals', parentId: catHardware.id, slaPolicyId: slaStandard.id } }),
-    prisma.category.create({ data: { orgId: org.id, name: 'Microsoft 365', parentId: catSoftware.id, slaPolicyId: slaStandard.id } }),
-    prisma.category.create({ data: { orgId: org.id, name: 'VPN & Remote Access', parentId: catNetwork.id, slaPolicyId: slaPremium.id } }),
-  ]);
-  console.log('SLA + Categories created');
-
-  // 12. TICKETS
-  const tickets = await Promise.all([
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Laptop not turning on after Windows update', body: 'My Dell XPS 15 stopped booting after last nights Windows update. Blue screen error code 0x0000007E.', categoryId: catHardware.id, priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS, requesterId: admin.id, assignedTo: itAgent.id, sentiment: 'NEGATIVE', slaDueAt: daysFromNow(1), createdAt: daysAgo(2) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Cannot connect to company VPN', body: 'Getting Authentication failed when connecting to VPN from home. Tried restarting router. Blocking my work completely.', categoryId: catNetwork.id, priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN, requesterId: salesRep.id, assignedTo: itAgent.id, sentiment: 'NEGATIVE', slaDueAt: daysFromNow(0), createdAt: daysAgo(1) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Need access to Salesforce sandbox', body: 'Please grant me read/write access to the Salesforce sandbox for testing the new integration. Manager has approved.', categoryId: catAccess.id, priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING, requesterId: crmMgr.id, assignedTo: itMgr.id, sentiment: 'NEUTRAL', slaDueAt: daysFromNow(3), createdAt: daysAgo(3) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Printer on 3rd floor offline', body: 'The HP LaserJet on the 3rd floor has been showing offline since Monday. Multiple users affected.', categoryId: catHardware.id, priority: TicketPriority.MEDIUM, status: TicketStatus.RESOLVED, requesterId: admin.id, assignedTo: itAgent.id, sentiment: 'NEUTRAL', resolvedAt: daysAgo(1), slaDueAt: daysAgo(2), createdAt: daysAgo(5) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Microsoft Teams crashes on startup', body: 'Teams crashes immediately after launching on MacBook Pro M2. Tried reinstalling. Version 1.6.00.26474.', categoryId: catSoftware.id, priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS, requesterId: itMgr.id, assignedTo: itAgent.id, sentiment: 'NEGATIVE', slaDueAt: daysFromNow(2), createdAt: daysAgo(1) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'New employee laptop setup request', body: 'New hire starting Monday (Sarah Johnson). Please prepare a Dell Latitude 5540 with standard software and AD account.', categoryId: catHardware.id, priority: TicketPriority.LOW, status: TicketStatus.OPEN, requesterId: admin.id, assignedTo: itMgr.id, sentiment: 'POSITIVE', slaDueAt: daysFromNow(5), createdAt: daysAgo(1) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Invoice discrepancy in billing portal', body: 'Our November invoice shows $4,500 but we were quoted $3,900. Please review and issue a corrected invoice urgently.', categoryId: catBilling.id, priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN, requesterId: crmMgr.id, assignedTo: admin.id, sentiment: 'NEGATIVE', slaDueAt: daysFromNow(1), createdAt: daysAgo(0) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Slow internet in conference room B', body: 'WiFi speed in Conference Room B is under 2 Mbps. Video calls keep dropping. Other areas are fine.', categoryId: catNetwork.id, priority: TicketPriority.MEDIUM, status: TicketStatus.CLOSED, requesterId: salesRep.id, assignedTo: itAgent.id, sentiment: 'NEGATIVE', resolvedAt: daysAgo(3), closedAt: daysAgo(2), slaDueAt: daysAgo(5), createdAt: daysAgo(7) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Password reset for admin portal', body: 'Locked out of the admin portal after too many failed attempts. Need password reset for j.robinson@techcorp.io', categoryId: catAccess.id, priority: TicketPriority.HIGH, status: TicketStatus.RESOLVED, requesterId: admin.id, assignedTo: itMgr.id, sentiment: 'NEUTRAL', resolvedAt: daysAgo(1), slaDueAt: daysAgo(0), createdAt: daysAgo(2) } }),
-    prisma.ticket.create({ data: { orgId: org.id, title: 'Adobe Creative Cloud licence request', body: 'Marketing team needs 3 additional Adobe CC licences for new designers. PO number: PO-2024-0891.', categoryId: catSoftware.id, priority: TicketPriority.LOW, status: TicketStatus.OPEN, requesterId: crmMgr.id, assignedTo: itMgr.id, sentiment: 'POSITIVE', slaDueAt: daysFromNow(7), createdAt: daysAgo(1) } }),
-  ]);
+  const tickets = await Promise.all(preset.tickets.map((t, i) =>
+    prisma.ticket.create({ data: { orgId: org.id, title: t.title, body: t.body, categoryId: categories[t.category]?.id, priority: t.priority, status: t.status, requesterId: i % 2 === 0 ? admin.id : salesRep.id, assignedTo: i % 2 === 0 ? itAgent.id : itMgr.id, sentiment: t.priority === TicketPriority.CRITICAL ? 'NEGATIVE' : 'NEUTRAL', slaDueAt: daysFromNow(2), createdAt: daysAgo(i + 1) } })
+  ));
+  await prisma.ticketHistory.create({ data: { ticketId: tickets[0].id, fromStatus: TicketStatus.OPEN, toStatus: tickets[0].status, changedBy: itAgent.id } });
 
   await Promise.all([
-    prisma.ticketHistory.create({ data: { ticketId: tickets[0].id, fromStatus: TicketStatus.OPEN, toStatus: TicketStatus.IN_PROGRESS, changedBy: itAgent.id } }),
-    prisma.ticketHistory.create({ data: { ticketId: tickets[3].id, fromStatus: TicketStatus.OPEN, toStatus: TicketStatus.IN_PROGRESS, changedBy: itAgent.id, changedAt: daysAgo(3) } }),
-    prisma.ticketHistory.create({ data: { ticketId: tickets[3].id, fromStatus: TicketStatus.IN_PROGRESS, toStatus: TicketStatus.RESOLVED, changedBy: itAgent.id, changedAt: daysAgo(1) } }),
-    prisma.ticketHistory.create({ data: { ticketId: tickets[7].id, fromStatus: TicketStatus.OPEN, toStatus: TicketStatus.RESOLVED, changedBy: itAgent.id, changedAt: daysAgo(3) } }),
-    prisma.ticketHistory.create({ data: { ticketId: tickets[7].id, fromStatus: TicketStatus.RESOLVED, toStatus: TicketStatus.CLOSED, changedBy: admin.id, changedAt: daysAgo(2) } }),
+    prisma.comment.create({ data: { authorId: itAgent.id, entityType: 'TICKET', entityId: tickets[0].id, body: 'Investigating now — will update shortly.', createdAt: daysAgo(1) } }),
+    prisma.comment.create({ data: { authorId: salesRep.id, entityType: 'DEAL', entityId: deals[0].id, body: 'Great call today, moving forward with next steps.', createdAt: daysAgo(3) } }),
   ]);
-  console.log('Tickets created (10)');
 
-  // 13. COMMENTS
-  await Promise.all([
-    prisma.comment.create({ data: { authorId: itAgent.id, entityType: 'TICKET', entityId: tickets[0].id, body: 'Remotely connected. Update KB5031455 causes boot issues. Rolling it back now.', createdAt: daysAgo(1) } }),
-    prisma.comment.create({ data: { authorId: admin.id, entityType: 'TICKET', entityId: tickets[0].id, body: 'Please resolve ASAP - I have a board presentation today.', createdAt: daysAgo(0) } }),
-    prisma.comment.create({ data: { authorId: itAgent.id, entityType: 'TICKET', entityId: tickets[1].id, body: 'VPN server logs show certificate mismatch. Pushing updated config now.', createdAt: daysAgo(0) } }),
-    prisma.comment.create({ data: { authorId: itMgr.id, entityType: 'TICKET', entityId: tickets[2].id, body: 'Access request submitted to Salesforce admin. Pending security team approval.', createdAt: daysAgo(2) } }),
-    prisma.comment.create({ data: { authorId: itAgent.id, entityType: 'TICKET', entityId: tickets[3].id, body: 'Printer IP had changed after network reconfiguration. Updated mappings on all affected machines. Resolved.', createdAt: daysAgo(1) } }),
-    prisma.comment.create({ data: { authorId: salesRep.id, entityType: 'DEAL', entityId: deals[0].id, body: 'Alice loved the demo. Presenting to the board next week. Very positive signals.', createdAt: daysAgo(3) } }),
-    prisma.comment.create({ data: { authorId: crmMgr.id, entityType: 'DEAL', entityId: deals[1].id, body: 'Bob asked for 10% discount. I countered with 7% plus free onboarding. Following up Monday.', createdAt: daysAgo(1) } }),
-    prisma.comment.create({ data: { authorId: salesRep.id, entityType: 'DEAL', entityId: deals[2].id, body: 'Contract signed and countersigned! Sending kick-off invite now.', createdAt: daysAgo(10) } }),
-  ]);
-  console.log('Comments created');
+  await prisma.timeEntry.create({ data: { orgId: org.id, ticketId: tickets[0].id, userId: itAgent.id, description: 'Initial diagnosis and remote troubleshooting', minutes: 45, loggedAt: daysAgo(1) } });
 
-  // 14. TIME ENTRIES
-  await Promise.all([
-    prisma.timeEntry.create({ data: { orgId: org.id, ticketId: tickets[0].id, userId: itAgent.id, description: 'Remote diagnosis and Windows update rollback', minutes: 45, loggedAt: daysAgo(1) } }),
-    prisma.timeEntry.create({ data: { orgId: org.id, ticketId: tickets[1].id, userId: itAgent.id, description: 'VPN certificate renewal and config push', minutes: 30, loggedAt: daysAgo(0) } }),
-    prisma.timeEntry.create({ data: { orgId: org.id, ticketId: tickets[3].id, userId: itAgent.id, description: 'Printer IP reconfiguration and machine mapping update', minutes: 60, loggedAt: daysAgo(1) } }),
-    prisma.timeEntry.create({ data: { orgId: org.id, ticketId: tickets[4].id, userId: itAgent.id, description: 'Teams reinstall, cache clear, profile reset', minutes: 90, loggedAt: daysAgo(0) } }),
-    prisma.timeEntry.create({ data: { orgId: org.id, ticketId: tickets[8].id, userId: itMgr.id, description: 'Admin portal password reset and account audit', minutes: 15, loggedAt: daysAgo(1) } }),
-  ]);
-  console.log('Time entries created');
-
-  // 15. ASSETS
   const assets = await Promise.all([
-    prisma.asset.create({ data: { orgId: org.id, name: 'Dell XPS 15 - Alex', type: 'Laptop', serialNumber: 'SN-DXPS15-001', assignedTo: admin.id, status: 'active', purchaseDate: daysAgo(365) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'Dell Latitude 5540 - Sam', type: 'Laptop', serialNumber: 'SN-DL554-002', assignedTo: salesRep.id, status: 'active', purchaseDate: daysAgo(180) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'MacBook Pro M2 - Ivy', type: 'Laptop', serialNumber: 'SN-MBPM2-003', assignedTo: itMgr.id, status: 'active', purchaseDate: daysAgo(90) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'HP LaserJet - 3rd Floor', type: 'Printer', serialNumber: 'SN-HPLJ-101', status: 'maintenance', purchaseDate: daysAgo(730) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'Cisco IP Phone - Reception', type: 'Phone', serialNumber: 'SN-CIP-201', status: 'active', purchaseDate: daysAgo(400) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'Dell Monitor 27 - Dave', type: 'Monitor', serialNumber: 'SN-DM27-301', assignedTo: itAgent.id, status: 'active', purchaseDate: daysAgo(200) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'iPad Air - Conference Room A', type: 'Tablet', serialNumber: 'SN-IPAD-401', status: 'active', purchaseDate: daysAgo(120) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'Logitech Webcam - Carla', type: 'Peripheral', serialNumber: 'SN-LWC-501', assignedTo: crmMgr.id, status: 'active', purchaseDate: daysAgo(60) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'Spare Lenovo ThinkPad', type: 'Laptop', serialNumber: 'SN-LTP-601', status: 'in_storage', purchaseDate: daysAgo(500) } }),
-    prisma.asset.create({ data: { orgId: org.id, name: 'Network Switch - Floor 3', type: 'Network Equipment', serialNumber: 'SN-NSW-701', status: 'active', purchaseDate: daysAgo(800) } }),
+    prisma.asset.create({ data: { orgId: org.id, name: `${admin.name}'s Laptop`, type: 'Laptop', serialNumber: `SN-${preset.slug.toUpperCase()}-001`, assignedTo: admin.id, status: 'active', purchaseDate: daysAgo(365) } }),
+    prisma.asset.create({ data: { orgId: org.id, name: `${itAgent.name}'s Workstation`, type: 'Desktop', serialNumber: `SN-${preset.slug.toUpperCase()}-002`, assignedTo: itAgent.id, status: 'active', purchaseDate: daysAgo(200) } }),
+    prisma.asset.create({ data: { orgId: org.id, name: 'Shared Printer', type: 'Printer', serialNumber: `SN-${preset.slug.toUpperCase()}-003`, status: 'maintenance', purchaseDate: daysAgo(730) } }),
+  ]);
+  await prisma.ticketAsset.create({ data: { ticketId: tickets[0].id, assetId: assets[0].id } });
+
+  await prisma.csatResponse.create({ data: { orgId: org.id, ticketId: tickets[0].id, rating: 5, comment: 'Fast, friendly support!' } });
+
+  await Promise.all(preset.kb.map(k =>
+    prisma.knowledgeArticle.create({ data: { orgId: org.id, authorId: itMgr.id, title: k.title, body: k.body, categoryId: categories[k.category]?.id, status: ArticleStatus.PUBLISHED, publishedAt: daysAgo(20) } })
+  ));
+
+  // Workflow rules — one per newly-wired trigger, so every automation added
+  // in this feature set is visible and running in the demo, not just in code.
+  await Promise.all([
+    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Notify manager when a deal enters the final stage', description: `Fires when a deal moves to "${preset.stages[3].label}" — the last stage before Won.`, trigger: 'DEAL_STAGE_CHANGED', conditions: [{ field: 'stage', operator: 'eq', value: preset.stages[3].label }], actions: [{ type: 'CREATE_NOTIFICATION', params: { title: 'Deal nearing close', body: `{{title}} just moved to ${preset.stages[3].label}`, recipientType: 'ASSIGNEE' } }], isActive: true, runCount: 0 } }),
+    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Score new leads automatically', description: 'Runs AI scoring the moment a lead is created.', trigger: 'LEAD_CREATED', conditions: [], actions: [{ type: 'SCORE_LEAD', params: {} }], isActive: true, runCount: 0 } }),
+    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Notify on completed follow-up', description: 'Notifies the CRM manager whenever a lead follow-up activity is marked done.', trigger: 'LEAD_ACTIVITY_COMPLETED', conditions: [], actions: [{ type: 'CREATE_NOTIFICATION', params: { title: 'Follow-up completed', body: 'A lead follow-up was just marked done', userId: crmMgr.id } }], isActive: true, runCount: 0 } }),
+    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Auto-assign critical tickets to IT Manager', description: 'When a critical ticket is created, assign it to the IT manager.', trigger: 'TICKET_CREATED', conditions: [{ field: 'priority', operator: 'eq', value: 'CRITICAL' }], actions: [{ type: 'ASSIGN_TO', params: { userId: itMgr.id } }], isActive: true, runCount: 3 } }),
+    // Date-driven follow-ups (see utils/dateAutomation.ts) — the "salon
+    // CRM" style automations: birthday wishes here (identical across every
+    // vertical, since it only depends on Contact.dateOfBirth), plus one
+    // vertical-flavored reminder built on the custom module below.
+    prisma.workflowRule.create({ data: {
+      orgId: org.id, name: 'Birthday Wishes', description: 'Sends a birthday email and notifies the CRM manager whenever a contact\'s birthday comes around.',
+      trigger: 'DATE_FIELD_REACHED',
+      dateConfig: { entityType: 'CONTACT', dateField: 'dateOfBirth', offsetDays: 0, recurrence: 'YEARLY' },
+      conditions: [],
+      actions: [
+        { type: 'SEND_EMAIL', params: { to: '{{email}}', subject: `Happy Birthday from ${preset.orgName}!`, body: `Hi {{name}},\n\nWishing you a wonderful birthday from all of us at ${preset.orgName}! As a thank-you, enjoy 10% off your next visit.\n\nWarmly,\nThe ${preset.orgName} Team` } },
+        { type: 'CREATE_NOTIFICATION', params: { title: 'Contact birthday today', body: 'A birthday email just went out to {{name}} — a nice moment to check in personally.', userId: crmMgr.id } },
+      ],
+      isActive: true, runCount: 0,
+    } }),
+    // The vertical-specific reminder (built on the custom module's own DATE
+    // field) is created further down, once the module itself exists — see
+    // "moduleFields" below.
   ]);
 
   await Promise.all([
-    prisma.ticketAsset.create({ data: { ticketId: tickets[0].id, assetId: assets[0].id } }),
-    prisma.ticketAsset.create({ data: { ticketId: tickets[3].id, assetId: assets[3].id } }),
-    prisma.ticketAsset.create({ data: { ticketId: tickets[4].id, assetId: assets[2].id } }),
-    prisma.ticketAsset.create({ data: { ticketId: tickets[7].id, assetId: assets[9].id } }),
+    prisma.portalUser.create({ data: { orgId: org.id, name: contacts[0].name, email: `portal.${contacts[0].email}`, isActive: true, lastLoginAt: daysAgo(1) } }),
+    prisma.portalUser.create({ data: { orgId: org.id, name: contacts[2].name, email: `portal.${contacts[2].email}`, isActive: true, lastLoginAt: daysAgo(3) } }),
   ]);
-  console.log('Assets created (10)');
 
-  // 16. CSAT
+  await prisma.campaign.create({ data: { orgId: org.id, name: 'Quarterly Product Update', subject: `What's new at ${preset.orgName}`, body: `Dear {{name}},\n\nHere's what's new this quarter...\n\nBest,\nThe ${preset.orgName} Team`, targetType: 'LEADS', status: 'SENT', sentAt: daysAgo(7), sentCount: 128 } });
+
   await Promise.all([
-    prisma.csatResponse.create({ data: { orgId: org.id, ticketId: tickets[3].id, rating: 5, comment: 'Dave fixed it super quickly. Really impressed!' } }),
-    prisma.csatResponse.create({ data: { orgId: org.id, ticketId: tickets[7].id, rating: 4, comment: 'Took a day but the issue was fully resolved.' } }),
-    prisma.csatResponse.create({ data: { orgId: org.id, ticketId: tickets[8].id, rating: 5, comment: 'Password reset done in 10 minutes. Excellent service.' } }),
+    prisma.changeRequest.create({ data: { orgId: org.id, title: 'Upgrade network switches', description: 'Replace floor-level switches to support growing workload.', type: 'NORMAL', priority: 'HIGH', status: 'APPROVED', requestedBy: itMgr.id, assignedTo: itAgent.id, plannedStart: daysFromNow(5), plannedEnd: daysFromNow(6), approvedBy: admin.id, approvedAt: daysAgo(2) } }),
   ]);
-  console.log('CSAT responses created');
 
-  // 17. KNOWLEDGE ARTICLES
+  await prisma.customField.create({ data: { orgId: org.id, entityType: 'DEAL', label: 'Contract Type', fieldKey: 'contract_type', fieldType: 'SELECT', options: ['Annual', 'Multi-year', 'Monthly', 'One-time'], position: 1 } });
+
+  await prisma.quote.create({ data: { orgId: org.id, dealId: deals[0].id, title: `Q-${preset.slug.toUpperCase()}-001`, status: 'SENT', notes: 'Valid for 30 days.', validUntil: daysFromNow(30), createdBy: salesRep.id, lines: { create: [{ description: `${preset.orgName} Enterprise Licence`, quantity: 1, unitPrice: Number(deals[0].value), discount: 0 }] } } });
+
+  const conv = await prisma.conversation.create({ data: { orgId: org.id, channel: 'EMAIL', contactName: contacts[0].name, contactEmail: contacts[0].email, subject: `Re: ${deals[0].title}`, status: 'OPEN', assignedTo: salesRep.id, lastMessageAt: daysAgo(1), unreadCount: 1 } });
+  await prisma.message.create({ data: { conversationId: conv.id, direction: 'INBOUND', fromAddress: contacts[0].email!, toAddress: preset.supportEmail, body: 'Thanks for the call today — sending over our questions shortly.', sentAt: daysAgo(1) } });
+
   await Promise.all([
-    prisma.knowledgeArticle.create({ data: { orgId: org.id, authorId: itMgr.id, title: 'How to connect to the company VPN', body: 'Steps:\n1. Open Cisco AnyConnect\n2. Enter server: vpn.techcorp.io\n3. Sign in with company credentials\n4. Complete MFA prompt\n\nTroubleshooting: Reset password at portal.techcorp.io if authentication fails.', categoryId: catNetwork.id, status: ArticleStatus.PUBLISHED, publishedAt: daysAgo(30) } }),
-    prisma.knowledgeArticle.create({ data: { orgId: org.id, authorId: itMgr.id, title: 'Setting up Microsoft 365 on a new device', body: 'Windows: Go to office.com, sign in, click Install Office, run installer.\nmacOS: Visit office.com, click Install Office > Office 365 apps, open the .pkg file.', categoryId: catSoftware.id, status: ArticleStatus.PUBLISHED, publishedAt: daysAgo(60) } }),
-    prisma.knowledgeArticle.create({ data: { orgId: org.id, authorId: itAgent.id, title: 'Common printer issues and fixes', body: 'Printer offline: Go to Settings > Printers, right-click, Use Printer Online.\nPaper jam: Turn off printer, pull jammed paper in direction of travel only.', categoryId: catHardware.id, status: ArticleStatus.PUBLISHED, publishedAt: daysAgo(20) } }),
-    prisma.knowledgeArticle.create({ data: { orgId: org.id, authorId: itMgr.id, title: 'Requesting access to a new application', body: 'Log a ticket under Access & Permissions with system name, business justification, and manager approval. Allow 2 business days.', categoryId: catAccess.id, status: ArticleStatus.PUBLISHED, publishedAt: daysAgo(45) } }),
-    prisma.knowledgeArticle.create({ data: { orgId: org.id, authorId: itAgent.id, title: 'Windows 11 upgrade guide (DRAFT)', body: 'This article is pending IT review. Do not distribute.', categoryId: catSoftware.id, status: ArticleStatus.DRAFT, publishedAt: null } }),
-    prisma.knowledgeArticle.create({ data: { orgId: org.id, authorId: admin.id, title: 'Billing and invoice FAQs', body: 'Get invoices at billing.techcorp.io. Invoices include taxes. To dispute: open a ticket under Billing & Accounts with the invoice number.', categoryId: catBilling.id, status: ArticleStatus.PUBLISHED, publishedAt: daysAgo(10) } }),
-  ]);
-  console.log('Knowledge articles created (6)');
-
-  // 18. WORKFLOW RULES
-  await Promise.all([
-    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Auto-assign Critical Tickets to IT Manager', description: 'When a critical ticket is created, assign it to the IT manager.', trigger: 'TICKET_CREATED', conditions: [{ field: 'priority', operator: 'equals', value: 'CRITICAL' }], actions: [{ type: 'ASSIGN', params: { userId: itMgr.id } }], isActive: true, runCount: 3 } }),
-    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Notify agent on SLA breach', description: 'Send a notification when SLA is about to breach.', trigger: 'SLA_BREACH', conditions: [], actions: [{ type: 'NOTIFY', params: { message: 'SLA breach warning - please update the ticket immediately' } }], isActive: true, runCount: 7 } }),
-    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Tag conference leads as Enterprise', description: 'When a lead comes from Conference, tag as Enterprise.', trigger: 'LEAD_CREATED', conditions: [{ field: 'source', operator: 'equals', value: 'Conference' }], actions: [{ type: 'TAG', params: { tag: 'Enterprise' } }], isActive: true, runCount: 2 } }),
-    prisma.workflowRule.create({ data: { orgId: org.id, name: 'Create onboarding ticket on Deal Won', description: 'Auto-create an IT onboarding ticket when a deal is marked Won.', trigger: 'DEAL_STAGE_CHANGED', conditions: [{ field: 'stage', operator: 'equals', value: 'Closed Won' }], actions: [{ type: 'CREATE_TICKET', params: { title: 'Onboarding - new customer', priority: 'MEDIUM' } }], isActive: false, runCount: 1 } }),
-  ]);
-  console.log('Workflow rules created (4)');
-
-  // 19. PORTAL USERS
-  await Promise.all([
-    prisma.portalUser.create({ data: { orgId: org.id, name: 'Alice Whitman', email: 'alice.portal@acme.example.com', isActive: true, lastLoginAt: daysAgo(1) } }),
-    prisma.portalUser.create({ data: { orgId: org.id, name: 'Carol Simmons', email: 'carol.portal@globex.example.com', isActive: true, lastLoginAt: daysAgo(3) } }),
-    prisma.portalUser.create({ data: { orgId: org.id, name: 'Bob Lumbly', email: 'bob.portal@acme.example.com', isActive: true, lastLoginAt: null } }),
-    prisma.portalUser.create({ data: { orgId: org.id, name: 'John Doe', email: 'john.doe@startup.example.com', isActive: false, lastLoginAt: null } }),
-  ]);
-  console.log('Portal users created (4)');
-
-  // 20. CAMPAIGNS
-  await Promise.all([
-    prisma.campaign.create({ data: { orgId: org.id, name: 'Q4 Product Launch Announcement', subject: 'Introducing CRMITDesk 2.0 - More Power, Less Effort', body: 'Dear {{name}},\n\nWe are thrilled to announce CRMITDesk 2.0 with AI-powered routing, unified inbox, and advanced analytics. Upgrade today for 20% off the first 3 months.\n\nBest,\nThe TechCorp Team', targetType: 'LEADS', status: 'SENT', sentAt: daysAgo(7), sentCount: 245 } }),
-    prisma.campaign.create({ data: { orgId: org.id, name: 'Enterprise Feature Spotlight', subject: 'Your enterprise needs custom AI automations', body: 'Hi {{name}},\n\nAs an enterprise customer you now have access to our AI Feature Builder...', targetType: 'CONTACTS', status: 'SENT', sentAt: daysAgo(2), sentCount: 89 } }),
-    prisma.campaign.create({ data: { orgId: org.id, name: 'Re-engagement - Inactive Leads', subject: 'We miss you! Here is what is new at TechCorp', body: 'Hello {{name}},\n\nIt has been a while since we last connected...', targetType: 'LEADS', status: 'DRAFT', sentCount: 0 } }),
-  ]);
-  console.log('Campaigns created (3)');
-
-  // 21. CHANGE REQUESTS
-  await Promise.all([
-    prisma.changeRequest.create({ data: { orgId: org.id, title: 'Upgrade office network switches to 10Gbps', description: 'Replace all floor-level network switches with 10Gbps models to support growing video collaboration workload. Maintenance window: Saturday 02:00-06:00.', type: 'NORMAL', priority: 'HIGH', status: 'APPROVED', requestedBy: itMgr.id, assignedTo: itAgent.id, plannedStart: daysFromNow(5), plannedEnd: daysFromNow(6), approvedBy: admin.id, approvedAt: daysAgo(2) } }),
-    prisma.changeRequest.create({ data: { orgId: org.id, title: 'Deploy Windows 11 to all endpoints', description: 'Phased rollout of Windows 11 across all 87 company endpoints. Phase 1: IT (10 machines). Phase 2: Sales. Phase 3: All remaining.', type: 'STANDARD', priority: 'MEDIUM', status: 'SUBMITTED', requestedBy: itAgent.id, assignedTo: itMgr.id, plannedStart: daysFromNow(14), plannedEnd: daysFromNow(45) } }),
-    prisma.changeRequest.create({ data: { orgId: org.id, title: 'Emergency patch - critical OpenSSL vulnerability', description: 'CVE-2024-XXXX affects all systems running OpenSSL below 3.1.4. Immediate patching required across all Linux servers.', type: 'EMERGENCY', priority: 'CRITICAL', status: 'IMPLEMENTING', requestedBy: itMgr.id, assignedTo: itAgent.id, plannedStart: daysAgo(1), plannedEnd: daysFromNow(1), approvedBy: admin.id, approvedAt: daysAgo(1) } }),
-    prisma.changeRequest.create({ data: { orgId: org.id, title: 'Migrate file server to SharePoint Online', description: 'Move 2TB of shared drive content to SharePoint Online to eliminate on-prem server costs.', type: 'NORMAL', priority: 'MEDIUM', status: 'DRAFT', requestedBy: crmMgr.id, plannedStart: daysFromNow(30), plannedEnd: daysFromNow(60) } }),
-  ]);
-  console.log('Change requests created (4)');
-
-  // 22. CUSTOM FIELDS
-  await Promise.all([
-    prisma.customField.create({ data: { orgId: org.id, entityType: 'TICKET', label: 'Affected Users Count', fieldKey: 'affected_users_count', fieldType: 'NUMBER', position: 1 } }),
-    prisma.customField.create({ data: { orgId: org.id, entityType: 'TICKET', label: 'Business Impact', fieldKey: 'business_impact', fieldType: 'SELECT', options: ['Low', 'Medium', 'High', 'Critical'], position: 2 } }),
-    prisma.customField.create({ data: { orgId: org.id, entityType: 'CONTACT', label: 'LinkedIn Profile', fieldKey: 'linkedin_profile', fieldType: 'TEXT', position: 1 } }),
-    prisma.customField.create({ data: { orgId: org.id, entityType: 'DEAL', label: 'Contract Type', fieldKey: 'contract_type', fieldType: 'SELECT', options: ['Annual', 'Multi-year', 'Monthly', 'One-time'], position: 1 } }),
-    prisma.customField.create({ data: { orgId: org.id, entityType: 'LEAD', label: 'Company Size', fieldKey: 'company_size', fieldType: 'SELECT', options: ['1-10', '11-50', '51-200', '201-1000', '1000+'], position: 1 } }),
-  ]);
-  console.log('Custom fields created (5)');
-
-  // 23. QUOTES
-  await Promise.all([
-    prisma.quote.create({ data: { orgId: org.id, dealId: deals[0].id, title: 'Q-2024-001 - Acme ERP Implementation', status: 'SENT', notes: 'Valid for 30 days. Prices exclude applicable taxes. Implementation: 12 weeks.', validUntil: daysFromNow(30), createdBy: salesRep.id, lines: { create: [{ description: 'CRMITDesk Enterprise Licence (50 seats)', quantity: 50, unitPrice: 120, discount: 0 }, { description: 'Implementation & Onboarding Services', quantity: 1, unitPrice: 8000, discount: 5 }, { description: 'Data Migration (up to 500K records)', quantity: 1, unitPrice: 3500, discount: 0 }, { description: 'Training Sessions (4 x 2h)', quantity: 4, unitPrice: 500, discount: 0 }] } } }),
-    prisma.quote.create({ data: { orgId: org.id, dealId: deals[2].id, title: 'Q-2024-002 - Globex Platform Licence', status: 'ACCEPTED', notes: 'Accepted by Carol Simmons. Kick-off: 1 Dec 2024.', validUntil: daysAgo(5), createdBy: salesRep.id, lines: { create: [{ description: 'CRMITDesk Enterprise Licence (100 seats)', quantity: 100, unitPrice: 110, discount: 10 }, { description: 'Priority Support 24/7 (3-year term)', quantity: 3, unitPrice: 8000, discount: 0 }, { description: 'Custom Integrations (3 systems)', quantity: 3, unitPrice: 4000, discount: 5 }] } } }),
-  ]);
-  console.log('Quotes created (2)');
-
-  // 24. CONVERSATIONS + MESSAGES
-  const [convAlice, convBob] = await Promise.all([
-    prisma.conversation.create({ data: { orgId: org.id, channel: 'EMAIL', contactName: 'Alice Whitman', contactEmail: 'alice@acme.example.com', subject: 'Re: Proposal - Acme ERP Implementation', status: 'OPEN', assignedTo: salesRep.id, lastMessageAt: daysAgo(1), unreadCount: 1 } }),
-    prisma.conversation.create({ data: { orgId: org.id, channel: 'EMAIL', contactName: 'Bob Lumbly', contactEmail: 'bob@acme.example.com', subject: 'Invoice query - November billing', status: 'OPEN', assignedTo: admin.id, lastMessageAt: daysAgo(0), unreadCount: 2 } }),
-    prisma.conversation.create({ data: { orgId: org.id, channel: 'WHATSAPP', contactName: 'Carol Simmons', contactPhone: '+1-555-2001', status: 'RESOLVED', assignedTo: salesRep.id, lastMessageAt: daysAgo(5), unreadCount: 0 } }),
+    prisma.notification.create({ data: { orgId: org.id, userId: itAgent.id, type: 'ASSIGNMENT', title: 'Ticket assigned to you', body: tickets[0].title, entityType: 'TICKET', entityId: tickets[0].id } }),
+    prisma.notification.create({ data: { orgId: org.id, userId: salesRep.id, type: 'STATUS_CHANGE', title: 'Deal update', body: `${deals[0].title} was updated`, entityType: 'DEAL', entityId: deals[0].id } }),
   ]);
 
   await Promise.all([
-    prisma.message.create({ data: { conversationId: convAlice.id, direction: 'INBOUND', fromAddress: 'alice@acme.example.com', toAddress: 'support@techcorp.io', body: 'Hi Sam, I reviewed the proposal with our board. We have a few questions before signing. Can we schedule a call this week?', sentAt: daysAgo(2) } }),
-    prisma.message.create({ data: { conversationId: convAlice.id, direction: 'OUTBOUND', fromAddress: 'sales@crmitdesk.com', toAddress: 'alice@acme.example.com', body: 'Hi Alice, I have availability Thursday 2pm or Friday 10am. Which works for you?', sentAt: daysAgo(1) } }),
-    prisma.message.create({ data: { conversationId: convAlice.id, direction: 'INBOUND', fromAddress: 'alice@acme.example.com', toAddress: 'support@techcorp.io', body: 'Thursday 2pm works. I will send a calendar invite.', sentAt: daysAgo(1) } }),
-    prisma.message.create({ data: { conversationId: convBob.id, direction: 'INBOUND', fromAddress: 'bob@acme.example.com', toAddress: 'support@techcorp.io', body: 'Hello, our November invoice shows $4,500 but we were quoted $3,900. This needs to be corrected immediately.', sentAt: daysAgo(0) } }),
-    prisma.message.create({ data: { conversationId: convBob.id, direction: 'OUTBOUND', fromAddress: 'admin@crmitdesk.com', toAddress: 'bob@acme.example.com', body: 'Hi Bob, I apologise for the discrepancy. Looking into this now and will get back to you within the hour.', sentAt: daysAgo(0) } }),
+    prisma.auditLog.create({ data: { userId: admin.id, action: 'USER_CREATED', entityType: 'User', entityId: salesRep.id, changes: { name: salesRep.name }, createdAt: daysAgo(30) } }),
+    prisma.auditLog.create({ data: { userId: salesRep.id, action: 'DEAL_CREATED', entityType: 'Deal', entityId: deals[0].id, changes: { title: deals[0].title }, createdAt: daysAgo(20) } }),
   ]);
-  console.log('Conversations + messages created');
 
-  // 25. NOTIFICATIONS
   await Promise.all([
-    prisma.notification.create({ data: { orgId: org.id, userId: itAgent.id, type: 'ASSIGNMENT', title: 'Ticket assigned to you', body: 'Laptop not turning on - assigned to Dave Desk', entityType: 'TICKET', entityId: tickets[0].id } }),
-    prisma.notification.create({ data: { orgId: org.id, userId: itAgent.id, type: 'ASSIGNMENT', title: 'Critical ticket assigned', body: 'Cannot connect to company VPN - CRITICAL priority', entityType: 'TICKET', entityId: tickets[1].id } }),
-    prisma.notification.create({ data: { orgId: org.id, userId: salesRep.id, type: 'COMMENT', title: 'New comment on Acme ERP deal', body: 'Carla Chen commented on Acme Cloud Migration', entityType: 'DEAL', entityId: deals[0].id } }),
-    prisma.notification.create({ data: { orgId: org.id, userId: admin.id, type: 'STATUS_CHANGE', title: 'Ticket resolved', body: 'Printer on 3rd floor - marked as Resolved', entityType: 'TICKET', entityId: tickets[3].id, readAt: daysAgo(1) } }),
-    prisma.notification.create({ data: { orgId: org.id, userId: itMgr.id, type: 'SLA_WARNING', title: 'SLA breach warning', body: 'VPN ticket is approaching SLA deadline', entityType: 'TICKET', entityId: tickets[1].id } }),
-    prisma.notification.create({ data: { orgId: org.id, userId: salesRep.id, type: 'STATUS_CHANGE', title: 'Deal won - Globex!', body: 'Globex Platform Licence moved to Closed Won', entityType: 'DEAL', entityId: deals[2].id, readAt: daysAgo(10) } }),
+    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Auto-Tag Billing Tickets', description: 'Tag any ticket mentioning invoices or billing.', trigger: 'TICKET_CREATED', action: 'TAG', customPrompt: 'If it mentions billing, invoice, payment, or charges, return tag "billing".', isActive: true, runCount: 12, lastRunAt: daysAgo(1) } }),
+    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Smart Lead Follow-up', description: 'Generate a personalised follow-up email for high-scoring leads.', trigger: 'LEAD_SCORED', action: 'EMAIL', customPrompt: 'Generate a warm professional follow-up email for {{contact_name}}. Under 150 words.', isActive: true, runCount: 5, lastRunAt: daysAgo(3) } }),
   ]);
-  console.log('Notifications created');
 
-  // 26. AUDIT LOGS
-  await Promise.all([
-    prisma.auditLog.create({ data: { userId: admin.id, action: 'USER_CREATED', entityType: 'User', entityId: salesRep.id, changes: { name: 'Sam Sales', role: 'SALES_REP' }, createdAt: daysAgo(30) } }),
-    prisma.auditLog.create({ data: { userId: salesRep.id, action: 'DEAL_CREATED', entityType: 'Deal', entityId: deals[0].id, changes: { title: 'Acme ERP Implementation', value: 85000 }, createdAt: daysAgo(20) } }),
-    prisma.auditLog.create({ data: { userId: itAgent.id, action: 'TICKET_UPDATED', entityType: 'Ticket', entityId: tickets[0].id, changes: { status: { from: 'OPEN', to: 'IN_PROGRESS' } }, createdAt: daysAgo(1) } }),
-    prisma.auditLog.create({ data: { userId: salesRep.id, action: 'DEAL_STAGE_CHANGED', entityType: 'Deal', entityId: deals[2].id, changes: { stage: { from: 'Negotiation', to: 'Closed Won' } }, createdAt: daysAgo(10) } }),
-    prisma.auditLog.create({ data: { userId: admin.id, action: 'USER_ROLE_CHANGED', entityType: 'User', entityId: itAgent.id, changes: { role: { from: 'EMPLOYEE', to: 'IT_AGENT' } }, createdAt: daysAgo(60) } }),
-  ]);
-  console.log('Audit logs created');
+  // Custom module — demonstrates the no-code object builder + shows a
+  // couple of pre-loaded records as if a first sync had already run.
+  const module_ = await prisma.customModule.create({ data: { orgId: org.id, name: preset.customModule.name, slug: preset.customModule.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), icon: preset.customModule.icon, description: preset.customModule.description, createdBy: admin.id } });
+  const moduleFields = await Promise.all(preset.customModule.fields.map((f, i) =>
+    prisma.customModuleField.create({ data: { moduleId: module_.id, label: f.label, fieldKey: f.fieldKey, fieldType: f.fieldType, options: f.options, required: f.required ?? false, isPrimary: f.isPrimary ?? false, position: i } })
+  ));
+  await Promise.all(preset.customModule.records.map(r =>
+    prisma.customModuleRecord.create({ data: { moduleId: module_.id, orgId: org.id, data: r as Prisma.InputJsonValue, source: 'MANUAL', createdBy: admin.id } })
+  ));
+  void moduleFields;
 
-  // 27. AI CUSTOM RULES
-  await Promise.all([
-    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Auto-Tag Billing Tickets', description: 'Tag any ticket mentioning invoices or billing.', trigger: 'TICKET_CREATED', action: 'TAG', customPrompt: 'Analyse the ticket. If it mentions billing, invoice, payment, or charges, return tag "billing".', isActive: true, runCount: 12, lastRunAt: daysAgo(1) } }),
-    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Smart Lead Follow-up', description: 'Generate a personalised follow-up email when a lead is scored above 70.', trigger: 'LEAD_SCORED', action: 'EMAIL', customPrompt: 'Generate a warm professional follow-up email for {{contact_name}} from {{company}}. Score: {{score}}. Under 150 words.', isActive: true, runCount: 5, lastRunAt: daysAgo(3) } }),
-    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'SLA Breach Summary', description: 'Summarise the ticket and suggest resolution steps when SLA is about to breach.', trigger: 'TICKET_CREATED', action: 'SUMMARIZE', customPrompt: 'Summarise this IT support ticket in 2 sentences and suggest the 3 most likely resolution steps.', isActive: true, runCount: 8, lastRunAt: daysAgo(0) } }),
-    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Deal Stage Notification', description: 'Notify sales team when a deal moves to Negotiation.', trigger: 'DEAL_STAGE_CHANGED', action: 'NOTIFY', customPrompt: 'Deal "{{deal_title}}" (${{value}}) moved to {{new_stage}}. Write a 1-sentence update for the team.', isActive: false, runCount: 0 } }),
-  ]);
-  console.log('AI custom rules created (4)');
+  // The vertical-flavored half of the date-driven follow-up automations —
+  // needs module_.id, so it's created here rather than alongside "Birthday
+  // Wishes" further up. See preset.dateAutomation's doc comment.
+  await prisma.workflowRule.create({ data: {
+    orgId: org.id, name: preset.dateAutomation.name, description: preset.dateAutomation.description,
+    trigger: 'DATE_FIELD_REACHED',
+    dateConfig: { entityType: 'CUSTOM_MODULE', moduleId: module_.id, dateField: preset.dateAutomation.dateField, offsetDays: preset.dateAutomation.offsetDays, recurrence: 'ONCE' },
+    conditions: [],
+    actions: [{ type: 'CREATE_NOTIFICATION', params: { title: preset.dateAutomation.name, body: preset.dateAutomation.message, userId: crmMgr.id } }],
+    isActive: true, runCount: 0,
+  } });
 
-  // Summary
-  console.log('\nSeed complete!');
-  console.log('  Users (all password Admin@123):');
-  console.log('    admin@crmitdesk.com       -> Super Admin');
-  console.log('    crm@crmitdesk.com         -> CRM Manager');
-  console.log('    sales@crmitdesk.com       -> Sales Rep');
-  console.log('    itmanager@crmitdesk.com   -> IT Manager');
-  console.log('    itagent@crmitdesk.com     -> IT Agent');
-  console.log('  Plan: ENTERPRISE (every feature gate unlocked, 999 seats, 50GB hosted storage quota)');
-  console.log('  Data: 8 contacts, 7 leads, 8 deals, 10 tickets, 10 assets, 6 articles');
-  console.log('  Plus: workflows, campaigns, change requests, quotes, AI rules, inbox, CSAT');
-
+  console.log(`[seed] ${preset.orgName} (${preset.slug}) seeded — login as ${loginEmailFor(preset.slug)} / Admin@123`);
   return org;
 }
+
+/** Seeds a single vertical (default: the original tech/SaaS demo org). Re-runnable. */
+export async function seedDemoOrg(vertical: string = DEFAULT_VERTICAL) {
+  const preset = VERTICALS.find(v => v.slug === vertical);
+  if (!preset) throw new Error(`Unknown demo vertical "${vertical}". Valid: ${DEMO_VERTICAL_SLUGS.join(', ')}`);
+  return buildOrg(preset);
+}
+
+/** Seeds every vertical — used by the nightly reset job and the initial `db:seed` run. */
+export async function seedAllDemoOrgs() {
+  const results = [];
+  for (const preset of VERTICALS) {
+    results.push(await buildOrg(preset));
+  }
+  return results;
+}
+
+// ─── Back-compat exports (previous single-vertical API) ───────────────────────
+export const DEMO_ORG_SLUG = DEFAULT_VERTICAL;
+export const DEMO_SEED_EMAILS = seedEmailsFor(DEFAULT_VERTICAL);
+export const DEMO_LOGIN_EMAIL = process.env.DEMO_LOGIN_EMAIL || loginEmailFor(DEFAULT_VERTICAL);

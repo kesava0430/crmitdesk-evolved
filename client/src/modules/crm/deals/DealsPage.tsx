@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Sparkles, Activity, Copy, Check, Mail, Pencil } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, DollarSign, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, X } from 'lucide-react';
 import { usePipeline, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
-import { useContacts, useAccounts } from '../../../api/crm';
+import { useContacts, useAccounts, usePipelines, useAddStage, useUpdateStage, useRemoveStage, useReorderStages } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
 import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } from '../../../api/ai';
 import { PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
@@ -9,17 +9,6 @@ import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useLabels } from '../../../hooks/useLabels';
-
-const STAGE_COLORS: Record<string, string> = {
-  Prospecting: 'bg-gray-100 border-gray-300',
-  Proposal: 'bg-blue-50 border-blue-200',
-  Negotiation: 'bg-yellow-50 border-yellow-200',
-  Won: 'bg-green-50 border-green-200',
-  Lost: 'bg-red-50 border-red-200',
-};
-const STAGE_HEADER: Record<string, string> = {
-  Prospecting: 'bg-gray-500', Proposal: 'bg-blue-500', Negotiation: 'bg-yellow-500', Won: 'bg-green-500', Lost: 'bg-red-500',
-};
 
 function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading }: any) {
   const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '' });
@@ -286,12 +275,101 @@ function PipelineHealthModal({ open, onClose }: { open: boolean; onClose: () => 
   );
 }
 
+function StageRow({ pipelineId, stage, index, total, allLabels, onMoved }: any) {
+  const updateStage = useUpdateStage();
+  const removeStage = useRemoveStage();
+  const reorder = useReorderStages();
+  const [label, setLabel] = useState(stage.label);
+  const [color, setColor] = useState(stage.color);
+  const [probability, setProbability] = useState(stage.probability);
+  const [reassignTo, setReassignTo] = useState('');
+  const [blockedCount, setBlockedCount] = useState<string | null>(null);
+  const dirty = label !== stage.label || color !== stage.color || probability !== stage.probability;
+
+  function save() {
+    updateStage.mutate({ pipelineId, label: stage.label, ...(label !== stage.label && { label }), color, probability: Number(probability) });
+  }
+
+  function move(dir: -1 | 1) {
+    const newOrder = [...allLabels];
+    const i = newOrder.indexOf(stage.label);
+    const j = i + dir;
+    if (j < 0 || j >= newOrder.length) return;
+    [newOrder[i], newOrder[j]] = [newOrder[j], newOrder[i]];
+    reorder.mutate({ pipelineId, labels: newOrder }, { onSuccess: onMoved });
+  }
+
+  function remove() {
+    removeStage.mutate({ pipelineId, label: stage.label, reassignTo: reassignTo || undefined }, {
+      onError: (err: any) => setBlockedCount(err?.response?.data?.error || 'This stage still has deals in it.'),
+      onSuccess: () => setBlockedCount(null),
+    });
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-xl p-3">
+      <div className="flex items-center gap-2">
+        <div className="flex flex-col text-gray-300">
+          <button type="button" disabled={index === 0} onClick={() => move(-1)} className="hover:text-gray-600 disabled:opacity-20 leading-none text-xs">▲</button>
+          <button type="button" disabled={index === total - 1} onClick={() => move(1)} className="hover:text-gray-600 disabled:opacity-20 leading-none text-xs">▼</button>
+        </div>
+        <GripVertical size={14} className="text-gray-300" />
+        <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-7 h-7 rounded cursor-pointer border border-gray-200" />
+        <input className="ui-input flex-1" value={label} onChange={e => setLabel(e.target.value)} aria-label={`Stage name ${index + 1}`} />
+        <input type="number" min={0} max={100} className="ui-input w-20" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
+        <span className="text-xs text-gray-400">%</span>
+        {dirty && <Button size="sm" onClick={save} loading={updateStage.isPending}>Save</Button>}
+        <button type="button" onClick={remove} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+      </div>
+      {blockedCount && (
+        <div className="mt-2 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+          <span className="flex-1">{blockedCount}</span>
+          <SearchableSelect ariaLabel="Reassign deals to" value={reassignTo} onChange={setReassignTo} options={allLabels.filter((l: string) => l !== stage.label).map((l: string) => ({ value: l, label: l }))} placeholder="Move deals to…" />
+          <Button size="sm" variant="secondary" onClick={remove} disabled={!reassignTo}>Move &amp; Delete</Button>
+          <button type="button" onClick={() => setBlockedCount(null)}><X size={14} className="text-amber-400" /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { data: pipelines } = usePipelines();
+  const addStage = useAddStage();
+  const [newLabel, setNewLabel] = useState('');
+  const pipeline = pipelines?.find((p: any) => p.isDefault) || pipelines?.[0];
+  const stages = pipeline?.stages || [];
+
+  return (
+    <Modal open={open} onClose={onClose} title="Manage Pipeline Stages" size="lg">
+      <div className="space-y-3">
+        <p className="text-xs text-gray-500">
+          Rename, recolor, reorder, or remove stages on <strong>{pipeline?.name}</strong>. Renaming moves every deal
+          currently in that stage along with it. Combine with a workflow automation (trigger: "Deal Stage Changed")
+          to notify someone or send an email whenever a deal enters a specific stage.
+        </p>
+        {stages.map((s: any, i: number) => (
+          <StageRow key={s.label} pipelineId={pipeline.id} stage={s} index={i} total={stages.length} allLabels={stages.map((x: any) => x.label)} onMoved={() => {}} />
+        ))}
+        <form
+          onSubmit={e => { e.preventDefault(); if (!newLabel.trim()) return; addStage.mutate({ pipelineId: pipeline.id, label: newLabel.trim() }, { onSuccess: () => setNewLabel('') }); }}
+          className="flex items-center gap-2 pt-1"
+        >
+          <input className="ui-input flex-1" placeholder="New stage name…" value={newLabel} onChange={e => setNewLabel(e.target.value)} aria-label="New stage name" />
+          <Button type="submit" size="sm" icon={<Plus size={13} />} loading={addStage.isPending}>Add Stage</Button>
+        </form>
+      </div>
+    </Modal>
+  );
+}
+
 export function DealsPage() {
   const [modal, setModal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<any>(null);
   const [editingDeal, setEditingDeal] = useState<any>(null);
   const [view, setView] = useState<'kanban' | 'reports'>('kanban');
   const [pipelineHealthOpen, setPipelineHealthOpen] = useState(false);
+  const [stagesOpen, setStagesOpen] = useState(false);
   const { data: pipelineData, isLoading } = usePipeline();
   const { data: reports } = useDealReports();
   const { data: contacts } = useContacts();
@@ -304,7 +382,9 @@ export function DealsPage() {
   const saveCustomFields = useSaveCustomFieldValues();
   const { data: dealFieldDefs } = useCustomFieldDefs('DEAL');
 
-  const stages = pipelineData?.pipeline?.stages as string[] | undefined;
+  // Backend now returns stages as rich objects ({ label, color, probability, ... })
+  // so the stage manager can rename/recolor them — this form only needs the labels.
+  const stages = (pipelineData?.pipeline?.stages as any[] | undefined)?.map(s => typeof s === 'string' ? s : s.label);
   const { entityLabel } = useLabels();
   const pageSingular = entityLabel('deal', 'singular', 'Deal');
   const pagePlural = entityLabel('deal', 'plural', 'Pipeline');
@@ -328,6 +408,7 @@ export function DealsPage() {
               <button onClick={() => setView('reports')} className={`px-3 py-1.5 text-sm ${view === 'reports' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>Reports</button>
             </div>
             <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setPipelineHealthOpen(true)}>Pipeline Health</Button>
+            <Button variant="secondary" icon={<Settings size={14} />} onClick={() => setStagesOpen(true)}>Manage Stages</Button>
             <Button icon={<Plus size={15} />} onClick={() => setModal(true)}>New {pageSingular}</Button>
           </div>
         }
@@ -335,20 +416,25 @@ export function DealsPage() {
 
       {isLoading ? <Spinner /> : view === 'kanban' ? (
         <div className="flex gap-4 overflow-x-auto pb-4 flex-1 -mx-1 px-1">
-          {pipelineData?.columns?.map(({ stage, deals }: any) => {
+          {pipelineData?.columns?.map(({ stage, color, deals }: any) => {
             const _total = deals.reduce((s: number, d: any) => s + Number(d.value), 0); void _total;
+            // Stage colors now come from the pipeline's own stage config
+            // (customizable via Manage Stages) rather than a hardcoded map —
+            // a hardcoded map only covers the 5 original default stage
+            // names, which breaks the moment a stage is renamed or added.
+            const headerColor = color || '#6b7280';
             return (
               <div key={stage} className="flex-shrink-0 min-w-[260px] max-w-[300px] flex flex-col"
                 onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bg-brand-50'); }}
                 onDragLeave={e => e.currentTarget.classList.remove('bg-brand-50')}
                 onDrop={e => handleDrop(e, stage)}>
-                <div className={`rounded-t-xl px-3 py-2 ${STAGE_HEADER[stage] || 'bg-gray-500'}`}>
+                <div className="rounded-t-xl px-3 py-2" style={{ backgroundColor: headerColor }}>
                   <div className="flex items-center justify-between flex-wrap gap-1">
                     <span className="text-white font-semibold text-sm">{stage}</span>
                     <span className="bg-white/20 text-white text-xs px-2 py-0.5 rounded-full">{deals.length}</span>
                   </div>
                 </div>
-                <div className={`flex-1 rounded-b-xl border-2 border-t-0 p-2 space-y-2 min-h-32 transition-colors ${STAGE_COLORS[stage] || 'bg-gray-50 border-gray-200'}`}>
+                <div className="flex-1 rounded-b-xl border-2 border-t-0 p-2 space-y-2 min-h-32 transition-colors bg-gray-50" style={{ borderColor: `${headerColor}33` }}>
                   {deals.length === 0 && <p className="text-xs text-gray-300 text-center py-4">Drop deals here</p>}
                   {deals.map((deal: any) => (
                     <DealCard key={deal.id} deal={deal} onDelete={(id: string) => del.mutate(id)} onSelect={setSelectedDeal} />
@@ -436,6 +522,7 @@ export function DealsPage() {
       </Modal>
 
       <PipelineHealthModal open={pipelineHealthOpen} onClose={() => setPipelineHealthOpen(false)} />
+      <PipelineStagesModal open={stagesOpen} onClose={() => setStagesOpen(false)} />
     </div>
   );
 }

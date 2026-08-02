@@ -9,7 +9,7 @@ export type RecipientType = 'CONTACT' | 'ASSIGNEE' | 'CUSTOM_NUMBER' | 'ORG_DEFA
 
 export async function resolveRecipientPhone(opts: {
   orgId: string;
-  entityType: 'TICKET' | 'DEAL';
+  entityType: 'TICKET' | 'DEAL' | 'CONTACT' | 'CUSTOM_MODULE_RECORD';
   entityId: string;
   recipientType: RecipientType;
   customNumber?: string | null;
@@ -31,11 +31,18 @@ export async function resolveRecipientPhone(opts: {
 
     case 'CONTACT': {
       // Tickets link to a requester (internal User) and optionally a
-      // PortalUser, but never a CRM Contact — only Deals do. Kept as a
-      // runtime check (rather than only a client-side restriction) so a
-      // stale/tampered request can't silently no-op.
+      // PortalUser, but never a CRM Contact — only Deals do. A CONTACT
+      // entity (birthday/date automations, see dateAutomation.ts) is
+      // trivially its own contact. CUSTOM_MODULE_RECORD has no linked
+      // contact at all — use CUSTOM_NUMBER with a "{{phone}}" template
+      // against one of the module's own fields instead.
+      if (entityType === 'CONTACT') {
+        const contact = await prisma.contact.findFirst({ where: { id: entityId, orgId }, select: { phone: true } });
+        if (!contact?.phone) throw new Error('This contact has no phone number on file.');
+        return contact.phone;
+      }
       if (entityType !== 'DEAL') {
-        throw new Error('Only deals have a linked contact to notify — tickets don\'t. Choose a different recipient.');
+        throw new Error(`Only deals (and contacts themselves) have a linked contact to notify — not ${entityType}. Choose a different recipient.`);
       }
       const deal = await prisma.deal.findFirst({
         where: { id: entityId, orgId },
@@ -52,9 +59,14 @@ export async function resolveRecipientPhone(opts: {
       if (entityType === 'TICKET') {
         const ticket = await prisma.ticket.findFirst({ where: { id: entityId, orgId }, select: { assignedTo: true } });
         assignedTo = ticket?.assignedTo ?? null;
-      } else {
+      } else if (entityType === 'DEAL') {
         const deal = await prisma.deal.findFirst({ where: { id: entityId, orgId }, select: { assignedTo: true } });
         assignedTo = deal?.assignedTo ?? null;
+      } else if (entityType === 'CONTACT') {
+        const contact = await prisma.contact.findFirst({ where: { id: entityId, orgId }, select: { ownerId: true } });
+        assignedTo = contact?.ownerId ?? null;
+      } else {
+        throw new Error('CUSTOM_MODULE_RECORD has no assignee — choose a different recipient.');
       }
       if (!assignedTo) throw new Error('This record has no assigned user to notify.');
 

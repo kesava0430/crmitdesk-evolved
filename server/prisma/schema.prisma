@@ -29,6 +29,8 @@ model Organization {
   conversations  Conversation[]
   csatResponses  CsatResponse[]
   customFields   CustomField[]
+  customModules  CustomModule[]
+  customModuleRecords CustomModuleRecord[]
   deals          Deal[]
   recordTemplates RecordTemplate[]
   replyTemplates  ReplyTemplate[]
@@ -203,8 +205,14 @@ model Attachment {
 
 // Org-level "bring your own drive" connection. Only one provider connected
 // per org at a time (unique orgId) — reconnecting with a different provider
-// overwrites this row; existing Attachment rows keep working since each one
-// already recorded its own provider/providerFileId at upload time.
+// overwrites this row. Existing HOSTED_S3 Attachment rows keep working
+// regardless, since each one recorded its own provider/providerFileId at
+// upload time and S3 access needs no per-org config. GOOGLE_DRIVE
+// attachments are NOT that resilient — they need this row's live
+// accessToken/refreshToken, so switching away from Drive (to hosted
+// storage, disconnecting, or reconnecting a different Drive account) would
+// strand them; storage.controller.ts blocks those transitions while any
+// exist (assertWontOrphanDriveAttachments).
 model StorageConfig {
   id                String       @id @default(cuid())
   orgId             String       @unique @map("org_id")
@@ -257,17 +265,21 @@ model Tag {
 }
 
 model Contact {
-  id         String       @id @default(cuid())
-  name       String
-  email      String?
-  phone      String?
-  jobTitle   String?      @map("job_title")
-  accountId  String?      @map("account_id")
-  source     String?
-  ownerId    String       @map("owner_id")
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
-  orgId      String       @map("org_id")
+  id          String       @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  jobTitle    String?      @map("job_title")
+  accountId   String?      @map("account_id")
+  source      String?
+  // Date-only (time component ignored) — powers the DATE_FIELD_REACHED
+  // workflow trigger's YEARLY recurrence (birthday wishes). See
+  // utils/dateAutomation.ts.
+  dateOfBirth DateTime?    @map("date_of_birth")
+  ownerId     String       @map("owner_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  orgId       String       @map("org_id")
   activities Activity[]
   tags       ContactTag[]
   account    Account?     @relation(fields: [accountId], references: [id])
@@ -338,6 +350,7 @@ model Lead {
   aiScore       Int?         @map("ai_score")
   aiScoreReason String?      @map("ai_score_reason")
   orgId         String       @map("org_id")
+  activities    Activity[]
   assignee      User?        @relation("LeadAssignee", fields: [assignedTo], references: [id])
   contact       Contact?     @relation(fields: [contactId], references: [id])
   deal          Deal?        @relation(fields: [dealId], references: [id])
@@ -406,6 +419,11 @@ model Activity {
   body          String?
   dealId        String?      @map("deal_id")
   contactId     String?      @map("contact_id")
+  // Follow-up activities (calls/emails/meetings/tasks) scheduled against a
+  // Lead before it's converted to a Deal. Nullable — existing deal/contact
+  // activities are untouched. See leads.controller.ts listActivities/
+  // createActivity/completeActivity.
+  leadId        String?      @map("lead_id")
   dueAt         DateTime?    @map("due_at")
   done          Boolean      @default(false)
   createdBy     String       @map("created_by")
@@ -415,9 +433,11 @@ model Activity {
   contact       Contact?     @relation(fields: [contactId], references: [id])
   createdByUser User         @relation(fields: [createdBy], references: [id])
   deal          Deal?        @relation(fields: [dealId], references: [id])
+  lead          Lead?        @relation(fields: [leadId], references: [id])
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
+  @@index([leadId])
   @@map("activities")
 }
 
@@ -658,6 +678,10 @@ model WorkflowRule {
   trigger     String
   conditions  Json
   actions     Json
+  // Only set when trigger = 'DATE_FIELD_REACHED': { entityType: 'CONTACT' |
+  // 'CUSTOM_MODULE', moduleId?, dateField, offsetDays, recurrence: 'ONCE' |
+  // 'YEARLY' }. See utils/dateAutomation.ts for the poller that reads it.
+  dateConfig  Json?         @map("date_config")
   isActive    Boolean       @default(true) @map("is_active")
   runCount    Int           @default(0) @map("run_count")
   createdAt   DateTime      @default(now()) @map("created_at")
@@ -879,6 +903,107 @@ model CustomFieldValue {
   @@unique([customFieldId, entityId])
   @@index([entityId])
   @@map("custom_field_values")
+}
+
+// ─── Custom Modules (no-code object builder) ───────────────────────────────────
+//
+// Distinct from CustomField above: CustomField bolts extra fields onto an
+// *existing* entity (Ticket/Deal/...). A CustomModule is a brand-new entity
+// type an org admin defines from scratch — its own fields, its own records,
+// its own nav entry — closer to a Salesforce custom object than a form
+// field. Record data is stored schemaless as `data: Json` keyed by
+// `fieldKey` (mirrors the CustomFieldValue pattern of storing everything as
+// a string-able value) rather than a dynamically-altered SQL table, since
+// Postgres DDL can't be safely run per-tenant from application code.
+model CustomModule {
+  id          String    @id @default(cuid())
+  orgId       String    @map("org_id")
+  name        String
+  slug        String
+  icon        String    @default("Layers")
+  description String?
+  isActive    Boolean   @default(true) @map("is_active")
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  org         Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  fields      CustomModuleField[]
+  records     CustomModuleRecord[]
+  syncConfig  ExternalSyncConfig?
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+  @@map("custom_modules")
+}
+
+model CustomModuleField {
+  id        String       @id @default(cuid())
+  moduleId  String       @map("module_id")
+  label     String
+  fieldKey  String       @map("field_key")
+  // TEXT | TEXTAREA | NUMBER | CURRENCY | DATE | BOOLEAN | DROPDOWN | EMAIL | PHONE | URL
+  fieldType String       @map("field_type")
+  options   Json?        // DROPDOWN: string[] of choices
+  required  Boolean      @default(false)
+  isPrimary Boolean      @default(false) @map("is_primary") // rendered as the record's title in list views
+  position  Int          @default(0)
+  createdAt DateTime     @default(now()) @map("created_at")
+  module    CustomModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, fieldKey])
+  @@index([moduleId])
+  @@map("custom_module_fields")
+}
+
+model CustomModuleRecord {
+  id         String       @id @default(cuid())
+  moduleId   String       @map("module_id")
+  orgId      String       @map("org_id")
+  data       Json         // { [fieldKey]: value }
+  source     String       @default("MANUAL") // MANUAL | SYNC
+  // Dedupe key for SYNC-sourced records — the value of the external system's
+  // id field (ExternalSyncConfig.externalIdField), so re-polling upserts
+  // instead of duplicating. Null for MANUAL records.
+  externalId String?      @map("external_id")
+  createdBy  String?      @map("created_by")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  module     CustomModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, externalId])
+  @@index([moduleId])
+  @@index([orgId])
+  @@map("custom_module_records")
+}
+
+// Outbound-polling sync: we periodically GET/POST a configured external URL,
+// pull records out of the response (at `recordPath`), validate each one
+// against the module's field schema, and upsert into CustomModuleRecord
+// (deduped on `externalIdField`). Follows the same setInterval-poller shape
+// as scheduler.ts — see server/src/utils/customModuleSync.ts.
+model ExternalSyncConfig {
+  id              String       @id @default(cuid())
+  moduleId        String       @unique @map("module_id")
+  url             String
+  method          String       @default("GET")
+  authType        String       @default("NONE") @map("auth_type") // NONE | API_KEY | BEARER
+  authHeaderName  String?      @map("auth_header_name")
+  authValue       String?      @map("auth_value")
+  pollIntervalMin Int          @default(15) @map("poll_interval_min")
+  recordPath      String?      @map("record_path")       // dot path to the array of records in the response, e.g. "data.items"
+  externalIdField String?      @map("external_id_field") // key (in the *external* record) used to dedupe on re-sync
+  fieldMapping    Json         @map("field_mapping")      // { [customModuleFieldKey]: externalResponseKey }
+  isActive        Boolean      @default(true) @map("is_active")
+  lastSyncAt      DateTime?    @map("last_sync_at")
+  lastStatus      String?      @map("last_status") // SUCCESS | FAILED
+  lastError       String?      @map("last_error")
+  lastRecordCount Int?         @map("last_record_count")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  module          CustomModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@map("external_sync_configs")
 }
 
 // ─── Templates ────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import { contactsRouter } from './modules/crm/contacts/contacts.routes';
 import { accountsRouter } from './modules/crm/accounts/accounts.routes';
 import { leadsRouter } from './modules/crm/leads/leads.routes';
 import { dealsRouter } from './modules/crm/deals/deals.routes';
+import { pipelinesRouter } from './modules/crm/pipelines/pipelines.routes';
 import { activitiesRouter } from './modules/crm/activities/activities.routes';
 import { ticketsRouter } from './modules/itdesk/tickets/tickets.routes';
 import { categoriesRouter } from './modules/itdesk/categories/categories.routes';
@@ -51,7 +52,10 @@ import { schedulesRouter } from './modules/schedules/schedules.routes';
 import { storageRouter } from './modules/storage/storage.routes';
 import { attachmentsRouter } from './modules/attachments/attachments.routes';
 import { demoRouter } from './modules/demo/demo.routes';
+import { customModulesRouter } from './modules/custom-modules/customModules.routes';
 import { startSchedulePoller } from './utils/scheduler';
+import { startCustomModuleSyncPoller } from './utils/customModuleSync';
+import { startDateAutomationPoller } from './utils/dateAutomation';
 import { syncAllEmailAccounts } from './utils/email-sync';
 import { errorHandler } from './middleware/errorHandler';
 import { prisma } from './utils/prisma';
@@ -137,6 +141,7 @@ app.use('/api/crm/contacts', contactsRouter);
 app.use('/api/crm/accounts', accountsRouter);
 app.use('/api/crm/leads', leadsRouter);
 app.use('/api/crm/deals', dealsRouter);
+app.use('/api/crm/pipelines', pipelinesRouter);
 app.use('/api/crm/activities', activitiesRouter);
 app.use('/api/itdesk/tickets', ticketsRouter);
 app.use('/api/itdesk/categories', categoriesRouter);
@@ -177,6 +182,7 @@ app.use('/api/schedules', schedulesRouter);
 app.use('/api/storage', storageRouter);
 app.use('/api/attachments', attachmentsRouter);
 app.use('/api/demo', demoRouter);
+app.use('/api/custom-modules', customModulesRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -198,6 +204,13 @@ setInterval(() => syncAllEmailAccounts().catch(() => {}), 5 * 60 * 1000);
 
 // Schedule reminders: check for due WhatsApp notifications every minute
 startSchedulePoller();
+
+// Custom module external sync: check for due polling jobs every minute
+startCustomModuleSyncPoller();
+
+// Date-driven follow-ups (birthdays, appointment/service-due reminders):
+// day-granularity, so hourly is enough — see utils/dateAutomation.ts
+startDateAutomationPoller();
 
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal: string) {

@@ -29,8 +29,10 @@ interface AuthContextType extends AuthState {
    *  `totpToken` set once the user enters one. */
   login: (email: string, password: string, totpToken?: string) => Promise<{ requires2FA?: boolean }>;
   /** One-click login as the public showcase account (see the "Try Demo"
-   *  button on DemoLandingPage) — no credentials involved. */
-  demoLogin: () => Promise<void>;
+   *  button on DemoLandingPage) — no credentials involved. `vertical` picks
+   *  which industry showcase org to log into (see seedDemoData.ts); omitted
+   *  or unrecognized falls back to the default tech/SaaS org server-side. */
+  demoLogin: (vertical?: string) => Promise<void>;
   /** Submits a new-org signup request for admin approval — does not log the
    *  caller in. Resolves with the message to show once approved (an org
    *  isn't created, and no session starts, until the request is approved). */
@@ -61,8 +63,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {};
   }, []);
 
-  const demoLogin = useCallback(async () => {
-    const res = await api.post('/auth/demo-login');
+  const demoLogin = useCallback(async (vertical?: string) => {
+    const res = await api.post('/auth/demo-login', null, { params: vertical ? { vertical } : undefined });
     const { user, access, refresh } = res.data;
     const normalized = { ...user, org: user.org ?? user.organization ?? null };
     localStorage.setItem('accessToken', access);

@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
+import { api } from '../api/client';
 import {
   Users, Ticket, Zap, Bot, Sparkles, Loader2, ArrowRight,
   TrendingUp, AlertTriangle, CheckCircle2, Clock, DollarSign,
 } from 'lucide-react';
+
+interface DemoVertical { slug: string; orgName: string; industry: string; primaryColor: string }
 
 const HIGHLIGHTS = [
   { icon: Users,  label: 'Full CRM',          desc: 'Contacts, leads, deals and a live sales pipeline' },
@@ -30,12 +34,23 @@ export function DemoLandingPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [vertical, setVertical] = useState<string>('');
+
+  const { data: verticals } = useQuery<DemoVertical[]>({
+    queryKey: ['demo-verticals'],
+    queryFn: () => api.get('/demo/verticals').then(r => r.data),
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    if (!vertical && verticals?.length) setVertical(verticals[0].slug);
+  }, [verticals, vertical]);
 
   async function handleTryDemo() {
     setLoading(true);
     setError('');
     try {
-      await demoLogin();
+      await demoLogin(vertical);
       navigate('/dashboard');
     } catch {
       setError('The demo is warming up — please try again in a moment.');
@@ -74,6 +89,29 @@ export function DemoLandingPage() {
             tickets and dashboards &mdash; so you can explore the product the way your team actually
             would. Nothing to set up.
           </p>
+
+          {verticals && verticals.length > 0 && (
+            <div className="mb-6">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">See it set up for your industry</p>
+              <div className="flex flex-wrap gap-2">
+                {verticals.map(v => (
+                  <button
+                    key={v.slug}
+                    type="button"
+                    onClick={() => setVertical(v.slug)}
+                    aria-pressed={vertical === v.slug}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      vertical === v.slug
+                        ? 'bg-brand-600 border-brand-600 text-white'
+                        : 'bg-white/5 border-white/10 text-slate-300 hover:border-white/25 hover:text-white'
+                    }`}
+                  >
+                    {v.industry}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <button
             onClick={handleTryDemo}

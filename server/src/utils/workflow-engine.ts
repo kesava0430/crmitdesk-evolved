@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
+import { scoreLead } from './ai';
 
 // ─── Outbound webhook delivery (signed + retried) ─────────────────────────────
 // Previously this action fired a single, unsigned fetch() with no retry —
@@ -45,10 +46,18 @@ export type WorkflowTrigger =
   | 'TICKET_STATUS_CHANGED'
   | 'LEAD_CREATED'
   | 'LEAD_STATUS_CHANGED'
+  | 'LEAD_ACTIVITY_COMPLETED'
   | 'DEAL_STAGE_CHANGED'
   | 'DEAL_WON'
   | 'DEAL_LOST'
-  | 'SLA_BREACH';
+  | 'SLA_BREACH'
+  | 'DATE_FIELD_REACHED'; // date-driven follow-ups — see utils/dateAutomation.ts
+
+// Per-stage automation ("when a deal enters Negotiation, notify the
+// manager") doesn't need its own trigger type — it's just DEAL_STAGE_CHANGED
+// plus a condition on the `stage` field, since ctx.entity is always the
+// deal *after* the move. See pipelines UI's "add automation" shortcut,
+// which prefills exactly that trigger+condition pair.
 
 interface Condition {
   field: string;    // e.g. 'priority', 'status', 'source', 'value'
@@ -66,14 +75,18 @@ interface Action {
     | 'ADD_NOTE'            // add internal note
     | 'SEND_WEBHOOK'        // POST to external URL
     | 'CREATE_TICKET'       // auto-create a follow-up ticket
-    | 'SCORE_LEAD';         // trigger AI lead scoring
+    | 'SCORE_LEAD'          // trigger AI lead scoring
+    | 'CREATE_NOTIFICATION'; // in-app notification (bell icon), independent of email/WhatsApp
   params: Record<string, string | number>;
 }
 
 export interface WorkflowContext {
   trigger: WorkflowTrigger;
   orgId: string;
-  entityType: 'TICKET' | 'LEAD' | 'DEAL';
+  // CONTACT / CUSTOM_MODULE_RECORD only ever arrive via DATE_FIELD_REACHED
+  // (utils/dateAutomation.ts) — every other trigger still only fires for
+  // TICKET/LEAD/DEAL like before.
+  entityType: 'TICKET' | 'LEAD' | 'DEAL' | 'CONTACT' | 'CUSTOM_MODULE_RECORD';
   entityId: string;
   entity: Record<string, any>;
   previousEntity?: Record<string, any>; // for update/change triggers
@@ -140,7 +153,15 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
 
     case 'SEND_EMAIL': {
       const { to, subject, body } = action.params as Record<string, string>;
-      const emailAccount = await prisma.emailAccount.findUnique({ where: { orgId } });
+      // Display name on the "From" header — pulled from the org's own
+      // branding so recipients see "Glow Salon & Spa <bookings@...>" rather
+      // than a bare address. Falls back to the org's registered name if no
+      // branding record (or no companyName on it) exists yet.
+      const [emailAccount, org, branding] = await Promise.all([
+        prisma.emailAccount.findUnique({ where: { orgId } }),
+        prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
+        prisma.orgBranding.findUnique({ where: { orgId }, select: { companyName: true } }),
+      ]);
 
       // Resolve template variables: {{title}}, {{status}}, {{priority}}, {{id}}
       const resolve = (s: string) =>
@@ -153,8 +174,9 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
           secure: emailAccount.smtpPort === 465,
           auth: { user: emailAccount.email, pass: emailAccount.password },
         });
+        const fromName = (branding?.companyName || org?.name || '').replace(/"/g, '');
         await transport.sendMail({
-          from: emailAccount.email,
+          from: fromName ? `"${fromName}" <${emailAccount.email}>` : emailAccount.email,
           to: resolve(to),
           subject: resolve(subject || 'CRM Notification'),
           text: resolve(body || ''),
@@ -165,11 +187,15 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
     }
 
     case 'SEND_WHATSAPP': {
-      if (entityType !== 'TICKET' && entityType !== 'DEAL') {
-        return `SEND_WHATSAPP skipped — only supported for tickets and deals, not ${entityType}`;
+      if (entityType !== 'TICKET' && entityType !== 'DEAL' && entityType !== 'CONTACT' && entityType !== 'CUSTOM_MODULE_RECORD') {
+        return `SEND_WHATSAPP skipped — not supported for ${entityType}`;
       }
-      const { recipientType, customNumber, message } = action.params as Record<string, string>;
+      const { recipientType, message } = action.params as Record<string, string>;
       const resolve = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
+      // customNumber may itself be a template like "{{phone}}" — the only way
+      // a CUSTOM_MODULE_RECORD (which has no dedicated recipient-lookup case
+      // below) can point at a phone number stored in one of its own fields.
+      const customNumber = action.params.customNumber ? resolve(String(action.params.customNumber)) : undefined;
       try {
         const phone = await resolveRecipientPhone({
           orgId, entityType, entityId,
@@ -184,18 +210,26 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
     }
 
     case 'ADD_NOTE': {
+      const entityTypeMap: Record<string, 'DEAL' | 'TICKET' | 'CONTACT'> = {
+        TICKET: 'TICKET',
+        DEAL: 'DEAL',
+        CONTACT: 'CONTACT',
+      };
+      // Was previously `|| 'TICKET'`, which silently mis-filed a note under
+      // Comment.entityType = 'TICKET' for any unmapped entity — harmless
+      // while only TICKET/LEAD/DEAL existed (LEAD already fell through to
+      // this same bug, unnoticed), but CUSTOM_MODULE_RECORD would now write
+      // a fake ticket comment with someone else's record id. Skip cleanly instead.
+      const mappedType = entityTypeMap[entityType];
+      if (!mappedType) return `ADD_NOTE skipped — comments aren't supported on ${entityType}`;
+
       const noteBody = String(action.params.body || 'Automated workflow note');
       const systemUser = await prisma.user.findFirst({ where: { orgId, role: 'SUPER_ADMIN' } });
       if (systemUser) {
-        const entityTypeMap: Record<string, 'DEAL' | 'TICKET' | 'CONTACT'> = {
-          TICKET: 'TICKET',
-          DEAL: 'DEAL',
-          CONTACT: 'CONTACT',
-        };
         await prisma.comment.create({
           data: {
             authorId: systemUser.id,
-            entityType: entityTypeMap[entityType] || 'TICKET',
+            entityType: mappedType,
             entityId,
             body: `[Automation] ${noteBody}`,
           },
@@ -215,6 +249,54 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
         timestamp: new Date().toISOString(),
       };
       return postWebhookWithRetry(url, payload);
+    }
+
+    case 'CREATE_TICKET': {
+      const requester = await prisma.user.findFirst({ where: { orgId, role: 'SUPER_ADMIN' } });
+      if (!requester) return 'CREATE_TICKET skipped — no admin user to file it as';
+      const resolve = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
+      const title = resolve(String(action.params.title || `Follow-up: ${entity.title || entity.name || entityId}`));
+      const body = resolve(String(action.params.body || `Auto-created by workflow automation from ${entityType} ${entityId}.`));
+      const priority = (String(action.params.priority || 'MEDIUM')).toUpperCase();
+      const ticket = await prisma.ticket.create({
+        data: { orgId, title, body, priority: priority as any, requesterId: requester.id },
+      });
+      return `Created ticket "${ticket.title}" (#${ticket.id.slice(-6)})`;
+    }
+
+    case 'SCORE_LEAD': {
+      if (entityType !== 'LEAD') return 'SCORE_LEAD skipped — only applies to leads';
+      const lead = await prisma.lead.findUnique({ where: { id: entityId }, include: { contact: true } });
+      if (!lead) return 'SCORE_LEAD skipped — lead not found';
+      const result = await scoreLead(lead as any);
+      await prisma.lead.update({ where: { id: entityId }, data: { aiScore: result.score, aiScoreReason: result.reason } });
+      return `Lead scored ${result.score}/100 — ${result.reason}`;
+    }
+
+    case 'CREATE_NOTIFICATION': {
+      const { title, body, recipientType, userId: explicitUserId } = action.params as Record<string, string>;
+      const resolve = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
+      let targetUserId: string | undefined = explicitUserId;
+      if (!targetUserId && recipientType === 'ASSIGNEE') {
+        // Contact has no assignedTo — its equivalent is ownerId (the CRM
+        // rep who owns the relationship). CUSTOM_MODULE_RECORD has neither,
+        // so ASSIGNEE simply resolves to nothing there — use an explicit
+        // userId in the rule's params instead.
+        targetUserId = entity.assignedTo || entity.assignee?.id || entity.ownerId;
+      }
+      if (!targetUserId) return 'Notification skipped — no recipient resolved';
+      await prisma.notification.create({
+        data: {
+          orgId,
+          userId: targetUserId,
+          type: 'STATUS_CHANGE',
+          title: resolve(String(title || 'Workflow automation')),
+          body: resolve(String(body || '')),
+          entityId,
+          entityType,
+        },
+      });
+      return `Notification created for user ${targetUserId}`;
     }
 
     default:

@@ -118,6 +118,61 @@ export const useCreateActivity = () => {
     onSuccess: (_data, vars: any) => {
       qc.invalidateQueries({ queryKey: ['activities'] });
       if (vars.contactId) qc.invalidateQueries({ queryKey: ['contacts', vars.contactId] });
+      if (vars.leadId) qc.invalidateQueries({ queryKey: ['leads', vars.leadId] });
     },
+  });
+};
+export const useUpdateActivity = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: any) => api.patch(`/crm/activities/${id}`, data).then(r => r.data),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['activities'] });
+      if (data?.leadId) qc.invalidateQueries({ queryKey: ['leads', data.leadId] });
+    },
+  });
+};
+export const useDeleteActivity = () => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.delete(`/crm/activities/${id}`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['activities'] }) });
+};
+
+// ─── Lead detail (includes follow-up activities) ───────────────────────────────
+export const useLead = (id: string) =>
+  useQuery({ queryKey: ['leads', id], queryFn: () => api.get(`/crm/leads/${id}`).then(r => r.data), enabled: !!id });
+
+// ─── Pipelines (stage management) ──────────────────────────────────────────────
+export const usePipelines = () =>
+  useQuery({ queryKey: ['pipelines'], queryFn: () => api.get('/crm/pipelines').then(r => r.data) });
+
+export const useAddStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pipelineId, ...data }: any) => api.post(`/crm/pipelines/${pipelineId}/stages`, data).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); qc.invalidateQueries({ queryKey: ['pipeline'] }); },
+  });
+};
+export const useUpdateStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pipelineId, label, ...data }: any) => api.patch(`/crm/pipelines/${pipelineId}/stages/${encodeURIComponent(label)}`, data).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); qc.invalidateQueries({ queryKey: ['pipeline'] }); qc.invalidateQueries({ queryKey: ['deals'] }); },
+  });
+};
+export const useRemoveStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pipelineId, label, reassignTo }: any) =>
+      api.delete(`/crm/pipelines/${pipelineId}/stages/${encodeURIComponent(label)}`, { params: reassignTo ? { reassignTo } : undefined }).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); qc.invalidateQueries({ queryKey: ['pipeline'] }); qc.invalidateQueries({ queryKey: ['deals'] }); },
+  });
+};
+export const useReorderStages = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pipelineId, labels }: { pipelineId: string; labels: string[] }) =>
+      api.post(`/crm/pipelines/${pipelineId}/stages/reorder`, { labels }).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); qc.invalidateQueries({ queryKey: ['pipeline'] }); },
   });
 };

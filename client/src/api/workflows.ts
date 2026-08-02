@@ -8,8 +8,18 @@ export interface Condition {
 }
 
 export interface Action {
-  type: 'ASSIGN_TO' | 'SET_PRIORITY' | 'SET_STATUS' | 'SEND_EMAIL' | 'SEND_WHATSAPP' | 'ADD_NOTE' | 'SEND_WEBHOOK' | 'SCORE_LEAD';
+  type: 'ASSIGN_TO' | 'SET_PRIORITY' | 'SET_STATUS' | 'SEND_EMAIL' | 'SEND_WHATSAPP' | 'ADD_NOTE' | 'SEND_WEBHOOK' | 'SCORE_LEAD' | 'CREATE_TICKET' | 'CREATE_NOTIFICATION';
   params: Record<string, string | number>;
+}
+
+// Only present (and required) when trigger === 'DATE_FIELD_REACHED' — see
+// server/src/utils/dateAutomation.ts's DateConfig for the runtime shape.
+export interface DateConfig {
+  entityType: 'CONTACT' | 'CUSTOM_MODULE';
+  moduleId?: string;
+  dateField: string;
+  offsetDays: number;
+  recurrence: 'ONCE' | 'YEARLY';
 }
 
 export interface WorkflowRule {
@@ -22,6 +32,7 @@ export interface WorkflowRule {
   isActive: boolean;
   runCount: number;
   createdAt: string;
+  dateConfig?: DateConfig | null;
   _count?: { logs: number };
 }
 
@@ -78,5 +89,14 @@ export function useToggleWorkflow() {
   return useMutation({
     mutationFn: (id: string) => api.patch(`/workflows/${id}/toggle`).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['workflows'] }),
+  });
+}
+
+/** Manual "Run now" test trigger for a DATE_FIELD_REACHED rule — see workflows.controller.ts's runDateRule. */
+export function useRunDateRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/workflows/${id}/run-now`).then(r => r.data as { message: string; fired: number }),
+    onSuccess: (_data, id) => qc.invalidateQueries({ queryKey: ['workflow-logs', id] }),
   });
 }

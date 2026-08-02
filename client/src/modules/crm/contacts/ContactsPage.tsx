@@ -9,7 +9,7 @@ import { useEffect } from 'react';
 import { useLabels } from '../../../hooks/useLabels';
 
 function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
-  const [form, setForm] = useState(initial || { name: '', email: '', phone: '', jobTitle: '', accountId: '', source: '' });
+  const [form, setForm] = useState(initial || { name: '', email: '', phone: '', jobTitle: '', accountId: '', source: '', dateOfBirth: '' });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { data: existingValues } = useCustomFieldValues(entityId);
   useEffect(() => {
@@ -52,6 +52,11 @@ function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
           <div>
             <label className="form-label">{jobTitleLabel}</label>
             <input aria-label={jobTitleLabel} className="ui-input" value={form.jobTitle} onChange={f('jobTitle')} placeholder="e.g. Product Manager" />
+          </div>
+          <div>
+            <label className="form-label">Date of Birth</label>
+            <input aria-label="Date of Birth" type="date" className="ui-input" value={form.dateOfBirth ? String(form.dateOfBirth).slice(0, 10) : ''} onChange={f('dateOfBirth')} />
+            <p className="text-xs text-gray-400 mt-1">Optional — powers birthday automations under Settings → Workflows.</p>
           </div>
         </div>
       </div>

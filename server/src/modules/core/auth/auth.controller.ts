@@ -11,7 +11,7 @@ import { logAction } from '../../../utils/auditLog';
 import { verifyTotpLogin } from '../../totp/totp.controller';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
 import { assertSeatAvailable } from '../../../utils/licensing';
-import { DEMO_LOGIN_EMAIL } from '../../../utils/seedDemoData';
+import { DEMO_LOGIN_EMAIL, DEMO_VERTICAL_SLUGS, DEFAULT_VERTICAL, loginEmailFor } from '../../../utils/seedDemoData';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -274,8 +274,11 @@ export async function login(req: Request, res: Response, next: NextFunction) {
  */
 export async function demoLogin(req: Request, res: Response, next: NextFunction) {
   try {
+    const requested = String(req.query.vertical || '');
+    const vertical = DEMO_VERTICAL_SLUGS.includes(requested) ? requested : DEFAULT_VERTICAL;
+    const loginEmail = vertical === DEFAULT_VERTICAL ? DEMO_LOGIN_EMAIL : loginEmailFor(vertical);
     const user = await prisma.user.findUnique({
-      where: { email: DEMO_LOGIN_EMAIL },
+      where: { email: loginEmail },
       include: { org: { select: { id: true, name: true, slug: true } } },
     });
     if (!user || !user.isActive) {

@@ -1,10 +1,10 @@
 name: Reset demo data
 
-# Nightly re-seed of the public "TechCorp Solutions" showcase org so the
-# demo.quantiqsystems.com "Try Demo" button always drops visitors into a
-# clean, realistic workspace, even after other visitors have poked at it
-# during the day. Hits POST /api/demo/reset on the live API — see
-# server/src/modules/demo for the endpoint itself.
+# Nightly re-seed of every public demo showcase org (one per industry
+# vertical — see server/src/utils/seedDemoData.ts) so the "Try Demo" button
+# always drops visitors into a clean, realistic workspace, even after other
+# visitors have poked at it during the day. Hits POST /api/demo/reset on the
+# live API — see server/src/modules/demo for the endpoint itself.
 #
 # Requires a repo secret DEMO_RESET_SECRET whose value matches the
 # DEMO_RESET_SECRET environment variable set on the Render API service.
