@@ -24,10 +24,12 @@ export function CustomFieldsDisplay({ entityType, entityId, card }: Props) {
   const { data: records } = useCustomFieldValues(entityId);
   const hasReferenceField = !!defs?.some(d => d.fieldType === 'REFERENCE');
   const { data: contacts } = useContacts(undefined, hasReferenceField);
-  // Explicit tuple return type — without it, TS infers the .map() callback's
-  // [c.id, c.name] as a plain any[] (not a 2-tuple), which widens the Map's
-  // key/value types to `unknown` instead of `string`, failing the build.
-  const contactNameById = new Map((contacts ?? []).map((c: any): [string, string] => [c.id, c.name]));
+  // Explicit <string, string> on the constructor itself — relying on
+  // inference from the .map() callback's return type wasn't enough (still
+  // widened to Map<unknown, unknown> and failed the build), since `contacts`
+  // comes back untyped (any) from useContacts, so give the Map its type
+  // directly instead of hoping TS infers it from the array.
+  const contactNameById = new Map<string, string>((contacts ?? []).map((c: any) => [c.id, c.name]));
   const valueMap = fromValueRecords(records);
 
   if (!defs || defs.length === 0) return null;
