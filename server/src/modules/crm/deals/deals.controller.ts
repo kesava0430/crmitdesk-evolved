@@ -127,7 +127,7 @@ export async function moveStage(req: AuthRequest, res: Response, next: NextFunct
     const deal = await prisma.deal.update({ where: { id: req.params.id }, data: { stage }, include });
     await prisma.dealHistory.create({ data: { dealId: deal.id, fromStage: existing.stage, toStage: stage, changedBy: req.user!.id } });
     if (deal.assignee?.email) {
-      sendMail(emailTemplates.dealStageChanged({ title: deal.title, stage }, deal.assignee.name, deal.assignee.email)).catch(() => {});
+      sendMail({ ...emailTemplates.dealStageChanged({ title: deal.title, stage }, deal.assignee.name, deal.assignee.email), orgId: req.user!.orgId }).catch(() => {});
     }
     runWorkflows({ trigger: 'DEAL_STAGE_CHANGED', orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal.id, entity: deal as any, previousEntity: existing as any }).catch(() => {});
     res.json(deal);

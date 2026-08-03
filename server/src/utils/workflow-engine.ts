@@ -1,5 +1,4 @@
 import { prisma } from './prisma';
-import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
@@ -156,37 +155,25 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
 
     case 'SEND_EMAIL': {
       const { to, subject, body } = action.params as Record<string, string>;
-      // Display name on the "From" header — pulled from the org's own
-      // branding so recipients see "Glow Salon & Spa <bookings@...>" rather
-      // than a bare address. Falls back to the org's registered name if no
-      // branding record (or no companyName on it) exists yet.
-      const [emailAccount, org, branding] = await Promise.all([
-        prisma.emailAccount.findUnique({ where: { orgId } }),
-        prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
-        prisma.orgBranding.findUnique({ where: { orgId }, select: { companyName: true } }),
-      ]);
-
       // Resolve template variables: {{title}}, {{status}}, {{priority}}, {{id}}
       const resolve = (s: string) =>
         s.replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
 
-      if (emailAccount) {
-        const transport = nodemailer.createTransport({
-          host: emailAccount.smtpHost,
-          port: emailAccount.smtpPort,
-          secure: emailAccount.smtpPort === 465,
-          auth: { user: emailAccount.email, pass: emailAccount.password },
-        });
-        const fromName = (branding?.companyName || org?.name || '').replace(/"/g, '');
-        await transport.sendMail({
-          from: fromName ? `"${fromName}" <${emailAccount.email}>` : emailAccount.email,
-          to: resolve(to),
-          subject: resolve(subject || 'CRM Notification'),
-          text: resolve(body || ''),
-        });
-        return `Email sent to ${resolve(to)}`;
-      }
-      return 'Email skipped — no email account connected';
+      const emailAccount = await prisma.emailAccount.findUnique({ where: { orgId }, select: { id: true } });
+      if (!emailAccount) return 'Email skipped — no email account connected';
+
+      // sendMail's org-branding + org-SMTP lookup (display name from
+      // orgBranding/organization, transport from EmailAccount) lives in
+      // mailer.ts now — passing orgId routes it there instead of duplicating
+      // that lookup here. plain-text body -> <br>-joined html, since
+      // sendMail only takes html.
+      await sendMail({
+        orgId,
+        to: resolve(to),
+        subject: resolve(subject || 'CRM Notification'),
+        html: resolve(body || '').replace(/\n/g, '<br>'),
+      });
+      return `Email sent to ${resolve(to)}`;
     }
 
     case 'SEND_WHATSAPP': {
@@ -316,7 +303,7 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
         if (!toEmail) return 'SEND_CSAT_SURVEY skipped — ticket has no requester email on file';
       }
 
-      await sendMail(emailTemplates.csatSurvey({ id: entityId, title: String(entity.title || '') }, toName, toEmail));
+      await sendMail({ ...emailTemplates.csatSurvey({ id: entityId, title: String(entity.title || '') }, toName, toEmail), orgId });
       return `CSAT survey sent to ${toEmail}`;
     }
 

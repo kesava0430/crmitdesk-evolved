@@ -98,6 +98,7 @@ export async function send(req: AuthRequest, res: Response, next: NextFunction) 
     // sendInBatches above) rather than all at once.
     sendInBatches(emails, to =>
       sendMail({
+        orgId,
         to,
         subject: campaign.subject,
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">${campaign.body.replace(/\n/g, '<br/>')}</div>`,

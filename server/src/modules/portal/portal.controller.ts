@@ -35,6 +35,7 @@ export async function requestAccess(req: Request, res: Response, next: NextFunct
     const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/portal/verify?token=${raw}&org=${orgId}`;
 
     await sendMail({
+      orgId,
       to: email,
       subject: 'Your portal login link',
       html: `

@@ -87,6 +87,7 @@ export async function invite(req: AuthRequest, res: Response, next: NextFunction
 
     // Send invite email (silently skipped if SMTP is not configured)
     await sendMail({
+      orgId: req.user!.orgId,
       to: email,
       subject: `You've been invited to join ${org?.name || 'CRM & IT Desk'}`,
       html: `

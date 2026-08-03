@@ -217,7 +217,9 @@ export async function approveOrgSignup(req: Request, res: Response, next: NextFu
       data: { status: 'APPROVED', decidedAt: new Date() },
     });
 
-    sendMail(emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`)).catch(() => {});
+    // orgId included for consistency, though a just-created org will always
+    // fall through to the platform mailer here (no EmailAccount yet).
+    sendMail({ ...emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`), orgId: org.id }).catch(() => {});
 
     res.json({ status: 'APPROVED', org: { id: org.id, name: org.name, slug: org.slug } });
   } catch (err) { next(err); }

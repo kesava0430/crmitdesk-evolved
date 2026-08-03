@@ -34,6 +34,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     if (sendInvite) {
       const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/portal?org=${orgId}`;
       await sendMail({
+        orgId,
         to: email,
         subject: 'You\'ve been invited to the support portal',
         html: `
@@ -72,6 +73,7 @@ export async function resendInvite(req: AuthRequest, res: Response, next: NextFu
     const orgId = req.user!.orgId;
     const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/portal?org=${orgId}`;
     await sendMail({
+      orgId,
       to: user.email,
       subject: 'Your portal access link',
       html: `<p>Hello ${user.name},</p><p><a href="${portalUrl}">Click here to access the support portal</a>.</p>`,

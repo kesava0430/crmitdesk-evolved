@@ -1,9 +1,18 @@
 import nodemailer from 'nodemailer';
+import { prisma } from './prisma';
+import { decryptSecretOrPlain } from './crypto';
 
 interface MailOptions {
   to: string;
   subject: string;
   html: string;
+  // When set, sendMail() tries the org's own connected EmailAccount first
+  // (Inbox → Settings) so customer-facing mail — portal login links, ticket
+  // notifications, invites, campaigns — comes from the org's own address and
+  // display name instead of a shared platform sender. Falls back to the
+  // platform Resend/SMTP mailer below if the org has no EmailAccount
+  // connected, or if sending through it fails for any reason.
+  orgId?: string;
 }
 
 // Render's free web-service tier blocks all outbound SMTP traffic (ports 25,
@@ -49,7 +58,57 @@ function getTransporter() {
   });
 }
 
+/**
+ * Builds a transporter + branded "From" header from the org's own connected
+ * EmailAccount (Inbox → Settings), or null if the org hasn't connected one.
+ * Shared by sendMail() below and by workflow-engine.ts's SEND_EMAIL action,
+ * which used to duplicate this exact lookup inline.
+ */
+async function getOrgMailer(orgId: string): Promise<{ transport: nodemailer.Transporter; from: string } | null> {
+  const [emailAccount, org, branding] = await Promise.all([
+    prisma.emailAccount.findUnique({ where: { orgId } }),
+    prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
+    prisma.orgBranding.findUnique({ where: { orgId }, select: { companyName: true } }),
+  ]);
+  if (!emailAccount) return null;
+
+  const transport = nodemailer.createTransport({
+    host: emailAccount.smtpHost,
+    port: emailAccount.smtpPort,
+    secure: emailAccount.smtpPort === 465,
+    // decryptSecretOrPlain, not the raw column — EmailAccount.password is
+    // stored encrypted (see inbox.controller.ts's encryptSecret on save).
+    // The previous inline copy of this lookup (workflow-engine.ts's
+    // SEND_EMAIL case) used the raw encrypted value directly, which meant
+    // SMTP auth was silently failing with the ciphertext as the password
+    // any time an org had actually connected their own email account.
+    auth: { user: emailAccount.email, pass: decryptSecretOrPlain(emailAccount.password) },
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 10_000,
+  });
+  const fromName = (branding?.companyName || org?.name || '').replace(/"/g, '');
+  const from = fromName ? `"${fromName}" <${emailAccount.email}>` : emailAccount.email;
+  return { transport, from };
+}
+
 export async function sendMail(opts: MailOptions): Promise<void> {
+  if (opts.orgId) {
+    try {
+      const orgMailer = await getOrgMailer(opts.orgId);
+      if (orgMailer) {
+        await orgMailer.transport.sendMail({ from: orgMailer.from, to: opts.to, subject: opts.subject, html: opts.html });
+        console.log(`[Email sent via org SMTP] To: ${opts.to} | ${opts.subject}`);
+        return;
+      }
+    } catch (err) {
+      console.error('[Email error — org SMTP, falling back to platform mailer]', err);
+      // fall through to the platform mailer below rather than giving up —
+      // a misconfigured org SMTP account shouldn't mean the customer never
+      // gets a critical link (portal login, ticket resolution, ...).
+    }
+  }
+
   if (RESEND_API_KEY) {
     try {
       await sendViaResend(opts);

@@ -96,7 +96,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     });
     await prisma.ticketHistory.create({ data: { ticketId: ticket.id, toStatus: 'OPEN', changedBy: req.user!.id } });
     const managers = await prisma.user.findMany({ where: { orgId, role: { in: ['IT_MANAGER', 'SUPER_ADMIN'] }, isActive: true } });
-    managers.forEach(m => sendMail(emailTemplates.ticketCreated(ticket, ticket.requester.name, m.email)).catch(() => {}));
+    managers.forEach(m => sendMail({ ...emailTemplates.ticketCreated(ticket, ticket.requester.name, m.email), orgId }).catch(() => {}));
     // Fire workflows + SSE in background
     runWorkflows({ trigger: 'TICKET_CREATED', orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any }).catch(() => {});
     sseManager.broadcastAll(orgId, SSEEvent.TICKET_CREATED, { id: ticket.id, title: ticket.title, priority: ticket.priority, status: ticket.status });
@@ -142,14 +142,14 @@ export async function changeStatus(req: AuthRequest, res: Response, next: NextFu
     sseManager.broadcastAll(req.user!.orgId, SSEEvent.TICKET_STATUS, { id: ticket.id, title: ticket.title, status, previousStatus: existing.status });
     notifyOrgAdmins({ orgId: req.user!.orgId, type: 'TICKET_STATUS', title: `Ticket "${ticket.title}" → ${status}`, entityType: 'TICKET', entityId: ticket.id }).catch(() => {});
     if (status === 'RESOLVED' && ticket.requester?.email) {
-      sendMail(emailTemplates.ticketResolved(ticket, ticket.requester.name, ticket.requester.email)).catch(() => {});
+      sendMail({ ...emailTemplates.ticketResolved(ticket, ticket.requester.name, ticket.requester.email), orgId: req.user!.orgId }).catch(() => {});
       // Feedback survey is no longer hardcoded here — it's a SEND_CSAT_SURVEY
       // workflow action (see workflow-engine.ts), fired via the
       // TICKET_STATUS_CHANGED runWorkflows() call above. Configurable per
       // org: condition it on status/category, or turn it off entirely, from
       // the Workflows UI rather than a code change.
     } else if (ticket.requester?.email) {
-      sendMail(emailTemplates.ticketStatusChanged(ticket, status, ticket.requester.name, ticket.requester.email)).catch(() => {});
+      sendMail({ ...emailTemplates.ticketStatusChanged(ticket, status, ticket.requester.name, ticket.requester.email), orgId: req.user!.orgId }).catch(() => {});
     }
     res.json(ticket);
   } catch (err) { next(err); }
@@ -164,7 +164,7 @@ export async function assign(req: AuthRequest, res: Response, next: NextFunction
       include
     });
     if (ticket.assignee?.email) {
-      sendMail(emailTemplates.ticketAssigned(ticket, ticket.assignee.name, ticket.assignee.email)).catch(() => {});
+      sendMail({ ...emailTemplates.ticketAssigned(ticket, ticket.assignee.name, ticket.assignee.email), orgId: req.user!.orgId }).catch(() => {});
     }
     res.json(ticket);
   } catch (err) { next(err); }
