@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen } from 'lucide-react';
-import { useTickets, useTicket, useCreateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports } from '../../../api/itdesk';
+import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
 import { useUsers } from '../../../api/users';
 import { useContacts } from '../../../api/crm';
@@ -138,7 +138,50 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, lo
   );
 }
 
-function TicketDetailModal({ id, users }: any) {
+function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
+  const updateTicket = useUpdateTicket();
+  const [form, setForm] = useState({
+    title: ticket.title || '',
+    body: ticket.body || '',
+    categoryId: ticket.categoryId || ticket.category?.id || '',
+    priority: ticket.priority || 'MEDIUM',
+  });
+  const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  async function save() {
+    await updateTicket.mutateAsync({ id: ticket.id, ...form });
+    onSaved();
+  }
+
+  return (
+    <div className="space-y-3 bg-gray-50 rounded-xl p-3 border border-gray-100">
+      <div>
+        <label className="form-label">Title</label>
+        <input aria-label="Edit title" className="ui-input" value={form.title} onChange={f('title')} />
+      </div>
+      <div>
+        <label className="form-label">Description</label>
+        <textarea aria-label="Edit description" rows={3} className="ui-input" value={form.body} onChange={f('body')} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="form-label">Category</label>
+          <SearchableSelect ariaLabel="Edit category" value={form.categoryId} onChange={val => setForm(p => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} placeholder="— none —" />
+        </div>
+        <div>
+          <label className="form-label">Priority</label>
+          <SearchableSelect ariaLabel="Edit priority" value={form.priority} onChange={val => setForm(p => ({ ...p, priority: val }))} options={PRIORITIES.map(p => ({ value: p, label: p }))} />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button size="sm" variant="secondary" onClick={onCancel}>Cancel</Button>
+        <Button size="sm" onClick={save} loading={updateTicket.isPending}>Save Changes</Button>
+      </div>
+    </div>
+  );
+}
+
+function TicketDetailModal({ id, users, categories }: any) {
   // Own live query keyed by id (not a snapshot prop from the list row) so
   // status/assignee/etc. update in-place the moment a mutation invalidates
   // ['tickets', id] — previously this took `ticket` as a prop sourced from
@@ -156,6 +199,8 @@ function TicketDetailModal({ id, users }: any) {
   const [copiedReply, setCopiedReply] = useState(false);
   const [autoRouteResult, setAutoRouteResult] = useState<{ categoryName: string | null; agentName: string | null; reason: string } | null>(null);
   const [autoRouting, setAutoRouting] = useState(false);
+  const [tab, setTab] = useState<'details' | 'history'>('details');
+  const [editingDetails, setEditingDetails] = useState(false);
 
   if (isLoading || !ticket) return <Spinner />;
   const slaBreach = ticket.slaDueAt && new Date(ticket.slaDueAt) < new Date() && !['RESOLVED','CLOSED'].includes(ticket.status);
@@ -182,6 +227,34 @@ function TicketDetailModal({ id, users }: any) {
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-1 border-b border-gray-100">
+        {[
+          { v: 'details', label: 'Details' },
+          { v: 'history', label: `History${ticket.history?.length ? ` (${ticket.history.length})` : ''}` },
+        ].map(t => (
+          <button key={t.v} onClick={() => setTab(t.v as any)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.v ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'history' ? (
+        !ticket.history?.length ? (
+          <p className="text-sm text-gray-400 text-center py-8">No status changes recorded yet.</p>
+        ) : (
+          <div className="space-y-1">
+            {ticket.history.map((h: any) => (
+              <div key={h.id} className="flex items-center gap-2 text-xs text-gray-400 py-1">
+                <CheckCircle size={12} className="text-green-400" />
+                <span>{h.fromStatus ? `${h.fromStatus} -> ` : ''}{h.toStatus}</span>
+                <span>· {formatDistanceToNow(new Date(h.changedAt), { addSuffix: true })}</span>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+      <>
       <div className="flex items-start gap-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap mb-2">
@@ -200,8 +273,17 @@ function TicketDetailModal({ id, users }: any) {
                 {aiSentiment.isPending ? 'Analyzing...' : 'Detect Sentiment'}
               </button>
             )}
+            {!editingDetails && (
+              <button onClick={() => setEditingDetails(true)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 font-medium border border-gray-200 rounded-full px-2 py-0.5 ml-auto">
+                <Pencil size={11} /> Edit
+              </button>
+            )}
           </div>
-          <p className="text-gray-600 text-sm leading-relaxed">{ticket.body}</p>
+          {editingDetails ? (
+            <TicketEditForm ticket={ticket} categories={categories} onSaved={() => setEditingDetails(false)} onCancel={() => setEditingDetails(false)} />
+          ) : (
+            <p className="text-gray-600 text-sm leading-relaxed">{ticket.body}</p>
+          )}
         </div>
       </div>
 
@@ -232,21 +314,6 @@ function TicketDetailModal({ id, users }: any) {
           <SearchableSelect ariaLabel="Assign To" value={ticket.assignedTo || ''} onChange={val => assign.mutate({ id: ticket.id, assignedTo: val })} options={(users ?? []).filter((u: any) => ['IT_AGENT','IT_MANAGER','SUPER_ADMIN'].includes(u.role)).map((u: any) => ({ value: u.id, label: u.name }))} placeholder="— unassigned —" />
         </div>
       </div>
-
-      {ticket.history?.length > 0 && (
-        <div className="border-t pt-4">
-          <p className="text-sm font-medium text-gray-700 mb-2">History</p>
-          <div className="space-y-1">
-            {ticket.history.map((h: any) => (
-              <div key={h.id} className="flex items-center gap-2 text-xs text-gray-400">
-                <CheckCircle size={12} className="text-green-400" />
-                <span>{h.fromStatus ? `${h.fromStatus} -> ` : ''}{h.toStatus}</span>
-                <span>· {formatDistanceToNow(new Date(h.changedAt), { addSuffix: true })}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* AI Reply Suggestion */}
       <div className="border-t pt-4">
@@ -370,6 +437,8 @@ function TicketDetailModal({ id, users }: any) {
       <ScheduleReminderPanel entityType="TICKET" entityId={ticket.id} />
       <Comments entityType="TICKET" entityId={ticket.id} />
       <Attachments entityType="TICKET" entityId={ticket.id} />
+      </>
+      )}
     </div>
   );
 }
@@ -511,7 +580,7 @@ export function TicketsPage() {
       </Modal>
 
       <Modal open={!!selectedId} onClose={() => setSelectedId(null)} title={filtered?.find((t: any) => t.id === selectedId)?.title || ''} size="lg">
-        <TicketDetailModal id={selectedId} users={users} onClose={() => setSelectedId(null)} />
+        <TicketDetailModal id={selectedId} users={users} categories={categories} onClose={() => setSelectedId(null)} />
       </Modal>
     </div>
   );
