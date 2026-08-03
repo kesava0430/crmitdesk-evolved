@@ -72,8 +72,12 @@ function LoginView({ orgId }: { orgId: string }) {
     try {
       await axios.post(`${BASE}/request-access`, { email, orgId });
       setSent(true);
-    } catch {
-      setError('Something went wrong. Please try again.');
+    } catch (err: any) {
+      // Surface the server's actual message (e.g. missing org id) instead of
+      // a generic string that masks real failures — this is a public,
+      // unauthenticated form so it doesn't go through the main api client's
+      // toast interceptor.
+      setError(err?.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -314,6 +318,22 @@ export function CustomerPortal() {
   }
 
   if (!session) {
+    // No point rendering the login form at all if we already know it can't
+    // work — a bare/bookmarked /portal URL with no ?org=... query param
+    // (every real invite/portal link always includes one) would otherwise
+    // let someone submit their email and see the normal "check your email"
+    // success screen despite nothing ever being sent.
+    if (!orgId) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-blue-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+            <AlertCircle size={40} className="text-amber-500 mx-auto mb-3" />
+            <h3 className="font-semibold text-gray-900 mb-2">Missing organization</h3>
+            <p className="text-sm text-gray-500">This link is missing your organization. Please use the exact link from your invite email, or ask your support team to resend it.</p>
+          </div>
+        </div>
+      );
+    }
     return <LoginView orgId={orgId} />;
   }
 

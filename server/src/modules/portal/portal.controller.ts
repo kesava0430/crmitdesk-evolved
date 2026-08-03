@@ -17,6 +17,16 @@ export async function requestAccess(req: Request, res: Response, next: NextFunct
   try {
     const { email, orgId } = z.object({ email: z.string().email(), orgId: z.string() }).parse(req.body);
 
+    // Distinct from the "email not registered" case below, which stays
+    // silent on purpose (anti-enumeration) — a missing orgId isn't a
+    // privacy-sensitive lookup miss, it means the customer reached /portal
+    // without the ?org=... query param their invite link always includes
+    // (e.g. a bookmarked/typed bare /portal URL), so nothing was ever going
+    // to match and no email attempt should be made to look like it worked.
+    if (!orgId) {
+      throw new AppError(400, "This portal link is missing your organization — please use the exact link from your invite email, or ask your support team to resend it.");
+    }
+
     const portalUser = await prisma.portalUser.findUnique({ where: { orgId_email: { orgId, email } } });
     if (!portalUser || !portalUser.isActive) {
       // Return success regardless to prevent email enumeration
