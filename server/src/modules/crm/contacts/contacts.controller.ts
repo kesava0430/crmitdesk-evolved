@@ -15,7 +15,14 @@ const Schema = z.object({
   source: z.string().optional(),
   // Date-only picker input ("YYYY-MM-DD") — powers the DATE_FIELD_REACHED
   // workflow trigger's birthday automation (see utils/dateAutomation.ts).
-  dateOfBirth: z.string().optional().or(z.literal('')).transform(v => v ? new Date(v) : undefined),
+  // Accepts null too (not just string | undefined): the edit form on
+  // ContactsPage seeds its local state directly from a fetched Contact
+  // record, and Prisma serializes an unset nullable column as `null`, not
+  // `undefined`. Without `.nullable()` here, round-tripping an untouched
+  // empty birthday back through PATCH threw a ZodError on this field alone
+  // and rejected the *entire* request — including any other field (e.g.
+  // email) the user actually meant to change on that same submit.
+  dateOfBirth: z.string().nullable().optional().or(z.literal('')).transform(v => v ? new Date(v) : undefined),
 });
 
 const include = { account: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } } };

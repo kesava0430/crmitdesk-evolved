@@ -16,10 +16,18 @@ const Schema = z.object({
   body: z.string().min(1),
   categoryId: z.string().optional(),
   priority: z.enum(['LOW','MEDIUM','HIGH','CRITICAL']).optional(),
+  // "Create on behalf of" — an agent/manager can submit a ticket as if
+  // filed by another User (requesterId) or link it to a CRM Contact
+  // (contactId) instead of themselves. Both optional and both gated to
+  // IT_STAFF in create() below — an EMPLOYEE self-service submitter can't
+  // spoof who a ticket is "from".
+  requesterId: z.string().optional(),
+  contactId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
 });
 
 const include = {
   requester: { select: { id: true, name: true, email: true } },
+  contact: { select: { id: true, name: true, email: true } },
   assignee: { select: { id: true, name: true, email: true } },
   category: { select: { id: true, name: true, slaPolicy: true } },
 };
@@ -54,14 +62,36 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     const orgId = req.user!.orgId;
     const raw = Schema.parse(req.body);
     // Coerce empty string to undefined so Prisma receives null, not a bad FK
-    const data = { ...raw, categoryId: raw.categoryId || undefined };
+    const { requesterId: requestedRequesterId, contactId: requestedContactId, ...rest } = raw;
+    const data = { ...rest, categoryId: raw.categoryId || undefined };
+
+    // "On behalf of" overrides are staff-only — an EMPLOYEE (self-service
+    // submitter, also covered by requireRole(...ALL_USERS) on this route)
+    // can't set who a ticket is filed as/for; it always defaults to
+    // themselves regardless of what's in the request body.
+    const isStaff = ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'].includes(req.user!.role);
+    let requesterId = req.user!.id;
+    let contactId: string | undefined;
+    if (isStaff) {
+      if (requestedRequesterId) {
+        const requestedUser = await prisma.user.findFirst({ where: { id: requestedRequesterId, orgId } });
+        if (!requestedUser) throw new AppError(400, 'Requester not found in your organization');
+        requesterId = requestedUser.id;
+      }
+      if (requestedContactId) {
+        const contact = await prisma.contact.findFirst({ where: { id: requestedContactId, orgId } });
+        if (!contact) throw new AppError(400, 'Contact not found in your organization');
+        contactId = contact.id;
+      }
+    }
+
     let slaDueAt: Date | undefined;
     if (data.categoryId) {
       const cat = await prisma.category.findFirst({ where: { id: data.categoryId, orgId }, include: { slaPolicy: true } });
       if (cat?.slaPolicy) slaDueAt = calcSlaDue(cat.slaPolicy.resolutionHours);
     }
     const ticket = await prisma.ticket.create({
-      data: { ...data, orgId, requesterId: req.user!.id, slaDueAt },
+      data: { ...data, orgId, requesterId, contactId, slaDueAt },
       include
     });
     await prisma.ticketHistory.create({ data: { ticketId: ticket.id, toStatus: 'OPEN', changedBy: req.user!.id } });

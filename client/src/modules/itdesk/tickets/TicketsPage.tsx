@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen } from 'lucide-react';
-import { useTickets, useCreateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports } from '../../../api/itdesk';
+import { useTickets, useTicket, useCreateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
 import { useUsers } from '../../../api/users';
+import { useContacts } from '../../../api/crm';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useTicketReply, useTicketSentiment, useSummarizeThread, useEstimateResolution, useSlaRisk, useKbArticle, useDetectDuplicates } from '../../../api/ai';
 import { PageHeader, Button, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
@@ -27,9 +29,15 @@ const STATUS_LABELS: Record<string, string> = {
   OPEN: 'New', IN_PROGRESS: 'In Progress', PENDING: 'Pending', RESOLVED: 'Resolved', CLOSED: 'Closed',
 };
 
-function TicketForm({ categories, onSubmit, loading }: any) {
+function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, loading }: any) {
   const [form, setForm] = useState({ title: '', body: '', categoryId: '', priority: 'MEDIUM' });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  // "On behalf of" — staff-only (see canFileOnBehalf, gated server-side too
+  // in tickets.controller.ts's create()). 'self' sends neither field, so a
+  // ticket filed normally is unaffected.
+  const [requesterMode, setRequesterMode] = useState<'self' | 'user' | 'contact'>('self');
+  const [requesterId, setRequesterId] = useState('');
+  const [contactId, setContactId] = useState('');
   const aiDupes = useDetectDuplicates();
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
   const { entityLabel, fieldLabel } = useLabels();
@@ -43,7 +51,11 @@ function TicketForm({ categories, onSubmit, loading }: any) {
   }, [form.title]);
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, __customFieldValues: customValues }); }} className="space-y-3">
+    <form onSubmit={e => {
+      e.preventDefault();
+      const onBehalf = requesterMode === 'user' ? { requesterId } : requesterMode === 'contact' ? { contactId } : {};
+      onSubmit({ ...form, ...onBehalf, __customFieldValues: customValues });
+    }} className="space-y-3">
       <RecordTemplatePicker
         entityType="TICKET"
         onApply={t => {
@@ -51,6 +63,31 @@ function TicketForm({ categories, onSubmit, loading }: any) {
           if (t.customFieldValues) setCustomValues(p => ({ ...p, ...t.customFieldValues as Record<string, string> }));
         }}
       />
+      {canFileOnBehalf && (
+        <div className="form-section">
+          <p className="form-section-title">Filing For</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {[
+              { v: 'self', label: 'Myself' },
+              { v: 'user', label: 'A teammate' },
+              { v: 'contact', label: 'A contact' },
+            ].map(o => (
+              <button key={o.v} type="button" onClick={() => setRequesterMode(o.v as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${requesterMode === o.v ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600'}`}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {requesterMode === 'user' && (
+            <SearchableSelect ariaLabel="Teammate" value={requesterId} onChange={setRequesterId} required
+              options={(users ?? []).map((u: any) => ({ value: u.id, label: u.name }))} placeholder="— select a teammate —" />
+          )}
+          {requesterMode === 'contact' && (
+            <SearchableSelect ariaLabel="Contact" value={contactId} onChange={setContactId} required
+              options={(contacts ?? []).map((c: any) => ({ value: c.id, label: c.name }))} placeholder="— select a contact —" />
+          )}
+        </div>
+      )}
       <div className="form-section">
         <p className="form-section-title">{singular} Details</p>
         <div className="space-y-4">
@@ -101,7 +138,12 @@ function TicketForm({ categories, onSubmit, loading }: any) {
   );
 }
 
-function TicketDetailModal({ ticket, users }: any) {
+function TicketDetailModal({ id, users }: any) {
+  // Own live query keyed by id (not a snapshot prop from the list row) so
+  // status/assignee/etc. update in-place the moment a mutation invalidates
+  // ['tickets', id] — previously this took `ticket` as a prop sourced from
+  // the list array, which only ever refreshed on remount (close + reopen).
+  const { data: ticket, isLoading } = useTicket(id);
   const changeStatus = useChangeTicketStatus();
   const assign = useAssignTicket();
   const aiReply = useTicketReply();
@@ -115,7 +157,7 @@ function TicketDetailModal({ ticket, users }: any) {
   const [autoRouteResult, setAutoRouteResult] = useState<{ categoryName: string | null; agentName: string | null; reason: string } | null>(null);
   const [autoRouting, setAutoRouting] = useState(false);
 
-  if (!ticket) return null;
+  if (isLoading || !ticket) return <Spinner />;
   const slaBreach = ticket.slaDueAt && new Date(ticket.slaDueAt) < new Date() && !['RESOLVED','CLOSED'].includes(ticket.status);
   const sentiment = ticket.sentiment && sentimentConfig[ticket.sentiment];
 
@@ -165,6 +207,9 @@ function TicketDetailModal({ ticket, users }: any) {
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Requester</p><p className="font-medium">{ticket.requester?.name}</p></div>
+        {ticket.contact && (
+          <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">On behalf of (Contact)</p><p className="font-medium">{ticket.contact.name}</p></div>
+        )}
         <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Category</p><p className="font-medium">{ticket.category?.name || '--'}</p></div>
         <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Created</p><p className="font-medium">{formatDistanceToNow(new Date(ticket.createdAt), { addSuffix: true })}</p></div>
         <div className={`rounded-xl p-3 ${slaBreach ? 'bg-red-50' : 'bg-gray-50'}`}><p className="text-gray-400 text-xs mb-1">SLA Due</p><p className={`font-medium ${slaBreach ? 'text-red-600' : ''}`}>{ticket.slaDueAt ? formatDistanceToNow(new Date(ticket.slaDueAt), { addSuffix: true }) : '--'}</p></div>
@@ -334,7 +379,7 @@ export function TicketsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [createModal, setCreateModal] = useState(false);
-  const [selected, setSelected] = useState<any>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: tickets, isLoading } = useTickets({
     ...(statusFilter && { status: statusFilter }),
@@ -342,6 +387,9 @@ export function TicketsPage() {
   });
   const { data: categories } = useCategories();
   const { data: users } = useUsers();
+  const { user } = useAuth();
+  const canFileOnBehalf = !!user && ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'].includes(user.role);
+  const { data: contacts } = useContacts(undefined, canFileOnBehalf);
   const { data: reports } = useTicketReports();
   const create = useCreateTicket();
   const saveCustomFields = useSaveCustomFieldValues();
@@ -413,7 +461,7 @@ export function TicketsPage() {
                 {filtered?.map((t: any) => {
                   const slaBreach = t.slaDueAt && new Date(t.slaDueAt) < new Date() && !['RESOLVED','CLOSED'].includes(t.status);
                   return (
-                    <tr key={t.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => setSelected(t)}>
+                    <tr key={t.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => setSelectedId(t.id)}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold flex-shrink-0 ${t.priority === 'CRITICAL' ? 'bg-red-500' : t.priority === 'HIGH' ? 'bg-orange-400' : t.priority === 'MEDIUM' ? 'bg-blue-400' : 'bg-gray-300'}`}>{t.priority[0]}</span>
@@ -450,7 +498,7 @@ export function TicketsPage() {
       )}
 
       <Modal open={createModal} onClose={() => setCreateModal(false)} title={`Submit New ${singular}`} size="lg">
-        <TicketForm categories={categories} loading={create.isPending}
+        <TicketForm categories={categories} users={users} contacts={contacts} canFileOnBehalf={canFileOnBehalf} loading={create.isPending}
           onSubmit={async (form: any) => {
             const { __customFieldValues, ...rest } = form;
             const created = await create.mutateAsync(rest);
@@ -462,8 +510,8 @@ export function TicketsPage() {
           }} />
       </Modal>
 
-      <Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.title || ''} size="lg">
-        <TicketDetailModal ticket={selected} users={users} onClose={() => setSelected(null)} />
+      <Modal open={!!selectedId} onClose={() => setSelectedId(null)} title={filtered?.find((t: any) => t.id === selectedId)?.title || ''} size="lg">
+        <TicketDetailModal id={selectedId} users={users} onClose={() => setSelectedId(null)} />
       </Modal>
     </div>
   );

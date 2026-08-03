@@ -6,8 +6,8 @@ import { api } from './client';
 const unwrap = (r: any) => (Array.isArray(r.data) ? r.data : (r.data?.data ?? r.data));
 
 // ─── Contacts ────────────────────────────────────────────────────────────────
-export const useContacts = (params?: Record<string, string>) =>
-  useQuery({ queryKey: ['contacts', params], queryFn: () => api.get('/crm/contacts', { params }).then(unwrap) });
+export const useContacts = (params?: Record<string, string>, enabled = true) =>
+  useQuery({ queryKey: ['contacts', params], queryFn: () => api.get('/crm/contacts', { params }).then(unwrap), enabled });
 
 export const useContact = (id: string) =>
   useQuery({ queryKey: ['contacts', id], queryFn: () => api.get(`/crm/contacts/${id}`).then(r => r.data), enabled: !!id });
@@ -85,6 +85,12 @@ export const usePipeline = () =>
 
 export const useDealReports = () =>
   useQuery({ queryKey: ['deal-reports'], queryFn: () => api.get('/crm/deals/reports').then(r => r.data) });
+
+// Live single-deal query (history + activities included) — keeps an open
+// detail panel in sync with mutations instead of holding a stale snapshot
+// object passed down from the pipeline/list view.
+export const useDeal = (id: string) =>
+  useQuery({ queryKey: ['deals', id], queryFn: () => api.get(`/crm/deals/${id}`).then(r => r.data), enabled: !!id });
 
 export const useCreateDeal = () => {
   const qc = useQueryClient();

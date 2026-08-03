@@ -90,6 +90,11 @@ const WHATSAPP_RECIPIENT_OPTIONS: Record<string, { value: string; label: string 
     { value: 'ORG_DEFAULT', label: 'Org default number' },
   ],
   TICKET: [
+    // "Linked contact" only resolves if the ticket was filed "on behalf of"
+    // a Contact (Ticket.contactId, set from the New Ticket form's "Filing
+    // For" picker) — otherwise this fails cleanly at send time, same as any
+    // other recipient option with nothing on file. See notification-recipient.ts.
+    { value: 'CONTACT', label: 'Linked contact (if filed on behalf of one)' },
     { value: 'ASSIGNEE', label: 'Assigned agent' },
     { value: 'CUSTOM_NUMBER', label: 'Custom number' },
     { value: 'ORG_DEFAULT', label: 'Org default number' },
@@ -105,6 +110,12 @@ const WHATSAPP_RECIPIENT_OPTIONS: Record<string, { value: string; label: string 
   // recipient to "Custom number" with a {{fieldKey}} template pointing at
   // whichever of the module's own fields holds a phone number.
 };
+
+// Appended to whichever entity's option list above whenever that entity has
+// at least one REFERENCE custom field defined (see customfields.controller.ts's
+// FIELD_TYPES) — lets a rule notify whoever a *specific* field points at,
+// not just the record's built-in requester/assignee/contact.
+const REFERENCE_FIELD_OPTION = { value: 'REFERENCE_FIELD', label: 'A "Reference" custom field…' };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -138,6 +149,11 @@ function getEntityForTrigger(trigger: string, dateConfig?: DateConfig | null): s
 function ActionParamsEditor({ action, onChange, entity }: { action: Action; onChange: (a: Action) => void; entity: string }) {
   const p = action.params;
   const set = (k: string, v: string) => onChange({ ...action, params: { ...p, [k]: v } });
+  // Only standard entities (not CUSTOM_MODULE_RECORD) can carry REFERENCE
+  // custom fields today — see customfields.controller.ts's ENTITY_TYPES.
+  const isStandardEntity = ['TICKET', 'CONTACT', 'DEAL', 'LEAD'].includes(entity);
+  const { data: entityFieldDefs } = useCustomFieldDefs(isStandardEntity ? entity : '');
+  const referenceFields = (entityFieldDefs || []).filter(d => d.fieldType === 'REFERENCE');
 
   switch (action.type) {
     case 'ASSIGN_TO':
@@ -162,7 +178,8 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
           className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
       </div>;
     case 'SEND_WHATSAPP': {
-      const recipientOptions = WHATSAPP_RECIPIENT_OPTIONS[entity] || WHATSAPP_RECIPIENT_OPTIONS.TICKET;
+      const baseOptions = WHATSAPP_RECIPIENT_OPTIONS[entity] || WHATSAPP_RECIPIENT_OPTIONS.TICKET;
+      const recipientOptions = referenceFields.length ? [...baseOptions, REFERENCE_FIELD_OPTION] : baseOptions;
       const recipientType = String(p.recipientType || 'ASSIGNEE');
       return <div className="flex-1 space-y-1">
         {entity === 'LEAD' && (
@@ -175,6 +192,13 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
         {recipientType === 'CUSTOM_NUMBER' && (
           <input value={String(p.customNumber || '')} onChange={e => set('customNumber', e.target.value)}
             placeholder="+14155551234" className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
+        )}
+        {recipientType === 'REFERENCE_FIELD' && (
+          <select value={String(p.referenceFieldId || '')} onChange={e => set('referenceFieldId', e.target.value)}
+            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+            <option value="">— select a reference field —</option>
+            {referenceFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
         )}
         <textarea value={String(p.message || '')} onChange={e => set('message', e.target.value)}
           placeholder="Message (use {{title}}, {{priority}}, {{status}})" rows={2}
@@ -221,10 +245,28 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
       </div>;
     case 'SCORE_LEAD':
       return <p className="flex-1 text-[11px] text-gray-400 italic px-1 py-1.5">No parameters — uses AI to score the lead and stores the result on the lead record.</p>;
-    case 'SEND_CSAT_SURVEY':
-      return <p className="flex-1 text-[11px] text-gray-400 italic px-1 py-1.5">
-        No parameters — emails the ticket's requester a 1–5 star rating link. {entity !== 'TICKET' && <span className="text-amber-600">Only applies to Ticket-triggered rules — this action will be skipped otherwise.</span>}
-      </p>;
+    case 'SEND_CSAT_SURVEY': {
+      if (entity !== 'TICKET') {
+        return <p className="flex-1 text-[11px] text-amber-600 italic px-1 py-1.5">Only applies to Ticket-triggered rules — this action will be skipped otherwise.</p>;
+      }
+      const recipientType = String(p.recipientType || 'REQUESTER');
+      return <div className="flex-1 space-y-1">
+        <select value={recipientType} onChange={e => set('recipientType', e.target.value)}
+          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+          <option value="REQUESTER">Whoever filed the ticket</option>
+          <option value="CONTACT">Linked contact (if filed on behalf of one)</option>
+          {referenceFields.length > 0 && <option value="REFERENCE_FIELD">A "Reference" custom field…</option>}
+        </select>
+        {recipientType === 'REFERENCE_FIELD' && (
+          <select value={String(p.referenceFieldId || '')} onChange={e => set('referenceFieldId', e.target.value)}
+            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+            <option value="">— select a reference field —</option>
+            {referenceFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+        )}
+        <p className="text-[11px] text-gray-400 italic">Emails a 1–5 star rating link to whoever is selected above.</p>
+      </div>;
+    }
     default:
       return null;
   }

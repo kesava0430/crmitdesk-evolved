@@ -8,7 +8,13 @@ const ENTITY_TYPES = ['TICKET', 'CONTACT', 'DEAL', 'LEAD'] as const;
 // NOTE: 'TEXTAREA' added — the admin UI (CustomFieldsPage.tsx) has offered a
 // "Long Text" (TEXTAREA) option since it was built, but this enum never
 // included it, so creating a TEXTAREA field always failed Zod validation.
-const FIELD_TYPES  = ['TEXT', 'NUMBER', 'DATE', 'SELECT', 'BOOLEAN', 'TEXTAREA'] as const;
+// 'REFERENCE' — a field whose value is another record's id rather than a
+// plain string; currently always points at a Contact (see
+// CustomFieldsFormFields.tsx's contact picker and CustomFieldsDisplay.tsx's
+// name lookup). Stored the same way as every other field type — a plain
+// string in CustomFieldValue.value — so no schema change was needed, only
+// how the client renders/resolves it.
+const FIELD_TYPES  = ['TEXT', 'NUMBER', 'DATE', 'SELECT', 'BOOLEAN', 'TEXTAREA', 'REFERENCE'] as const;
 
 // Maps entityType -> the Prisma model used to verify an entityId actually
 // belongs to the caller's org before reading/writing custom field values.

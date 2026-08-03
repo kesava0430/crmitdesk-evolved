@@ -14,11 +14,14 @@ interface CustomField {
   options: string[] | null;
 }
 
-const FIELD_TYPES = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT', 'TEXTAREA'];
+const FIELD_TYPES = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT', 'TEXTAREA', 'REFERENCE'];
 const ENTITY_TYPES = ['TICKET', 'CONTACT', 'DEAL', 'LEAD'];
 
 const TYPE_LABELS: Record<string, string> = {
   TEXT: 'Text', NUMBER: 'Number', DATE: 'Date', BOOLEAN: 'Yes/No', SELECT: 'Dropdown', TEXTAREA: 'Long Text',
+  // Always resolves to a Contact today — see CustomFieldsFormFields.tsx's
+  // picker and CustomFieldsDisplay.tsx's name lookup for the REFERENCE case.
+  REFERENCE: 'Reference (Contact)',
 };
 
 const EMPTY_FORM = { fieldKey: '', label: '', fieldType: 'TEXT', entityType: 'TICKET', required: false, options: '' };

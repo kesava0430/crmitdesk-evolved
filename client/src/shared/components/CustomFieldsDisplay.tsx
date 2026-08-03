@@ -1,4 +1,5 @@
 import { useCustomFieldDefs, useCustomFieldValues, fromValueRecords } from '../../api/customFields';
+import { useContacts } from '../../api/crm';
 
 interface Props {
   entityType: string;
@@ -7,9 +8,13 @@ interface Props {
   card?: boolean;
 }
 
-function displayValue(fieldType: string, raw: string | undefined) {
+function displayValue(fieldType: string, raw: string | undefined, contactNameById?: Map<string, string>) {
   if (raw === undefined || raw === '') return '--';
   if (fieldType === 'BOOLEAN') return raw === 'true' ? 'Yes' : raw === 'false' ? 'No' : '--';
+  // REFERENCE stores the linked Contact's id — resolve it to a name rather
+  // than showing the raw id (see customfields.controller.ts's FIELD_TYPES
+  // comment on why REFERENCE always points at Contact today).
+  if (fieldType === 'REFERENCE') return contactNameById?.get(raw) || '--';
   return raw;
 }
 
@@ -17,6 +22,9 @@ function displayValue(fieldType: string, raw: string | undefined) {
 export function CustomFieldsDisplay({ entityType, entityId, card }: Props) {
   const { data: defs } = useCustomFieldDefs(entityType);
   const { data: records } = useCustomFieldValues(entityId);
+  const hasReferenceField = !!defs?.some(d => d.fieldType === 'REFERENCE');
+  const { data: contacts } = useContacts(undefined, hasReferenceField);
+  const contactNameById = new Map((contacts ?? []).map((c: any) => [c.id, c.name]));
   const valueMap = fromValueRecords(records);
 
   if (!defs || defs.length === 0) return null;
@@ -26,7 +34,7 @@ export function CustomFieldsDisplay({ entityType, entityId, card }: Props) {
       {defs.map(def => (
         <div key={def.id} className="bg-gray-50 rounded-xl p-3">
           <p className="text-gray-400 text-xs mb-1">{def.label}</p>
-          <p className="font-medium">{displayValue(def.fieldType, valueMap[def.fieldKey])}</p>
+          <p className="font-medium">{displayValue(def.fieldType, valueMap[def.fieldKey], contactNameById)}</p>
         </div>
       ))}
     </div>

@@ -1,5 +1,26 @@
 import { useCustomFieldDefs, CustomFieldDef } from '../../api/customFields';
+import { useContacts } from '../../api/crm';
 import { Spinner } from './Spinner';
+import { SearchableSelect } from './SearchableSelect';
+
+// REFERENCE fields always point at a Contact today (see
+// customfields.controller.ts's FIELD_TYPES comment) — the value stored is
+// just the Contact's id, same as every other field type's plain string.
+// Split into its own component (rather than a case inline in FieldInput)
+// because it needs its own hook call, which can't live inside a switch case.
+function ReferenceFieldInput({ def, value, onChange }: { def: CustomFieldDef; value: string; onChange: (v: string) => void }) {
+  const { data: contacts } = useContacts();
+  return (
+    <SearchableSelect
+      ariaLabel={def.label}
+      value={value ?? ''}
+      onChange={onChange}
+      required={def.required}
+      placeholder="— select a contact —"
+      options={(contacts ?? []).map((c: any) => ({ value: c.id, label: c.name }))}
+    />
+  );
+}
 
 interface Props {
   /** TICKET | CONTACT | DEAL | LEAD */
@@ -62,6 +83,8 @@ function FieldInput({ def, value, onChange }: { def: CustomFieldDef; value: stri
           ))}
         </select>
       );
+    case 'REFERENCE':
+      return <ReferenceFieldInput def={def} value={value} onChange={onChange} />;
     case 'TEXT':
     default:
       return (

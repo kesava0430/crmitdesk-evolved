@@ -2,6 +2,7 @@ import { Response, NextFunction, Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
+import { notifyOrgAdmins } from '../notifications/notifications.controller';
 
 // ─── Public: customer-facing feedback page (no auth) ──────────────────────────
 //
@@ -55,10 +56,14 @@ function feedbackForm(ticketId: string, rating: number | undefined, comment: str
   `);
 }
 
-function thanksPage(): string {
+function thanksPage(rating: number, comment: string): string {
+  const starDisplay = (n: number) => `<span style="font-size:28px;color:${n <= rating ? '#f59e0b' : '#d1d5db'}">★</span>`;
   return page('Thanks for your feedback!', `
     <h1 class="thanks">Thanks for your feedback!</h1>
     <p class="sub">We appreciate you taking the time to help us improve.</p>
+    <div style="margin:18px 0 4px">${[5, 4, 3, 2, 1].map(starDisplay).join('')}</div>
+    <p class="sub" style="margin-top:0">You rated us ${rating} out of 5</p>
+    ${comment ? `<p style="text-align:left;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-top:12px;font-size:14px;color:#374151;white-space:pre-wrap">${escapeHtml(comment)}</p>` : ''}
   `);
 }
 
@@ -106,10 +111,26 @@ export async function submitRating(req: Request, res: Response, next: NextFuncti
       ? await prisma.csatResponse.update({ where: { id: existing.id }, data: { rating, comment: comment || existing.comment } })
       : await prisma.csatResponse.create({ data: { orgId: ticket.orgId, ticketId, rating, comment } });
 
+    // Let admins/managers know feedback came in (visible in the bell + push,
+    // and now also in Reports → Feedback — see client/src/pages/ReportsPage.tsx).
+    // Only fire on the *first* submission — re-submitting a comment via the
+    // same link would otherwise re-notify for something admins already saw.
+    if (!existing) {
+      const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+      notifyOrgAdmins({
+        orgId: ticket.orgId,
+        type: 'CSAT_SUBMITTED',
+        title: `Feedback received: ${stars}`,
+        body: comment ? `"${comment}"` : undefined,
+        entityType: 'TICKET',
+        entityId: ticketId,
+      }).catch(() => {});
+    }
+
     // A browser form post wants a page back; keep the old JSON response for
     // any non-browser (fetch/API) caller of the same endpoint.
     if (req.headers.accept?.includes('text/html')) {
-      res.send(thanksPage());
+      res.send(thanksPage(response.rating, response.comment || ''));
       return;
     }
     res.status(201).json({ message: 'Thank you for your feedback!', rating: response.rating });

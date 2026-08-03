@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, Plus, Trash2, DollarSign, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, X } from 'lucide-react';
-import { usePipeline, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
+import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
 import { useContacts, useAccounts, usePipelines, useAddStage, useUpdateStage, useRemoveStage, useReorderStages } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
 import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } from '../../../api/ai';
@@ -363,9 +363,40 @@ function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => 
   );
 }
 
+// Own live query keyed by id (not a snapshot prop from the pipeline/kanban
+// card) so stage/value/assignee/etc. update in-place the moment a mutation
+// invalidates ['deals', id] — previously the detail panel took `deal` as a
+// prop sourced from the pipeline column array, which only ever refreshed on
+// remount (close + reopen the modal).
+function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; pageSingular: string; onEdit: (deal: any) => void }) {
+  const { data: deal, isLoading } = useDeal(id);
+  if (isLoading || !deal) return <Spinner />;
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" variant="secondary" icon={<Pencil size={13} />} onClick={() => onEdit(deal)}>
+          Edit {pageSingular}
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Stage</p><p className="font-medium">{deal.stage}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Value</p><p className="font-medium text-green-600">${Number(deal.value).toLocaleString()}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Contact</p><p className="font-medium">{deal.contact?.name || '--'}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Assigned To</p><p className="font-medium">{deal.assignee?.name || '--'}</p></div>
+      </div>
+      <DealDetailPanel deal={deal} />
+      <CustomFieldsDisplay entityType="DEAL" entityId={deal.id} card />
+      <ScheduleReminderPanel entityType="DEAL" entityId={deal.id} />
+      <Comments entityType="DEAL" entityId={deal.id} />
+      <Attachments entityType="DEAL" entityId={deal.id} />
+    </div>
+  );
+}
+
 export function DealsPage() {
   const [modal, setModal] = useState(false);
-  const [selectedDeal, setSelectedDeal] = useState<any>(null);
+  const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const [selectedDealTitle, setSelectedDealTitle] = useState('');
   const [editingDeal, setEditingDeal] = useState<any>(null);
   const [view, setView] = useState<'kanban' | 'reports'>('kanban');
   const [pipelineHealthOpen, setPipelineHealthOpen] = useState(false);
@@ -437,7 +468,7 @@ export function DealsPage() {
                 <div className="flex-1 rounded-b-xl border-2 border-t-0 p-2 space-y-2 min-h-32 transition-colors bg-gray-50" style={{ borderColor: `${headerColor}33` }}>
                   {deals.length === 0 && <p className="text-xs text-gray-300 text-center py-4">Drop deals here</p>}
                   {deals.map((deal: any) => (
-                    <DealCard key={deal.id} deal={deal} onDelete={(id: string) => del.mutate(id)} onSelect={setSelectedDeal} />
+                    <DealCard key={deal.id} deal={deal} onDelete={(id: string) => del.mutate(id)} onSelect={(d: any) => { setSelectedDealId(d.id); setSelectedDealTitle(d.title); }} />
                   ))}
                 </div>
               </div>
@@ -498,26 +529,13 @@ export function DealsPage() {
           loading={create.isPending || update.isPending} />
       </Modal>
 
-      <Modal open={!!selectedDeal} onClose={() => setSelectedDeal(null)} title={selectedDeal?.title || ''} size="lg">
-        {selectedDeal && (
-          <div className="space-y-3">
-            <div className="flex justify-end">
-              <Button size="sm" variant="secondary" icon={<Pencil size={13} />} onClick={() => { setEditingDeal(selectedDeal); setSelectedDeal(null); }}>
-                Edit {pageSingular}
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Stage</p><p className="font-medium">{selectedDeal.stage}</p></div>
-              <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Value</p><p className="font-medium text-green-600">${Number(selectedDeal.value).toLocaleString()}</p></div>
-              <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Contact</p><p className="font-medium">{selectedDeal.contact?.name || '--'}</p></div>
-              <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Assigned To</p><p className="font-medium">{selectedDeal.assignee?.name || '--'}</p></div>
-            </div>
-            <DealDetailPanel deal={selectedDeal} />
-            <CustomFieldsDisplay entityType="DEAL" entityId={selectedDeal.id} card />
-            <ScheduleReminderPanel entityType="DEAL" entityId={selectedDeal.id} />
-            <Comments entityType="DEAL" entityId={selectedDeal.id} />
-            <Attachments entityType="DEAL" entityId={selectedDeal.id} />
-          </div>
+      <Modal open={!!selectedDealId} onClose={() => setSelectedDealId(null)} title={selectedDealTitle} size="lg">
+        {selectedDealId && (
+          <DealDetailModalContent
+            id={selectedDealId}
+            pageSingular={pageSingular}
+            onEdit={(deal) => { setEditingDeal(deal); setSelectedDealId(null); }}
+          />
         )}
       </Modal>
 

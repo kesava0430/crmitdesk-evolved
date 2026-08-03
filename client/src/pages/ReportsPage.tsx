@@ -1,8 +1,11 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { Star, MessageSquare } from 'lucide-react';
 import { api } from '../api/client';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Spinner } from '../shared/components';
+import { useCsatResponses, useCsatStats } from '../api/csat';
 
 const PRIORITY_COLORS: Record<string, string> = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#3b82f6', LOW: '#9ca3af' };
 const STATUS_COLORS = ['#3b82f6','#f59e0b','#f97316','#22c55e','#6b7280'];
@@ -23,8 +26,19 @@ function Card({ children, className = '' }: any) {
   return <div className={`bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 sm:p-5 overflow-hidden ${className}`}>{children}</div>;
 }
 
+function StarRow({ rating }: { rating: number }) {
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map(n => (
+        <Star key={n} size={13} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200'} />
+      ))}
+    </span>
+  );
+}
+
 export function ReportsPage() {
-  const [tab, setTab] = useState<'tickets' | 'crm'>('tickets');
+  const [tab, setTab] = useState<'tickets' | 'crm' | 'csat'>('tickets');
+  const [csatPage, setCsatPage] = useState(1);
 
   const { data: ticketData, isLoading: ticketsLoading } = useQuery({
     queryKey: ['reports-tickets'],
@@ -38,6 +52,9 @@ export function ReportsPage() {
     enabled: tab === 'crm',
   });
 
+  const { data: csatStats, isLoading: csatStatsLoading } = useCsatStats(tab === 'csat');
+  const { data: csatResponses, isLoading: csatResponsesLoading } = useCsatResponses(csatPage, tab === 'csat');
+
   return (
     <div className="p-4 sm:p-6 space-y-6 animate-slide-up">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -48,6 +65,7 @@ export function ReportsPage() {
         <div className="flex flex-wrap rounded-lg border border-gray-200 overflow-hidden self-start sm:self-auto">
           <button onClick={() => setTab('tickets')} className={`px-4 py-2 text-sm font-medium ${tab === 'tickets' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>IT Desk</button>
           <button onClick={() => setTab('crm')} className={`px-4 py-2 text-sm font-medium ${tab === 'crm' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>CRM</button>
+          <button onClick={() => setTab('csat')} className={`px-4 py-2 text-sm font-medium ${tab === 'csat' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>Feedback</button>
         </div>
       </div>
 
@@ -197,6 +215,84 @@ export function ReportsPage() {
                 )}
               </Card>
             </div>
+          </div>
+        )
+      )}
+
+      {tab === 'csat' && (
+        csatStatsLoading ? <Spinner /> : (
+          <div className="space-y-6">
+            {/* KPI row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Card>
+                <p className="text-3xl font-bold text-amber-500">{csatStats?.avg ?? '—'}<span className="text-lg text-gray-300">/5</span></p>
+                <p className="text-sm text-gray-500 mt-1">Average Rating</p>
+                {typeof csatStats?.avg === 'number' && <div className="mt-2"><StarRow rating={Math.round(csatStats.avg)} /></div>}
+              </Card>
+              <Card>
+                <p className="text-3xl font-bold text-green-600">{csatStats?.satisfactionRate ?? '—'}%</p>
+                <p className="text-sm text-gray-500 mt-1">Satisfied (4-5 stars)</p>
+              </Card>
+              <Card>
+                <p className="text-3xl font-bold text-brand-600">{csatStats?.total ?? 0}</p>
+                <p className="text-sm text-gray-500 mt-1">Total Responses</p>
+              </Card>
+            </div>
+
+            {/* Rating distribution */}
+            <Card>
+              <SectionHeader title="Rating Distribution" subtitle="How many responses landed at each star rating" />
+              {!csatStats?.total ? (
+                <p className="text-sm text-gray-400 text-center py-8">No feedback submitted yet</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={[...(csatStats?.dist || [])].reverse()} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="rating" tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v}★`} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip formatter={(v: any) => [v, 'Responses']} labelFormatter={(v: number) => `${v} star${v === 1 ? '' : 's'}`} />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      {[...(csatStats?.dist || [])].reverse().map((d: any) => (
+                        <Cell key={d.rating} fill={d.rating >= 4 ? '#22c55e' : d.rating === 3 ? '#f59e0b' : '#ef4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </Card>
+
+            {/* Recent responses */}
+            <Card>
+              <SectionHeader title="Recent Feedback" subtitle="Star rating + optional comment left by the ticket requester" />
+              {csatResponsesLoading ? <Spinner /> : !csatResponses?.data.length ? (
+                <p className="text-sm text-gray-400 text-center py-8">No feedback submitted yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {csatResponses.data.map(r => (
+                    <div key={r.id} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
+                      <StarRow rating={r.rating} />
+                      <div className="flex-1 min-w-0">
+                        {r.ticket && (
+                          <Link to="/itdesk/tickets" className="text-sm font-medium text-gray-800 hover:text-brand-600 hover:underline truncate block">
+                            {r.ticket.title}
+                          </Link>
+                        )}
+                        {r.comment && (
+                          <p className="text-xs text-gray-500 mt-1 flex items-start gap-1"><MessageSquare size={12} className="mt-0.5 flex-shrink-0" />{r.comment}</p>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">{new Date(r.submittedAt).toLocaleDateString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {csatResponses && csatResponses.total > csatResponses.limit && (
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                  <button disabled={csatPage <= 1} onClick={() => setCsatPage(p => p - 1)} className="text-xs text-brand-600 disabled:text-gray-300 font-medium">Previous</button>
+                  <span className="text-xs text-gray-400">Page {csatResponses.page} of {Math.ceil(csatResponses.total / csatResponses.limit)}</span>
+                  <button disabled={csatPage >= Math.ceil(csatResponses.total / csatResponses.limit)} onClick={() => setCsatPage(p => p + 1)} className="text-xs text-brand-600 disabled:text-gray-300 font-medium">Next</button>
+                </div>
+              )}
+            </Card>
           </div>
         )
       )}

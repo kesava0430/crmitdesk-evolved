@@ -5,7 +5,7 @@ export interface CustomFieldDef {
   id: string;
   fieldKey: string;
   label: string;
-  fieldType: 'TEXT' | 'NUMBER' | 'DATE' | 'SELECT' | 'BOOLEAN' | 'TEXTAREA';
+  fieldType: 'TEXT' | 'NUMBER' | 'DATE' | 'SELECT' | 'BOOLEAN' | 'TEXTAREA' | 'REFERENCE';
   entityType: 'TICKET' | 'CONTACT' | 'DEAL' | 'LEAD';
   required: boolean;
   position: number;

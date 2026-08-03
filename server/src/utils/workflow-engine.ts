@@ -193,7 +193,7 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
       if (entityType !== 'TICKET' && entityType !== 'DEAL' && entityType !== 'CONTACT' && entityType !== 'CUSTOM_MODULE_RECORD') {
         return `SEND_WHATSAPP skipped — not supported for ${entityType}`;
       }
-      const { recipientType, message } = action.params as Record<string, string>;
+      const { recipientType, message, referenceFieldId } = action.params as Record<string, string>;
       const resolve = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
       // customNumber may itself be a template like "{{phone}}" — the only way
       // a CUSTOM_MODULE_RECORD (which has no dedicated recipient-lookup case
@@ -204,6 +204,7 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
           orgId, entityType, entityId,
           recipientType: (recipientType || 'ORG_DEFAULT') as any,
           customNumber,
+          referenceFieldId: referenceFieldId || undefined,
         });
         await sendWhatsApp(orgId, phone, resolve(message || ''));
         return `WhatsApp sent to ${phone}`;
@@ -281,14 +282,42 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
       // changeStatus(), firing unconditionally 5s after every RESOLVED —
       // now a normal workflow action so it can be retimed, conditioned
       // (e.g. only for certain categories), or turned off per org without
-      // a code change. entity.requester comes from the ticket `include` on
-      // every trigger that fires on a Ticket, so no extra query needed.
+      // a code change. entity.requester/entity.contact come from the ticket
+      // `include` on every trigger that fires on a Ticket, so no extra query
+      // is needed for those two cases.
       if (entityType !== 'TICKET') return 'SEND_CSAT_SURVEY skipped — only applies to tickets';
-      const requesterEmail = entity.requester?.email;
-      if (!requesterEmail) return 'SEND_CSAT_SURVEY skipped — ticket has no requester email on file';
-      const requesterName = entity.requester?.name || 'there';
-      await sendMail(emailTemplates.csatSurvey({ id: entityId, title: String(entity.title || '') }, requesterName, requesterEmail));
-      return `CSAT survey sent to ${requesterEmail}`;
+
+      // recipientType: 'REQUESTER' (default — whoever filed the ticket),
+      // 'CONTACT' (the Contact it was filed on behalf of, if any — see
+      // Ticket.contactId), or 'REFERENCE_FIELD' (an org-defined REFERENCE
+      // custom field on tickets, resolved to a Contact).
+      const recipientType = String(action.params.recipientType || 'REQUESTER');
+      let toEmail: string | undefined;
+      let toName = 'there';
+      if (recipientType === 'CONTACT') {
+        toEmail = entity.contact?.email;
+        toName = entity.contact?.name || toName;
+        if (!toEmail) return 'SEND_CSAT_SURVEY skipped — ticket has no linked contact with an email on file';
+      } else if (recipientType === 'REFERENCE_FIELD') {
+        const referenceFieldId = String(action.params.referenceFieldId || '');
+        if (!referenceFieldId) return 'SEND_CSAT_SURVEY skipped — no reference field selected';
+        const fieldValue = await prisma.customFieldValue.findUnique({
+          where: { customFieldId_entityId: { customFieldId: referenceFieldId, entityId } },
+        });
+        const contact = fieldValue?.value
+          ? await prisma.contact.findFirst({ where: { id: fieldValue.value, orgId }, select: { name: true, email: true } })
+          : null;
+        if (!contact?.email) return 'SEND_CSAT_SURVEY skipped — the referenced contact has no email on file';
+        toEmail = contact.email;
+        toName = contact.name || toName;
+      } else {
+        toEmail = entity.requester?.email;
+        toName = entity.requester?.name || toName;
+        if (!toEmail) return 'SEND_CSAT_SURVEY skipped — ticket has no requester email on file';
+      }
+
+      await sendMail(emailTemplates.csatSurvey({ id: entityId, title: String(entity.title || '') }, toName, toEmail));
+      return `CSAT survey sent to ${toEmail}`;
     }
 
     case 'CREATE_NOTIFICATION': {

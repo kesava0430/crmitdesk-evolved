@@ -56,6 +56,7 @@ const ENTITY_INCLUDE: Record<StandardEntityType, Record<string, unknown> | undef
   },
   TICKET: {
     requester: { select: { id: true, name: true, email: true } },
+    contact: { select: { id: true, name: true, email: true } },
     assignee: { select: { id: true, name: true, email: true } },
   },
   LEAD: {

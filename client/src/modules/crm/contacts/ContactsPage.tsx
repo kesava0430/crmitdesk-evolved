@@ -9,7 +9,22 @@ import { useEffect } from 'react';
 import { useLabels } from '../../../hooks/useLabels';
 
 function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
-  const [form, setForm] = useState(initial || { name: '', email: '', phone: '', jobTitle: '', accountId: '', source: '', dateOfBirth: '' });
+  // Built field-by-field rather than spreading `initial` (the raw Contact
+  // record) directly into form state: that used to round-trip extra keys
+  // (id, orgId, the nested `account` relation object, ...) back to the
+  // server, and — critically — an unset dateOfBirth comes back from Prisma
+  // as `null`, which the server previously rejected outright (see
+  // contacts.controller.ts's dateOfBirth schema comment), failing the
+  // *whole* update including any other field being changed in the same edit.
+  const [form, setForm] = useState(initial ? {
+    name: initial.name || '',
+    email: initial.email || '',
+    phone: initial.phone || '',
+    jobTitle: initial.jobTitle || '',
+    accountId: initial.accountId || initial.account?.id || '',
+    source: initial.source || '',
+    dateOfBirth: initial.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : '',
+  } : { name: '', email: '', phone: '', jobTitle: '', accountId: '', source: '', dateOfBirth: '' });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { data: existingValues } = useCustomFieldValues(entityId);
   useEffect(() => {

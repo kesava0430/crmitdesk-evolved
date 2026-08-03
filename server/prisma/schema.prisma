@@ -290,6 +290,7 @@ model Contact {
   owner      User         @relation("ContactOwner", fields: [ownerId], references: [id])
   deals      Deal[]
   leads      Lead[]
+  tickets    Ticket[]
 
   @@index([orgId])
   @@map("contacts")
@@ -495,6 +496,14 @@ model Ticket {
   priority      TicketPriority  @default(MEDIUM)
   status        TicketStatus    @default(OPEN)
   requesterId   String          @map("requester_id")
+  // Set when an agent creates a ticket "on behalf of" a CRM Contact rather
+  // than an internal User (Contacts have no login, so requesterId still has
+  // to point at *some* User — the creating agent's own id — for the ticket
+  // to satisfy that required FK; this field is what actually identifies the
+  // real requester in that case). Also what SEND_CSAT_SURVEY / SEND_WHATSAPP
+  // resolve against when an automation's recipient is set to "the linked
+  // contact" — see notification-recipient.ts.
+  contactId     String?         @map("contact_id")
   assignedTo    String?         @map("assigned_to")
   slaDueAt      DateTime?       @map("sla_due_at")
   resolvedAt    DateTime?       @map("resolved_at")
@@ -512,6 +521,7 @@ model Ticket {
   category      Category?       @relation(fields: [categoryId], references: [id])
   org           Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   requester     User            @relation("TicketRequester", fields: [requesterId], references: [id])
+  contact       Contact?        @relation(fields: [contactId], references: [id])
   timeEntries   TimeEntry[]
 
   @@index([orgId])
