@@ -18,12 +18,18 @@ export interface PlatformOrgSummary {
   branding: { companyName: string; logoUrl: string | null; primaryColor: string; supportEmail: string | null } | null;
   emailSending: { connected: boolean; email: string | null; smtpHost: string | null; lastSyncAt: string | null };
   whatsappSending: { connected: boolean; phoneNumber: string | null; notifyNumber: string | null };
+  // "License" for attachments: which storage the org uses and, for our
+  // hosted S3 option, quota vs usage — same numbers utils/licensing.ts
+  // enforces server-side on every upload.
+  storageLicense: { provider: 'GOOGLE_DRIVE' | 'HOSTED_S3' | null; connectedEmail: string | null; quotaBytes: number; usedBytes: number };
   counts: { users: number; contacts: number; tickets: number };
 }
 
-export interface PlatformOrgDetail extends Omit<PlatformOrgSummary, 'emailSending' | 'whatsappSending' | 'counts'> {
+export interface PlatformOrgDetail extends Omit<PlatformOrgSummary, 'emailSending' | 'whatsappSending' | 'storageLicense' | 'counts'> {
   emailAccount: { email: string; imapHost: string; smtpHost: string; smtpPort: number; lastSyncAt: string | null } | null;
   whatsAppConfig: { phoneNumber: string; notifyNumber: string | null; createdAt: string } | null;
+  storageConfig: { provider: 'GOOGLE_DRIVE' | 'HOSTED_S3'; connectedEmail: string | null; rootFolderId: string | null; updatedAt: string } | null;
+  storageLicense: { quotaBytes: number; usedBytes: number };
   users: { id: string; name: string; email: string; role: string; isActive: boolean; createdAt: string }[];
   _count: { contacts: number; tickets: number; deals: number };
 }

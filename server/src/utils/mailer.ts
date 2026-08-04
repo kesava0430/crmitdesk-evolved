@@ -24,14 +24,17 @@ interface MailOptions {
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = process.env.RESEND_FROM || process.env.SMTP_FROM || 'CRM & IT Desk <onboarding@resend.dev>';
 
-async function sendViaResend(opts: MailOptions): Promise<void> {
+async function sendViaResend(opts: MailOptions, from: string, replyTo?: string): Promise<void> {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ from: FROM_ADDRESS, to: opts.to, subject: opts.subject, html: opts.html }),
+    body: JSON.stringify({
+      from, to: opts.to, subject: opts.subject, html: opts.html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
+    }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -92,6 +95,51 @@ async function getOrgMailer(orgId: string): Promise<{ transport: nodemailer.Tran
   return { transport, from };
 }
 
+interface MailBranding {
+  companyName: string;
+  logoUrl: string | null;
+  primaryColor: string;
+  replyTo: string | null;
+}
+
+/**
+ * White-label Tier 1 (see the White-Label Sending & Licensing Plan doc):
+ * when mail goes out through the *platform's* shared Resend/SMTP account
+ * rather than the org's own connected mailbox, it still shouldn't look like
+ * it came from "CRM & IT Desk" — it should look like it came from the org.
+ * Reads OrgBranding (already used on the customer portal) and reuses it here.
+ */
+async function getMailBranding(orgId: string): Promise<MailBranding | null> {
+  const [branding, org] = await Promise.all([
+    prisma.orgBranding.findUnique({ where: { orgId }, select: { companyName: true, logoUrl: true, primaryColor: true, supportEmail: true } }),
+    prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
+  ]);
+  const companyName = (branding?.companyName || org?.name || '').trim();
+  if (!companyName && !branding?.logoUrl) return null; // nothing to brand with
+  return {
+    companyName,
+    logoUrl: branding?.logoUrl || null,
+    primaryColor: branding?.primaryColor || '#4f46e5',
+    replyTo: branding?.supportEmail || null,
+  };
+}
+
+/** Keeps the platform's verified sending address, swaps only the display name. */
+function brandedFromAddress(companyName: string): string {
+  const match = FROM_ADDRESS.match(/<([^>]+)>/);
+  const emailPart = match ? match[1] : FROM_ADDRESS;
+  const safeName = companyName.replace(/"/g, '');
+  return safeName ? `"${safeName}" <${emailPart}>` : FROM_ADDRESS;
+}
+
+/** Prepends a small logo/company-name header banner in the org's own color, above the existing template content. */
+function withBrandHeader(html: string, branding: MailBranding): string {
+  const mark = branding.logoUrl
+    ? `<img src="${branding.logoUrl}" alt="${branding.companyName}" style="height:32px;max-width:200px;object-fit:contain" />`
+    : `<span style="font-weight:700;font-size:18px;color:${branding.primaryColor}">${branding.companyName}</span>`;
+  return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto 4px;padding-bottom:12px;border-bottom:3px solid ${branding.primaryColor}">${mark}</div>${html}`;
+}
+
 export async function sendMail(opts: MailOptions): Promise<void> {
   if (opts.orgId) {
     try {
@@ -109,10 +157,17 @@ export async function sendMail(opts: MailOptions): Promise<void> {
     }
   }
 
+  // Tier 1 white-label: still sending through the platform's own domain/
+  // account below, but dressed as the org wherever we have branding for it.
+  const branding = opts.orgId ? await getMailBranding(opts.orgId).catch(() => null) : null;
+  const from = branding ? brandedFromAddress(branding.companyName) : FROM_ADDRESS;
+  const html = branding ? withBrandHeader(opts.html, branding) : opts.html;
+  const replyTo = branding?.replyTo || undefined;
+
   if (RESEND_API_KEY) {
     try {
-      await sendViaResend(opts);
-      console.log(`[Email sent via Resend] To: ${opts.to} | ${opts.subject}`);
+      await sendViaResend({ ...opts, html }, from, replyTo);
+      console.log(`[Email sent via Resend]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
     } catch (err) {
       console.error('[Email error — Resend]', err);
     }
@@ -125,8 +180,8 @@ export async function sendMail(opts: MailOptions): Promise<void> {
     return;
   }
   try {
-    await transporter.sendMail({ from: FROM_ADDRESS, ...opts });
-    console.log(`[Email sent via SMTP] To: ${opts.to} | ${opts.subject}`);
+    await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html });
+    console.log(`[Email sent via SMTP]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
   } catch (err) {
     console.error('[Email error — SMTP]', err);
   }

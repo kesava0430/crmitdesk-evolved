@@ -1,8 +1,38 @@
 import { useState } from 'react';
-import { Building2, Users as UsersIcon, CheckCircle2, XCircle, LogOut, X } from 'lucide-react';
+import { Building2, Users as UsersIcon, CheckCircle2, XCircle, LogOut, X, HardDrive } from 'lucide-react';
 import { usePlatformOrgs, usePlatformOrg } from '../api/platformAdmin';
 import { Spinner } from '../shared/components';
 import { useAuth } from '../contexts/AuthContext';
+
+const GB = 1024 * 1024 * 1024;
+const gbLabel = (bytes: number) => `${(bytes / GB).toFixed(bytes < GB ? 2 : 1)}GB`;
+
+/** Storage provider label + (for hosted S3) quota/usage bar — used in both the table row and the detail panel. */
+function StorageBadge({ provider, quotaBytes, usedBytes, connectedEmail }: { provider: 'GOOGLE_DRIVE' | 'HOSTED_S3' | null; quotaBytes: number; usedBytes: number; connectedEmail?: string | null }) {
+  if (!provider) {
+    return quotaBytes > 0
+      ? <span className="text-xs text-gray-500">Not connected · {gbLabel(quotaBytes)} hosted quota available</span>
+      : <span className="text-xs text-gray-500">Not connected · plan has no hosted quota</span>;
+  }
+  if (provider === 'GOOGLE_DRIVE') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+        <HardDrive size={12} /> Own Google Drive{connectedEmail ? ` (${connectedEmail})` : ''}
+      </span>
+    );
+  }
+  const pct = quotaBytes > 0 ? Math.min(100, Math.round((usedBytes / quotaBytes) * 100)) : 100;
+  return (
+    <div className="flex flex-col gap-1 min-w-[120px]">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-700">
+        <HardDrive size={12} className="text-violet-600" /> Hosted S3 · {gbLabel(usedBytes)} / {gbLabel(quotaBytes)}
+      </span>
+      <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-violet-500'}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
 
 function ConnectionBadge({ connected, label }: { connected: boolean; label: string }) {
   return (
@@ -73,6 +103,24 @@ function OrgDetailPanel({ orgId, onClose }: { orgId: string; onClose: () => void
                   </>
                 ) : (
                   <div className="text-gray-500">No WhatsApp number connected.</div>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Attachment storage license</h3>
+              <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-2">
+                <StorageBadge
+                  provider={org.storageConfig?.provider ?? null}
+                  quotaBytes={org.storageLicense.quotaBytes}
+                  usedBytes={org.storageLicense.usedBytes}
+                  connectedEmail={org.storageConfig?.connectedEmail}
+                />
+                {org.storageConfig?.provider === 'HOSTED_S3' && (
+                  <div className="flex justify-between text-xs text-gray-500"><span>Last updated</span><span>{new Date(org.storageConfig.updatedAt).toLocaleDateString()}</span></div>
+                )}
+                {!org.storageConfig && (
+                  <p className="text-xs text-gray-500">No storage connected yet — org can bring their own Google Drive for free, or use {gbLabel(org.storageLicense.quotaBytes)} of hosted storage included in their plan{org.storageLicense.quotaBytes === 0 ? ' once they upgrade' : ''}.</p>
                 )}
               </div>
             </section>
@@ -149,6 +197,7 @@ export function PlatformAdminPage() {
                   <th className="text-left px-4 py-3">Users</th>
                   <th className="text-left px-4 py-3">Email sending</th>
                   <th className="text-left px-4 py-3">WhatsApp sending</th>
+                  <th className="text-left px-4 py-3">Attachment storage</th>
                   <th className="text-left px-4 py-3">Created</th>
                 </tr>
               </thead>
@@ -173,6 +222,14 @@ export function PlatformAdminPage() {
                       {org.whatsappSending.connected
                         ? <ConnectionBadge connected label={org.whatsappSending.phoneNumber ?? 'Connected'} />
                         : <ConnectionBadge connected={false} label="Not connected" />}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StorageBadge
+                        provider={org.storageLicense.provider}
+                        quotaBytes={org.storageLicense.quotaBytes}
+                        usedBytes={org.storageLicense.usedBytes}
+                        connectedEmail={org.storageLicense.connectedEmail}
+                      />
                     </td>
                     <td className="px-4 py-3 text-gray-500">{new Date(org.createdAt).toLocaleDateString()}</td>
                   </tr>

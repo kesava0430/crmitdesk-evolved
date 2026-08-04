@@ -4,6 +4,16 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../../utils/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { AuthRequest } from '../../middleware/authenticate';
+import { getHostedStorageUsageBytes } from '../../utils/licensing';
+import { PLANS } from '../../utils/stripe';
+
+const GB = 1024 * 1024 * 1024;
+/** Quota computed inline from the plan (same numbers licensing.ts's getStorageQuotaBytes uses) rather than
+ * calling that helper directly — it upserts a default Subscription row as a side effect on every call, which
+ * would fire once per org on every admin page load. Read-only here on purpose. */
+function storageQuotaBytesForPlan(plan: string): number {
+  return ((PLANS as Record<string, { storageQuotaGB: number }>)[plan]?.storageQuotaGB ?? 0) * GB;
+}
 
 /**
  * POST /platform/bootstrap — creates (or promotes) the first PLATFORM_ADMIN
@@ -60,47 +70,64 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
         branding: true,
         emailAccount: { select: { email: true, smtpHost: true, lastSyncAt: true } },
         whatsAppConfig: { select: { phoneNumber: true, notifyNumber: true } },
+        storageConfig: { select: { provider: true, connectedEmail: true } },
         _count: { select: { users: true, contacts: true, tickets: true } },
       },
     });
 
-    res.json(orgs.map(o => ({
-      id: o.id,
-      name: o.name,
-      slug: o.slug,
-      plan: o.plan,
-      createdAt: o.createdAt,
-      subscription: o.subscription
-        ? {
-            plan: o.subscription.plan,
-            status: o.subscription.status,
-            seats: o.subscription.seats,
-            currentPeriodEnd: o.subscription.currentPeriodEnd,
-            cancelAtPeriodEnd: o.subscription.cancelAtPeriodEnd,
-            stripeCustomerId: o.subscription.stripeCustomerId,
-          }
-        : null,
-      branding: o.branding
-        ? {
-            companyName: o.branding.companyName,
-            logoUrl: o.branding.logoUrl,
-            primaryColor: o.branding.primaryColor,
-            supportEmail: o.branding.supportEmail,
-          }
-        : null,
-      emailSending: {
-        connected: !!o.emailAccount,
-        email: o.emailAccount?.email ?? null,
-        smtpHost: o.emailAccount?.smtpHost ?? null,
-        lastSyncAt: o.emailAccount?.lastSyncAt ?? null,
-      },
-      whatsappSending: {
-        connected: !!o.whatsAppConfig,
-        phoneNumber: o.whatsAppConfig?.phoneNumber ?? null,
-        notifyNumber: o.whatsAppConfig?.notifyNumber ?? null,
-      },
-      counts: { users: o._count.users, contacts: o._count.contacts, tickets: o._count.tickets },
-    })));
+    // Attachment usage requires an aggregate query per org — read-only, run in parallel.
+    const usageByOrg = await Promise.all(orgs.map(o => getHostedStorageUsageBytes(o.id)));
+
+    res.json(orgs.map((o, i) => {
+      const plan = o.subscription?.plan ?? o.plan;
+      const quotaBytes = storageQuotaBytesForPlan(plan);
+      return {
+        id: o.id,
+        name: o.name,
+        slug: o.slug,
+        plan: o.plan,
+        createdAt: o.createdAt,
+        subscription: o.subscription
+          ? {
+              plan: o.subscription.plan,
+              status: o.subscription.status,
+              seats: o.subscription.seats,
+              currentPeriodEnd: o.subscription.currentPeriodEnd,
+              cancelAtPeriodEnd: o.subscription.cancelAtPeriodEnd,
+              stripeCustomerId: o.subscription.stripeCustomerId,
+            }
+          : null,
+        branding: o.branding
+          ? {
+              companyName: o.branding.companyName,
+              logoUrl: o.branding.logoUrl,
+              primaryColor: o.branding.primaryColor,
+              supportEmail: o.branding.supportEmail,
+            }
+          : null,
+        emailSending: {
+          connected: !!o.emailAccount,
+          email: o.emailAccount?.email ?? null,
+          smtpHost: o.emailAccount?.smtpHost ?? null,
+          lastSyncAt: o.emailAccount?.lastSyncAt ?? null,
+        },
+        whatsappSending: {
+          connected: !!o.whatsAppConfig,
+          phoneNumber: o.whatsAppConfig?.phoneNumber ?? null,
+          notifyNumber: o.whatsAppConfig?.notifyNumber ?? null,
+        },
+        // "License" for attachments: which storage the org is on (their own
+        // Google Drive vs our hosted S3) and, for hosted, quota vs usage —
+        // same numbers utils/licensing.ts enforces on every upload.
+        storageLicense: {
+          provider: o.storageConfig?.provider ?? null, // 'GOOGLE_DRIVE' | 'HOSTED_S3' | null (not connected)
+          connectedEmail: o.storageConfig?.connectedEmail ?? null,
+          quotaBytes,
+          usedBytes: o.storageConfig?.provider === 'HOSTED_S3' ? usageByOrg[i] : 0,
+        },
+        counts: { users: o._count.users, contacts: o._count.contacts, tickets: o._count.tickets },
+      };
+    }));
   } catch (err) { next(err); }
 }
 
@@ -114,6 +141,7 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
         branding: true,
         emailAccount: { select: { email: true, imapHost: true, smtpHost: true, smtpPort: true, lastSyncAt: true } },
         whatsAppConfig: { select: { phoneNumber: true, notifyNumber: true, createdAt: true } },
+        storageConfig: { select: { provider: true, connectedEmail: true, rootFolderId: true, updatedAt: true } },
         users: {
           select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
           orderBy: { createdAt: 'asc' },
@@ -122,6 +150,10 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
       },
     });
     if (!org) throw new AppError(404, 'Organization not found');
-    res.json(org);
+
+    const quotaBytes = storageQuotaBytesForPlan(org.subscription?.plan ?? org.plan);
+    const usedBytes = org.storageConfig?.provider === 'HOSTED_S3' ? await getHostedStorageUsageBytes(org.id) : 0;
+
+    res.json({ ...org, storageLicense: { quotaBytes, usedBytes } });
   } catch (err) { next(err); }
 }
