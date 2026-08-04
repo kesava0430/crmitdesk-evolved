@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Building2, Users as UsersIcon, CheckCircle2, XCircle, LogOut, X, HardDrive, Pencil, Check, Loader2 } from 'lucide-react';
+import { Building2, Users as UsersIcon, CheckCircle2, XCircle, LogOut, X, HardDrive, Pencil, Check, Loader2, Mail, MessageCircle } from 'lucide-react';
 import {
   usePlatformOrgs,
   usePlatformOrg,
@@ -7,6 +7,7 @@ import {
   useUpdatePlatformSubscription,
   useUpdatePlatformBranding,
   type PlatformOrgDetail,
+  type SendCounts,
 } from '../api/platformAdmin';
 import { Spinner } from '../shared/components';
 import { useAuth } from '../contexts/AuthContext';
@@ -48,6 +49,45 @@ function StorageBadge({ provider, quotaBytes, usedBytes, connectedEmail }: { pro
   return quotaBytes > 0
     ? <span className="text-xs text-gray-500">Not connected · uses platform default ({gbLabel(quotaBytes)} quota) automatically</span>
     : <span className="text-xs text-gray-500">Not connected · plan has no hosted quota</span>;
+}
+
+/** Compact "how many sends went through our infrastructure" badge for the orgs table. */
+function PlatformSendBadge({ sendCounts }: { sendCounts: SendCounts }) {
+  const platformTotal = sendCounts.email.platform + sendCounts.whatsapp.platform;
+  if (platformTotal === 0) return <span className="text-xs text-gray-400">—</span>;
+  return (
+    <span className="inline-flex items-center gap-2.5 text-xs text-gray-700">
+      {sendCounts.email.platform > 0 && (
+        <span className="inline-flex items-center gap-1" title={`${sendCounts.email.platform} emails sent via the platform`}>
+          <Mail size={12} className="text-gray-400" />{sendCounts.email.platform}
+        </span>
+      )}
+      {sendCounts.whatsapp.platform > 0 && (
+        <span className="inline-flex items-center gap-1" title={`${sendCounts.whatsapp.platform} WhatsApp messages sent via the platform`}>
+          <MessageCircle size={12} className="text-gray-400" />{sendCounts.whatsapp.platform}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Full own-vs-platform-vs-total breakdown for the detail panel. */
+function SendCountsSection({ sendCounts }: { sendCounts: SendCounts }) {
+  return (
+    <section>
+      <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Sending activity (all time)</h3>
+      <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-gray-500 inline-flex items-center gap-1"><Mail size={12} /> Email</span>
+          <span className="font-medium">{sendCounts.email.own} own · {sendCounts.email.platform} via us · {sendCounts.email.total} total</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-gray-500 inline-flex items-center gap-1"><MessageCircle size={12} /> WhatsApp</span>
+          <span className="font-medium">{sendCounts.whatsapp.own} own · {sendCounts.whatsapp.platform} via us · {sendCounts.whatsapp.total} total</span>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function ConnectionBadge({ connected, label }: { connected: boolean; label: string }) {
@@ -280,6 +320,8 @@ function OrgDetailPanel({ orgId, onClose }: { orgId: string; onClose: () => void
               </div>
             </section>
 
+            <SendCountsSection sendCounts={org.sendCounts} />
+
             <section>
               <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Attachment storage license</h3>
               <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-2">
@@ -364,6 +406,7 @@ export function PlatformAdminPage() {
                   <th className="text-left px-4 py-3">Email sending</th>
                   <th className="text-left px-4 py-3">WhatsApp sending</th>
                   <th className="text-left px-4 py-3">Attachment storage</th>
+                  <th className="text-left px-4 py-3">Sent via us</th>
                   <th className="text-left px-4 py-3">Created</th>
                 </tr>
               </thead>
@@ -397,6 +440,7 @@ export function PlatformAdminPage() {
                         connectedEmail={org.storageLicense.connectedEmail}
                       />
                     </td>
+                    <td className="px-4 py-3"><PlatformSendBadge sendCounts={org.sendCounts} /></td>
                     <td className="px-4 py-3 text-gray-500">{new Date(org.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}

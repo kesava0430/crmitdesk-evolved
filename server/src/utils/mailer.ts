@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { prisma } from './prisma';
 import { decryptSecretOrPlain } from './crypto';
+import { recordUsage } from './usageTracking';
 
 interface MailOptions {
   to: string;
@@ -147,6 +148,7 @@ export async function sendMail(opts: MailOptions): Promise<void> {
       if (orgMailer) {
         await orgMailer.transport.sendMail({ from: orgMailer.from, to: opts.to, subject: opts.subject, html: opts.html });
         console.log(`[Email sent via org SMTP] To: ${opts.to} | ${opts.subject}`);
+        recordUsage(opts.orgId, 'EMAIL_SEND', 'OWN');
         return;
       }
     } catch (err) {
@@ -168,6 +170,7 @@ export async function sendMail(opts: MailOptions): Promise<void> {
     try {
       await sendViaResend({ ...opts, html }, from, replyTo);
       console.log(`[Email sent via Resend]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
+      if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
     } catch (err) {
       console.error('[Email error — Resend]', err);
     }
@@ -182,6 +185,7 @@ export async function sendMail(opts: MailOptions): Promise<void> {
   try {
     await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html });
     console.log(`[Email sent via SMTP]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
+    if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
   } catch (err) {
     console.error('[Email error — SMTP]', err);
   }

@@ -92,7 +92,7 @@ export async function sendWhatsApp(orgId: string, toNumber: string, body: string
   if (waConfig) {
     const from = waConfig.phoneNumber.startsWith('whatsapp:') ? waConfig.phoneNumber : `whatsapp:${waConfig.phoneNumber}`;
     const result = await sendTwilioMessage(waConfig.accountSid, waConfig.authToken, from, to, body);
-    recordUsage(orgId, 'WHATSAPP_SEND');
+    recordUsage(orgId, 'WHATSAPP_SEND', 'OWN');
     return result;
   }
 
@@ -109,6 +109,6 @@ export async function sendWhatsApp(orgId: string, toNumber: string, body: string
 
   const from = PLATFORM_FROM.startsWith('whatsapp:') ? PLATFORM_FROM : `whatsapp:${PLATFORM_FROM}`;
   const result = await sendTwilioMessage(PLATFORM_SID, PLATFORM_TOKEN, from, to, brandedBody);
-  recordUsage(orgId, 'WHATSAPP_SEND');
+  recordUsage(orgId, 'WHATSAPP_SEND', 'PLATFORM');
   return result;
 }

@@ -170,6 +170,7 @@ export async function sendReply(req: AuthRequest, res: Response, next: NextFunct
           : {},
       });
       outboundId = info.messageId;
+      recordUsage(orgId, 'EMAIL_SEND', 'OWN');
     } else if (conversation.channel === 'WHATSAPP') {
       const waConfig = await prisma.whatsAppConfig.findUnique({ where: { orgId } });
       if (!waConfig) throw new AppError(400, 'No WhatsApp account connected. Go to Inbox → Settings.');
@@ -190,7 +191,7 @@ export async function sendReply(req: AuthRequest, res: Response, next: NextFunct
         body,
       );
       outboundId = result.sid;
-      recordUsage(orgId, 'WHATSAPP_SEND');
+      recordUsage(orgId, 'WHATSAPP_SEND', 'OWN');
     } else {
       throw new AppError(400, 'Unknown channel');
     }

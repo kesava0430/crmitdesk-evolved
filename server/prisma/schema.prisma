@@ -63,16 +63,24 @@ model Organization {
   @@map("organizations")
 }
 
-// Lightweight per-event usage log — currently AI_CALL and WHATSAPP_SEND.
-// No billing enforcement reads this yet (see utils/usageTracking.ts); it
-// exists purely so real usage patterns are visible before we set any
-// included-quota/overage numbers, rather than guessing at limits with no
-// data. One row per event rather than a rolling counter, so it can be
-// sliced by day/type once there's enough history to actually decide.
+// Lightweight per-event usage log — currently AI_CALL, WHATSAPP_SEND, and
+// EMAIL_SEND. No billing enforcement reads this yet (see
+// utils/usageTracking.ts); it exists purely so real usage patterns are
+// visible before we set any included-quota/overage numbers, rather than
+// guessing at limits with no data. One row per event rather than a rolling
+// counter, so it can be sliced by day/type once there's enough history to
+// actually decide.
+//
+// `source` distinguishes, for WHATSAPP_SEND/EMAIL_SEND, whether the org's
+// own connected account was used ('OWN') or the platform's shared
+// fallback was ('PLATFORM') — see utils/whatsapp.ts and utils/mailer.ts.
+// Null for event types where the distinction doesn't apply (AI_CALL) or
+// for rows recorded before this column existed.
 model UsageEvent {
   id        String       @id @default(cuid())
   orgId     String       @map("org_id")
   type      String
+  source    String?
   createdAt DateTime     @default(now()) @map("created_at")
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 

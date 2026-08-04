@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 
+export interface SendCounts {
+  email: { own: number; platform: number; total: number };
+  whatsapp: { own: number; platform: number; total: number };
+}
+
 export interface PlatformOrgSummary {
   id: string;
   name: string;
@@ -22,6 +27,8 @@ export interface PlatformOrgSummary {
   // hosted S3 option, quota vs usage — same numbers utils/licensing.ts
   // enforces server-side on every upload.
   storageLicense: { provider: 'GOOGLE_DRIVE' | 'HOSTED_S3' | null; connectedEmail: string | null; quotaBytes: number; usedBytes: number };
+  // All-time email/WhatsApp sends, split by org's-own-account vs. platform fallback.
+  sendCounts: SendCounts;
   counts: { users: number; contacts: number; tickets: number };
 }
 

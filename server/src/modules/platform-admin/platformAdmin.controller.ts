@@ -5,6 +5,7 @@ import { prisma } from '../../utils/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { AuthRequest } from '../../middleware/authenticate';
 import { getHostedStorageUsageBytes } from '../../utils/licensing';
+import { getSendCounts, getSendCountsForOrgs } from '../../utils/usageTracking';
 import { PLANS } from '../../utils/stripe';
 
 const GB = 1024 * 1024 * 1024;
@@ -76,7 +77,11 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
     });
 
     // Attachment usage requires an aggregate query per org — read-only, run in parallel.
-    const usageByOrg = await Promise.all(orgs.map(o => getHostedStorageUsageBytes(o.id)));
+    // Send counts are a single batched groupBy across every org (see getSendCountsForOrgs).
+    const [usageByOrg, sendCountsByOrg] = await Promise.all([
+      Promise.all(orgs.map(o => getHostedStorageUsageBytes(o.id))),
+      getSendCountsForOrgs(orgs.map(o => o.id)),
+    ]);
 
     res.json(orgs.map((o, i) => {
       const plan = o.subscription?.plan ?? o.plan;
@@ -128,6 +133,10 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
           quotaBytes,
           usedBytes: usageByOrg[i],
         },
+        // All-time email/WhatsApp sends, split by whether the org's own
+        // connected account was used vs. the platform fallback — see
+        // utils/usageTracking.ts's getSendCountsForOrgs.
+        sendCounts: sendCountsByOrg[o.id],
         counts: { users: o._count.users, contacts: o._count.contacts, tickets: o._count.tickets },
       };
     }));
@@ -155,9 +164,12 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
     if (!org) throw new AppError(404, 'Organization not found');
 
     const quotaBytes = storageQuotaBytesForPlan(org.subscription?.plan ?? org.plan);
-    const usedBytes = await getHostedStorageUsageBytes(org.id); // real even without an explicit StorageConfig row — see the fallback in storage.ts
+    const [usedBytes, sendCounts] = await Promise.all([
+      getHostedStorageUsageBytes(org.id), // real even without an explicit StorageConfig row — see the fallback in storage.ts
+      getSendCounts(org.id),
+    ]);
 
-    res.json({ ...org, storageLicense: { quotaBytes, usedBytes } });
+    res.json({ ...org, storageLicense: { quotaBytes, usedBytes }, sendCounts });
   } catch (err) { next(err); }
 }
 
