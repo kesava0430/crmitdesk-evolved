@@ -1240,6 +1240,12 @@ enum UserRole {
   IT_MANAGER
   IT_AGENT
   EMPLOYEE
+  // Cross-org platform operator role — not scoped to any single
+  // Organization (User.orgId is null for these users). Only used by the
+  // platform-admin module (server/src/modules/platform-admin) to view all
+  // orgs' plan/license/branding/sending-connection status in one place.
+  // Never assignable through normal org-scoped invite/user-management UI.
+  PLATFORM_ADMIN
 }
 
 enum LeadStatus {

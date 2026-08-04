@@ -54,6 +54,7 @@ import { attachmentsRouter } from './modules/attachments/attachments.routes';
 import { demoRouter } from './modules/demo/demo.routes';
 import { customModulesRouter } from './modules/custom-modules/customModules.routes';
 import { pushRouter } from './modules/push/push.routes';
+import { platformAdminRouter } from './modules/platform-admin/platformAdmin.routes';
 import { startSchedulePoller } from './utils/scheduler';
 import { startCustomModuleSyncPoller } from './utils/customModuleSync';
 import { startDateAutomationPoller } from './utils/dateAutomation';
@@ -186,6 +187,7 @@ app.use('/api/attachments', attachmentsRouter);
 app.use('/api/demo', demoRouter);
 app.use('/api/custom-modules', customModulesRouter);
 app.use('/api/push', pushRouter);
+app.use('/api/platform', platformAdminRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);
