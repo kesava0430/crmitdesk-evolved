@@ -17,9 +17,9 @@
 
 # ── Fill these in ────────────────────────────────────────────────────────
 $ServerUrl = "https://crm-itdesk-server.onrender.com"
-$Secret    = "<paste your PLATFORM_BOOTSTRAP_SECRET here>"
+$Secret    = "08a91a0430_08a91a0430@A"
 $Email     = "kesava@quantiqsystems.com"
-$Password  = "<a strong password>"
+$Password  = "08a91a0430.A"
 $Name      = "Kesava"
 # ──────────────────────────────────────────────────────────────────────────
 
