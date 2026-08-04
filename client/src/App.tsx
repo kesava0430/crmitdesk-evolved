@@ -60,10 +60,28 @@ const CustomModulesPage  = lazy(() => import('./pages/CustomModulesPage'));
 const QuotesPage         = lazy(() => import('./pages/QuotesPage'));
 const TwoFactorPage      = lazy(() => import('./pages/TwoFactorPage'));
 const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
+const PlatformAdminPage  = lazy(() => import('./pages/PlatformAdminPage').then(m => ({ default: m.PlatformAdminPage })));
 
+// PLATFORM_ADMIN users have no orgId — the normal AppLayout/org-scoped pages
+// all assume one, so they're routed to the standalone /platform-admin
+// console instead and never see the regular app shell.
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  const { isAuthenticated, user } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role === 'PLATFORM_ADMIN') return <Navigate to="/platform-admin" replace />;
+  return <>{children}</>;
+}
+
+function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, user } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role !== 'PLATFORM_ADMIN') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+function RootRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={user?.role === 'PLATFORM_ADMIN' ? '/platform-admin' : '/dashboard'} replace />;
 }
 
 export default function App() {
@@ -77,6 +95,7 @@ export default function App() {
         <Route path="/demo" element={<DemoLandingPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/approve-org" element={<OrgApprovalPage />} />
+        <Route path="/platform-admin" element={<PlatformAdminRoute><Suspense fallback={<PageSkeleton />}><PlatformAdminPage /></Suspense></PlatformAdminRoute>} />
         <Route path="/" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><AppLayout /></Suspense></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
@@ -113,7 +132,7 @@ export default function App() {
           <Route path="ai-studio" element={<AIStudioPage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<RootRedirect />} />
       </Routes>
     </AuthProvider>
   );

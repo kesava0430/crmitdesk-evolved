@@ -50,6 +50,16 @@ services:
       # Leave unset to disable the reset endpoint entirely (it 404s).
       - key: DEMO_RESET_SECRET
         sync: false
+      # Shared secret for POST /api/platform/bootstrap
+      # (server/src/modules/platform-admin) — creates/promotes the one
+      # cross-org PLATFORM_ADMIN login used to view every org's plan,
+      # branding, and email/WhatsApp sending-connection status in one place.
+      # Set any long random string, call the endpoint once with it (see the
+      # curl example in the white-label/licensing plan doc), then treat that
+      # secret as sensitive going forward — anyone with it can create a
+      # platform-admin account. Leave unset to disable the endpoint (404s).
+      - key: PLATFORM_BOOTSTRAP_SECRET
+        sync: false
       # Where "new org signup" approval-request emails go (register() in
       # auth.controller.ts). Code falls back to this same address if the env
       # var is ever unset, so this line is just documentation/override — no
