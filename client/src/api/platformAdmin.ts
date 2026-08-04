@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 
 export interface PlatformOrgSummary {
@@ -49,3 +49,44 @@ export const usePlatformOrg = (id: string | null, enabled = true) =>
     queryFn: () => api.get(`/platform/orgs/${id}`).then(r => r.data as PlatformOrgDetail),
     enabled: enabled && !!id,
   });
+
+// ─── Mutations (edit-from-console) ────────────────────────────────────────────
+// Each invalidates both the list (['platform-orgs']) and the open detail panel
+// (['platform-orgs', id]) so the table and the slide-over stay in sync without
+// a manual refetch.
+
+export const useUpdatePlatformOrg = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; name?: string }) =>
+      api.patch(`/platform/orgs/${id}`, data).then(r => r.data),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['platform-orgs'] });
+      qc.invalidateQueries({ queryKey: ['platform-orgs', id] });
+    },
+  });
+};
+
+export const useUpdatePlatformSubscription = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; plan?: string; seats?: number; status?: string; cancelAtPeriodEnd?: boolean }) =>
+      api.patch(`/platform/orgs/${id}/subscription`, data).then(r => r.data),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['platform-orgs'] });
+      qc.invalidateQueries({ queryKey: ['platform-orgs', id] });
+    },
+  });
+};
+
+export const useUpdatePlatformBranding = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; companyName?: string; logoUrl?: string | null; primaryColor?: string; supportEmail?: string | null }) =>
+      api.patch(`/platform/orgs/${id}/branding`, data).then(r => r.data),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['platform-orgs'] });
+      qc.invalidateQueries({ queryKey: ['platform-orgs', id] });
+    },
+  });
+};

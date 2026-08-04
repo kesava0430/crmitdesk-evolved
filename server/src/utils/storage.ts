@@ -87,7 +87,19 @@ export async function countGoogleDriveAttachments(orgId: string): Promise<number
 }
 
 export async function uploadAttachment(orgId: string, file: { buffer: Buffer; filename: string; mimeType: string }): Promise<UploadResult> {
-  const config = await getConfig(orgId);
+  const config = await prisma.storageConfig.findUnique({ where: { orgId } });
+
+  // Platform fallback (White-Label Sending & Licensing Plan, "attachments"):
+  // an org that never explicitly connected Google Drive or hosted storage no
+  // longer hard-blocks on upload — it transparently uses OUR hosted S3
+  // bucket instead, still gated by the org's plan quota below (a FREE org
+  // gets a clear upgrade-or-connect-your-own-Drive message, same as before;
+  // Pro/Enterprise orgs just start uploading with no connect step at all).
+  if (!config) {
+    await assertHostedStorageAvailable(orgId, file.buffer.length);
+    const key = await s3Storage.uploadObject(orgId, file);
+    return { provider: 'HOSTED_S3', providerFileId: key, fileUrl: '' };
+  }
 
   if (config.provider === 'GOOGLE_DRIVE') {
     const accessToken = await getValidGoogleAccessToken(orgId, config);

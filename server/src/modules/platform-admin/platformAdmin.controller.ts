@@ -116,14 +116,17 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
           phoneNumber: o.whatsAppConfig?.phoneNumber ?? null,
           notifyNumber: o.whatsAppConfig?.notifyNumber ?? null,
         },
-        // "License" for attachments: which storage the org is on (their own
-        // Google Drive vs our hosted S3) and, for hosted, quota vs usage —
-        // same numbers utils/licensing.ts enforces on every upload.
+        // "License" for attachments: which storage the org is on. `provider`
+        // is null when nothing's explicitly connected — since storage.ts now
+        // auto-falls-back an unconnected org straight to our hosted S3 (see
+        // uploadAttachment), usedBytes is computed unconditionally: an org
+        // can have real hosted usage purely from the fallback, with no
+        // StorageConfig row ever created.
         storageLicense: {
-          provider: o.storageConfig?.provider ?? null, // 'GOOGLE_DRIVE' | 'HOSTED_S3' | null (not connected)
+          provider: o.storageConfig?.provider ?? null, // 'GOOGLE_DRIVE' | 'HOSTED_S3' | null (not connected — may still be using the platform fallback)
           connectedEmail: o.storageConfig?.connectedEmail ?? null,
           quotaBytes,
-          usedBytes: o.storageConfig?.provider === 'HOSTED_S3' ? usageByOrg[i] : 0,
+          usedBytes: usageByOrg[i],
         },
         counts: { users: o._count.users, contacts: o._count.contacts, tickets: o._count.tickets },
       };
@@ -152,8 +155,79 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
     if (!org) throw new AppError(404, 'Organization not found');
 
     const quotaBytes = storageQuotaBytesForPlan(org.subscription?.plan ?? org.plan);
-    const usedBytes = org.storageConfig?.provider === 'HOSTED_S3' ? await getHostedStorageUsageBytes(org.id) : 0;
+    const usedBytes = await getHostedStorageUsageBytes(org.id); // real even without an explicit StorageConfig row — see the fallback in storage.ts
 
     res.json({ ...org, storageLicense: { quotaBytes, usedBytes } });
+  } catch (err) { next(err); }
+}
+
+const UpdateOrgSchema = z.object({
+  name: z.string().min(1).optional(),
+});
+
+/** PATCH /platform/orgs/:id — org identity fields only; plan/branding have their own endpoints below. */
+export async function updateOrg(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const data = UpdateOrgSchema.parse(req.body);
+    const org = await prisma.organization.update({ where: { id: req.params.id }, data });
+    res.json(org);
+  } catch (err) { next(err); }
+}
+
+const UpdateSubscriptionSchema = z.object({
+  plan: z.enum(['FREE', 'PRO', 'ENTERPRISE']).optional(),
+  seats: z.number().int().positive().optional(),
+  status: z.string().min(1).optional(),
+  cancelAtPeriodEnd: z.boolean().optional(),
+});
+
+/**
+ * PATCH /platform/orgs/:id/subscription — lets the platform operator override
+ * an org's plan/seats/status directly (comping an account, fixing a stuck
+ * Stripe webhook, correcting a manual sales deal) without needing the org's
+ * own admin to go through Billing themselves. Upserts because not every org
+ * has a Subscription row yet (see licensing.ts's getOrCreateSubscription —
+ * same default-row pattern). Also mirrors the plan onto Organization.plan so
+ * the two never drift apart (some older code paths still read that field).
+ */
+export async function updateSubscription(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.params.id;
+    const data = UpdateSubscriptionSchema.parse(req.body);
+
+    const sub = await prisma.subscription.upsert({
+      where: { orgId },
+      create: { orgId, plan: 'FREE', status: 'active', seats: 5, ...data },
+      update: data,
+    });
+
+    if (data.plan) {
+      await prisma.organization.update({ where: { id: orgId }, data: { plan: data.plan } });
+    }
+
+    res.json(sub);
+  } catch (err) { next(err); }
+}
+
+const UpdateBrandingSchema = z.object({
+  companyName: z.string().min(1).optional(),
+  logoUrl: z.string().url().nullable().optional(),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  supportEmail: z.string().email().nullable().optional(),
+});
+
+/** PATCH /platform/orgs/:id/branding — same fields the org's own Settings → Branding page edits, editable centrally. */
+export async function updateBranding(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.params.id;
+    const data = UpdateBrandingSchema.parse(req.body);
+
+    const branding = await prisma.orgBranding.upsert({
+      where: { orgId },
+      create: { orgId, companyName: data.companyName ?? '', ...data },
+      update: data,
+    });
+
+    res.json(branding);
   } catch (err) { next(err); }
 }

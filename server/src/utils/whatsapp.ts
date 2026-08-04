@@ -55,25 +55,60 @@ async function sendTwilioMessage(
   });
 }
 
+// Platform fallback (White-Label Sending & Licensing Plan): an org that
+// hasn't connected its own WhatsApp Business number can still have
+// workflow/schedule WhatsApp notifications go out, sent from the platform's
+// own Twilio number instead. These env vars were previously scaffolded in
+// .env.example but never wired up (the app only ever read Twilio creds from
+// the per-org WhatsAppConfig table) — this is what connects them.
+//
+// Note this only covers *outbound, org-initiated* sends (Schedule poller,
+// workflow SEND_WHATSAPP action) — the Inbox's two-way conversation replies
+// still require the org's own number, since inbound routing depends on
+// which number the customer messaged in the first place (see
+// inbox.controller.ts's webhook, which matches by phoneNumber).
+const PLATFORM_SID = process.env.TWILIO_ACCOUNT_SID;
+const PLATFORM_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const PLATFORM_FROM = process.env.TWILIO_FROM_NUMBER;
+
 /**
- * Sends a WhatsApp message on behalf of an org, using whatever WhatsApp
- * account is connected under Inbox → Settings (the same Twilio config
- * two-way conversations already use). Reused by the Schedule poller and the
- * workflow engine's SEND_WHATSAPP action — neither of those has a
- * "conversation" to hang off of, so this takes a raw phone number instead.
+ * Sends a WhatsApp message on behalf of an org. Prefers the org's own
+ * connected WhatsApp account (Inbox → Settings, the same Twilio config
+ * two-way conversations use); falls back to the platform's own Twilio
+ * number if the org hasn't connected one and TWILIO_ACCOUNT_SID/
+ * TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER are configured. Reused by the
+ * Schedule poller and the workflow engine's SEND_WHATSAPP action — neither
+ * of those has a "conversation" to hang off of, so this takes a raw phone
+ * number instead.
  *
  * `toNumber` should be a plain E.164 number (e.g. +14155551234) — the
  * `whatsapp:` prefix Twilio requires is added here.
  */
 export async function sendWhatsApp(orgId: string, toNumber: string, body: string): Promise<{ sid: string }> {
-  const waConfig = await prisma.whatsAppConfig.findUnique({ where: { orgId } });
-  if (!waConfig) throw new Error('No WhatsApp account connected for this organization. Go to Inbox → Settings.');
   if (!toNumber) throw new Error('No recipient phone number available.');
-
   const to = toNumber.startsWith('whatsapp:') ? toNumber : `whatsapp:${toNumber}`;
-  const from = waConfig.phoneNumber.startsWith('whatsapp:') ? waConfig.phoneNumber : `whatsapp:${waConfig.phoneNumber}`;
 
-  const result = await sendTwilioMessage(waConfig.accountSid, waConfig.authToken, from, to, body);
+  const waConfig = await prisma.whatsAppConfig.findUnique({ where: { orgId } });
+  if (waConfig) {
+    const from = waConfig.phoneNumber.startsWith('whatsapp:') ? waConfig.phoneNumber : `whatsapp:${waConfig.phoneNumber}`;
+    const result = await sendTwilioMessage(waConfig.accountSid, waConfig.authToken, from, to, body);
+    recordUsage(orgId, 'WHATSAPP_SEND');
+    return result;
+  }
+
+  if (!PLATFORM_SID || !PLATFORM_TOKEN || !PLATFORM_FROM) {
+    throw new Error('No WhatsApp account connected for this organization, and no platform fallback is configured. Go to Inbox → Settings to connect one.');
+  }
+
+  // Best-effort branding: WhatsApp has no "From Name" the way email does —
+  // the sender the recipient sees is just the platform's shared number — so
+  // the closest we can get to "looks like it's from the org" is a bold
+  // company-name line at the top of the message body itself.
+  const branding = await prisma.orgBranding.findUnique({ where: { orgId }, select: { companyName: true } }).catch(() => null);
+  const brandedBody = branding?.companyName ? `*${branding.companyName}*\n\n${body}` : body;
+
+  const from = PLATFORM_FROM.startsWith('whatsapp:') ? PLATFORM_FROM : `whatsapp:${PLATFORM_FROM}`;
+  const result = await sendTwilioMessage(PLATFORM_SID, PLATFORM_TOKEN, from, to, brandedBody);
   recordUsage(orgId, 'WHATSAPP_SEND');
   return result;
 }

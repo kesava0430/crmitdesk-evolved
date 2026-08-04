@@ -104,6 +104,17 @@ services:
       # "from" identity for Resend specifically.
       - key: RESEND_FROM
         sync: false
+      # Platform-owned Twilio WhatsApp account — utils/whatsapp.ts's
+      # sendWhatsApp() falls back to this for orgs that haven't connected
+      # their own WhatsApp number (Inbox → Settings), same "org's own first,
+      # platform's as fallback" pattern as RESEND_API_KEY above. Leave unset
+      # to disable the fallback — those orgs just get a clear error instead.
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
       # The backend's own public URL — used wherever the code needs to build
       # a link back to itself rather than to the frontend: CSAT survey links
       # (mailer.ts) and, now, the Google OAuth redirect_uri (storage.controller.ts)
