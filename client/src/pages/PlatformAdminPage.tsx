@@ -1,13 +1,17 @@
-import { useState } from 'react';
-import { Building2, Users as UsersIcon, CheckCircle2, XCircle, LogOut, X, HardDrive, Pencil, Check, Loader2, Mail, MessageCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Building2, Users as UsersIcon, CheckCircle2, XCircle, LogOut, X, HardDrive, Pencil, Check, Loader2, Mail, MessageCircle, Settings as SettingsIcon } from 'lucide-react';
 import {
   usePlatformOrgs,
   usePlatformOrg,
   useUpdatePlatformOrg,
   useUpdatePlatformSubscription,
   useUpdatePlatformBranding,
+  usePlatformSettings,
+  useUpdatePlatformSettings,
   type PlatformOrgDetail,
   type SendCounts,
+  type PlatformSecretStatus,
+  type PlatformSettingsUpdate,
 } from '../api/platformAdmin';
 import { Spinner } from '../shared/components';
 import { useAuth } from '../contexts/AuthContext';
@@ -270,6 +274,165 @@ function BrandingEditor({ org }: { org: PlatformOrgDetail }) {
   );
 }
 
+function SecretFieldStatus({ status }: { status: PlatformSecretStatus }) {
+  if (!status.configured) return <span className="text-xs text-gray-400">Not configured</span>;
+  return (
+    <span className="text-xs text-green-600 inline-flex items-center gap-1">
+      <CheckCircle2 size={11} /> Configured ({status.source === 'database' ? 'set here' : 'from env var'})
+    </span>
+  );
+}
+
+interface SettingsFormState {
+  resendFrom: string; smtpHost: string; smtpPort: string; smtpUser: string; smtpFrom: string;
+  twilioAccountSid: string; twilioFromNumber: string;
+  resendApiKey: string; smtpPass: string; twilioAuthToken: string;
+}
+
+/**
+ * The platform-wide email/WhatsApp *fallback* config — the account used to
+ * send on behalf of an org that hasn't connected its own (Tier 1
+ * white-label mailer, Twilio WhatsApp fallback). Previously only settable
+ * via Render env vars; this panel writes straight to the PlatformSettings
+ * DB row, which takes effect immediately, no redeploy.
+ */
+function PlatformSettingsPanel({ onClose }: { onClose: () => void }) {
+  const { data: settings, isLoading } = usePlatformSettings();
+  const mutation = useUpdatePlatformSettings();
+  const [form, setForm] = useState<SettingsFormState | null>(null);
+
+  useEffect(() => {
+    if (!settings) return;
+    setForm({
+      resendFrom: settings.resendFrom ?? '',
+      smtpHost: settings.smtpHost ?? '',
+      smtpPort: settings.smtpPort != null ? String(settings.smtpPort) : '',
+      smtpUser: settings.smtpUser ?? '',
+      smtpFrom: settings.smtpFrom ?? '',
+      twilioAccountSid: settings.twilioAccountSid ?? '',
+      twilioFromNumber: settings.twilioFromNumber ?? '',
+      resendApiKey: '',
+      smtpPass: '',
+      twilioAuthToken: '',
+    });
+  }, [settings]);
+
+  const set = (key: keyof SettingsFormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => (f ? { ...f, [key]: e.target.value } : f));
+
+  const save = () => {
+    if (!form) return;
+    const payload: PlatformSettingsUpdate = {
+      resendFrom: form.resendFrom,
+      smtpHost: form.smtpHost,
+      smtpPort: form.smtpPort === '' ? null : Number(form.smtpPort),
+      smtpUser: form.smtpUser,
+      smtpFrom: form.smtpFrom,
+      twilioAccountSid: form.twilioAccountSid,
+      twilioFromNumber: form.twilioFromNumber,
+    };
+    if (form.resendApiKey) payload.resendApiKey = form.resendApiKey;
+    if (form.smtpPass) payload.smtpPass = form.smtpPass;
+    if (form.twilioAuthToken) payload.twilioAuthToken = form.twilioAuthToken;
+    mutation.mutate(payload, {
+      onSuccess: () => setForm(f => (f ? { ...f, resendApiKey: '', smtpPass: '', twilioAuthToken: '' } : f)),
+    });
+  };
+
+  const clearSecret = (field: 'resendApiKey' | 'smtpPass' | 'twilioAuthToken') => {
+    mutation.mutate({ [field]: '' } as PlatformSettingsUpdate);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-white h-full shadow-xl overflow-y-auto p-6">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold text-gray-900">Platform settings</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">
+          The shared sending account used when an org hasn't connected its own. Changes here take effect immediately — no redeploy needed. Leave a field blank to keep using its Render env var.
+        </p>
+
+        {isLoading || !settings || !form ? (
+          <div className="flex justify-center py-12"><Spinner label="Loading settings…" /></div>
+        ) : (
+          <div className="space-y-6">
+            <section>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 inline-flex items-center gap-1"><Mail size={12} /> Email fallback</h3>
+              <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1"><span className="text-gray-500">Resend API key</span><SecretFieldStatus status={settings.resendApiKey} /></div>
+                  <div className="flex gap-1.5">
+                    <input type="password" className={inputCls} placeholder={settings.resendApiKey.configured ? '•••••••••• (leave blank to keep)' : 're_...'} value={form.resendApiKey} onChange={set('resendApiKey')} />
+                    {settings.resendApiKey.source === 'database' && (
+                      <button onClick={() => clearSecret('resendApiKey')} className="px-2 text-xs text-gray-500 hover:text-red-600 whitespace-nowrap">Clear</button>
+                    )}
+                  </div>
+                </div>
+                <label className="flex items-center justify-between gap-2"><span className="text-gray-500">Resend "From" address</span>
+                  <input className={inputCls + ' max-w-[220px]'} value={form.resendFrom} onChange={set('resendFrom')} placeholder="Name <noreply@yourdomain.com>" />
+                </label>
+                <div className="border-t border-gray-200 pt-2 text-xs text-gray-400">SMTP fallback (used only if no Resend key is configured)</div>
+                <label className="flex items-center justify-between gap-2"><span className="text-gray-500">SMTP host</span>
+                  <input className={inputCls + ' max-w-[220px]'} value={form.smtpHost} onChange={set('smtpHost')} placeholder="smtp.gmail.com" />
+                </label>
+                <label className="flex items-center justify-between gap-2"><span className="text-gray-500">SMTP port</span>
+                  <input type="number" className={inputCls + ' max-w-[220px]'} value={form.smtpPort} onChange={set('smtpPort')} placeholder="587" />
+                </label>
+                <label className="flex items-center justify-between gap-2"><span className="text-gray-500">SMTP user</span>
+                  <input className={inputCls + ' max-w-[220px]'} value={form.smtpUser} onChange={set('smtpUser')} />
+                </label>
+                <div>
+                  <div className="flex items-center justify-between mb-1"><span className="text-gray-500">SMTP password</span><SecretFieldStatus status={settings.smtpPass} /></div>
+                  <div className="flex gap-1.5">
+                    <input type="password" className={inputCls} placeholder={settings.smtpPass.configured ? '•••••••••• (leave blank to keep)' : ''} value={form.smtpPass} onChange={set('smtpPass')} />
+                    {settings.smtpPass.source === 'database' && (
+                      <button onClick={() => clearSecret('smtpPass')} className="px-2 text-xs text-gray-500 hover:text-red-600 whitespace-nowrap">Clear</button>
+                    )}
+                  </div>
+                </div>
+                <label className="flex items-center justify-between gap-2"><span className="text-gray-500">SMTP "From" address</span>
+                  <input className={inputCls + ' max-w-[220px]'} value={form.smtpFrom} onChange={set('smtpFrom')} />
+                </label>
+              </div>
+            </section>
+
+            <section>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 inline-flex items-center gap-1"><MessageCircle size={12} /> WhatsApp fallback (Twilio)</h3>
+              <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-3">
+                <label className="flex items-center justify-between gap-2"><span className="text-gray-500">Account SID</span>
+                  <input className={inputCls + ' max-w-[220px]'} value={form.twilioAccountSid} onChange={set('twilioAccountSid')} placeholder="AC..." />
+                </label>
+                <div>
+                  <div className="flex items-center justify-between mb-1"><span className="text-gray-500">Auth token</span><SecretFieldStatus status={settings.twilioAuthToken} /></div>
+                  <div className="flex gap-1.5">
+                    <input type="password" className={inputCls} placeholder={settings.twilioAuthToken.configured ? '•••••••••• (leave blank to keep)' : ''} value={form.twilioAuthToken} onChange={set('twilioAuthToken')} />
+                    {settings.twilioAuthToken.source === 'database' && (
+                      <button onClick={() => clearSecret('twilioAuthToken')} className="px-2 text-xs text-gray-500 hover:text-red-600 whitespace-nowrap">Clear</button>
+                    )}
+                  </div>
+                </div>
+                <label className="flex items-center justify-between gap-2"><span className="text-gray-500">From number</span>
+                  <input className={inputCls + ' max-w-[220px]'} value={form.twilioFromNumber} onChange={set('twilioFromNumber')} placeholder="whatsapp:+1415..." />
+                </label>
+              </div>
+            </section>
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">{settings.updatedAt ? `Last saved ${new Date(settings.updatedAt).toLocaleString()}` : 'Never saved — using env vars only'}</span>
+              <button onClick={save} disabled={mutation.isPending} className="px-4 py-2 text-sm rounded-lg bg-brand-600 text-white hover:bg-brand-700 inline-flex items-center gap-1.5 disabled:opacity-60">
+                {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save changes
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function OrgDetailPanel({ orgId, onClose }: { orgId: string; onClose: () => void }) {
   const { data: org, isLoading } = usePlatformOrg(orgId);
 
@@ -375,6 +538,7 @@ function OrgDetailPanel({ orgId, onClose }: { orgId: string; onClose: () => void
 export function PlatformAdminPage() {
   const { data: orgs, isLoading } = usePlatformOrgs();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { logout, user } = useAuth();
 
   return (
@@ -387,9 +551,14 @@ export function PlatformAdminPage() {
             <p className="text-xs text-gray-500">{user?.email} · cross-org license &amp; sending overview</p>
           </div>
         </div>
-        <button onClick={logout} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900">
-          <LogOut size={14} /> Sign out
-        </button>
+        <div className="flex items-center gap-4">
+          <button onClick={() => setSettingsOpen(true)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900">
+            <SettingsIcon size={14} /> Platform settings
+          </button>
+          <button onClick={logout} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900">
+            <LogOut size={14} /> Sign out
+          </button>
+        </div>
       </div>
 
       <div className="p-6 max-w-7xl mx-auto">
@@ -454,6 +623,7 @@ export function PlatformAdminPage() {
       </div>
 
       {selectedId && <OrgDetailPanel key={selectedId} orgId={selectedId} onClose={() => setSelectedId(null)} />}
+      {settingsOpen && <PlatformSettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

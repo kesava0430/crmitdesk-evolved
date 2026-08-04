@@ -6,6 +6,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { AuthRequest } from '../../middleware/authenticate';
 import { getHostedStorageUsageBytes } from '../../utils/licensing';
 import { getSendCounts, getSendCountsForOrgs } from '../../utils/usageTracking';
+import { getPlatformSettingsForAdmin, upsertPlatformSettings } from '../../utils/platformSettings';
 import { PLANS } from '../../utils/stripe';
 
 const GB = 1024 * 1024 * 1024;
@@ -241,5 +242,43 @@ export async function updateBranding(req: AuthRequest, res: Response, next: Next
     });
 
     res.json(branding);
+  } catch (err) { next(err); }
+}
+
+/**
+ * GET /platform/settings — the platform-wide email/WhatsApp fallback config
+ * (see utils/platformSettings.ts). Secrets are reduced to a configured/source
+ * flag, never sent back in the clear.
+ */
+export async function getSettings(_req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    res.json(await getPlatformSettingsForAdmin());
+  } catch (err) { next(err); }
+}
+
+const UpdateSettingsSchema = z.object({
+  resendApiKey: z.string().optional(),
+  resendFrom: z.string().optional(),
+  smtpHost: z.string().optional(),
+  smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
+  smtpUser: z.string().optional(),
+  smtpPass: z.string().optional(),
+  smtpFrom: z.string().optional(),
+  twilioAccountSid: z.string().optional(),
+  twilioAuthToken: z.string().optional(),
+  twilioFromNumber: z.string().optional(),
+});
+
+/**
+ * PATCH /platform/settings — updates any subset of the platform email/
+ * WhatsApp fallback fields. Per-field: omitted = untouched, empty string =
+ * cleared back to the env var, anything else = stored (encrypted for the
+ * three secret fields). See upsertPlatformSettings for the exact semantics.
+ */
+export async function updateSettings(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const data = UpdateSettingsSchema.parse(req.body);
+    await upsertPlatformSettings(data);
+    res.json(await getPlatformSettingsForAdmin());
   } catch (err) { next(err); }
 }

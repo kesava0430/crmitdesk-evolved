@@ -88,6 +88,32 @@ model UsageEvent {
   @@map("usage_events")
 }
 
+// Singleton row (always id = 'platform') holding the platform-wide email/
+// WhatsApp *fallback* sending config — the account used when an org hasn't
+// connected its own (see utils/whatsapp.ts, utils/mailer.ts). Lets a
+// PLATFORM_ADMIN change these live from the console instead of editing
+// Render env vars and redeploying. Every field is optional and layers over
+// the matching env var — see utils/platformSettings.ts's getPlatformMailConfig/
+// getPlatformWhatsAppConfig: a blank field here just means "use the env var".
+// Secrets (resendApiKey, smtpPass, twilioAuthToken) are stored encrypted via
+// utils/crypto.ts's encryptSecret, same as EmailAccount.password.
+model PlatformSettings {
+  id               String   @id @default("platform")
+  resendApiKey     String?  @map("resend_api_key")
+  resendFrom       String?  @map("resend_from")
+  smtpHost         String?  @map("smtp_host")
+  smtpPort         Int?     @map("smtp_port")
+  smtpUser         String?  @map("smtp_user")
+  smtpPass         String?  @map("smtp_pass")
+  smtpFrom         String?  @map("smtp_from")
+  twilioAccountSid String?  @map("twilio_account_sid")
+  twilioAuthToken  String?  @map("twilio_auth_token")
+  twilioFromNumber String?  @map("twilio_from_number")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
+}
+
 // A "create new org" signup submitted via the public register form. Nothing
 // in Organization/User is written until an admin approves it (see
 // auth.controller.ts register()/approveOrgSignup()) — this table is the only

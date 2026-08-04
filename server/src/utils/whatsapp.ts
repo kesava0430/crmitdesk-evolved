@@ -1,6 +1,7 @@
 import https from 'https';
 import { prisma } from './prisma';
 import { recordUsage } from './usageTracking';
+import { getPlatformWhatsAppConfig } from './platformSettings';
 
 /**
  * Low-level Twilio REST call (no SDK — direct HTTPS request). Mirrors the
@@ -58,18 +59,16 @@ async function sendTwilioMessage(
 // Platform fallback (White-Label Sending & Licensing Plan): an org that
 // hasn't connected its own WhatsApp Business number can still have
 // workflow/schedule WhatsApp notifications go out, sent from the platform's
-// own Twilio number instead. These env vars were previously scaffolded in
-// .env.example but never wired up (the app only ever read Twilio creds from
-// the per-org WhatsAppConfig table) — this is what connects them.
+// own Twilio number instead. Resolved live via getPlatformWhatsAppConfig()
+// (Platform Admin console override, falling back to TWILIO_ACCOUNT_SID/
+// TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER) rather than read once at import
+// time, so a console edit takes effect immediately without a redeploy.
 //
 // Note this only covers *outbound, org-initiated* sends (Schedule poller,
 // workflow SEND_WHATSAPP action) — the Inbox's two-way conversation replies
 // still require the org's own number, since inbound routing depends on
 // which number the customer messaged in the first place (see
 // inbox.controller.ts's webhook, which matches by phoneNumber).
-const PLATFORM_SID = process.env.TWILIO_ACCOUNT_SID;
-const PLATFORM_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const PLATFORM_FROM = process.env.TWILIO_FROM_NUMBER;
 
 /**
  * Sends a WhatsApp message on behalf of an org. Prefers the org's own
@@ -96,7 +95,8 @@ export async function sendWhatsApp(orgId: string, toNumber: string, body: string
     return result;
   }
 
-  if (!PLATFORM_SID || !PLATFORM_TOKEN || !PLATFORM_FROM) {
+  const platformCfg = await getPlatformWhatsAppConfig();
+  if (!platformCfg.accountSid || !platformCfg.authToken || !platformCfg.fromNumber) {
     throw new Error('No WhatsApp account connected for this organization, and no platform fallback is configured. Go to Inbox → Settings to connect one.');
   }
 
@@ -107,8 +107,8 @@ export async function sendWhatsApp(orgId: string, toNumber: string, body: string
   const branding = await prisma.orgBranding.findUnique({ where: { orgId }, select: { companyName: true } }).catch(() => null);
   const brandedBody = branding?.companyName ? `*${branding.companyName}*\n\n${body}` : body;
 
-  const from = PLATFORM_FROM.startsWith('whatsapp:') ? PLATFORM_FROM : `whatsapp:${PLATFORM_FROM}`;
-  const result = await sendTwilioMessage(PLATFORM_SID, PLATFORM_TOKEN, from, to, brandedBody);
+  const from = platformCfg.fromNumber.startsWith('whatsapp:') ? platformCfg.fromNumber : `whatsapp:${platformCfg.fromNumber}`;
+  const result = await sendTwilioMessage(platformCfg.accountSid, platformCfg.authToken, from, to, brandedBody);
   recordUsage(orgId, 'WHATSAPP_SEND', 'PLATFORM');
   return result;
 }

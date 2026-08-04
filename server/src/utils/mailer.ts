@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { prisma } from './prisma';
 import { decryptSecretOrPlain } from './crypto';
 import { recordUsage } from './usageTracking';
+import { getPlatformMailConfig, type PlatformMailConfig } from './platformSettings';
 
 interface MailOptions {
   to: string;
@@ -19,17 +20,19 @@ interface MailOptions {
 // Render's free web-service tier blocks all outbound SMTP traffic (ports 25,
 // 465, 587) — confirmed by the ETIMEDOUT/CONN errors nodemailer throws there
 // regardless of which SMTP host you point it at. Resend's HTTP API runs over
-// plain HTTPS (443), so it isn't affected. When RESEND_API_KEY is set, it's
-// used instead of SMTP entirely; SMTP remains as the fallback for local dev
-// or a paid Render plan where outbound SMTP isn't blocked.
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM_ADDRESS = process.env.RESEND_FROM || process.env.SMTP_FROM || 'CRM & IT Desk <onboarding@resend.dev>';
+// plain HTTPS (443), so it isn't affected. When a Resend key is configured
+// (Platform Admin console, falling back to RESEND_API_KEY), it's used
+// instead of SMTP entirely; SMTP remains as the fallback for local dev or a
+// paid Render plan where outbound SMTP isn't blocked. Both are resolved
+// live per-send via getPlatformMailConfig() rather than read once at import
+// time, so a Platform Admin console edit takes effect immediately.
+const DEFAULT_FROM_ADDRESS = 'CRM & IT Desk <onboarding@resend.dev>';
 
-async function sendViaResend(opts: MailOptions, from: string, replyTo?: string): Promise<void> {
+async function sendViaResend(opts: MailOptions, apiKey: string, from: string, replyTo?: string): Promise<void> {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -44,13 +47,13 @@ async function sendViaResend(opts: MailOptions, from: string, replyTo?: string):
 }
 
 // Lazy transporter — only created when SMTP is configured
-function getTransporter() {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+function buildPlatformTransporter(cfg: PlatformMailConfig) {
+  if (!cfg.smtpHost || !cfg.smtpUser || !cfg.smtpPass) return null;
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    host: cfg.smtpHost,
+    port: cfg.smtpPort || 587,
+    secure: cfg.smtpPort === 465,
+    auth: { user: cfg.smtpUser, pass: cfg.smtpPass },
     // Nodemailer's defaults (2min connection, 10min socket) mean a blocked or
     // slow-to-respond SMTP host hangs the *caller* for that long on every
     // `await sendMail(...)` — e.g. register()/approve-org-signup silently not
@@ -126,11 +129,11 @@ async function getMailBranding(orgId: string): Promise<MailBranding | null> {
 }
 
 /** Keeps the platform's verified sending address, swaps only the display name. */
-function brandedFromAddress(companyName: string): string {
-  const match = FROM_ADDRESS.match(/<([^>]+)>/);
-  const emailPart = match ? match[1] : FROM_ADDRESS;
+function brandedFromAddress(companyName: string, fromAddress: string): string {
+  const match = fromAddress.match(/<([^>]+)>/);
+  const emailPart = match ? match[1] : fromAddress;
   const safeName = companyName.replace(/"/g, '');
-  return safeName ? `"${safeName}" <${emailPart}>` : FROM_ADDRESS;
+  return safeName ? `"${safeName}" <${emailPart}>` : fromAddress;
 }
 
 /** Prepends a small logo/company-name header banner in the org's own color, above the existing template content. */
@@ -161,14 +164,18 @@ export async function sendMail(opts: MailOptions): Promise<void> {
 
   // Tier 1 white-label: still sending through the platform's own domain/
   // account below, but dressed as the org wherever we have branding for it.
-  const branding = opts.orgId ? await getMailBranding(opts.orgId).catch(() => null) : null;
-  const from = branding ? brandedFromAddress(branding.companyName) : FROM_ADDRESS;
+  const [branding, cfg] = await Promise.all([
+    opts.orgId ? getMailBranding(opts.orgId).catch(() => null) : Promise.resolve(null),
+    getPlatformMailConfig(),
+  ]);
+  const platformFromAddress = cfg.resendFrom || cfg.smtpFrom || DEFAULT_FROM_ADDRESS;
+  const from = branding ? brandedFromAddress(branding.companyName, platformFromAddress) : platformFromAddress;
   const html = branding ? withBrandHeader(opts.html, branding) : opts.html;
   const replyTo = branding?.replyTo || undefined;
 
-  if (RESEND_API_KEY) {
+  if (cfg.resendApiKey) {
     try {
-      await sendViaResend({ ...opts, html }, from, replyTo);
+      await sendViaResend({ ...opts, html }, cfg.resendApiKey, from, replyTo);
       console.log(`[Email sent via Resend]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
       if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
     } catch (err) {
@@ -177,9 +184,9 @@ export async function sendMail(opts: MailOptions): Promise<void> {
     return;
   }
 
-  const transporter = getTransporter();
+  const transporter = buildPlatformTransporter(cfg);
   if (!transporter) {
-    console.log(`[Email skipped — no RESEND_API_KEY or SMTP configured] To: ${opts.to} | ${opts.subject}`);
+    console.log(`[Email skipped — no Resend key or SMTP configured] To: ${opts.to} | ${opts.subject}`);
     return;
   }
   try {

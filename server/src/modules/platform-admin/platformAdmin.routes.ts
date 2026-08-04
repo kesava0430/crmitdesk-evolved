@@ -13,3 +13,5 @@ platformAdminRouter.get('/orgs/:id', c.getOrg);
 platformAdminRouter.patch('/orgs/:id', c.updateOrg);
 platformAdminRouter.patch('/orgs/:id/subscription', c.updateSubscription);
 platformAdminRouter.patch('/orgs/:id/branding', c.updateBranding);
+platformAdminRouter.get('/settings', c.getSettings);
+platformAdminRouter.patch('/settings', c.updateSettings);

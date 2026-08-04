@@ -1,6 +1,38 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 
+export interface PlatformSecretStatus {
+  configured: boolean;
+  source: 'database' | 'env' | null;
+}
+
+export interface PlatformSettings {
+  resendFrom: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  smtpFrom: string | null;
+  twilioAccountSid: string | null;
+  twilioFromNumber: string | null;
+  resendApiKey: PlatformSecretStatus;
+  smtpPass: PlatformSecretStatus;
+  twilioAuthToken: PlatformSecretStatus;
+  updatedAt: string | null;
+}
+
+export interface PlatformSettingsUpdate {
+  resendApiKey?: string;
+  resendFrom?: string;
+  smtpHost?: string;
+  smtpPort?: number | null;
+  smtpUser?: string;
+  smtpPass?: string;
+  smtpFrom?: string;
+  twilioAccountSid?: string;
+  twilioAuthToken?: string;
+  twilioFromNumber?: string;
+}
+
 export interface SendCounts {
   email: { own: number; platform: number; total: number };
   whatsapp: { own: number; platform: number; total: number };
@@ -95,5 +127,21 @@ export const useUpdatePlatformBranding = () => {
       qc.invalidateQueries({ queryKey: ['platform-orgs'] });
       qc.invalidateQueries({ queryKey: ['platform-orgs', id] });
     },
+  });
+};
+
+/** Platform-wide email/WhatsApp fallback config (GET /platform/settings) — see server/src/utils/platformSettings.ts. */
+export const usePlatformSettings = (enabled = true) =>
+  useQuery({
+    queryKey: ['platform-settings'],
+    queryFn: () => api.get('/platform/settings').then(r => r.data as PlatformSettings),
+    enabled,
+  });
+
+export const useUpdatePlatformSettings = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: PlatformSettingsUpdate) => api.patch('/platform/settings', data).then(r => r.data as PlatformSettings),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['platform-settings'] }),
   });
 };
