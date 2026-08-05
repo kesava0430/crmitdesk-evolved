@@ -48,6 +48,13 @@ export function buildCalendarAuthUrl(state: string): string {
   return `${AUTH_URL}?${params.toString()}`;
 }
 
+interface GoogleTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in: number;
+  id_token?: string;
+}
+
 export async function exchangeCodeForTokens(code: string): Promise<{
   accessToken: string; refreshToken?: string; expiresIn: number; email?: string;
 }> {
@@ -63,7 +70,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
     }),
   });
   if (!res.ok) throw new Error(`Google token exchange failed: ${await res.text()}`);
-  const json = await res.json();
+  const json = (await res.json()) as GoogleTokenResponse;
 
   // The id_token is a JWT; we only need the email claim out of it for display
   // purposes (calendar sync doesn't need to *verify* it the way login does —
@@ -92,7 +99,7 @@ async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: 
     }),
   });
   if (!res.ok) throw new Error(`Google token refresh failed: ${await res.text()}`);
-  const json = await res.json();
+  const json = (await res.json()) as GoogleTokenResponse;
   return { accessToken: json.access_token, expiresIn: json.expires_in };
 }
 

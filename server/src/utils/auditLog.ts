@@ -1,7 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 
-type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN';
+// READ added for GDPR data-export logging (gdpr.controller.ts) — exporting
+// someone's personal/org data is worth an audit trail even though nothing
+// is modified.
+type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'READ';
 
 /**
  * Write an audit log entry asynchronously (fire-and-forget).
