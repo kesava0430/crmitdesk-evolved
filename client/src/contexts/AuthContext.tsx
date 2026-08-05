@@ -33,6 +33,9 @@ interface AuthContextType extends AuthState {
    *  which industry showcase org to log into (see seedDemoData.ts); omitted
    *  or unrecognized falls back to the default tech/SaaS org server-side. */
   demoLogin: (vertical?: string) => Promise<void>;
+  /** Logs in with a verified Google ID token — only works for an account that
+   *  already linked Google from its Profile page (see ProfilePage.tsx). */
+  googleLogin: (idToken: string) => Promise<void>;
   /** Submits a new-org signup request for admin approval — does not log the
    *  caller in. Resolves with the message to show once approved (an org
    *  isn't created, and no session starts, until the request is approved). */
@@ -73,6 +76,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: normalized, accessToken: access });
   }, []);
 
+  const googleLogin = useCallback(async (idToken: string) => {
+    const res = await api.post('/auth/google', { idToken });
+    const { user, access, refresh } = res.data;
+    const normalized = { ...user, org: user.org ?? user.organization ?? null };
+    localStorage.setItem('accessToken', access);
+    localStorage.setItem('refreshToken', refresh);
+    localStorage.setItem('user', JSON.stringify(normalized));
+    setState({ user: normalized, accessToken: access });
+  }, []);
+
   const register = useCallback(async (email: string, password: string, name: string, organizationName: string) => {
     const res = await api.post('/auth/register', { email, password, name, organizationName });
     // No org/user exists yet and no session starts — the request just sits
@@ -93,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, demoLogin, register, logout, updateProfile, isAuthenticated: !!state.user }}>
+    <AuthContext.Provider value={{ ...state, login, demoLogin, googleLogin, register, logout, updateProfile, isAuthenticated: !!state.user }}>
       {children}
     </AuthContext.Provider>
   );

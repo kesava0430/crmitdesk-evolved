@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Palette, Check, Type, X } from 'lucide-react';
+import { Palette, Check, Type, X, Moon, Sun } from 'lucide-react';
 import { useTheme, THEME_LABELS, FONT_LABELS, type ThemeStyle, type ThemeFont } from '../../contexts/ThemeContext';
 
 /* ── Visual previews for each theme ── */
@@ -18,7 +18,7 @@ const FONT_SAMPLES: Record<ThemeFont, string> = {
 };
 
 export function ThemePicker() {
-  const { style, font, setStyle, setFont } = useTheme();
+  const { style, font, dark, setStyle, setFont, toggleDark } = useTheme();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -146,6 +146,29 @@ export function ThemePicker() {
                   );
                 })}
               </div>
+            </div>
+
+            {/* ── Dark mode ── */}
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                Color Mode
+              </p>
+              <button
+                onClick={toggleDark}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-gray-100 bg-gray-50/60 hover:bg-white hover:border-gray-200 transition-all"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-medium text-gray-800">
+                  {dark ? <Moon size={14} className="text-brand-500" /> : <Sun size={14} className="text-amber-500" />}
+                  {dark ? 'Dark' : 'Light'}
+                </span>
+                <span
+                  className={`relative w-9 h-5 rounded-full transition-colors ${dark ? 'bg-brand-500' : 'bg-gray-300'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${dark ? 'translate-x-4' : 'translate-x-0.5'}`}
+                  />
+                </span>
+              </button>
             </div>
 
             {/* ── Font choice ── */}

@@ -68,7 +68,7 @@ export async function listConversations(req: AuthRequest, res: Response, next: N
     const limit = Math.min(50, parseInt(req.query.limit as string) || 30);
 
     const where: any = { orgId };
-    if (channel && ['EMAIL', 'WHATSAPP'].includes(channel)) where.channel = channel;
+    if (channel && ['EMAIL', 'WHATSAPP', 'CHAT'].includes(channel)) where.channel = channel;
     if (status !== 'ALL') where.status = status;
 
     const [total, conversations] = await Promise.all([
@@ -192,6 +192,11 @@ export async function sendReply(req: AuthRequest, res: Response, next: NextFunct
       );
       outboundId = result.sid;
       recordUsage(orgId, 'WHATSAPP_SEND', 'OWN');
+    } else if (conversation.channel === 'CHAT') {
+      // Live chat from the customer portal — no external transport, the
+      // message just needs to land in the Message table; the portal side
+      // picks it up on its next poll (see portal.controller.ts getChatMessages).
+      fromAddress = 'staff';
     } else {
       throw new AppError(400, 'Unknown channel');
     }

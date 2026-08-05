@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { RowActions, SearchableSelect } from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
-import { FileText, Plus, Pencil, Trash2, Send, CheckCircle, XCircle, DollarSign, LayoutTemplate } from 'lucide-react';
+import { FileText, Plus, Pencil, Trash2, Send, CheckCircle, XCircle, DollarSign, LayoutTemplate, Link2, Check as CheckIcon } from 'lucide-react';
 import { useQuoteTemplates } from '../api/templates';
 
 interface QuoteLine { id?: string; description: string; quantity: number; unitPrice: number; }
@@ -57,6 +57,16 @@ export default function QuotesPage() {
     mutationFn: (id: string) => api.delete(`/quotes/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
   });
+
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  async function copyShareLink(id: string) {
+    try {
+      const { data } = await api.get(`/quotes/${id}/share-link`);
+      await navigator.clipboard.writeText(data.link);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch { alert('Could not generate share link.'); }
+  }
 
   function openCreate() {
     setEditing(null);
@@ -172,6 +182,12 @@ export default function QuotesPage() {
                       <XCircle size={12} /> Reject
                     </button>
                   </>
+                )}
+                {(q.status === 'SENT' || q.status === 'ACCEPTED') && (
+                  <button onClick={() => copyShareLink(q.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100">
+                    {copiedId === q.id ? <><CheckIcon size={12} /> Copied</> : <><Link2 size={12} /> Copy customer link</>}
+                  </button>
                 )}
                 <RowActions items={[
                   { label: 'Edit quote', icon: <Pencil size={14} />, onClick: () => openEdit(q), hidden: q.status !== 'DRAFT' },

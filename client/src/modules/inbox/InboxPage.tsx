@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Mail, MessageCircle, Settings, RefreshCw, Send, Check,
   MailOpen, X, Inbox, Wifi, WifiOff, Loader2,
-  CheckCheck, AlertCircle, Phone
+  CheckCheck, AlertCircle, Phone, MessageSquareText
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -22,9 +22,13 @@ function timeAgo(date: string | null | undefined) {
 }
 
 function channelIcon(channel: Channel, size = 14) {
-  return channel === 'EMAIL'
-    ? <Mail size={size} className="text-blue-500" />
-    : <MessageCircle size={size} className="text-green-500" />;
+  if (channel === 'EMAIL') return <Mail size={size} className="text-blue-500" />;
+  if (channel === 'CHAT') return <MessageSquareText size={size} className="text-violet-500" />;
+  return <MessageCircle size={size} className="text-green-500" />;
+}
+
+function channelAvatarBg(channel: Channel) {
+  return channel === 'EMAIL' ? 'bg-blue-100' : channel === 'CHAT' ? 'bg-violet-100' : 'bg-green-100';
 }
 
 function statusColor(status: string) {
@@ -247,9 +251,7 @@ function ConvItem({ conv, selected, onClick }: { conv: Conversation; selected: b
       className={`w-full text-left p-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selected ? 'bg-brand-50 border-l-2 border-l-brand-600' : ''}`}>
       <div className="flex items-start gap-2.5">
         {/* Channel icon */}
-        <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${
-          conv.channel === 'EMAIL' ? 'bg-blue-100' : 'bg-green-100'
-        }`}>
+        <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${channelAvatarBg(conv.channel)}`}>
           {channelIcon(conv.channel, 14)}
         </div>
 
@@ -378,7 +380,7 @@ export function InboxPage() {
 
           {/* Channel filter pills */}
           <div className="flex gap-1.5">
-            {(['ALL', 'EMAIL', 'WHATSAPP'] as const).map(ch => (
+            {(['ALL', 'EMAIL', 'WHATSAPP', 'CHAT'] as const).map(ch => (
               <button key={ch} onClick={() => setChannelFilter(ch)}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   channelFilter === ch
@@ -387,7 +389,8 @@ export function InboxPage() {
                 }`}>
                 {ch === 'EMAIL' && <Mail size={10} />}
                 {ch === 'WHATSAPP' && <MessageCircle size={10} />}
-                {ch === 'ALL' ? 'All' : ch === 'EMAIL' ? 'Email' : 'WhatsApp'}
+                {ch === 'CHAT' && <MessageSquareText size={10} />}
+                {ch === 'ALL' ? 'All' : ch === 'EMAIL' ? 'Email' : ch === 'WHATSAPP' ? 'WhatsApp' : 'Live Chat'}
               </button>
             ))}
           </div>
@@ -462,9 +465,7 @@ export function InboxPage() {
             {/* Thread header */}
             <div className="px-6 py-4 bg-white border-b border-gray-200 flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  conversation.channel === 'EMAIL' ? 'bg-blue-100' : 'bg-green-100'
-                }`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${channelAvatarBg(conversation.channel)}`}>
                   {channelIcon(conversation.channel, 18)}
                 </div>
                 <div className="min-w-0">
@@ -543,7 +544,7 @@ export function InboxPage() {
                       onKeyDown={e => {
                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSend();
                       }}
-                      placeholder={`Reply via ${conversation.channel === 'EMAIL' ? 'email' : 'WhatsApp'}… (⌘↵ to send)`}
+                      placeholder={`Reply via ${conversation.channel === 'EMAIL' ? 'email' : conversation.channel === 'CHAT' ? 'live chat' : 'WhatsApp'}… (⌘↵ to send)`}
                       rows={3}
                       className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
                     />

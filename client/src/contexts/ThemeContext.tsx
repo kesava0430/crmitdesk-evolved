@@ -20,13 +20,16 @@ export const FONT_LABELS: Record<ThemeFont, { name: string; family: string }> = 
 interface ThemeContextValue {
   style: ThemeStyle;
   font:  ThemeFont;
+  dark:  boolean;
   setStyle: (s: ThemeStyle) => void;
   setFont:  (f: ThemeFont)  => void;
+  setDark:  (d: boolean)    => void;
+  toggleDark: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  style: 'minimal', font: 'inter',
-  setStyle: () => {}, setFont: () => {},
+  style: 'minimal', font: 'inter', dark: false,
+  setStyle: () => {}, setFont: () => {}, setDark: () => {}, toggleDark: () => {},
 });
 
 function applyTheme(style: ThemeStyle, font: ThemeFont) {
@@ -36,6 +39,20 @@ function applyTheme(style: ThemeStyle, font: ThemeFont) {
   html.style.setProperty('--font-sans', FONT_LABELS[font].family);
 }
 
+// Previously nothing in the codebase ever toggled a `dark` class onto
+// <html>/<body> despite Tailwind `dark:` classes being present throughout —
+// dark mode simply didn't work (see Technical Docs 14.1). This, plus setting
+// `darkMode: 'class'` in tailwind.config.js, is what actually wires it up.
+function applyDark(dark: boolean) {
+  document.documentElement.classList.toggle('dark', dark);
+}
+
+function initialDark(): boolean {
+  const stored = localStorage.getItem('ui-dark');
+  if (stored !== null) return stored === 'true';
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [style, setStyleState] = useState<ThemeStyle>(
     () => (localStorage.getItem('ui-theme') as ThemeStyle) || 'minimal'
@@ -43,9 +60,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [font, setFontState] = useState<ThemeFont>(
     () => (localStorage.getItem('ui-font') as ThemeFont) || 'inter'
   );
+  const [dark, setDarkState] = useState<boolean>(initialDark);
 
   // Apply immediately on mount
-  useEffect(() => { applyTheme(style, font); }, []);
+  useEffect(() => { applyTheme(style, font); applyDark(dark); }, []);
 
   function setStyle(s: ThemeStyle) {
     setStyleState(s);
@@ -59,8 +77,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     applyTheme(style, f);
   }
 
+  function setDark(d: boolean) {
+    setDarkState(d);
+    localStorage.setItem('ui-dark', String(d));
+    applyDark(d);
+  }
+
+  function toggleDark() {
+    setDark(!dark);
+  }
+
   return (
-    <ThemeContext.Provider value={{ style, font, setStyle, setFont }}>
+    <ThemeContext.Provider value={{ style, font, dark, setStyle, setFont, setDark, toggleDark }}>
       {children}
     </ThemeContext.Provider>
   );

@@ -12,6 +12,7 @@ import { verifyTotpLogin } from '../../totp/totp.controller';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
 import { assertSeatAvailable } from '../../../utils/licensing';
 import { DEMO_LOGIN_EMAIL, DEMO_VERTICAL_SLUGS, DEFAULT_VERTICAL, loginEmailFor } from '../../../utils/seedDemoData';
+import { verifyGoogleIdToken, isGoogleSsoConfigured } from '../../../utils/googleAuth';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -43,6 +44,22 @@ const AcceptInviteSchema = z.object({
   token: z.string(),
   name: z.string().min(2),
   password: z.string().min(8),
+});
+
+const ForgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const ResetPasswordSchema = z.object({
+  token: z.string(),
+  password: z.string().min(8),
+});
+
+const GoogleLoginSchema = z.object({
+  // The ID token returned by Google's Sign-In JS SDK on the client — verified
+  // server-side against Google's public keys before we trust the email/sub
+  // claims inside it. See utils/googleAuth.ts.
+  idToken: z.string(),
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -458,6 +475,144 @@ export async function changePassword(req: AuthRequest, res: Response, next: Next
     // Revoke all refresh tokens so other sessions are invalidated
     await prisma.refreshToken.deleteMany({ where: { userId: req.user!.id } });
     logAction(req.user!.id, 'UPDATE', 'User', req.user!.id, { action: 'password_change' });
+    sendMail({ ...emailTemplates.passwordChanged(user.email, user.name), orgId: user.orgId ?? undefined }).catch(() => {});
     res.json({ message: 'Password changed successfully' });
+  } catch (err) { next(err); }
+}
+
+// ─── Forgot / Reset Password ────────────────────────────────────────────────
+
+/**
+ * POST /auth/forgot-password — public. Always returns the same generic
+ * success message whether or not the email exists (same email-enumeration
+ * protection as the customer portal's request-access flow), and only
+ * proceeds to actually send an email for an active, password-based account
+ * (a Google-only account with no usable password still gets the generic
+ * response, since telling the caller "use Google instead" would leak which
+ * emails are registered).
+ */
+export async function forgotPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { email } = ForgotPasswordSchema.parse(req.body);
+    const GENERIC = { message: "If that email is registered, we've sent a password reset link." };
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !user.isActive) return res.json(GENERIC);
+
+    // Invalidate any earlier outstanding reset requests for this user before
+    // issuing a new one, so only the most recently requested link works.
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(rawToken),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+      },
+    });
+
+    const resetLink = `${FRONTEND_URL}/reset-password?token=${rawToken}`;
+    sendMail({ ...emailTemplates.passwordReset(user.email, user.name, resetLink), orgId: user.orgId ?? undefined }).catch(() => {});
+
+    res.json(GENERIC);
+  } catch (err) { next(err); }
+}
+
+/** POST /auth/reset-password — consumes a forgot-password token, sets a new password */
+export async function resetPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token, password } = ResetPasswordSchema.parse(req.body);
+    const tokenHash = hashToken(token);
+    const stored = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+    if (!stored || stored.usedAt) throw new AppError(400, 'Reset link is invalid or has already been used');
+    if (stored.expiresAt < new Date()) throw new AppError(400, 'Reset link has expired — request a new one');
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: stored.userId }, data: { passwordHash } }),
+      prisma.passwordResetToken.update({ where: { id: stored.id }, data: { usedAt: new Date() } }),
+      // Revoke every existing session — a password reset is a strong signal
+      // the old credential shouldn't keep working anywhere.
+      prisma.refreshToken.deleteMany({ where: { userId: stored.userId } }),
+    ]);
+
+    logAction(stored.userId, 'UPDATE', 'User', stored.userId, { action: 'password_reset' });
+    const user = await prisma.user.findUnique({ where: { id: stored.userId } });
+    if (user) sendMail({ ...emailTemplates.passwordChanged(user.email, user.name), orgId: user.orgId ?? undefined }).catch(() => {});
+
+    res.json({ message: 'Password reset — you can log in with your new password now.' });
+  } catch (err) { next(err); }
+}
+
+// ─── Google SSO ──────────────────────────────────────────────────────────────
+
+/**
+ * POST /auth/google — logs in a staff user who has already linked a Google
+ * account from their Profile page (see linkGoogleAccount below). Deliberately
+ * does NOT create new users or organizations — SSO is an alternate login
+ * method for an existing account, not a second signup path, so it can't be
+ * used to route around the admin-approval-gated org creation flow.
+ */
+export async function googleLogin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { idToken } = GoogleLoginSchema.parse(req.body);
+    const claims = await verifyGoogleIdToken(idToken).catch((e: Error) => { throw new AppError(401, e.message); });
+
+    const user = await prisma.user.findUnique({
+      where: { googleId: claims.sub },
+      include: { org: { select: { id: true, name: true, slug: true } } },
+    });
+    if (!user || !user.isActive) {
+      throw new AppError(404, 'No account is linked to this Google account yet. Log in with your password and link Google from your Profile page first.');
+    }
+
+    const orgId = user.orgId ?? '';
+    const rawRefresh = generateRefreshToken();
+    await storeRefreshToken(user.id, rawRefresh);
+
+    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId });
+    logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email, method: 'google' });
+    res.json({ user: userPayload(user, user.org), access, refresh: rawRefresh });
+  } catch (err) { next(err); }
+}
+
+/** GET /auth/google/status — whether Google SSO is configured + whether the caller has linked it */
+export async function googleStatus(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { googleId: true } });
+    res.json({ configured: isGoogleSsoConfigured(), linked: !!user?.googleId, clientId: process.env.GOOGLE_CLIENT_ID || null });
+  } catch (err) { next(err); }
+}
+
+/** POST /auth/google/link — authenticated user links their Google account for future SSO login */
+export async function linkGoogleAccount(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { idToken } = GoogleLoginSchema.parse(req.body);
+    const claims = await verifyGoogleIdToken(idToken).catch((e: Error) => { throw new AppError(401, e.message); });
+
+    const existing = await prisma.user.findUnique({ where: { googleId: claims.sub } });
+    if (existing && existing.id !== req.user!.id) {
+      throw new AppError(409, 'This Google account is already linked to a different user');
+    }
+    if (claims.email.toLowerCase() !== req.user!.email.toLowerCase()) {
+      throw new AppError(400, `This Google account's email (${claims.email}) doesn't match your account email (${req.user!.email})`);
+    }
+
+    await prisma.user.update({ where: { id: req.user!.id }, data: { googleId: claims.sub } });
+    logAction(req.user!.id, 'UPDATE', 'User', req.user!.id, { action: 'google_linked' });
+    res.json({ linked: true });
+  } catch (err) { next(err); }
+}
+
+/** DELETE /auth/google/link — unlink Google, falling back to password-only login */
+export async function unlinkGoogleAccount(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    await prisma.user.update({ where: { id: req.user!.id }, data: { googleId: null } });
+    logAction(req.user!.id, 'UPDATE', 'User', req.user!.id, { action: 'google_unlinked' });
+    res.json({ linked: false });
   } catch (err) { next(err); }
 }

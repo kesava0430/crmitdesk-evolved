@@ -1,8 +1,10 @@
-import { useState, FormEvent } from 'react';
-import { User, Mail, Briefcase, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, Camera } from 'lucide-react';
+import { useState, FormEvent, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { User, Mail, Briefcase, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, Camera, Link2, CalendarDays, Download, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 import { PageHeader } from '../shared/components/PageHeader';
+import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
 
 /* ── tiny helpers ── */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -250,10 +252,187 @@ function PasswordForm() {
   );
 }
 
+/* ── Connections (Google SSO + Calendar sync) ── */
+function ConnectionsPanel() {
+  const [params] = useSearchParams();
+  const [google, setGoogle] = useState<{ configured: boolean; linked: boolean } | null>(null);
+  const [calendar, setCalendar] = useState<{ configured: boolean; connected: boolean; connectedEmail: string | null } | null>(null);
+  const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    const [g, c] = await Promise.all([
+      api.get('/auth/google/status').then(r => r.data).catch(() => null),
+      api.get('/calendar/status').then(r => r.data).catch(() => null),
+    ]);
+    setGoogle(g); setCalendar(c);
+  }
+
+  useEffect(() => {
+    refresh();
+    const calendarStatus = params.get('calendar');
+    if (calendarStatus === 'connected') setToast({ type: 'ok', msg: 'Google Calendar connected!' });
+    if (calendarStatus === 'error') setToast({ type: 'err', msg: 'Could not connect Google Calendar. Please try again.' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function linkGoogle(idToken: string) {
+    setBusy(true);
+    try {
+      await api.post('/auth/google/link', { idToken });
+      setToast({ type: 'ok', msg: 'Google account linked — you can now sign in with Google.' });
+      refresh();
+    } catch (err: any) {
+      setToast({ type: 'err', msg: err?.response?.data?.error ?? 'Could not link Google account.' });
+    } finally { setBusy(false); }
+  }
+
+  async function unlinkGoogle() {
+    setBusy(true);
+    try {
+      await api.delete('/auth/google/link');
+      setToast({ type: 'ok', msg: 'Google account unlinked.' });
+      refresh();
+    } catch { setToast({ type: 'err', msg: 'Could not unlink Google account.' }); } finally { setBusy(false); }
+  }
+
+  async function connectCalendar() {
+    try {
+      const { data } = await api.get('/calendar/oauth-url');
+      window.location.href = data.url;
+    } catch (err: any) {
+      setToast({ type: 'err', msg: err?.response?.data?.error ?? 'Calendar sync is not configured on this server.' });
+    }
+  }
+
+  async function disconnectCalendar() {
+    setBusy(true);
+    try {
+      await api.delete('/calendar/connection');
+      setToast({ type: 'ok', msg: 'Calendar disconnected.' });
+      refresh();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="space-y-6">
+      {toast && <Toast type={toast.type} msg={toast.msg} onDismiss={() => setToast(null)} />}
+
+      <div>
+        <p className="text-sm font-semibold text-gray-800 flex items-center gap-2"><Link2 size={15} className="text-indigo-500" /> Google Sign-In</p>
+        <p className="text-xs text-gray-500 mt-1 mb-3">Link your Google account to sign in without a password.</p>
+        {!google?.configured ? (
+          <p className="text-xs text-gray-400 italic">Not set up for this workspace yet — an admin needs to configure Google SSO.</p>
+        ) : google.linked ? (
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full flex items-center gap-1"><CheckCircle2 size={12} /> Linked</span>
+            <button disabled={busy} onClick={unlinkGoogle} className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50">Unlink</button>
+          </div>
+        ) : (
+          <GoogleSignInButton onIdToken={linkGoogle} text="continue_with" />
+        )}
+      </div>
+
+      <div className="border-t border-gray-100 pt-5">
+        <p className="text-sm font-semibold text-gray-800 flex items-center gap-2"><CalendarDays size={15} className="text-indigo-500" /> Google Calendar</p>
+        <p className="text-xs text-gray-500 mt-1 mb-3">Sync your open activities and assigned tickets to your Google Calendar.</p>
+        {!calendar?.configured ? (
+          <p className="text-xs text-gray-400 italic">Not set up for this workspace yet — an admin needs to configure calendar sync.</p>
+        ) : calendar.connected ? (
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+              <CheckCircle2 size={12} /> Connected{calendar.connectedEmail ? ` (${calendar.connectedEmail})` : ''}
+            </span>
+            <button disabled={busy} onClick={disconnectCalendar} className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50">Disconnect</button>
+          </div>
+        ) : (
+          <button onClick={connectCalendar} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors">
+            Connect Google Calendar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Privacy & Data (GDPR) ── */
+function PrivacyPanel() {
+  const { logout } = useAuth();
+  const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function exportData() {
+    try {
+      const res = await api.get('/gdpr/export/me');
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'my-data-export.json'; a.click();
+      URL.revokeObjectURL(url);
+    } catch { setToast({ type: 'err', msg: 'Could not export your data.' }); }
+  }
+
+  async function deleteMyData(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.post('/gdpr/delete-request/me', { password, confirm: true });
+      logout();
+    } catch (err: any) {
+      setToast({ type: 'err', msg: err?.response?.data?.error ?? 'Could not process this request.' });
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {toast && <Toast type={toast.type} msg={toast.msg} onDismiss={() => setToast(null)} />}
+
+      <div>
+        <p className="text-sm font-semibold text-gray-800 flex items-center gap-2"><Download size={15} className="text-indigo-500" /> Export your data</p>
+        <p className="text-xs text-gray-500 mt-1 mb-3">Download a JSON copy of your profile, activities, comments, and tickets/deals you're linked to.</p>
+        <button onClick={exportData} className="px-4 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-lg transition-colors">
+          Download my data
+        </button>
+      </div>
+
+      <div className="border-t border-gray-100 pt-5">
+        <p className="text-sm font-semibold text-red-700 flex items-center gap-2"><Trash2 size={15} /> Delete my personal data</p>
+        <p className="text-xs text-gray-500 mt-1 mb-3">
+          Removes your name, email and phone from your account and deactivates it. Records you're linked to (tickets, deals, comments) stay for your organization's continuity but no longer show your name. This can't be undone.
+        </p>
+        {!confirmDelete ? (
+          <button onClick={() => setConfirmDelete(true)} className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-lg transition-colors">
+            Delete my data
+          </button>
+        ) : (
+          <form onSubmit={deleteMyData} className="space-y-3 max-w-sm">
+            <p className="text-xs text-gray-600">Confirm your password to proceed.</p>
+            <input
+              type="password" required value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="Current password" className="ui-input"
+            />
+            <div className="flex gap-2">
+              <button type="submit" disabled={busy} className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs font-semibold rounded-lg transition-colors">
+                {busy ? 'Processing…' : 'Confirm deletion'}
+              </button>
+              <button type="button" onClick={() => setConfirmDelete(false)} className="px-4 py-2 text-gray-500 hover:text-gray-700 text-xs font-semibold">
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main page ── */
 export default function ProfilePage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'profile' | 'security'>('profile');
+  const [tab, setTab] = useState<'profile' | 'security' | 'connections' | 'privacy'>('profile');
 
   if (!user) return null;
 
@@ -279,36 +458,54 @@ export default function ProfilePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-        {(['profile', 'security'] as const).map(t => (
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit overflow-x-auto max-w-full">
+        {([
+          ['profile', 'Profile Details'],
+          ['security', 'Security'],
+          ['connections', 'Connections'],
+          ['privacy', 'Privacy & Data'],
+        ] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-5 py-2 text-[13px] font-semibold rounded-lg transition-all capitalize ${
+            className={`px-5 py-2 text-[13px] font-semibold rounded-lg transition-all whitespace-nowrap shrink-0 ${
               tab === t
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t === 'profile' ? 'Profile Details' : 'Security'}
+            {label}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
       <div className="card p-6">
-        {tab === 'profile' ? (
+        {tab === 'profile' && (
           <>
             <h2 className="text-[15px] font-semibold text-gray-800 mb-5">Personal Information</h2>
             <ProfileForm />
           </>
-        ) : (
+        )}
+        {tab === 'security' && (
           <>
             <h2 className="text-[15px] font-semibold text-gray-800 mb-1">Change Password</h2>
             <p className="text-sm text-gray-500 mb-5">
               After changing your password, all other active sessions will be signed out.
             </p>
             <PasswordForm />
+          </>
+        )}
+        {tab === 'connections' && (
+          <>
+            <h2 className="text-[15px] font-semibold text-gray-800 mb-5">Connections</h2>
+            <ConnectionsPanel />
+          </>
+        )}
+        {tab === 'privacy' && (
+          <>
+            <h2 className="text-[15px] font-semibold text-gray-800 mb-5">Privacy & Data</h2>
+            <PrivacyPanel />
           </>
         )}
       </div>

@@ -8,6 +8,7 @@ import { sendMail } from '../../../utils/mailer';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { assertSeatAvailable, isMeteredRole } from '../../../utils/licensing';
+import { emailTemplates } from '../../../utils/mailer';
 
 // phone is preprocessed so an empty string (the form's untouched default)
 // doesn't get stored as '' — the WhatsApp "assignee" recipient resolver
@@ -132,5 +133,38 @@ export async function deactivate(req: AuthRequest, res: Response, next: NextFunc
     if (!target) throw new AppError(404, 'User not found');
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } });
     res.json({ message: 'User deactivated' });
+  } catch (err) { next(err); }
+}
+
+/**
+ * POST /admin/users/:id/reset-password — a manager-triggered escape hatch for
+ * a locked-out coworker (there's no other recovery path for a staff account
+ * besides the self-service /auth/forgot-password email, which requires the
+ * user to still have access to their own inbox). Sends the same reset-link
+ * email as the self-service flow rather than setting a password directly, so
+ * the manager never sees or chooses the new password.
+ */
+export async function resetUserPassword(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    if (!target) throw new AppError(404, 'User not found');
+    if (!target.isActive) throw new AppError(400, 'Cannot reset the password of a deactivated user');
+
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: target.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: target.id,
+        tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      },
+    });
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${rawToken}`;
+    await sendMail({ ...emailTemplates.passwordReset(target.email, target.name, resetLink), orgId: req.user!.orgId }).catch(() => {});
+
+    res.json({ message: `Password reset link sent to ${target.email}` });
   } catch (err) { next(err); }
 }

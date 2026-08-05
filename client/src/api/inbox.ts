@@ -3,7 +3,7 @@ import { api } from './client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type Channel = 'EMAIL' | 'WHATSAPP';
+export type Channel = 'EMAIL' | 'WHATSAPP' | 'CHAT';
 export type ConvStatus = 'OPEN' | 'CLOSED' | 'PENDING';
 
 export interface Message {

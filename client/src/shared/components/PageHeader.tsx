@@ -13,7 +13,7 @@ export function PageHeader({ title, subtitle, actions, breadcrumb }: PageHeaderP
           {breadcrumb}
         </p>
       )}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <h1 className="text-[18px] font-semibold text-gray-900 leading-tight tracking-tight truncate">
             {title}
@@ -23,7 +23,7 @@ export function PageHeader({ title, subtitle, actions, breadcrumb }: PageHeaderP
           )}
         </div>
         {actions && (
-          <div className="flex items-center gap-2 shrink-0">{actions}</div>
+          <div className="flex items-center gap-2 flex-wrap">{actions}</div>
         )}
       </div>
     </div>

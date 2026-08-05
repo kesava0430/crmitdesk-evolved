@@ -566,7 +566,8 @@ export function PlatformAdminPage() {
           <div className="flex justify-center py-12"><Spinner label="Loading organizations…" /></div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="table-container">
+            <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="text-left px-4 py-3">Organization</th>
@@ -615,6 +616,7 @@ export function PlatformAdminPage() {
                 ))}
               </tbody>
             </table>
+            </div>
             {orgs?.length === 0 && (
               <div className="p-12 text-center text-gray-500 text-sm">No organizations yet.</div>
             )}

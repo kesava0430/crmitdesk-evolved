@@ -2,8 +2,20 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Ticket, TrendingUp, Users, Shield, Eye, EyeOff, Loader2, Sparkles, ArrowRight } from 'lucide-react';
+import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
 
 type Tab = 'login' | 'register';
+
+function GoogleDivider() {
+  if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return null;
+  return (
+    <div className="flex items-center gap-3 -my-1">
+      <div className="flex-1 h-px bg-gray-200" />
+      <span className="text-[11px] text-gray-400">or</span>
+      <div className="flex-1 h-px bg-gray-200" />
+    </div>
+  );
+}
 
 const FEATURES = [
   { icon: Users,      label: 'CRM',          desc: 'Contacts, leads and pipeline' },
@@ -57,11 +69,12 @@ function InputField({
 }
 
 export function LoginPage() {
-  const { login, register } = useAuth();
+  const { login, register, googleLogin } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('login');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleError, setGoogleError] = useState('');
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [regForm, setRegForm] = useState({ name: '', email: '', password: '', organizationName: '' });
@@ -88,6 +101,16 @@ export function LoginPage() {
     setNeedsTotp(false);
     setTotpToken('');
     setError('');
+  }
+
+  async function handleGoogleToken(idToken: string) {
+    setGoogleError(''); setLoading(true);
+    try {
+      await googleLogin(idToken);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setGoogleError(err?.response?.data?.error || err?.response?.data?.message || 'Google sign-in failed. Link your Google account from Profile after signing in with your password first.');
+    } finally { setLoading(false); }
   }
 
   async function handleRegister(e: React.FormEvent) {
@@ -263,11 +286,18 @@ export function LoginPage() {
                   onChange={v => setLoginForm(f => ({ ...f, email: v }))}
                   placeholder="you@company.com" required autoComplete="email"
                 />
-                <InputField
-                  label="Password" type="password" value={loginForm.password}
-                  onChange={v => setLoginForm(f => ({ ...f, password: v }))}
-                  placeholder="Enter your password" required autoComplete="current-password"
-                />
+                <div className="space-y-1.5">
+                  <InputField
+                    label="Password" type="password" value={loginForm.password}
+                    onChange={v => setLoginForm(f => ({ ...f, password: v }))}
+                    placeholder="Enter your password" required autoComplete="current-password"
+                  />
+                  <div className="text-right">
+                    <Link to="/forgot-password" className="text-xs text-brand-600 hover:underline font-medium">
+                      Forgot password?
+                    </Link>
+                  </div>
+                </div>
                 <button
                   type="submit" disabled={loading}
                   className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-xl text-sm transition-colors mt-2"
@@ -275,6 +305,13 @@ export function LoginPage() {
                   {loading && <Loader2 size={14} className="animate-spin" />}
                   {loading ? 'Signing in…' : 'Sign in'}
                 </button>
+
+                <GoogleDivider />
+                {googleError && <p className="text-xs text-red-500 text-center -mt-2">{googleError}</p>}
+                <div className="flex justify-center">
+                  <GoogleSignInButton onIdToken={handleGoogleToken} />
+                </div>
+
                 <p className="text-center text-xs text-gray-400">
                   No account?{' '}
                   <button type="button" onClick={() => switchTab('register')} className="text-brand-600 hover:underline font-medium">

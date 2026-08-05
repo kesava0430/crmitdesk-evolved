@@ -170,9 +170,17 @@ model User {
   phone                  String? // E.164 format (e.g. +14155551234) — used to resolve the "ASSIGNEE" recipient for scheduled/workflow WhatsApp notifications
   avatarUrl              String?            @map("avatar_url")
   isActive               Boolean            @default(true) @map("is_active")
+  // Google SSO linking. A user links their Google account from their Profile
+  // page (must already have a staff account — SSO does not create new orgs
+  // or bypass the invite/approval-gated signup flow); once set, login also
+  // accepts a verified Google ID token in place of a password. Unique so no
+  // two staff users can link the same Google account.
+  googleId               String?            @unique @map("google_id")
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @updatedAt @map("updated_at")
   orgId                  String?            @map("org_id")
+  passwordResetTokens    PasswordResetToken[]
+  calendarConnection     CalendarConnection?
   ownedAccounts          Account[]          @relation("AccountOwner")
   activities             Activity[]
   apiKeys                ApiKey[]
@@ -201,6 +209,46 @@ model User {
   storageConfigsConnected StorageConfig[]
 
   @@map("users")
+}
+
+// Staff forgot-password flow. tokenHash is SHA-256 of the raw token emailed
+// to the user (same pattern as PortalToken/RefreshToken — the raw token is
+// never persisted). 30-minute expiry, single use (usedAt set on consumption).
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// Per-user (not per-org) Google Calendar connection — each staff member
+// links their own calendar, mirroring how Google Calendar accounts work
+// personally rather than as an org-wide resource. Powers a one-way push of
+// Activities (due date) and assigned Tickets (SLA due date) as calendar
+// events; see utils/googleCalendar.ts.
+model CalendarConnection {
+  id             String    @id @default(cuid())
+  userId         String    @unique @map("user_id")
+  provider       String    @default("GOOGLE_CALENDAR") @map("provider")
+  accessToken    String    @map("access_token")
+  refreshToken   String?   @map("refresh_token")
+  tokenExpiresAt DateTime? @map("token_expires_at")
+  calendarId     String    @default("primary") @map("calendar_id")
+  connectedEmail String?   @map("connected_email")
+  syncActivities Boolean   @default(true) @map("sync_activities")
+  syncTickets    Boolean   @default(true) @map("sync_tickets")
+  lastSyncAt     DateTime? @map("last_sync_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("calendar_connections")
 }
 
 model Comment {
@@ -676,16 +724,23 @@ model Conversation {
   status        String       @default("OPEN")
   assignedTo    String?      @map("assigned_to")
   externalId    String?      @map("external_id")
+  // Set when channel = 'CHAT' (live chat from the customer portal) — links
+  // the conversation to the PortalUser on the other end, since name/email
+  // string matching (used for email/WhatsApp) isn't reliable for an
+  // authenticated portal session. Null for every other channel.
+  portalUserId  String?      @map("portal_user_id")
   lastMessageAt DateTime?    @map("last_message_at")
   unreadCount   Int          @default(0) @map("unread_count")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   assignee      User?        @relation(fields: [assignedTo], references: [id])
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  portalUser    PortalUser?  @relation(fields: [portalUserId], references: [id], onDelete: Cascade)
   messages      Message[]
 
   @@index([orgId])
   @@index([orgId, channel])
+  @@index([portalUserId])
   @@map("conversations")
 }
 
@@ -814,15 +869,16 @@ model Schedule {
 }
 
 model PortalUser {
-  id          String        @id @default(cuid())
-  orgId       String        @map("org_id")
-  name        String
-  email       String
-  isActive    Boolean       @default(true) @map("is_active")
-  lastLoginAt DateTime?     @map("last_login_at")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  tokens      PortalToken[]
-  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  orgId         String         @map("org_id")
+  name          String
+  email         String
+  isActive      Boolean        @default(true) @map("is_active")
+  lastLoginAt   DateTime?      @map("last_login_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  tokens        PortalToken[]
+  conversations Conversation[]
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, email])
   @@index([orgId])
@@ -1215,6 +1271,14 @@ model Quote {
   createdBy  String       @map("created_by")
   createdAt  DateTime     @default(now()) @map("created_at")
   updatedAt  DateTime     @updatedAt @map("updated_at")
+  // In-app e-signature capture, set when a quote transitions to ACCEPTED via
+  // the customer-facing accept link (see quotes.controller.ts acceptQuote).
+  // Not a legally-certified e-signature product — a typed-name attestation
+  // with an IP/timestamp audit trail, stamped onto the quote PDF.
+  signerName  String?   @map("signer_name")
+  signerEmail String?   @map("signer_email")
+  signedAt    DateTime? @map("signed_at")
+  signerIp    String?   @map("signer_ip")
   lines      QuoteLine[]
   creator    User         @relation("QuoteCreator", fields: [createdBy], references: [id])
   deal       Deal?        @relation(fields: [dealId], references: [id])

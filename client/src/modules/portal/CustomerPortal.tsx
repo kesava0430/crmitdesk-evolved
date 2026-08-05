@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Plus, ArrowLeft, Send, LogOut, Ticket, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Plus, ArrowLeft, Send, LogOut, Ticket, CheckCircle, Clock, AlertCircle, MessageCircle, X } from 'lucide-react';
 import { Spinner } from '../../shared/components';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -283,6 +283,100 @@ function TicketDetailView({ ticket, onBack }: { ticket: PortalTicket; onBack: ()
   );
 }
 
+// ─── LIVE CHAT WIDGET ─────────────────────────────────────────────────────────
+// A small floating widget, deliberately poll-based (every 5s while open)
+// rather than holding an SSE/WebSocket connection open — matches this
+// module's intentionally simple, non-React-Query architecture (see the
+// module-level note in the Technical Docs about the customer portal). Backed
+// by the same Conversation/Message tables as staff Email/WhatsApp inboxes —
+// see portal.controller.ts getChatMessages/sendChatMessage.
+
+interface ChatMessage { id: string; direction: 'INBOUND' | 'OUTBOUND'; body: string; sentAt: string }
+
+function PortalChatWidget({ session }: { session: PortalSession }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  async function fetchMessages() {
+    try {
+      const { data } = await portalApi(session.token).get('/chat');
+      setMessages(data.messages);
+    } catch { /* best-effort */ }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, open]);
+
+  async function handleSend(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    setSending(true);
+    const body = draft;
+    setDraft('');
+    try {
+      await portalApi(session.token).post('/chat', { body });
+      fetchMessages();
+    } finally { setSending(false); }
+  }
+
+  return (
+    <>
+      {open && (
+        <div className="fixed bottom-20 right-4 left-4 sm:left-auto sm:right-6 sm:w-80 h-96 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 bg-brand-600 text-white shrink-0">
+            <p className="text-sm font-semibold">Live chat</p>
+            <button onClick={() => setOpen(false)} className="p-1 hover:bg-white/10 rounded"><X size={15} /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+            {messages.length === 0 && (
+              <p className="text-xs text-gray-400 text-center mt-6">Send a message and our team will reply here.</p>
+            )}
+            {messages.map(m => (
+              <div key={m.id} className={`flex ${m.direction === 'INBOUND' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                  m.direction === 'INBOUND' ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+                }`}>
+                  {m.body}
+                </div>
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </div>
+          <form onSubmit={handleSend} className="flex items-center gap-2 p-2.5 border-t border-gray-100 shrink-0">
+            <input
+              value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…"
+              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 min-w-0"
+            />
+            <button type="submit" disabled={sending || !draft.trim()} className="p-2 bg-brand-600 text-white rounded-xl disabled:opacity-40 shrink-0">
+              <Send size={14} />
+            </button>
+          </form>
+        </div>
+      )}
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="fixed bottom-5 right-5 w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-brand-600 text-white shadow-lg flex items-center justify-center hover:bg-brand-700 z-50"
+        style={{ width: 52, height: 52 }}
+        aria-label="Open live chat"
+      >
+        {open ? <X size={20} /> : <MessageCircle size={20} />}
+      </button>
+    </>
+  );
+}
+
 // ─── MAIN PORTAL ─────────────────────────────────────────────────────────────
 
 export function CustomerPortal() {
@@ -379,6 +473,8 @@ export function CustomerPortal() {
           <TicketDetailView ticket={selectedTicket} onBack={() => setView('list')} />
         )}
       </main>
+
+      <PortalChatWidget session={session} />
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions } from '../shared/components';
-import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check } from 'lucide-react';
+import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check, KeyRound } from 'lucide-react';
 
 const ROLES = ['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE'];
 const roleVariant: Record<string, any> = {
@@ -158,6 +158,11 @@ export function UsersPage() {
     mutationFn: (id: string) => api.delete(`/admin/users/${id}`).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
   });
+  const resetPassword = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/users/${id}/reset-password`).then(r => r.data),
+    onSuccess: (data: any) => alert(data?.message || 'Reset link sent.'),
+    onError: (err: any) => alert(err?.response?.data?.error || 'Could not send reset link.'),
+  });
 
   const filtered = users?.filter((u: any) =>
     !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
@@ -267,6 +272,7 @@ export function UsersPage() {
                   <td className="px-4 py-3">
                     <RowActions items={[
                       { label: 'Edit', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', user: u }) },
+                      { label: 'Reset Password', icon: <KeyRound size={14} />, onClick: () => resetPassword.mutate(u.id), hidden: !u.isActive },
                       { label: 'Deactivate', icon: <UserX size={14} />, onClick: () => deactivate.mutate(u.id), variant: 'danger', hidden: !u.isActive },
                       { label: 'Reactivate', icon: <Shield size={14} />, onClick: () => update.mutate({ id: u.id, isActive: true }), hidden: u.isActive },
                     ]} />

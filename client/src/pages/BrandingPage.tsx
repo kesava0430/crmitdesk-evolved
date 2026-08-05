@@ -54,9 +54,9 @@ export default function BrandingPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Form */}
-        <div className="col-span-3 space-y-5">
+        <div className="lg:col-span-3 space-y-5">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
             <h2 className="font-semibold text-gray-800">Brand Identity</h2>
 
@@ -122,7 +122,7 @@ export default function BrandingPage() {
         </div>
 
         {/* Live preview */}
-        <div className="col-span-2">
+        <div className="lg:col-span-2">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-6">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
               <Eye size={15} className="text-gray-400" />

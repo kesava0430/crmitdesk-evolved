@@ -319,6 +319,27 @@ export const emailTemplates = {
     `, '#16a34a'),
   }),
 
+  passwordReset: (to: string, name: string, resetLink: string) => ({
+    to,
+    subject: 'Reset your password',
+    html: base(`
+      <h2 style="color:#4f46e5">Reset your password</h2>
+      <p>Hi <strong>${name}</strong>, we received a request to reset your password. This link expires in 30 minutes.</p>
+      ${btn(resetLink, 'Reset password')}
+      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${resetLink}</code></p>
+      <p style="color:#6b7280;font-size:13px">If you didn't request this, you can safely ignore this email — your password won't change.</p>
+    `),
+  }),
+
+  passwordChanged: (to: string, name: string) => ({
+    to,
+    subject: 'Your password was changed',
+    html: base(`
+      <h2 style="color:#4f46e5">Password changed</h2>
+      <p>Hi <strong>${name}</strong>, your password was just changed. If this wasn't you, contact your workspace admin immediately.</p>
+    `),
+  }),
+
   dealStageChanged: (deal: { title: string; stage: string }, assigneeName: string, assigneeEmail: string) => ({
     to: assigneeEmail,
     subject: `[CRM] Deal moved to ${deal.stage}: ${deal.title}`,

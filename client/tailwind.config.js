@@ -1,5 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  // Previously unset, which defaults to Tailwind's 'media' strategy — every
+  // `dark:` class already sprinkled through the app only ever activated from
+  // the OS-level prefers-color-scheme, never from an in-app toggle. 'class'
+  // makes ThemeContext's dark-mode toggle (adding/removing `dark` on
+  // <html>) actually control it. See contexts/ThemeContext.tsx.
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {

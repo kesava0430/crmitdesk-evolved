@@ -6,6 +6,8 @@ import { prisma } from '../../utils/prisma';
 import { sendMail } from '../../utils/mailer';
 import { PortalRequest } from '../../middleware/authenticatePortal';
 import { AppError } from '../../middleware/errorHandler';
+import { sseManager, SSEEvent } from '../../utils/sse';
+import { notifyOrgAdmins } from '../notifications/notifications.controller';
 
 function hashToken(raw: string) {
   return crypto.createHash('sha256').update(raw).digest('hex');
@@ -152,5 +154,83 @@ export async function getTicket(req: PortalRequest, res: Response, next: NextFun
     });
     if (!ticket) throw new AppError(404, 'Ticket not found');
     res.json(ticket);
+  } catch (err) { next(err); }
+}
+
+// ─── Live Chat ───────────────────────────────────────────────────────────────
+// Reuses the same Conversation/Message tables as the staff Unified Inbox
+// (channel = 'CHAT'), so a chat started here shows up alongside Email/
+// WhatsApp conversations for staff with zero new UI on that side. The portal
+// frontend polls rather than holding an SSE connection open, matching this
+// module's deliberately simple, non-React-Query architecture (see
+// portal.controller.ts's module comment / Technical Docs section 11.3).
+
+async function findOrCreateChatConversation(orgId: string, portalUserId: string) {
+  let conversation = await prisma.conversation.findFirst({ where: { orgId, channel: 'CHAT', portalUserId } });
+  if (!conversation) {
+    const portalUser = await prisma.portalUser.findUnique({ where: { id: portalUserId } });
+    conversation = await prisma.conversation.create({
+      data: {
+        orgId,
+        channel: 'CHAT',
+        portalUserId,
+        contactName: portalUser?.name || 'Portal customer',
+        contactEmail: portalUser?.email,
+        subject: 'Live chat',
+        lastMessageAt: new Date(),
+      },
+    });
+  }
+  return conversation;
+}
+
+// GET /api/portal/chat
+export async function getChatMessages(req: PortalRequest, res: Response, next: NextFunction) {
+  try {
+    const conversation = await findOrCreateChatConversation(req.portal!.orgId, req.portal!.portalUserId);
+    const messages = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { sentAt: 'asc' },
+    });
+    // Mark staff replies as read now that the customer has fetched them
+    await prisma.message.updateMany({
+      where: { conversationId: conversation.id, direction: 'OUTBOUND', readAt: null },
+      data: { readAt: new Date() },
+    });
+    res.json({ conversationId: conversation.id, messages });
+  } catch (err) { next(err); }
+}
+
+const ChatMessageSchema = z.object({ body: z.string().min(1).max(4000) });
+
+// POST /api/portal/chat
+export async function sendChatMessage(req: PortalRequest, res: Response, next: NextFunction) {
+  try {
+    const { body } = ChatMessageSchema.parse(req.body);
+    const orgId = req.portal!.orgId;
+    const conversation = await findOrCreateChatConversation(orgId, req.portal!.portalUserId);
+
+    const message = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: 'INBOUND',
+        fromAddress: conversation.contactEmail || 'portal-customer',
+        toAddress: 'staff',
+        body,
+        sentAt: new Date(),
+      },
+    });
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: 'OPEN', updatedAt: new Date() },
+    });
+
+    sseManager.broadcastAll(orgId, SSEEvent.INBOX_MESSAGE, { conversationId: conversation.id, direction: 'INBOUND', channel: 'CHAT' });
+    notifyOrgAdmins({
+      orgId, type: 'CHAT_MESSAGE', title: `New live chat message from ${conversation.contactName}`,
+      body: body.slice(0, 140), entityType: 'CONVERSATION', entityId: conversation.id,
+    }).catch(() => {});
+
+    res.status(201).json(message);
   } catch (err) { next(err); }
 }

@@ -1,5 +1,10 @@
 import { Router } from 'express';
-import { register, login, demoLogin, refreshToken, logout, me, updateMe, changePassword, acceptInvite, inviteInfo, orgSignupInfo, approveOrgSignup } from './auth.controller';
+import {
+  register, login, demoLogin, refreshToken, logout, me, updateMe, changePassword,
+  acceptInvite, inviteInfo, orgSignupInfo, approveOrgSignup,
+  forgotPassword, resetPassword,
+  googleLogin, googleStatus, linkGoogleAccount, unlinkGoogleAccount,
+} from './auth.controller';
 import { authenticate } from '../../../middleware/authenticate';
 
 export const authRouter = Router();
@@ -15,6 +20,16 @@ authRouter.post('/accept-invite', acceptInvite);
 // the reviewer is clicking a link from an email, not logged into the app.
 authRouter.get('/org-signup-info', orgSignupInfo);
 authRouter.post('/approve-org-signup', approveOrgSignup);
+// Public, email-enumeration-safe (see forgotPassword()) — same generic-
+// response pattern as the customer portal's request-access flow.
+authRouter.post('/forgot-password', forgotPassword);
+authRouter.post('/reset-password', resetPassword);
+// Public — Google verifies the token; see googleLogin() for why this can't
+// create new users/orgs.
+authRouter.post('/google', googleLogin);
+authRouter.get('/google/status', authenticate, googleStatus);
+authRouter.post('/google/link', authenticate, linkGoogleAccount);
+authRouter.delete('/google/link', authenticate, unlinkGoogleAccount);
 authRouter.get('/me', authenticate, me);
 authRouter.put('/me', authenticate, updateMe);
 authRouter.put('/me/password', authenticate, changePassword);

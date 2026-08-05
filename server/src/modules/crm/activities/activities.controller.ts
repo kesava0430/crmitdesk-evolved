@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { runWorkflows } from '../../../utils/workflow-engine';
+import { pushCalendarEvent } from '../../../utils/googleCalendar';
 
 const Schema = z.object({
   type: z.enum(['CALL','EMAIL','MEETING','TASK']),
@@ -45,6 +46,17 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
       },
       include,
     });
+    // Fire-and-forget — most orgs/users have no calendar connected, so this
+    // is a cheap no-op for them (pushCalendarEvent returns false immediately).
+    if (activity.dueAt && !activity.done) {
+      pushCalendarEvent(req.user!.id, 'activities', {
+        sourceId: `activity-${activity.id}`,
+        summary: `[${activity.type}] ${activity.title}`,
+        description: activity.body || '',
+        start: activity.dueAt,
+        end: new Date(activity.dueAt.getTime() + 30 * 60 * 1000),
+      }).catch(() => {});
+    }
     res.status(201).json(activity);
   } catch (err) { next(err); }
 }

@@ -1,4 +1,5 @@
-import { Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
@@ -108,5 +109,89 @@ export async function remove(req: AuthRequest, res: Response, next: NextFunction
   try {
     await prisma.quote.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
     res.json({ message: 'Quote deleted' });
+  } catch (err) { next(err); }
+}
+
+// ─── Public quote sharing & e-signature ─────────────────────────────────────
+// No new "share token" column — the token is a deterministic HMAC of the
+// quote id, so a shareable link can be generated (and re-generated) without
+// a write, the same way a JWT proves possession without a DB round-trip.
+// Anyone with the link can view/sign the quote, same trust model as the CSAT
+// survey link and the customer portal's magic-link (knowledge of the link IS
+// the authorization) — acceptable here since the link is only ever handed to
+// the customer being quoted, not published anywhere.
+
+function quoteShareToken(quoteId: string): string {
+  const secret = process.env.QUOTE_SHARE_SECRET || process.env.JWT_SECRET || 'dev-secret';
+  return crypto.createHmac('sha256', secret).update(quoteId).digest('hex').slice(0, 32);
+}
+
+/** GET /quotes/:id/share-link — staff-only; returns the public URL to send to the customer */
+export async function getShareLink(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const quote = await prisma.quote.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    if (!quote) throw new AppError(404, 'Quote not found');
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const link = `${frontendUrl}/quote/${quote.id}?t=${quoteShareToken(quote.id)}`;
+    res.json({ link });
+  } catch (err) { next(err); }
+}
+
+/** GET /quotes/public/:id?t=... — public, token-secured read-only view for the customer */
+export async function publicView(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const token = String(req.query.t || '');
+    if (!token || token !== quoteShareToken(id)) throw new AppError(404, 'Quote not found');
+    const quote = await prisma.quote.findUnique({
+      where: { id },
+      include: {
+        lines: true,
+        org: { select: { name: true } },
+        deal: { select: { id: true, title: true } },
+      },
+    });
+    if (!quote) throw new AppError(404, 'Quote not found');
+    res.json(quote);
+  } catch (err) { next(err); }
+}
+
+const AcceptSchema = z.object({
+  token: z.string(),
+  signerName: z.string().min(2),
+  signerEmail: z.string().email(),
+  agreed: z.literal(true),
+});
+
+/**
+ * POST /quotes/public/:id/accept — public, token-secured. Captures a simple
+ * in-app e-signature (typed name + explicit agreement + timestamp/IP audit
+ * trail) rather than a legally-certified signature product — see the Quote
+ * model comment in schema.prisma. Moves the quote straight to ACCEPTED.
+ */
+export async function publicAccept(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const body = AcceptSchema.parse(req.body);
+    if (body.token !== quoteShareToken(id)) throw new AppError(404, 'Quote not found');
+
+    const quote = await prisma.quote.findUnique({ where: { id } });
+    if (!quote) throw new AppError(404, 'Quote not found');
+    if (quote.status === 'ACCEPTED') throw new AppError(400, 'This quote has already been accepted');
+    if (quote.status === 'REJECTED') throw new AppError(400, 'This quote was rejected and can no longer be accepted');
+
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
+    const updated = await prisma.quote.update({
+      where: { id },
+      data: {
+        status: 'ACCEPTED',
+        signerName: body.signerName,
+        signerEmail: body.signerEmail,
+        signedAt: new Date(),
+        signerIp: ip,
+      },
+      include: { lines: true },
+    });
+    res.json(updated);
   } catch (err) { next(err); }
 }

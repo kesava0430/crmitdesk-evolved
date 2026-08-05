@@ -1,13 +1,18 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppLayout } from './shared/layouts/AppLayout';
+import { isRouteAllowed } from './shared/routeAccess';
+import { AccessDenied } from './shared/components/AccessDenied';
 
 // Eagerly loaded — shown before auth or as portal (must be small/fast)
 import { LoginPage } from './pages/LoginPage';
 import { DemoLandingPage } from './pages/DemoLandingPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { OrgApprovalPage } from './pages/OrgApprovalPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { PublicQuotePage } from './pages/PublicQuotePage';
 import { CustomerPortal } from './modules/portal/CustomerPortal';
 
 // Page skeleton fallback for Suspense
@@ -72,6 +77,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Mirrors sidebar visibility (shared/routeAccess.ts, derived from
+// AppLayout's NAV_SECTIONS) into an actual navigation guard — previously a
+// role that couldn't see e.g. "API Keys" in the sidebar could still open
+// /api-keys directly and have the page render (the API itself always
+// rejected the requests, so this was a UX gap, not a security hole — see
+// Technical Docs 14.1). Renders an in-app Access Denied screen instead of a
+// page full of failed requests.
+// Wraps the whole nested route tree (see the single <Route element={<RoleGate/>}>
+// below) rather than each leaf route individually — one check point instead
+// of decorating 30+ <Route> lines, and it can't drift out of sync with new
+// routes the way a per-route opt-in list could.
+function RoleGate() {
+  const { user } = useAuth();
+  const location = useLocation();
+  if (!isRouteAllowed(location.pathname, user?.role)) return <AccessDenied />;
+  return <Outlet />;
+}
+
 function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -95,42 +118,50 @@ export default function App() {
         <Route path="/demo" element={<DemoLandingPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/approve-org" element={<OrgApprovalPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/quote/:id" element={<PublicQuotePage />} />
         <Route path="/platform-admin" element={<PlatformAdminRoute><Suspense fallback={<PageSkeleton />}><PlatformAdminPage /></Suspense></PlatformAdminRoute>} />
         <Route path="/" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><AppLayout /></Suspense></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="crm/contacts" element={<ContactsPage />} />
-          <Route path="crm/contacts/:id" element={<ContactDetailPage />} />
-          <Route path="crm/leads" element={<LeadsPage />} />
-          <Route path="crm/deals" element={<DealsPage />} />
-          <Route path="itdesk/tickets" element={<TicketsPage />} />
-          <Route path="itdesk/categories" element={<CategoriesPage />} />
-          <Route path="itdesk/articles" element={<ArticlesPage />} />
-          <Route path="inbox" element={<InboxPage />} />
-          <Route path="workflows" element={<WorkflowsPage />} />
-          <Route path="portal-users" element={<PortalUsersPage />} />
-          <Route path="billing" element={<BillingPage />} />
-          <Route path="slack" element={<SlackPage />} />
-          <Route path="itdesk/assets" element={<AssetsPage />} />
-          <Route path="campaigns" element={<CampaignsPage />} />
-          <Route path="change-requests" element={<ChangeRequestsPage />} />
-          <Route path="analytics" element={<AnalyticsPage />} />
-          <Route path="admin/users" element={<UsersPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="api-keys" element={<ApiKeysPage />} />
-          <Route path="audit-logs" element={<AuditLogPage />} />
-          <Route path="custom-fields" element={<CustomFieldsPage />} />
-          <Route path="templates" element={<TemplatesPage />} />
-          <Route path="import" element={<BulkImportPage />} />
-          <Route path="teams" element={<TeamsPage />} />
-          <Route path="branding" element={<BrandingPage />} />
-          <Route path="storage" element={<StoragePage />} />
-          <Route path="custom-modules" element={<CustomModulesPage />} />
-          <Route path="quotes" element={<QuotesPage />} />
-          <Route path="security/2fa" element={<TwoFactorPage />} />
-          <Route path="ai-builder" element={<AIFeaturePage />} />
-          <Route path="ai-studio" element={<AIStudioPage />} />
-          <Route path="profile" element={<ProfilePage />} />
+          {/* RoleGate wraps every page below — see its comment above. Access
+              rules come from shared/routeAccess.ts, generated from the exact
+              same sidebar config in AppLayout.tsx (NAV_SECTIONS). */}
+          <Route element={<RoleGate />}>
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="crm/contacts" element={<ContactsPage />} />
+            <Route path="crm/contacts/:id" element={<ContactDetailPage />} />
+            <Route path="crm/leads" element={<LeadsPage />} />
+            <Route path="crm/deals" element={<DealsPage />} />
+            <Route path="itdesk/tickets" element={<TicketsPage />} />
+            <Route path="itdesk/categories" element={<CategoriesPage />} />
+            <Route path="itdesk/articles" element={<ArticlesPage />} />
+            <Route path="inbox" element={<InboxPage />} />
+            <Route path="workflows" element={<WorkflowsPage />} />
+            <Route path="portal-users" element={<PortalUsersPage />} />
+            <Route path="billing" element={<BillingPage />} />
+            <Route path="slack" element={<SlackPage />} />
+            <Route path="itdesk/assets" element={<AssetsPage />} />
+            <Route path="campaigns" element={<CampaignsPage />} />
+            <Route path="change-requests" element={<ChangeRequestsPage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="admin/users" element={<UsersPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="api-keys" element={<ApiKeysPage />} />
+            <Route path="audit-logs" element={<AuditLogPage />} />
+            <Route path="custom-fields" element={<CustomFieldsPage />} />
+            <Route path="templates" element={<TemplatesPage />} />
+            <Route path="import" element={<BulkImportPage />} />
+            <Route path="teams" element={<TeamsPage />} />
+            <Route path="branding" element={<BrandingPage />} />
+            <Route path="storage" element={<StoragePage />} />
+            <Route path="custom-modules" element={<CustomModulesPage />} />
+            <Route path="quotes" element={<QuotesPage />} />
+            <Route path="security/2fa" element={<TwoFactorPage />} />
+            <Route path="ai-builder" element={<AIFeaturePage />} />
+            <Route path="ai-studio" element={<AIStudioPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+          </Route>
         </Route>
         <Route path="*" element={<RootRedirect />} />
       </Routes>

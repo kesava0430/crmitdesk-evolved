@@ -48,9 +48,9 @@ export default function BulkImportPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Controls */}
-        <div className="col-span-1 space-y-4">
+        <div className="lg:col-span-1 space-y-4">
           {/* Entity selector */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">Import as</label>
@@ -83,7 +83,7 @@ export default function BulkImportPage() {
         </div>
 
         {/* Main area */}
-        <div className="col-span-2 space-y-4">
+        <div className="lg:col-span-2 space-y-4">
           {/* CSV text area */}
           <div className="bg-white rounded-xl border border-gray-200">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -152,7 +152,7 @@ export default function BulkImportPage() {
                 {result.errors === 0 ? <CheckCircle size={18} className="text-green-600" /> : <AlertCircle size={18} className="text-yellow-600" />}
                 <span className="font-semibold text-gray-800">Import complete</span>
               </div>
-              <div className="grid grid-cols-4 gap-3 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                 {[
                   { label: 'Total', value: result.total, color: 'text-gray-700' },
                   { label: 'Created', value: result.created, color: 'text-green-600' },

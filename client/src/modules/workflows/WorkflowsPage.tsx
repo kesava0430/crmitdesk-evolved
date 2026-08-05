@@ -404,10 +404,10 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
         </>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="form-label">When</label>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-2">
             <select
               value={isBefore ? 'BEFORE' : 'AFTER'}
               onChange={e => onChange({ ...config, offsetDays: e.target.value === 'BEFORE' ? -dayCount : dayCount })}
@@ -550,7 +550,7 @@ function RuleEditor({
             ) : (
               <div className="space-y-2">
                 {form.conditions.map((cond, i) => (
-                  <div key={i} className="flex items-center gap-2">
+                  <div key={i} className="flex items-center flex-wrap gap-2">
                     <select value={cond.field} onChange={e => updateCondition(i, { field: e.target.value })}
                       className="ui-input text-xs py-1.5 w-36 flex-shrink-0">
                       {condFields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -578,7 +578,7 @@ function RuleEditor({
             </div>
             <div className="space-y-3">
               {form.actions.map((action, i) => (
-                <div key={i} className="flex items-start gap-2 bg-white border border-gray-100 rounded-xl p-3">
+                <div key={i} className="flex items-start flex-wrap gap-2 bg-white border border-gray-100 rounded-xl p-3">
                   <select value={action.type}
                     onChange={e => updateAction(i, { type: e.target.value as any, params: {} })}
                     className="ui-input text-xs py-1.5 w-40 flex-shrink-0">
@@ -708,7 +708,7 @@ export function WorkflowsPage() {
 
       {/* Stats bar */}
       {rules.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Total Rules', value: rules.length, color: 'text-gray-900' },
             { label: 'Active', value: rules.filter(r => r.isActive).length, color: 'text-green-600' },

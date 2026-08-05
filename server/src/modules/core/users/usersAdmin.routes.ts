@@ -9,3 +9,4 @@ usersAdminRouter.post('/', c.create);
 usersAdminRouter.post('/invite', c.invite);
 usersAdminRouter.patch('/:id', c.update);
 usersAdminRouter.delete('/:id', c.deactivate);
+usersAdminRouter.post('/:id/reset-password', c.resetUserPassword);

@@ -392,8 +392,8 @@ export default function CustomModulesPage() {
       {isLoading ? <Spinner /> : !modules?.length ? (
         <EmptyState icon={<Layers size={24} />} title="No custom modules yet" description="Create your first module to model data that doesn't fit CRM/IT Desk out of the box" action={{ label: 'New Module', onClick: () => setCreateOpen(true) }} />
       ) : (
-        <div className="flex gap-4 flex-1 min-h-0">
-          <div className="w-60 flex-shrink-0 bg-white border border-gray-100 rounded-xl overflow-y-auto p-2 space-y-1">
+        <div className="flex flex-col sm:flex-row gap-4 flex-1 min-h-0">
+          <div className="w-full sm:w-60 sm:flex-shrink-0 max-h-48 sm:max-h-none bg-white border border-gray-100 rounded-xl overflow-y-auto p-2 space-y-1">
             {modules.map((m: any) => (
               <button
                 key={m.id}

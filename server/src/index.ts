@@ -55,6 +55,8 @@ import { demoRouter } from './modules/demo/demo.routes';
 import { customModulesRouter } from './modules/custom-modules/customModules.routes';
 import { pushRouter } from './modules/push/push.routes';
 import { platformAdminRouter } from './modules/platform-admin/platformAdmin.routes';
+import { calendarRouter } from './modules/calendar/calendar.routes';
+import { gdprRouter } from './modules/gdpr/gdpr.routes';
 import { startSchedulePoller } from './utils/scheduler';
 import { startCustomModuleSyncPoller } from './utils/customModuleSync';
 import { startDateAutomationPoller } from './utils/dateAutomation';
@@ -124,6 +126,9 @@ app.use('/api/auth/demo-login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/accept-invite', authLimiter);
 app.use('/api/auth/approve-org-signup', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/reset-password', authLimiter);
+app.use('/api/auth/google', authLimiter);
 app.use('/api/admin/users/invite', authLimiter);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
@@ -188,6 +193,8 @@ app.use('/api/demo', demoRouter);
 app.use('/api/custom-modules', customModulesRouter);
 app.use('/api/push', pushRouter);
 app.use('/api/platform', platformAdminRouter);
+app.use('/api/calendar', calendarRouter);
+app.use('/api/gdpr', gdprRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);

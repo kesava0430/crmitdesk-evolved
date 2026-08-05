@@ -41,7 +41,11 @@ type NavSection = {
   items: NavItem[];
 };
 
-const NAV_SECTIONS: NavSection[] = [
+// Exported so App.tsx can derive server-mirroring route-level role guards
+// from the exact same config that drives sidebar visibility (see
+// shared/routeAccess.ts) — one source of truth instead of two lists that can
+// drift apart.
+export const NAV_SECTIONS: NavSection[] = [
   {
     label: null,
     items: [

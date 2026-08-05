@@ -183,7 +183,7 @@
   }
 
   body {
-    @apply bg-slate-50 text-gray-900 antialiased;
+    @apply bg-slate-50 text-gray-900 antialiased dark:bg-slate-900 dark:text-slate-100;
     font-family: var(--font-sans);
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     font-size: 14px;
