@@ -13,6 +13,7 @@ import { OrgApprovalPage } from './pages/OrgApprovalPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { PublicQuotePage } from './pages/PublicQuotePage';
+import { PublicInvoicePage } from './pages/PublicInvoicePage';
 import { CustomerPortal } from './modules/portal/CustomerPortal';
 
 // Page skeleton fallback for Suspense
@@ -66,6 +67,10 @@ const QuotesPage         = lazy(() => import('./pages/QuotesPage'));
 const TwoFactorPage      = lazy(() => import('./pages/TwoFactorPage'));
 const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
 const PlatformAdminPage  = lazy(() => import('./pages/PlatformAdminPage').then(m => ({ default: m.PlatformAdminPage })));
+const InvoicesPage       = lazy(() => import('./pages/InvoicesPage'));
+const AttendancePage     = lazy(() => import('./modules/hr/AttendancePage'));
+const LeavePage          = lazy(() => import('./modules/hr/LeavePage'));
+const HRSettingsPage     = lazy(() => import('./modules/hr/HRSettingsPage'));
 
 // PLATFORM_ADMIN users have no orgId — the normal AppLayout/org-scoped pages
 // all assume one, so they're routed to the standalone /platform-admin
@@ -121,6 +126,7 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/quote/:id" element={<PublicQuotePage />} />
+        <Route path="/invoice/:id" element={<PublicInvoicePage />} />
         <Route path="/platform-admin" element={<PlatformAdminRoute><Suspense fallback={<PageSkeleton />}><PlatformAdminPage /></Suspense></PlatformAdminRoute>} />
         <Route path="/" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><AppLayout /></Suspense></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -157,6 +163,10 @@ export default function App() {
             <Route path="storage" element={<StoragePage />} />
             <Route path="custom-modules" element={<CustomModulesPage />} />
             <Route path="quotes" element={<QuotesPage />} />
+            <Route path="invoices" element={<InvoicesPage />} />
+            <Route path="hr/attendance" element={<AttendancePage />} />
+            <Route path="hr/leave" element={<LeavePage />} />
+            <Route path="hr/settings" element={<HRSettingsPage />} />
             <Route path="security/2fa" element={<TwoFactorPage />} />
             <Route path="ai-builder" element={<AIFeaturePage />} />
             <Route path="ai-studio" element={<AIStudioPage />} />

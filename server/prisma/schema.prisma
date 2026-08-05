@@ -59,6 +59,11 @@ model Organization {
   whatsAppConfig WhatsAppConfig?
   workflowRules  WorkflowRule[]
   storageConfig  StorageConfig?
+  officeLocations   OfficeLocation[]
+  attendanceRecords AttendanceRecord[]
+  leaveTypes        LeaveType[]
+  leaveRequests     LeaveRequest[]
+  invoices          Invoice[]
 
   @@map("organizations")
 }
@@ -207,6 +212,10 @@ model User {
   totpSecret             TOTPSecret?
   org                    Organization?      @relation(fields: [orgId], references: [id])
   storageConfigsConnected StorageConfig[]
+  attendanceRecords      AttendanceRecord[]
+  leaveRequests          LeaveRequest[]     @relation("LeaveRequester")
+  leaveRequestsDecided   LeaveRequest[]     @relation("LeaveDecider")
+  invoicesCreated        Invoice[]          @relation("InvoiceCreator")
 
   @@map("users")
 }
@@ -471,6 +480,7 @@ model Deal {
   pipeline    Pipeline?     @relation(fields: [pipelineId], references: [id])
   leads       Lead[]
   quotes      Quote[]
+  invoices    Invoice[]
 
   @@index([orgId])
   @@map("deals")
@@ -1273,16 +1283,19 @@ model Quote {
   updatedAt  DateTime     @updatedAt @map("updated_at")
   // In-app e-signature capture, set when a quote transitions to ACCEPTED via
   // the customer-facing accept link (see quotes.controller.ts acceptQuote).
-  // Not a legally-certified e-signature product — a typed-name attestation
-  // with an IP/timestamp audit trail, stamped onto the quote PDF.
-  signerName  String?   @map("signer_name")
-  signerEmail String?   @map("signer_email")
-  signedAt    DateTime? @map("signed_at")
-  signerIp    String?   @map("signer_ip")
+  // Not a legally-certified e-signature product — a hand-drawn signature
+  // (signatureImage, a base64 PNG data URL from a canvas pad) plus a typed
+  // name/email and an IP/timestamp audit trail, stamped onto the quote view.
+  signerName     String?   @map("signer_name")
+  signerEmail    String?   @map("signer_email")
+  signedAt       DateTime? @map("signed_at")
+  signerIp       String?   @map("signer_ip")
+  signatureImage String?   @map("signature_image") @db.Text
   lines      QuoteLine[]
   creator    User         @relation("QuoteCreator", fields: [createdBy], references: [id])
   deal       Deal?        @relation(fields: [dealId], references: [id])
   org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invoices   Invoice[]
 
   @@index([orgId])
   @@map("quotes")
@@ -1298,6 +1311,163 @@ model QuoteLine {
   quote       Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@map("quote_lines")
+}
+
+// ─── HR: Attendance ─────────────────────────────────────────────────────────
+
+// An org's physical office(s) — attendance check-in/out is only accepted if
+// the employee is within `radiusMeters` of at least one active location AND
+// (unless skipped) their request's public IP matches `allowedIps`. Multiple
+// rows support multi-branch orgs; a single-office org just has one.
+model OfficeLocation {
+  id            String       @id @default(cuid())
+  orgId         String       @map("org_id")
+  name          String
+  latitude      Float
+  longitude     Float
+  radiusMeters  Int          @default(150) @map("radius_meters")
+  // Comma-separated list of exact IPv4 addresses and/or basic CIDR blocks
+  // (e.g. "203.0.113.5,198.51.100.0/24") — see utils/attendanceVerification.ts
+  // ipMatchesAllowlist(). Blank/null means the IP check is skipped for this
+  // location (geofence-only).
+  allowedIps    String?      @map("allowed_ips")
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("office_locations")
+}
+
+// One row per employee per calendar day. Check-in captures geolocation + IP
+// and whether each passed verification; a manager can also create/edit a
+// row directly (manualEntry = true) to cover legitimate exceptions (approved
+// WFH, field visits, forgotten check-in) without disabling verification
+// org-wide.
+model AttendanceRecord {
+  id                    String       @id @default(cuid())
+  orgId                 String       @map("org_id")
+  userId                String       @map("user_id")
+  date                  DateTime     @db.Date
+  checkInAt             DateTime?    @map("check_in_at")
+  checkInLat            Float?       @map("check_in_lat")
+  checkInLng            Float?       @map("check_in_lng")
+  checkInIp             String?      @map("check_in_ip")
+  checkInLocationOk     Boolean?     @map("check_in_location_ok")
+  checkInNetworkOk      Boolean?     @map("check_in_network_ok")
+  checkOutAt            DateTime?    @map("check_out_at")
+  checkOutLat           Float?       @map("check_out_lat")
+  checkOutLng           Float?       @map("check_out_lng")
+  checkOutIp            String?      @map("check_out_ip")
+  checkOutLocationOk    Boolean?     @map("check_out_location_ok")
+  checkOutNetworkOk     Boolean?     @map("check_out_network_ok")
+  // MANUAL rows are created/edited by a manager (PATCH), not the employee's
+  // own check-in/out, and skip geofence/IP verification entirely.
+  source                String       @default("SELF") @map("source") // SELF | MANUAL
+  notes                 String?
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  org                   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([orgId, date])
+  @@map("attendance_records")
+}
+
+// ─── HR: Leave Management ───────────────────────────────────────────────────
+
+model LeaveType {
+  id            String         @id @default(cuid())
+  orgId         String         @map("org_id")
+  name          String
+  annualQuota   Int            @default(12) @map("annual_quota") // days per calendar year
+  isPaid        Boolean        @default(true) @map("is_paid")
+  color         String         @default("#6366f1")
+  isActive      Boolean        @default(true) @map("is_active")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  leaveRequests LeaveRequest[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("leave_types")
+}
+
+model LeaveRequest {
+  id              String       @id @default(cuid())
+  orgId           String       @map("org_id")
+  userId          String       @map("user_id")
+  leaveTypeId     String       @map("leave_type_id")
+  startDate       DateTime     @db.Date @map("start_date")
+  endDate         DateTime     @db.Date @map("end_date")
+  days            Int          // inclusive whole-day count; half-days aren't supported
+  reason          String?
+  status          String       @default("PENDING") @map("status") // PENDING | APPROVED | REJECTED | CANCELLED
+  decidedBy       String?      @map("decided_by")
+  decidedAt       DateTime?    @map("decided_at")
+  rejectionReason String?      @map("rejection_reason")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user            User         @relation("LeaveRequester", fields: [userId], references: [id], onDelete: Cascade)
+  decider         User?        @relation("LeaveDecider", fields: [decidedBy], references: [id])
+  leaveType       LeaveType    @relation(fields: [leaveTypeId], references: [id])
+
+  @@index([orgId, userId])
+  @@index([orgId, status])
+  @@map("leave_requests")
+}
+
+// ─── Invoicing ───────────────────────────────────────────────────────────────
+
+// Generated automatically when a Quote is accepted (see quotes.controller.ts
+// publicAccept), or created manually. Document-only — no payment processor
+// integration; staff mark status by hand (mirrors how Quote status already
+// works). Shared publicly via the same deterministic-HMAC-token pattern as
+// Quote's share link (see invoices.controller.ts invoiceShareToken).
+model Invoice {
+  id            String        @id @default(cuid())
+  orgId         String        @map("org_id")
+  quoteId       String?       @map("quote_id")
+  dealId        String?       @map("deal_id")
+  // Sequential per-org display number, e.g. "INV-0001" — assigned at
+  // creation from a per-org counter (see invoices.controller.ts
+  // nextInvoiceNumber). Immutable once set.
+  invoiceNumber String        @map("invoice_number")
+  title         String
+  status        String        @default("DRAFT") // DRAFT | SENT | PAID | OVERDUE | VOID
+  issueDate     DateTime      @default(now()) @map("issue_date")
+  dueDate       DateTime?     @map("due_date")
+  taxRate       Decimal       @default(0) @db.Decimal(5, 2) @map("tax_rate") // percent
+  notes         String?
+  paidAt        DateTime?     @map("paid_at")
+  createdBy     String        @map("created_by")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  lines         InvoiceLine[]
+  creator       User          @relation("InvoiceCreator", fields: [createdBy], references: [id])
+  deal          Deal?         @relation(fields: [dealId], references: [id])
+  quote         Quote?        @relation(fields: [quoteId], references: [id])
+  org           Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, invoiceNumber])
+  @@index([orgId])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String  @map("invoice_id")
+  description String
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  discount    Decimal @default(0) @db.Decimal(5, 2)
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_lines")
 }
 
 model TOTPSecret {

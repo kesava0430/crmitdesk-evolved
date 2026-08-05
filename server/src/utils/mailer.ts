@@ -340,6 +340,30 @@ export const emailTemplates = {
     `),
   }),
 
+  leaveRequested: (to: string, managerName: string, requesterName: string, leaveTypeName: string, startDate: string, endDate: string, days: number) => ({
+    to,
+    subject: `Leave request from ${requesterName}`,
+    html: base(`
+      <h2 style="color:#4f46e5">New leave request</h2>
+      <p>Hi <strong>${managerName}</strong>, <strong>${requesterName}</strong> has requested time off.</p>
+      ${highlight(`
+        <strong>${leaveTypeName}</strong><br/>
+        ${startDate} &rarr; ${endDate} (${days} day${days === 1 ? '' : 's'})
+      `)}
+      <p>Review it from the Leave page in the app.</p>
+    `),
+  }),
+
+  leaveDecision: (to: string, requesterName: string, leaveTypeName: string, startDate: string, endDate: string, approved: boolean, reason?: string) => ({
+    to,
+    subject: `Your leave request was ${approved ? 'approved' : 'rejected'}`,
+    html: base(`
+      <h2 style="color:${approved ? '#16a34a' : '#dc2626'}">Leave request ${approved ? 'approved' : 'rejected'}</h2>
+      <p>Hi <strong>${requesterName}</strong>, your <strong>${leaveTypeName}</strong> request for ${startDate} &rarr; ${endDate} was ${approved ? 'approved' : 'rejected'}.</p>
+      ${reason ? `<p style="color:#6b7280;font-size:13px">Reason: ${reason}</p>` : ''}
+    `, approved ? '#16a34a' : '#dc2626'),
+  }),
+
   dealStageChanged: (deal: { title: string; stage: string }, assigneeName: string, assigneeEmail: string) => ({
     to: assigneeEmail,
     subject: `[CRM] Deal moved to ${deal.stage}: ${deal.title}`,

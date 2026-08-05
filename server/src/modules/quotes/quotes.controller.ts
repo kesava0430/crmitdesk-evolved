@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
+import { nextInvoiceNumber } from '../invoices/invoices.controller';
 
 const LineSchema = z.object({
   description: z.string().min(1),
@@ -161,6 +162,12 @@ const AcceptSchema = z.object({
   signerName: z.string().min(2),
   signerEmail: z.string().email(),
   agreed: z.literal(true),
+  // Hand-drawn signature captured on a <canvas> pad, sent as a base64 PNG
+  // data URL ("data:image/png;base64,..."). Optional so a customer on a
+  // device where the pad genuinely doesn't work (e.g. no pointer events)
+  // isn't blocked from accepting — the typed name + IP/timestamp trail
+  // still applies either way.
+  signatureImage: z.string().startsWith('data:image/').optional(),
 });
 
 /**
@@ -189,9 +196,38 @@ export async function publicAccept(req: Request, res: Response, next: NextFuncti
         signerEmail: body.signerEmail,
         signedAt: new Date(),
         signerIp: ip,
+        signatureImage: body.signatureImage,
       },
       include: { lines: true },
     });
+
+    // Auto-generate an invoice from the accepted quote's line items — fire-
+    // and-forget in the sense that a failure here shouldn't block the
+    // customer's acceptance from succeeding (they already signed); staff can
+    // always create one by hand from the Invoices page if this somehow fails.
+    try {
+      const invoiceNumber = await nextInvoiceNumber(updated.orgId);
+      await prisma.invoice.create({
+        data: {
+          orgId: updated.orgId,
+          quoteId: updated.id,
+          dealId: updated.dealId,
+          invoiceNumber,
+          title: updated.title,
+          status: 'SENT',
+          dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
+          createdBy: updated.createdBy,
+          lines: {
+            create: updated.lines.map(l => ({
+              description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, discount: l.discount,
+            })),
+          },
+        },
+      });
+    } catch (invoiceErr) {
+      console.error('[quotes] Failed to auto-generate invoice for accepted quote', id, invoiceErr);
+    }
+
     res.json(updated);
   } catch (err) { next(err); }
 }

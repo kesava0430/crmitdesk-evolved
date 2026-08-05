@@ -7,6 +7,7 @@ import {
   BarChart2, UserCog, Inbox, Zap, Globe, CreditCard, Slack, Monitor,
   Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
   FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive, Layers,
+  Clock, CalendarCheck, Building2, Receipt,
 } from "lucide-react";
 import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -65,7 +66,16 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: "/crm/leads",    label: "Leads",     icon: Target },
       { to: "/crm/deals",    label: "Pipeline",  icon: TrendingUp },
       { to: "/quotes",       label: "Quotes",    icon: FileText },
+      { to: "/invoices",     label: "Invoices",  icon: Receipt },
       { to: "/campaigns",    label: "Campaigns", icon: Mail },
+    ],
+  },
+  {
+    label: "HR",
+    items: [
+      { to: "/hr/attendance", label: "Attendance",  icon: Clock },
+      { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck },
+      { to: "/hr/settings",   label: "HR Settings", icon: Building2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
     ],
   },
   {
@@ -115,7 +125,11 @@ const PAGE_TITLES: Record<string, string> = {
   "/crm/leads":         "Leads",
   "/crm/deals":         "Pipeline",
   "/quotes":            "Quotes",
+  "/invoices":          "Invoices",
   "/campaigns":         "Campaigns",
+  "/hr/attendance":     "Attendance",
+  "/hr/leave":          "Leave",
+  "/hr/settings":       "HR Settings",
   "/itdesk/tickets":    "Tickets",
   "/itdesk/categories": "Categories",
   "/itdesk/articles":   "Knowledge Base",

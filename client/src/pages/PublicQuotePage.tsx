@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Loader2, FileText, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Loader2, FileText, CheckCircle2, ShieldCheck, Eraser } from 'lucide-react';
 import { api } from '../api/client';
 
 interface QuoteLine { id: string; description: string; quantity: string; unitPrice: string; discount: string }
@@ -13,6 +13,78 @@ interface Quote {
 function lineTotal(l: QuoteLine) {
   const qty = Number(l.quantity), price = Number(l.unitPrice), disc = Number(l.discount) || 0;
   return qty * price * (1 - disc / 100);
+}
+
+/** Hand-drawn signature pad on a <canvas>. The parent owns `canvasRef` and
+ *  reads it directly via `canvas.toDataURL()` on submit — the drawing itself
+ *  never needs to trigger a re-render, only whether it's empty does. */
+function SignaturePad({ canvasRef, onChange }: { canvasRef: React.RefObject<HTMLCanvasElement>; onChange: (hasSignature: boolean) => void }) {
+  const drawingRef = useRef(false);
+  const hasDrawnRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  function point(e: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function start(e: React.PointerEvent<HTMLCanvasElement>) {
+    drawingRef.current = true;
+    lastPointRef.current = point(e);
+    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+  }
+
+  function move(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const p = point(e);
+    const last = lastPointRef.current;
+    if (last) {
+      ctx.strokeStyle = '#1f2937';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(last.x, last.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    lastPointRef.current = p;
+    if (!hasDrawnRef.current) { hasDrawnRef.current = true; onChange(true); }
+  }
+
+  function end() { drawingRef.current = false; lastPointRef.current = null; }
+
+  function clear() {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasDrawnRef.current = false;
+    onChange(false);
+  }
+
+  return (
+    <div>
+      <div className="border border-gray-200 rounded-xl bg-white overflow-hidden touch-none">
+        <canvas
+          ref={canvasRef}
+          width={500}
+          height={150}
+          className="w-full h-[150px] touch-none cursor-crosshair"
+          onPointerDown={start}
+          onPointerMove={move}
+          onPointerUp={end}
+          onPointerLeave={end}
+        />
+      </div>
+      <button type="button" onClick={clear} className="mt-1.5 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
+        <Eraser size={12} /> Clear signature
+      </button>
+    </div>
+  );
 }
 
 // Public, token-secured — no auth. Customers land here from a link a sales
@@ -29,7 +101,9 @@ export function PublicQuotePage() {
   const [signerName, setSignerName] = useState('');
   const [signerEmail, setSignerEmail] = useState('');
   const [agreed, setAgreed] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (!id || !token) { setError('This link is invalid.'); setLoading(false); return; }
@@ -44,7 +118,8 @@ export function PublicQuotePage() {
     if (!agreed) return;
     setSubmitting(true); setError('');
     try {
-      const res = await api.post(`/quotes/public/${id}/accept`, { token, signerName, signerEmail, agreed: true });
+      const signatureImage = hasSignature ? signatureCanvasRef.current?.toDataURL('image/png') : undefined;
+      const res = await api.post(`/quotes/public/${id}/accept`, { token, signerName, signerEmail, agreed: true, signatureImage });
       setQuote(res.data);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.response?.data?.message || 'Could not submit your acceptance. Please try again.');
@@ -130,9 +205,13 @@ export function PublicQuotePage() {
                     placeholder="you@company.com" className="px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Draw your signature</label>
+                  <SignaturePad canvasRef={signatureCanvasRef} onChange={setHasSignature} />
+                </div>
                 <label className="flex items-start gap-2 text-xs text-gray-500">
                   <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} className="mt-0.5" />
-                  Typing my name above and checking this box constitutes my electronic signature and acceptance of this quote.
+                  Signing above and checking this box constitutes my electronic signature and acceptance of this quote.
                 </label>
                 <button
                   type="submit" disabled={!agreed || submitting}

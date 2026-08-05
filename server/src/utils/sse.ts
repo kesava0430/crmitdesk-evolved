@@ -65,5 +65,7 @@ export const SSEEvent = {
   LEAD_CREATED:       'lead:created',
   DEAL_UPDATED:       'deal:updated',
   NOTIFICATION:       'notification',
+  ATTENDANCE_UPDATED: 'attendance:updated',
+  LEAVE_UPDATED:      'leave:updated',
   PING:               'ping',
 } as const;
