@@ -82,14 +82,21 @@ export interface VerificationResult {
    *  ("the network check didn't fail", not "the network check passed"). */
   networkOk: boolean;
   networkStatus: NetworkCheckStatus;
-  /** Overall verified for this office: GPS radius matched OR the office has
-   *  an IP allowlist configured and the request's IP matched it. Either
-   *  signal is independently sufficient — this used to require BOTH, which
-   *  meant an employee correctly connected to the office network but with an
-   *  imprecise/out-of-range GPS fix (common indoors, in a large building, or
-   *  over a site-to-site VPN) could never check in even though the network
-   *  match alone should have been enough. An office with no IP allowlist
-   *  configured still relies on GPS alone, same as before. */
+  /** Overall verified for this office, driven by what that office actually
+   *  has configured: GPS geofencing is always on (every office has
+   *  latitude/longitude/radius), so an office with no IP allowlist relies on
+   *  GPS alone. An office that *also* has an IP allowlist configured
+   *  requires BOTH — GPS-in-range AND a matching IP — since an admin who
+   *  went to the trouble of setting up network verification intends it as
+   *  an additional check, not an alternate, weaker path that GPS-in-range
+   *  alone can satisfy on its own (which would mean someone off the office
+   *  network but merely standing nearby, or with a spoofed GPS reading,
+   *  could check in). Earlier versions of this logic went through both a
+   *  too-strict AND-always (blocked legitimate on-network employees with a
+   *  poor GPS fix indoors) and a too-loose OR-always (let GPS-in-range pass
+   *  on its own even for offices that deliberately configured an IP
+   *  allowlist) — this "require what's configured" version is the
+   *  intentional middle ground. */
   passed: boolean;
   /** Name of the office location matched (closest one that passed, or the closest overall if none passed). */
   matchedLocationName: string | null;
@@ -117,7 +124,15 @@ export function verifyAgainstOffices(
     const locationOk = distance <= office.radiusMeters;
     const networkStatus = checkNetworkAllowlist(ip, office.allowedIps);
     const networkOk = networkStatus !== 'not_matched';
-    const passed = locationOk || networkStatus === 'matched';
+    // "Require what's configured": no IP allowlist on this office means GPS
+    // is the only signal that exists, so GPS-in-range alone passes. An IP
+    // allowlist configured means the admin wants network verification
+    // enforced too, so both have to hold — GPS-in-range alone (e.g.
+    // standing near the building on mobile data, not office WiFi) is no
+    // longer sufficient for that office once it opts into IP checking.
+    const passed = networkStatus === 'not_configured'
+      ? locationOk
+      : locationOk && networkStatus === 'matched';
 
     if ((passed && !best.passed) || (!best.passed && distance < best.distance)) {
       best = { locationOk, networkOk, networkStatus, passed, matchedLocationName: office.name, nearestDistanceMeters: Math.round(distance), distance };

@@ -42,16 +42,18 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
     const result = verifyAgainstOffices(offices, lat, lng, ip);
 
-    // Either signal is independently sufficient (result.passed — see
-    // verifyAgainstOffices' doc comment). If it's false here, location must
-    // have failed (otherwise passed would be true), so it's always part of
-    // the message; the network reason only joins in when it was actually
-    // configured and genuinely didn't match, not just "not set up".
+    // verifyAgainstOffices() now requires BOTH signals once an office has an
+    // IP allowlist configured (GPS alone used to be enough even for those
+    // offices) — so a failure here can be a location miss, a network miss,
+    // or both, and each has to be checked independently rather than
+    // assuming location must be the culprit whenever passed is false.
     if (!result.passed) {
       const reasons: string[] = [];
-      reasons.push(result.nearestDistanceMeters != null
-        ? `you're about ${result.nearestDistanceMeters}m from the office`
-        : "we couldn't confirm your location");
+      if (!result.locationOk) {
+        reasons.push(result.nearestDistanceMeters != null
+          ? `you're about ${result.nearestDistanceMeters}m from the office`
+          : "we couldn't confirm your location");
+      }
       if (result.networkStatus === 'not_matched') reasons.push("you don't appear to be on the office network");
       throw new AppError(403, `Check-in blocked — ${reasons.join(' and ')}. Ask a manager to add a manual entry if this is a legitimate exception.`);
     }
