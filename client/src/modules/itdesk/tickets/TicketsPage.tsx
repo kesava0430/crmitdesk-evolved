@@ -60,7 +60,7 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, lo
       <RecordTemplatePicker
         entityType="TICKET"
         onApply={t => {
-          setForm(p => ({ ...p, ...t.fieldValues }));
+          setForm((p: any) => ({ ...p, ...t.fieldValues }));
           if (t.customFieldValues) setCustomValues(p => ({ ...p, ...t.customFieldValues as Record<string, string> }));
         }}
       />
