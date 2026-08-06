@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Mail, MessageCircle, Settings, RefreshCw, Send, Check,
   MailOpen, X, Inbox, Wifi, WifiOff, Loader2,
-  CheckCheck, AlertCircle, Phone, MessageSquareText
+  CheckCheck, AlertCircle, Phone, MessageSquareText, ChevronLeft
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -289,7 +289,7 @@ function MessageBubble({ msg }: { msg: { direction: string; body: string; sentAt
   const isOut = msg.direction === 'OUTBOUND';
   return (
     <div className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
+      <div className={`max-w-[88%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 ${
         isOut
           ? 'bg-brand-600 text-white rounded-br-md'
           : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md shadow-sm'
@@ -335,9 +335,13 @@ export function InboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversation?.messages?.length]);
 
-  // Auto-select first conversation
+  // Auto-select first conversation — desktop only. On a narrow (mobile)
+  // viewport the list and thread are two separate full-width screens (see
+  // the responsive classes below), so auto-jumping straight into a thread
+  // would skip past the list entirely; better to let the user tap one.
   useEffect(() => {
-    if (!selectedId && conversations.length > 0) {
+    const isDesktop = window.matchMedia('(min-width: 640px)').matches;
+    if (isDesktop && !selectedId && conversations.length > 0) {
       setSelectedId(conversations[0].id);
     }
   }, [conversations.length]);
@@ -354,9 +358,13 @@ export function InboxPage() {
   }
 
   return (
-    <div className="flex h-full bg-gray-50">
-      {/* ── Left panel: conversation list ── */}
-      <div className="w-80 flex-shrink-0 flex flex-col bg-white border-r border-gray-200">
+    <div className="flex h-full bg-gray-50 overflow-hidden">
+      {/* ── Left panel: conversation list ──
+          Full-width on mobile, fixed 320px column on sm+. On mobile, hidden
+          once a conversation is selected (see the thread panel's back
+          button) rather than rendered side-by-side, which used to force
+          the whole layout wider than the viewport. */}
+      <div className={`w-full sm:w-80 sm:flex-shrink-0 flex-col bg-white sm:border-r border-gray-200 ${selectedId ? 'hidden sm:flex' : 'flex'}`}>
         {/* Header */}
         <div className="px-4 py-3.5 border-b border-gray-100">
           <div className="flex items-center justify-between mb-3">
@@ -458,13 +466,19 @@ export function InboxPage() {
         </div>
       </div>
 
-      {/* ── Right panel: message thread ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* ── Right panel: message thread ──
+          Hidden on mobile until a conversation is selected, then takes the
+          full screen (with a back button below to return to the list). */}
+      <div className={`flex-1 flex-col min-w-0 ${selectedId ? 'flex' : 'hidden sm:flex'}`}>
         {selectedId && conversation ? (
           <>
             {/* Thread header */}
-            <div className="px-6 py-4 bg-white border-b border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="px-4 sm:px-6 py-3 sm:py-4 bg-white border-b border-gray-200 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <button onClick={() => setSelectedId(null)}
+                  className="sm:hidden -ml-1 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg flex-shrink-0">
+                  <ChevronLeft size={18} />
+                </button>
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${channelAvatarBg(conversation.channel)}`}>
                   {channelIcon(conversation.channel, 18)}
                 </div>
@@ -508,7 +522,7 @@ export function InboxPage() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-gray-50">
+            <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3 bg-gray-50">
               {convLoading ? (
                 <div className="flex items-center justify-center h-32">
                   <Spinner label="Loading messages…" />
@@ -528,7 +542,7 @@ export function InboxPage() {
             </div>
 
             {/* Reply composer */}
-            <div className="px-6 py-4 bg-white border-t border-gray-200">
+            <div className="px-3 sm:px-6 py-3 sm:py-4 bg-white border-t border-gray-200">
               {conversation.status === 'CLOSED' ? (
                 <div className="text-center text-sm text-gray-400 py-2">
                   This conversation is closed.{' '}

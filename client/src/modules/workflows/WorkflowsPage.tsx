@@ -12,6 +12,7 @@ import {
 } from '../../api/workflows';
 import { useCustomModules, useCustomModule } from '../../api/customModules';
 import { useCustomFieldDefs } from '../../api/customFields';
+import { useUsers } from '../../api/users';
 import { Spinner } from '../../shared/components';
 import { addToast } from '../../shared/components/toastStore';
 
@@ -154,11 +155,15 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
   const isStandardEntity = ['TICKET', 'CONTACT', 'DEAL', 'LEAD'].includes(entity);
   const { data: entityFieldDefs } = useCustomFieldDefs(isStandardEntity ? entity : '');
   const referenceFields = (entityFieldDefs || []).filter(d => d.fieldType === 'REFERENCE');
+  const { data: orgUsers } = useUsers();
 
   switch (action.type) {
     case 'ASSIGN_TO':
-      return <input value={String(p.userId || '')} onChange={e => set('userId', e.target.value)}
-        placeholder="User ID" className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />;
+      return <select value={String(p.userId || '')} onChange={e => set('userId', e.target.value)}
+        className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+        <option value="">— select a teammate —</option>
+        {(orgUsers ?? []).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+      </select>;
     case 'SET_PRIORITY':
       return <select value={String(p.priority || 'MEDIUM')} onChange={e => set('priority', e.target.value)}
         className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
@@ -226,8 +231,11 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
           <option value="USER">Specific user</option>
         </select>
         {recipientType === 'USER' && (
-          <input value={String(p.userId || '')} onChange={e => set('userId', e.target.value)}
-            placeholder="User ID" className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
+          <select value={String(p.userId || '')} onChange={e => set('userId', e.target.value)}
+            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+            <option value="">— select a teammate —</option>
+            {(orgUsers ?? []).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
         )}
       </div>;
     }
@@ -460,6 +468,7 @@ function RuleEditor({
   saving: boolean;
 }) {
   const [form, setForm] = useState(initial);
+  const { data: orgUsers } = useUsers();
 
   const entity = getEntityForTrigger(form.trigger, form.dateConfig);
   const condFields = CONDITION_FIELDS[entity] || [];
@@ -550,18 +559,33 @@ function RuleEditor({
             ) : (
               <div className="space-y-2">
                 {form.conditions.map((cond, i) => (
-                  <div key={i} className="flex items-center flex-wrap gap-2">
+                  // Stacks to full-width rows on mobile instead of squeezing
+                  // three controls + a delete button onto one line — with
+                  // fixed-width selects and a flex-1 value input, the value
+                  // field used to get crushed down to almost nothing on
+                  // narrow screens before wrapping ever kicked in.
+                  <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 bg-gray-50 sm:bg-transparent border border-gray-100 sm:border-0 rounded-xl p-2 sm:p-0">
                     <select value={cond.field} onChange={e => updateCondition(i, { field: e.target.value })}
-                      className="ui-input text-xs py-1.5 w-36 flex-shrink-0">
+                      className="ui-input text-xs py-1.5 w-full sm:w-36 sm:flex-shrink-0">
                       {condFields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                     </select>
                     <select value={cond.operator} onChange={e => updateCondition(i, { operator: e.target.value as any })}
-                      className="ui-input text-xs py-1.5 w-28 flex-shrink-0">
+                      className="ui-input text-xs py-1.5 w-full sm:w-28 sm:flex-shrink-0">
                       {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
-                    <input value={String(cond.value)} onChange={e => updateCondition(i, { value: e.target.value })}
-                      placeholder="Value" className="ui-input flex-1 text-xs py-1.5" />
-                    <button onClick={() => removeCondition(i)} className="text-gray-300 hover:text-red-400"><Trash2 size={13} /></button>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {cond.field === 'assignedTo' ? (
+                        <select value={String(cond.value)} onChange={e => updateCondition(i, { value: e.target.value })}
+                          className="ui-input flex-1 text-xs py-1.5 min-w-0">
+                          <option value="">— select a teammate —</option>
+                          {(orgUsers ?? []).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                      ) : (
+                        <input value={String(cond.value)} onChange={e => updateCondition(i, { value: e.target.value })}
+                          placeholder="Value" className="ui-input flex-1 text-xs py-1.5 min-w-0" />
+                      )}
+                      <button onClick={() => removeCondition(i)} className="text-gray-300 hover:text-red-400 flex-shrink-0"><Trash2 size={13} /></button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -578,14 +602,19 @@ function RuleEditor({
             </div>
             <div className="space-y-3">
               {form.actions.map((action, i) => (
-                <div key={i} className="flex items-start flex-wrap gap-2 bg-white border border-gray-100 rounded-xl p-3">
-                  <select value={action.type}
-                    onChange={e => updateAction(i, { type: e.target.value as any, params: {} })}
-                    className="ui-input text-xs py-1.5 w-40 flex-shrink-0">
-                    {ACTION_TYPES.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
-                  </select>
-                  <ActionParamsEditor action={action} onChange={a => updateAction(i, a)} entity={entity} />
-                  <button onClick={() => removeAction(i)} className="text-gray-300 hover:text-red-400 flex-shrink-0 mt-0.5"><Trash2 size={13} /></button>
+                <div key={i} className="flex flex-col sm:flex-row sm:items-start gap-2 bg-white border border-gray-100 rounded-xl p-3">
+                  <div className="flex items-center gap-2">
+                    <select value={action.type}
+                      onChange={e => updateAction(i, { type: e.target.value as any, params: {} })}
+                      className="ui-input text-xs py-1.5 w-full sm:w-40 sm:flex-shrink-0">
+                      {ACTION_TYPES.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+                    </select>
+                    <button onClick={() => removeAction(i)} className="sm:hidden text-gray-300 hover:text-red-400 flex-shrink-0"><Trash2 size={13} /></button>
+                  </div>
+                  <div className="flex-1 min-w-0 flex items-start gap-2">
+                    <ActionParamsEditor action={action} onChange={a => updateAction(i, a)} entity={entity} />
+                    <button onClick={() => removeAction(i)} className="hidden sm:block text-gray-300 hover:text-red-400 flex-shrink-0 mt-0.5"><Trash2 size={13} /></button>
+                  </div>
                 </div>
               ))}
               {form.actions.length === 0 && (
@@ -690,9 +719,9 @@ export function WorkflowsPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Zap size={20} className="text-brand-600" />
@@ -740,19 +769,19 @@ export function WorkflowsPage() {
       ) : (
         <div className="space-y-3">
           {rules.map(rule => (
-            <div key={rule.id} data-testid="workflow-rule" className="bg-white border border-gray-200 rounded-xl p-4 hover:border-brand-200 transition-colors">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 min-w-0">
+            <div key={rule.id} data-testid="workflow-rule" className="bg-white border border-gray-200 rounded-xl p-4 hover:border-brand-200 transition-colors overflow-hidden">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-3 min-w-0 flex-1">
                   {/* Active toggle */}
-                  <button onClick={() => toggleRule.mutate(rule.id)} className="flex-shrink-0">
+                  <button onClick={() => toggleRule.mutate(rule.id)} className="flex-shrink-0 mt-0.5">
                     {rule.isActive
                       ? <ToggleRight size={22} className="text-brand-600" />
                       : <ToggleLeft size={22} className="text-gray-300" />}
                   </button>
 
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`font-medium text-sm ${rule.isActive ? 'text-gray-900' : 'text-gray-400'}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`font-medium text-sm truncate max-w-full ${rule.isActive ? 'text-gray-900' : 'text-gray-400'}`}>
                         {rule.name}
                       </span>
                       <span className="text-xs px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full font-medium flex-shrink-0">
@@ -762,7 +791,7 @@ export function WorkflowsPage() {
                     {rule.description && (
                       <p className="text-xs text-gray-400 mt-0.5 truncate">{rule.description}</p>
                     )}
-                    <div className="flex items-center gap-3 mt-1.5">
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                       <span className="text-xs text-gray-400">{rule.conditions.length} condition{rule.conditions.length !== 1 ? 's' : ''}</span>
                       <span className="text-gray-200">·</span>
                       <span className="text-xs text-gray-400">{rule.actions.length} action{rule.actions.length !== 1 ? 's' : ''}</span>
@@ -788,9 +817,9 @@ export function WorkflowsPage() {
 
               {/* Conditions + Actions preview */}
               {(rule.conditions.length > 0 || rule.actions.length > 0) && (
-                <div className="mt-3 flex flex-wrap gap-1.5 pl-9">
+                <div className="mt-3 flex flex-wrap gap-1.5 sm:pl-9">
                   {rule.conditions.map((c, i) => (
-                    <span key={i} className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">
+                    <span key={i} className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full max-w-full truncate">
                       {c.field} {c.operator} "{c.value}"
                     </span>
                   ))}

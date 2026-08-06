@@ -16,6 +16,35 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// The refresh endpoint rotates the refresh token (invalidates the old one,
+// issues a new pair — see auth.controller.ts refreshToken). A page like the
+// dashboard fires several requests in parallel on mount; if the access token
+// happened to expire right then, EVERY one of those requests would 401 at
+// once and — without this — each would independently call /auth/refresh
+// with the same (soon-to-be-invalidated) refresh token. Only the first of
+// those calls succeeds; the rest get "Invalid refresh token" back, and each
+// one wiped localStorage and hard-redirected to /login in response — even
+// though the very first refresh had just succeeded and the session was
+// completely fine. That's the "loads, spins for a bit, then dumps you on
+// the login screen" bug: it wasn't really an expired session, just this
+// race. The fix is to share a single in-flight refresh across every
+// concurrent 401 instead of letting each request start its own.
+let refreshPromise: Promise<{ access: string; refresh?: string }> | null = null;
+let loggedOutFromExpiry = false;
+
+function performRefresh() {
+  if (!refreshPromise) {
+    const refresh = localStorage.getItem('refreshToken');
+    // api.post, not a bare axios.post('/api/auth/refresh', ...) — the
+    // bare call hardcoded a relative path that bypassed baseURL/
+    // VITE_API_URL entirely, same bug as the baseURL default above.
+    refreshPromise = api.post('/auth/refresh', { refresh })
+      .then(res => res.data)
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -29,18 +58,18 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
       original._retry = true;
       try {
-        const refresh = localStorage.getItem('refreshToken');
-        // api.post, not a bare axios.post('/api/auth/refresh', ...) — the
-        // bare call hardcoded a relative path that bypassed baseURL/
-        // VITE_API_URL entirely, same bug as the baseURL default above.
-        const res = await api.post('/auth/refresh', { refresh });
-        localStorage.setItem('accessToken', res.data.access);
-        if (res.data.refresh) localStorage.setItem('refreshToken', res.data.refresh);
-        original.headers.Authorization = `Bearer ${res.data.access}`;
+        const data = await performRefresh();
+        localStorage.setItem('accessToken', data.access);
+        if (data.refresh) localStorage.setItem('refreshToken', data.refresh);
+        original.headers.Authorization = `Bearer ${data.access}`;
         return api(original);
       } catch {
-        localStorage.clear();
-        window.location.href = '/login';
+        if (!loggedOutFromExpiry) {
+          loggedOutFromExpiry = true;
+          addToast('Your session has expired — please sign in again.', 'warning', { duration: 6000 });
+          localStorage.clear();
+          window.location.href = '/login';
+        }
         return Promise.reject(error);
       }
     }

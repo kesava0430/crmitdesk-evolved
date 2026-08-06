@@ -7,8 +7,9 @@ import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, Sea
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useEffect } from 'react';
 import { useLabels } from '../../../hooks/useLabels';
+import { useAiPrefill } from '../../../hooks/useAiPrefill';
 
-function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
+function ContactForm({ initial, accounts, entityId, onSubmit, loading, aiPrefill }: any) {
   // Built field-by-field rather than spreading `initial` (the raw Contact
   // record) directly into form state: that used to round-trip extra keys
   // (id, orgId, the nested `account` relation object, ...) back to the
@@ -24,7 +25,7 @@ function ContactForm({ initial, accounts, entityId, onSubmit, loading }: any) {
     accountId: initial.accountId || initial.account?.id || '',
     source: initial.source || '',
     dateOfBirth: initial.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : '',
-  } : { name: '', email: '', phone: '', jobTitle: '', accountId: '', source: '', dateOfBirth: '' });
+  } : { name: '', email: '', phone: '', jobTitle: '', accountId: '', source: '', dateOfBirth: '', ...aiPrefill });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { data: existingValues } = useCustomFieldValues(entityId);
   useEffect(() => {
@@ -113,6 +114,11 @@ export function ContactsPage() {
   const { entityLabel } = useLabels();
   const singular = entityLabel('contact', 'singular', 'Contact');
   const plural = entityLabel('contact', 'plural', 'Contacts');
+  const aiPrefill = useAiPrefill<{ name?: string; email?: string; phone?: string; jobTitle?: string }>();
+
+  useEffect(() => {
+    if (aiPrefill) setModal('create');
+  }, [aiPrefill]);
 
   async function handleSubmit(form: any) {
     const { __customFieldValues, ...rest } = form;
@@ -202,6 +208,7 @@ export function ContactsPage() {
           accounts={accounts}
           onSubmit={handleSubmit}
           loading={create.isPending || update.isPending}
+          aiPrefill={modal === 'create' ? aiPrefill : null}
         />
       </Modal>
     </div>

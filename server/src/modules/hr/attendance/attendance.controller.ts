@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
-import { verifyAgainstOffices, extractClientIp } from '../../../utils/attendanceVerification';
+import { verifyAgainstOffices, extractClientIp, sumWorkedMinutes } from '../../../utils/attendanceVerification';
 import { sseManager, SSEEvent } from '../../../utils/sse';
 import { logAction } from '../../../utils/auditLog';
 
@@ -17,7 +17,7 @@ const CheckSchema = z.object({
   lng: z.number(),
 });
 
-/** POST /hr/attendance/check-in */
+/** POST /hr/attendance/check-in — starts a new session; a day can have several. */
 export async function checkIn(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { lat, lng } = CheckSchema.parse(req.body);
@@ -25,8 +25,14 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     const userId = req.user!.id;
     const date = todayDateOnly();
 
-    const existing = await prisma.attendanceRecord.findUnique({ where: { userId_date: { userId, date } } });
-    if (existing?.checkInAt) throw new AppError(400, 'Already checked in today');
+    // Block only if there's already an OPEN session today (checked in, not
+    // yet checked out) — a completed earlier session (lunch break, a
+    // finished half-shift) no longer blocks a new check-in the way a single
+    // check-in/out pair per day used to.
+    const openSession = await prisma.attendanceRecord.findFirst({
+      where: { userId, date, checkInAt: { not: null }, checkOutAt: null },
+    });
+    if (openSession) throw new AppError(400, "You're already checked in — check out first before starting a new session.");
 
     const offices = await prisma.officeLocation.findMany({ where: { orgId, isActive: true } });
     if (offices.length === 0) {
@@ -36,28 +42,26 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
     const result = verifyAgainstOffices(offices, lat, lng, ip);
 
-    if (!result.locationOk || !result.networkOk) {
+    // Either signal is independently sufficient (result.passed — see
+    // verifyAgainstOffices' doc comment). If it's false here, location must
+    // have failed (otherwise passed would be true), so it's always part of
+    // the message; the network reason only joins in when it was actually
+    // configured and genuinely didn't match, not just "not set up".
+    if (!result.passed) {
       const reasons: string[] = [];
-      if (!result.locationOk) {
-        reasons.push(result.nearestDistanceMeters != null
-          ? `you're about ${result.nearestDistanceMeters}m from the office`
-          : "we couldn't confirm your location");
-      }
-      if (!result.networkOk) reasons.push("you don't appear to be on the office network");
+      reasons.push(result.nearestDistanceMeters != null
+        ? `you're about ${result.nearestDistanceMeters}m from the office`
+        : "we couldn't confirm your location");
+      if (result.networkStatus === 'not_matched') reasons.push("you don't appear to be on the office network");
       throw new AppError(403, `Check-in blocked — ${reasons.join(' and ')}. Ask a manager to add a manual entry if this is a legitimate exception.`);
     }
 
-    const record = await prisma.attendanceRecord.upsert({
-      where: { userId_date: { userId, date } },
-      create: {
+    const record = await prisma.attendanceRecord.create({
+      data: {
         orgId, userId, date,
         checkInAt: new Date(), checkInLat: lat, checkInLng: lng, checkInIp: ip,
         checkInLocationOk: result.locationOk, checkInNetworkOk: result.networkOk,
         source: 'SELF',
-      },
-      update: {
-        checkInAt: new Date(), checkInLat: lat, checkInLng: lng, checkInIp: ip,
-        checkInLocationOk: result.locationOk, checkInNetworkOk: result.networkOk,
       },
     });
 
@@ -67,7 +71,7 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
   } catch (err) { next(err); }
 }
 
-/** POST /hr/attendance/check-out */
+/** POST /hr/attendance/check-out — closes the currently-open session. */
 export async function checkOut(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { lat, lng } = CheckSchema.parse(req.body);
@@ -75,9 +79,11 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
     const userId = req.user!.id;
     const date = todayDateOnly();
 
-    const existing = await prisma.attendanceRecord.findUnique({ where: { userId_date: { userId, date } } });
-    if (!existing?.checkInAt) throw new AppError(400, "You haven't checked in today yet");
-    if (existing.checkOutAt) throw new AppError(400, 'Already checked out today');
+    const openSession = await prisma.attendanceRecord.findFirst({
+      where: { userId, date, checkInAt: { not: null }, checkOutAt: null },
+      orderBy: { checkInAt: 'desc' },
+    });
+    if (!openSession) throw new AppError(400, "You haven't checked in yet — nothing to check out of.");
 
     const offices = await prisma.officeLocation.findMany({ where: { orgId, isActive: true } });
     const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
@@ -88,7 +94,7 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
     // day from home) should still be able to log a checkout time. The
     // verification flags are still recorded for a manager to see.
     const record = await prisma.attendanceRecord.update({
-      where: { userId_date: { userId, date } },
+      where: { id: openSession.id },
       data: {
         checkOutAt: new Date(), checkOutLat: lat, checkOutLng: lng, checkOutIp: ip,
         checkOutLocationOk: result.locationOk, checkOutNetworkOk: result.networkOk,
@@ -101,7 +107,7 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
   } catch (err) { next(err); }
 }
 
-/** GET /hr/attendance/me?month=YYYY-MM */
+/** GET /hr/attendance/me?month=YYYY-MM — every session, grouped client-side by date. */
 export async function myAttendance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
@@ -113,13 +119,13 @@ export async function myAttendance(req: AuthRequest, res: Response, next: NextFu
 
     const records = await prisma.attendanceRecord.findMany({
       where: { orgId, userId, date: { gte: from, lt: to } },
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { checkInAt: 'desc' }],
     });
     res.json(records);
   } catch (err) { next(err); }
 }
 
-/** GET /hr/attendance/today — manager view of every active employee's status today */
+/** GET /hr/attendance/today — manager view of every active employee's sessions + live status today */
 export async function todayStatus(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
@@ -127,10 +133,27 @@ export async function todayStatus(req: AuthRequest, res: Response, next: NextFun
 
     const [users, records] = await Promise.all([
       prisma.user.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true, role: true, avatarUrl: true } }),
-      prisma.attendanceRecord.findMany({ where: { orgId, date } }),
+      prisma.attendanceRecord.findMany({ where: { orgId, date }, orderBy: { checkInAt: 'asc' } }),
     ]);
-    const byUser = new Map(records.map(r => [r.userId, r]));
-    const rows = users.map(u => ({ user: u, record: byUser.get(u.id) || null }));
+    const byUser = new Map<string, typeof records>();
+    for (const r of records) {
+      const list = byUser.get(r.userId) || [];
+      list.push(r);
+      byUser.set(r.userId, list);
+    }
+    const rows = users.map(u => {
+      const sessions = byUser.get(u.id) || [];
+      const last = sessions[sessions.length - 1] || null;
+      return {
+        user: u,
+        sessions,
+        // Kept for any caller still expecting a single "today's record" —
+        // the most recent session, same shape as before this feature.
+        record: last,
+        isCheckedInNow: !!(last && last.checkInAt && !last.checkOutAt),
+        totalMinutes: sumWorkedMinutes(sessions),
+      };
+    });
     res.json(rows);
   } catch (err) { next(err); }
 }
@@ -150,7 +173,7 @@ export async function listAttendance(req: AuthRequest, res: Response, next: Next
     const records = await prisma.attendanceRecord.findMany({
       where,
       include: { user: { select: { id: true, name: true, avatarUrl: true } } },
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { checkInAt: 'desc' }],
       take: 500,
     });
     res.json(records);
@@ -165,7 +188,11 @@ const ManualEntrySchema = z.object({
   notes: z.string().optional(),
 });
 
-/** POST /hr/attendance/manual — manager creates/edits an entry, bypassing geofence/IP checks */
+/** POST /hr/attendance/manual — manager adds a session for an employee, bypassing geofence/IP checks.
+ *  Always creates a new session row rather than upserting one-per-day — a
+ *  day can have several sessions now, so there's no longer a single slot to
+ *  overwrite; use this to add a missed/forgotten session alongside whatever
+ *  the employee already logged themselves. */
 export async function manualEntry(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = ManualEntrySchema.parse(req.body);
@@ -176,26 +203,16 @@ export async function manualEntry(req: AuthRequest, res: Response, next: NextFun
     const [y, m, d] = data.date.split('-').map(Number);
     const date = new Date(Date.UTC(y, m - 1, d));
 
-    // Only touch checkInAt/checkOutAt if the request actually included that
-    // key — distinguishes "not mentioned, leave as-is" (key absent) from
-    // "explicitly clearing it" (key present with null), so editing just the
-    // notes on an existing manual entry doesn't wipe its times.
-    const updateData: Record<string, unknown> = { notes: data.notes, source: 'MANUAL' };
-    if ('checkInAt' in req.body) updateData.checkInAt = data.checkInAt ? new Date(data.checkInAt) : null;
-    if ('checkOutAt' in req.body) updateData.checkOutAt = data.checkOutAt ? new Date(data.checkOutAt) : null;
-
-    const record = await prisma.attendanceRecord.upsert({
-      where: { userId_date: { userId: data.userId, date } },
-      create: {
+    const record = await prisma.attendanceRecord.create({
+      data: {
         orgId, userId: data.userId, date,
         checkInAt: data.checkInAt ? new Date(data.checkInAt) : undefined,
         checkOutAt: data.checkOutAt ? new Date(data.checkOutAt) : undefined,
         notes: data.notes, source: 'MANUAL',
       },
-      update: updateData,
     });
 
-    logAction(req.user!.id, 'UPDATE', 'AttendanceRecord', record.id, { action: 'manual_entry', targetUserId: data.userId });
+    logAction(req.user!.id, 'CREATE', 'AttendanceRecord', record.id, { action: 'manual_entry', targetUserId: data.userId });
     sseManager.broadcastAll(orgId, SSEEvent.ATTENDANCE_UPDATED, { userId: data.userId, type: 'manual' });
     res.json(record);
   } catch (err) { next(err); }

@@ -15,6 +15,7 @@ import { api } from '../../../api/client';
 import { ticketStatusVariant, priorityVariant } from '../../../shared/components/Badge';
 import { formatDistanceToNow } from 'date-fns';
 import { useLabels } from '../../../hooks/useLabels';
+import { useAiPrefill } from '../../../hooks/useAiPrefill';
 
 const sentimentConfig: Record<string, { label: string; color: string }> = {
   POSITIVE:   { label: '😊 Positive',   color: 'text-green-600 bg-green-50 border-green-200' },
@@ -29,8 +30,8 @@ const STATUS_LABELS: Record<string, string> = {
   OPEN: 'New', IN_PROGRESS: 'In Progress', PENDING: 'Pending', RESOLVED: 'Resolved', CLOSED: 'Closed',
 };
 
-function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, loading }: any) {
-  const [form, setForm] = useState({ title: '', body: '', categoryId: '', priority: 'MEDIUM' });
+function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, loading, initialValues }: any) {
+  const [form, setForm] = useState({ title: '', body: '', categoryId: '', priority: 'MEDIUM', ...initialValues });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   // "On behalf of" — staff-only (see canFileOnBehalf, gated server-side too
   // in tickets.controller.ts's create()). 'self' sends neither field, so a
@@ -449,6 +450,7 @@ export function TicketsPage() {
   const [priorityFilter, setPriorityFilter] = useState('');
   const [createModal, setCreateModal] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const aiPrefill = useAiPrefill<{ title?: string; body?: string; priority?: string; categoryId?: string }>();
 
   const { data: tickets, isLoading } = useTickets({
     ...(statusFilter && { status: statusFilter }),
@@ -468,6 +470,10 @@ export function TicketsPage() {
   const { entityLabel, fieldLabel } = useLabels();
   const singular = entityLabel('ticket', 'singular', 'Ticket');
   const plural = entityLabel('ticket', 'plural', 'Tickets');
+
+  useEffect(() => {
+    if (aiPrefill) setCreateModal(true);
+  }, [aiPrefill]);
 
   return (
     <div className="p-4 sm:p-6 space-y-5 animate-slide-up">
@@ -568,6 +574,7 @@ export function TicketsPage() {
 
       <Modal open={createModal} onClose={() => setCreateModal(false)} title={`Submit New ${singular}`} size="lg">
         <TicketForm categories={categories} users={users} contacts={contacts} canFileOnBehalf={canFileOnBehalf} loading={create.isPending}
+          initialValues={aiPrefill}
           onSubmit={async (form: any) => {
             const { __customFieldValues, ...rest } = form;
             const created = await create.mutateAsync(rest);

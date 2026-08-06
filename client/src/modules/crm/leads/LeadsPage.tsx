@@ -7,6 +7,7 @@ import { leadStatusVariant } from '../../../shared/components/Badge';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useLabels } from '../../../hooks/useLabels';
 import { Attachments } from '../../../shared/components/Attachments';
+import { useAiPrefill } from '../../../hooks/useAiPrefill';
 
 const STATUSES = ['NEW','CONTACTED','QUALIFIED','UNQUALIFIED','CONVERTED'];
 const SOURCES = ['Web','Referral','Cold Outreach','Event','Social Media','Other'];
@@ -17,8 +18,8 @@ function scoreColor(score: number) {
   return 'bg-red-100 text-red-700 border-red-200';
 }
 
-function LeadForm({ initial, entityId, onSubmit, loading }: any) {
-  const [form, setForm] = useState(initial || { name: '', email: '', source: '', notes: '', status: 'NEW' });
+function LeadForm({ initial, entityId, onSubmit, loading, aiPrefill }: any) {
+  const [form, setForm] = useState(initial || { name: '', email: '', source: '', notes: '', status: 'NEW', ...aiPrefill });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { data: existingValues } = useCustomFieldValues(entityId);
   useEffect(() => {
@@ -359,6 +360,11 @@ export function LeadsPage() {
   const { entityLabel } = useLabels();
   const singular = entityLabel('lead', 'singular', 'Lead');
   const plural = entityLabel('lead', 'plural', 'Leads');
+  const aiPrefill = useAiPrefill<{ name?: string; email?: string; source?: string; notes?: string; status?: string }>();
+
+  useEffect(() => {
+    if (aiPrefill) setModal('create');
+  }, [aiPrefill]);
 
   async function handleSubmit(form: any) {
     const { __customFieldValues, ...rest } = form;
@@ -501,7 +507,8 @@ export function LeadsPage() {
               }
             : null}
           entityId={modal && typeof modal === 'object' && (modal as any).type === 'edit' ? (modal as any).lead.id : undefined}
-          onSubmit={handleSubmit} loading={create.isPending || update.isPending} />
+          onSubmit={handleSubmit} loading={create.isPending || update.isPending}
+          aiPrefill={modal === 'create' ? aiPrefill : null} />
       </Modal>
 
       <Modal open={typeof modal === 'object' && modal !== null && (modal as any).type == 'convert'}

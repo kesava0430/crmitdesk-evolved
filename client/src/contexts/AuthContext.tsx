@@ -40,6 +40,12 @@ interface AuthContextType extends AuthState {
    *  caller in. Resolves with the message to show once approved (an org
    *  isn't created, and no session starts, until the request is approved). */
   register: (email: string, password: string, name: string, organizationName: string) => Promise<{ message: string }>;
+  /** Applies an already-fetched {user, access, refresh} triple to the current
+   *  session without making its own API call — for flows that get this
+   *  payload back from some other endpoint (e.g. POST /auth/accept-invite)
+   *  and want to land the person straight in the app instead of bouncing
+   *  them to the login screen to type the password they just set. */
+  setSession: (user: User, access: string, refresh: string) => void;
   logout: () => void;
   updateProfile: (data: Partial<Pick<User, 'name' | 'email' | 'department' | 'avatarUrl'>>) => Promise<void>;
   isAuthenticated: boolean;
@@ -86,6 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: normalized, accessToken: access });
   }, []);
 
+  const setSession = useCallback((user: User, access: string, refresh: string) => {
+    const normalized = { ...user, org: user.org ?? (user as any).organization ?? null };
+    localStorage.setItem('accessToken', access);
+    localStorage.setItem('refreshToken', refresh);
+    localStorage.setItem('user', JSON.stringify(normalized));
+    setState({ user: normalized, accessToken: access });
+  }, []);
+
   const register = useCallback(async (email: string, password: string, name: string, organizationName: string) => {
     const res = await api.post('/auth/register', { email, password, name, organizationName });
     // No org/user exists yet and no session starts — the request just sits
@@ -106,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, demoLogin, googleLogin, register, logout, updateProfile, isAuthenticated: !!state.user }}>
+    <AuthContext.Provider value={{ ...state, login, demoLogin, googleLogin, register, setSession, logout, updateProfile, isAuthenticated: !!state.user }}>
       {children}
     </AuthContext.Provider>
   );

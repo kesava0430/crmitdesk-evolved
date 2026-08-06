@@ -30,19 +30,31 @@ function ipv4ToInt(ip: string): number | null {
   return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
 }
 
+export type NetworkCheckStatus = 'not_configured' | 'matched' | 'not_matched';
+
 /**
  * Matches `ip` against a comma-separated allowlist of exact IPv4 addresses
- * and/or CIDR blocks (e.g. "203.0.113.5, 198.51.100.0/24"). Returns true if
- * the allowlist is blank/unset (IP check not configured for this location).
+ * and/or CIDR blocks (e.g. "203.0.113.5, 198.51.100.0/24"). Returns
+ * 'not_configured' when the allowlist is blank/unset for this office (no
+ * opinion either way), rather than collapsing that into the same boolean as
+ * an actual match — see verifyAgainstOffices() below for why the difference
+ * matters: "not configured" must never be treated as a passing signal on
+ * its own, or every office without an IP allowlist would auto-pass network
+ * checks and geofencing would be silently disabled for it.
  */
-export function ipMatchesAllowlist(ip: string | undefined | null, allowlist: string | null | undefined): boolean {
-  if (!allowlist || !allowlist.trim()) return true; // not configured — skip this check
-  if (!ip) return false;
+export function checkNetworkAllowlist(ip: string | undefined | null, allowlist: string | null | undefined): NetworkCheckStatus {
+  if (!allowlist || !allowlist.trim()) return 'not_configured';
+  if (!ip) return 'not_matched';
 
-  const cleanIp = ip.trim();
+  // req.socket.remoteAddress can come back as an IPv4-mapped IPv6 address
+  // ("::ffff:203.0.113.5") when there's no x-forwarded-for to prefer (local
+  // dev, or a proxy that isn't setting it) — strip that prefix so a plain
+  // IPv4 allowlist entry still matches instead of silently failing every
+  // comparison because of a "::ffff:" the admin never typed into the field.
+  const cleanIp = ip.trim().replace(/^::ffff:/i, '');
   const ipInt = ipv4ToInt(cleanIp);
 
-  return allowlist.split(',').map(s => s.trim()).filter(Boolean).some(entry => {
+  const matched = allowlist.split(',').map(s => s.trim()).filter(Boolean).some(entry => {
     if (entry === cleanIp) return true;
     if (!entry.includes('/') || ipInt === null) return false;
     const [base, bitsStr] = entry.split('/');
@@ -52,6 +64,7 @@ export function ipMatchesAllowlist(ip: string | undefined | null, allowlist: str
     const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
     return (ipInt & mask) === (baseInt & mask);
   });
+  return matched ? 'matched' : 'not_matched';
 }
 
 /** Extracts the caller's public IP the same way the rest of this codebase does (see quotes.controller.ts publicAccept). */
@@ -63,8 +76,22 @@ export function extractClientIp(headers: Record<string, unknown>, socketRemoteAd
 
 export interface VerificationResult {
   locationOk: boolean;
+  /** True unless the IP was actually checked against a configured allowlist
+   *  and failed — i.e. false only for a genuine mismatch, matching the
+   *  stored checkInNetworkOk/checkOutNetworkOk columns' existing meaning
+   *  ("the network check didn't fail", not "the network check passed"). */
   networkOk: boolean;
-  /** Name of the office location matched (closest one that passed both checks, or the closest overall if none passed). */
+  networkStatus: NetworkCheckStatus;
+  /** Overall verified for this office: GPS radius matched OR the office has
+   *  an IP allowlist configured and the request's IP matched it. Either
+   *  signal is independently sufficient — this used to require BOTH, which
+   *  meant an employee correctly connected to the office network but with an
+   *  imprecise/out-of-range GPS fix (common indoors, in a large building, or
+   *  over a site-to-site VPN) could never check in even though the network
+   *  match alone should have been enough. An office with no IP allowlist
+   *  configured still relies on GPS alone, same as before. */
+  passed: boolean;
+  /** Name of the office location matched (closest one that passed, or the closest overall if none passed). */
   matchedLocationName: string | null;
   nearestDistanceMeters: number | null;
 }
@@ -77,25 +104,48 @@ export function verifyAgainstOffices(
   ip: string,
 ): VerificationResult {
   if (offices.length === 0) {
-    return { locationOk: false, networkOk: false, matchedLocationName: null, nearestDistanceMeters: null };
+    return { locationOk: false, networkOk: false, networkStatus: 'not_configured', passed: false, matchedLocationName: null, nearestDistanceMeters: null };
   }
 
   let best: VerificationResult & { distance: number } = {
-    locationOk: false, networkOk: false, matchedLocationName: null, nearestDistanceMeters: null, distance: Infinity,
+    locationOk: false, networkOk: false, networkStatus: 'not_configured', passed: false,
+    matchedLocationName: null, nearestDistanceMeters: null, distance: Infinity,
   };
 
   for (const office of offices) {
     const distance = distanceMeters(lat, lng, office.latitude, office.longitude);
     const locationOk = distance <= office.radiusMeters;
-    const networkOk = ipMatchesAllowlist(ip, office.allowedIps);
-    const passed = locationOk && networkOk;
-    const bestPassed = best.locationOk && best.networkOk;
+    const networkStatus = checkNetworkAllowlist(ip, office.allowedIps);
+    const networkOk = networkStatus !== 'not_matched';
+    const passed = locationOk || networkStatus === 'matched';
 
-    if ((passed && !bestPassed) || (!bestPassed && distance < best.distance)) {
-      best = { locationOk, networkOk, matchedLocationName: office.name, nearestDistanceMeters: Math.round(distance), distance };
+    if ((passed && !best.passed) || (!best.passed && distance < best.distance)) {
+      best = { locationOk, networkOk, networkStatus, passed, matchedLocationName: office.name, nearestDistanceMeters: Math.round(distance), distance };
     }
   }
 
   const { distance, ...result } = best;
   return result;
+}
+
+/**
+ * Total worked minutes across every session (AttendanceRecord row) passed
+ * in — a completed session contributes checkOutAt - checkInAt; a still-open
+ * session (checked in, not yet checked out) contributes up to `now` so a
+ * "hours today" total keeps ticking up live rather than reading as 0 until
+ * the person checks out. Records with no checkInAt at all (shouldn't happen,
+ * but defensively) contribute nothing.
+ */
+export function sumWorkedMinutes(
+  records: { checkInAt: Date | null; checkOutAt: Date | null }[],
+  now: Date = new Date(),
+): number {
+  let total = 0;
+  for (const r of records) {
+    if (!r.checkInAt) continue;
+    const end = r.checkOutAt ?? now;
+    const mins = (end.getTime() - r.checkInAt.getTime()) / 60000;
+    if (mins > 0) total += mins;
+  }
+  return Math.round(total);
 }

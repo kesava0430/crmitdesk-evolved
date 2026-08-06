@@ -71,7 +71,7 @@ function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
       const res = await api.post('/admin/users/invite', form);
       onSuccess(res.data.link);
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to send invite');
+      setError(err?.response?.data?.error || 'Failed to send invite');
     } finally {
       setLoading(false);
     }

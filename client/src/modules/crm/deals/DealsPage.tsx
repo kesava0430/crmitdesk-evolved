@@ -9,9 +9,10 @@ import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useLabels } from '../../../hooks/useLabels';
+import { useAiPrefill } from '../../../hooks/useAiPrefill';
 
-function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading }: any) {
-  const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '' });
+function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading, aiPrefill }: any) {
+  const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '', ...aiPrefill });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { data: existingValues } = useCustomFieldValues(entityId);
   useEffect(() => {
@@ -419,6 +420,11 @@ export function DealsPage() {
   const { entityLabel } = useLabels();
   const pageSingular = entityLabel('deal', 'singular', 'Deal');
   const pagePlural = entityLabel('deal', 'plural', 'Pipeline');
+  const aiPrefill = useAiPrefill<{ title?: string; value?: number; stage?: string; probability?: number; contactId?: string }>();
+
+  useEffect(() => {
+    if (aiPrefill) setModal(true);
+  }, [aiPrefill]);
 
   function handleDrop(e: React.DragEvent, toStage: string) {
     const dealId = e.dataTransfer.getData('dealId');
@@ -514,6 +520,7 @@ export function DealsPage() {
             assignedTo: editingDeal.assignedTo ?? editingDeal.assignee?.id ?? '',
           } : null}
           entityId={editingDeal?.id}
+          aiPrefill={!editingDeal ? aiPrefill : null}
           onSubmit={async (form: any) => {
             const { __customFieldValues, ...rest } = form;
             const saved = editingDeal

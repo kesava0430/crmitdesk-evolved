@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BookOpen, Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import { useArticles, useCreateArticle, useUpdateArticle, useDeleteArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
 import { PageHeader, Button, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect, RowActions } from '../../../shared/components';
 import { articleStatusVariant } from '../../../shared/components/Badge';
 import { formatDistanceToNow } from 'date-fns';
+import { useAiPrefill } from '../../../hooks/useAiPrefill';
 
-function ArticleForm({ initial, categories, onSubmit, loading }: any) {
-  const [form, setForm] = useState(initial || { title: '', body: '', categoryId: '', status: 'DRAFT' });
+function ArticleForm({ initial, categories, onSubmit, loading, aiPrefill }: any) {
+  const [form, setForm] = useState(initial || { title: '', body: '', categoryId: '', status: 'DRAFT', ...aiPrefill });
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(form); }} className="space-y-3">
@@ -64,6 +65,11 @@ export function ArticlesPage() {
   const create = useCreateArticle();
   const update = useUpdateArticle();
   const del = useDeleteArticle();
+  const aiPrefill = useAiPrefill<{ title?: string; body?: string; status?: string }>();
+
+  useEffect(() => {
+    if (aiPrefill) setModal('create');
+  }, [aiPrefill]);
 
   const filtered = articles?.filter((a: any) => !search || a.title.toLowerCase().includes(search.toLowerCase()));
 
@@ -125,6 +131,7 @@ export function ArticlesPage() {
           categories={categories}
           onSubmit={handleSubmit}
           loading={create.isPending || update.isPending}
+          aiPrefill={modal === 'create' ? aiPrefill : null}
         />
       </Modal>
 

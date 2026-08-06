@@ -1340,11 +1340,15 @@ model OfficeLocation {
   @@map("office_locations")
 }
 
-// One row per employee per calendar day. Check-in captures geolocation + IP
-// and whether each passed verification; a manager can also create/edit a
-// row directly (manualEntry = true) to cover legitimate exceptions (approved
-// WFH, field visits, forgotten check-in) without disabling verification
-// org-wide.
+// One row per check-in/check-out SESSION, not per day — an employee can
+// check in and out multiple times in the same calendar day (e.g. steps out
+// for lunch, a field visit, a split shift) and each session gets its own
+// verification snapshot. A day's total worked time is the sum of
+// (checkOutAt - checkInAt) across every session sharing that (userId, date)
+// — see attendanceVerification.ts's sumWorkedMinutes() — rather than a
+// single pair of columns, which only ever supported one session/day. A
+// manager's manual entry (source = MANUAL) is just another session row that
+// skips geofence/IP verification.
 model AttendanceRecord {
   id                    String       @id @default(cuid())
   orgId                 String       @map("org_id")
@@ -1362,8 +1366,8 @@ model AttendanceRecord {
   checkOutIp            String?      @map("check_out_ip")
   checkOutLocationOk    Boolean?     @map("check_out_location_ok")
   checkOutNetworkOk     Boolean?     @map("check_out_network_ok")
-  // MANUAL rows are created/edited by a manager (PATCH), not the employee's
-  // own check-in/out, and skip geofence/IP verification entirely.
+  // MANUAL rows are created by a manager (POST .../manual), not the
+  // employee's own check-in/out, and skip geofence/IP verification entirely.
   source                String       @default("SELF") @map("source") // SELF | MANUAL
   notes                 String?
   createdAt             DateTime     @default(now()) @map("created_at")
@@ -1371,7 +1375,7 @@ model AttendanceRecord {
   org                   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, date])
+  @@index([userId, date])
   @@index([orgId, date])
   @@map("attendance_records")
 }
