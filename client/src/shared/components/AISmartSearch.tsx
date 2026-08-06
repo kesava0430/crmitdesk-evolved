@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef } from 'react';
-import { Search, Sparkles, X, Loader2, User, Ticket, TrendingUp, Handshake } from 'lucide-react';
+import { Search, Sparkles, X, Loader2, User, Ticket, TrendingUp, Handshake, BookOpen, Monitor, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useDebounce } from '../../hooks/useDebounce';
 
 interface SearchResult {
   id: string;
-  type: 'contact' | 'ticket' | 'lead' | 'deal';
+  type: 'contact' | 'ticket' | 'lead' | 'deal' | 'article' | 'asset' | 'invoice';
   title: string;
   subtitle?: string;
   url: string;
@@ -17,6 +17,9 @@ const ICONS: Record<string, any> = {
   ticket: Ticket,
   lead: TrendingUp,
   deal: Handshake,
+  article: BookOpen,
+  asset: Monitor,
+  invoice: Receipt,
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -24,11 +27,20 @@ const TYPE_COLORS: Record<string, string> = {
   ticket: 'text-orange-500 bg-orange-50',
   lead: 'text-purple-500 bg-purple-50',
   deal: 'text-green-500 bg-green-50',
+  article: 'text-teal-500 bg-teal-50',
+  asset: 'text-slate-500 bg-slate-50',
+  invoice: 'text-pink-500 bg-pink-50',
 };
 
 function useSearch(query: string) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  // Whether the last response actually came back through the AI query
+  // interpreter (server/src/utils/ai.ts's interpretSearchQuery) or fell back
+  // to plain substring matching — search.controller.ts reports this
+  // honestly rather than the "Smart search" label always claiming AI
+  // regardless of whether a GROQ/OPENAI key is even configured.
+  const [aiPowered, setAiPowered] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const search = useCallback(async (q: string) => {
@@ -52,8 +64,12 @@ function useSearch(query: string) {
         ...(data.tickets ?? []).map((t: any) => ({ id: t.id, type: 'ticket', title: t.title, subtitle: t.status, url: `/itdesk/tickets/${t.id}` })),
         ...(data.leads ?? []).map((l: any) => ({ id: l.id, type: 'lead', title: l.contact?.name ?? l.id, subtitle: l.status, url: `/crm/leads` })),
         ...(data.deals ?? []).map((d: any) => ({ id: d.id, type: 'deal', title: d.title, subtitle: `$${Number(d.value ?? 0).toLocaleString()}`, url: `/crm/deals` })),
+        ...(data.articles ?? []).map((a: any) => ({ id: a.id, type: 'article', title: a.title, subtitle: 'Knowledge base', url: `/itdesk/articles` })),
+        ...(data.assets ?? []).map((a: any) => ({ id: a.id, type: 'asset', title: a.name, subtitle: a.serialNumber ?? a.type, url: `/itdesk/assets` })),
+        ...(data.invoices ?? []).map((i: any) => ({ id: i.id, type: 'invoice', title: `${i.invoiceNumber} — ${i.title}`, subtitle: i.status, url: `/invoices` })),
       ].slice(0, 8);
       setResults(mapped);
+      setAiPowered(!!data.aiPowered);
     } catch (e: any) {
       if (e?.code !== 'ERR_CANCELED') setResults([]);
     } finally {
@@ -64,7 +80,7 @@ function useSearch(query: string) {
   const debouncedQuery = useDebounce(query, 300);
   useState(() => { search(debouncedQuery); });
 
-  return { results, loading, search };
+  return { results, loading, aiPowered, search };
 }
 
 interface AISmartSearchProps {
@@ -76,7 +92,7 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const { results, loading, search } = useSearch(query);
+  const { results, loading, aiPowered, search } = useSearch(query);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
@@ -114,8 +130,13 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
       {open && results.length > 0 && (
         <div className="absolute top-full mt-1 w-full min-w-[320px] bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl z-50 animate-scale-in overflow-hidden">
           <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex items-center gap-1.5">
-            <Sparkles size={11} className="text-indigo-400" />
-            <span className="text-xs text-gray-400">Smart search results</span>
+            {aiPowered
+              ? <Sparkles size={11} className="text-indigo-400" />
+              : <Search size={11} className="text-gray-400" />}
+            {/* Honest label: only claims "AI search" when the request actually
+                went through interpretSearchQuery() server-side (a GROQ/OPENAI
+                key is configured) — otherwise says what it is, a keyword match. */}
+            <span className="text-xs text-gray-400">{aiPowered ? 'AI search results' : 'Search results'}</span>
           </div>
           <ul className="py-1 max-h-72 overflow-y-auto">
             {results.map(r => {

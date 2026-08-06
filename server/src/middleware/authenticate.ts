@@ -37,6 +37,13 @@ export const ALL_USERS    = [R.SUPER_ADMIN, R.IT_MANAGER, R.CRM_MANAGER, R.IT_AG
 // ─── Middleware ────────────────────────────────────────────────────────────────
 
 export function authenticate(req: AuthRequest, _res: Response, next: NextFunction) {
+  // authenticateApiKey (modules/apikeys/apikeys.controller.ts), mounted
+  // globally ahead of every router, already populated req.user for a
+  // request carrying a valid X-API-Key header — don't then demand a JWT
+  // too. A request with neither header still falls through to the "no
+  // token" 401 below, same as always.
+  if (req.user) return next();
+
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) throw new AppError(401, 'Authentication required');
   try {

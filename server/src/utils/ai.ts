@@ -15,6 +15,11 @@ function getClient(): OpenAI | null {
   return null;
 }
 
+/** Whether an AI provider is configured at all — used by search.controller.ts to honestly report "AI search" vs. a plain substring fallback, rather than always labeling it AI-powered regardless of whether a call was actually made. */
+export function isAiConfigured(): boolean {
+  return !!getClient();
+}
+
 // ─── Model Routing ────────────────────────────────────────────────────────────
 
 const AI_MODEL_FAST = process.env.GROQ_API_KEY ? 'llama-3.1-8b-instant' : 'gpt-4o-mini';
@@ -729,4 +734,57 @@ export async function bulkScoreLeads(leads: Array<{
     if (i + BATCH < leads.length) await new Promise(r => setTimeout(r, 500)); // rate limit spacing
   }
   return results;
+}
+
+// ─── Search Query Interpreter ─────────────────────────────────────────────────
+// Backs the global search bar (AISmartSearch.tsx / search.controller.ts).
+// Turns free text like "open critical tickets about vpn" into keywords to
+// substring-match plus a narrowed set of record types and a status/priority
+// hint, instead of running every query as a blind `contains` scan across
+// every entity. Falls back to treating the whole query as keywords across
+// all types when AI isn't configured or the response doesn't parse — same
+// behavior the search always had, so there's no regression, just an upgrade
+// when a key is present.
+
+export interface SearchInterpretation {
+  keywords: string;
+  entityTypes: string[]; // subset of contact|deal|ticket|lead|article|asset|invoice, [] = all
+  status: string | null;
+  priority: string | null;
+}
+
+const SEARCH_ENTITY_TYPES = ['contact', 'deal', 'ticket', 'lead', 'article', 'asset', 'invoice'];
+
+export async function interpretSearchQuery(query: string): Promise<SearchInterpretation> {
+  const client = getClient();
+  if (!client) return { keywords: query, entityTypes: [], status: null, priority: null };
+
+  try {
+    const reply = await chat(
+      client,
+      `You are a search query interpreter for a CRM + helpdesk app. Given a user's free-text search, extract:
+1. keywords: the core search term(s) to match against names/titles/bodies — strip filler words like "find", "show me", "open" (unless "open" is itself a status), articles, etc. If nothing meaningful is left, repeat the original query.
+2. entityTypes: which record types are relevant, chosen from exactly: ${SEARCH_ENTITY_TYPES.join(', ')}. Empty array if the query doesn't hint at a specific type (search everything).
+3. status: a status hint if mentioned (e.g. "open", "resolved", "won", "lost", "paid", "overdue"), else null.
+4. priority: a priority hint if mentioned (e.g. "critical", "high"), else null.
+Respond ONLY with valid JSON: {"keywords": "...", "entityTypes": [...], "status": "..."|null, "priority": "..."|null}`,
+      `Search query: "${query}"`,
+      { maxTokens: 150, model: AI_MODEL_FAST },
+    );
+    const parsed = JSON.parse(reply);
+    const entityTypes = Array.isArray(parsed.entityTypes)
+      ? parsed.entityTypes.filter((t: any) => typeof t === 'string' && SEARCH_ENTITY_TYPES.includes(t))
+      : [];
+    return {
+      keywords: (typeof parsed.keywords === 'string' && parsed.keywords.trim()) || query,
+      entityTypes,
+      status: typeof parsed.status === 'string' ? parsed.status : null,
+      priority: typeof parsed.priority === 'string' ? parsed.priority : null,
+    };
+  } catch {
+    // AI unreachable, rate-limited, or returned unparseable JSON — fall back
+    // to exactly the old behavior rather than surfacing an error to the
+    // search bar over what's meant to be a low-stakes, best-effort upgrade.
+    return { keywords: query, entityTypes: [], status: null, priority: null };
+  }
 }

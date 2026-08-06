@@ -14,14 +14,29 @@ interface ApiKey {
   creator: { name: string };
 }
 
-const ALL_SCOPES = ['read:tickets', 'write:tickets', 'read:crm', 'write:crm', 'read:contacts', 'write:contacts'];
+// Matches server/src/modules/apikeys/apikeys.controller.ts's SCOPES exactly
+// — these are the only scope strings authenticateApiKey() actually checks.
+// (Previously this list offered resource-level scopes like "read:tickets"
+// that nothing on the backend understood or enforced — every key worked
+// the same regardless of what you picked here. 'read' allows GET requests;
+// 'write' allows POST/PUT/PATCH/DELETE too; 'admin' also allows managing
+// API keys and org settings via the key.)
+const ALL_SCOPES = [
+  { value: 'read', label: 'Read', hint: 'View data (GET requests)' },
+  { value: 'write', label: 'Write', hint: 'Create, update, delete records' },
+  { value: 'admin', label: 'Admin', hint: 'Manage org settings & API keys' },
+];
 
 export default function ApiKeysPage() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [form, setForm] = useState({ name: '', scopes: [] as string[], expiresAt: '' });
+  // Defaults to ['read'] rather than empty — now that scopes are actually
+  // enforced (authenticateApiKey checks them on every request), a key
+  // created with no scopes at all would authenticate successfully but 403
+  // on every single call, which is a confusing dead end for whoever creates it.
+  const [form, setForm] = useState({ name: '', scopes: ['read'] as string[], expiresAt: '' });
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
     queryKey: ['api-keys'],
@@ -33,7 +48,7 @@ export default function ApiKeysPage() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['api-keys'] });
       setNewKey(data.rawKey);
-      setForm({ name: '', scopes: [], expiresAt: '' });
+      setForm({ name: '', scopes: ['read'], expiresAt: '' });
     },
   });
 
@@ -67,12 +82,22 @@ export default function ApiKeysPage() {
             <p className="text-sm text-gray-500">Manage programmatic access to your data</p>
           </div>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
-        >
-          <Plus size={16} /> Create API Key
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={`${api.defaults.baseURL}/docs`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            API docs
+          </a>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
+          >
+            <Plus size={16} /> Create API Key
+          </button>
+        </div>
       </div>
 
       {/* New Key Banner */}
@@ -187,12 +212,15 @@ export default function ApiKeysPage() {
               </div>
               <div className="form-section">
                 <p className="form-section-title">Permissions</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
                   {ALL_SCOPES.map(scope => (
-                    <label key={scope} className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                      <input type="checkbox" checked={form.scopes.includes(scope)}
-                        onChange={() => toggleScope(scope)} className="rounded" />
-                      <code className="text-xs text-gray-700">{scope}</code>
+                    <label key={scope.value} className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                      <input type="checkbox" checked={form.scopes.includes(scope.value)}
+                        onChange={() => toggleScope(scope.value)} className="rounded mt-0.5" />
+                      <span>
+                        <code className="text-xs text-gray-700 font-semibold">{scope.label}</code>
+                        <span className="block text-xs text-gray-400">{scope.hint}</span>
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -207,7 +235,7 @@ export default function ApiKeysPage() {
                 Cancel
               </button>
               <button
-                disabled={!form.name || create.isPending}
+                disabled={!form.name || form.scopes.length === 0 || create.isPending}
                 onClick={() => { create.mutate(form); setShowModal(false); }}
                 className="flex-1 bg-brand-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
               >

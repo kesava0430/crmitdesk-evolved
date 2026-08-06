@@ -1,6 +1,7 @@
 import https from 'https';
 import { URL } from 'url';
 import { prisma } from './prisma';
+import { enqueueJob, registerJobHandler } from './jobQueue';
 
 // ─── Teams uses "Adaptive Cards" via incoming webhook ─────────────────────────
 
@@ -34,6 +35,20 @@ export async function postToTeams(webhookUrl: string, payload: object): Promise<
   });
 }
 
+/** Sends now; on failure, queues a retry instead of just logging and dropping the alert — see slack.ts's postToSlackWithRetry for the identical rationale. */
+async function postToTeamsWithRetry(webhookUrl: string, payload: object, orgId?: string): Promise<void> {
+  try {
+    await postToTeams(webhookUrl, payload);
+  } catch (err: any) {
+    console.error('[teams] send error — queuing retry:', err.message);
+    await enqueueJob('teams_webhook', { webhookUrl, payload }, { orgId: orgId ?? null });
+  }
+}
+
+registerJobHandler('teams_webhook', async (data: { webhookUrl: string; payload: object }) => {
+  await postToTeams(data.webhookUrl, data.payload);
+});
+
 // ─── Teams Adaptive Card builder ─────────────────────────────────────────────
 
 function teamCard(title: string, color: string, facts: { name: string; value: string }[]) {
@@ -61,7 +76,7 @@ export async function teamsNewTicket(orgId: string, ticket: { id: string; title:
   if (!cfg || !cfg.notifyOnNewTicket) return;
   if (ticket.priority === 'CRITICAL' && !cfg.notifyOnCritical) return;
 
-  await postToTeams(cfg.webhookUrl, teamCard(
+  await postToTeamsWithRetry(cfg.webhookUrl, teamCard(
     `🎫 New ${ticket.priority} Ticket`,
     PRIORITY_COLOR[ticket.priority] ?? 'default',
     [
@@ -69,14 +84,14 @@ export async function teamsNewTicket(orgId: string, ticket: { id: string; title:
       { name: 'Priority', value: ticket.priority },
       { name: 'From', value: ticket.requester?.name ?? 'Unknown' },
     ],
-  )).catch(err => console.error('[teams] newTicket error:', err.message));
+  ), orgId);
 }
 
 export async function teamsSlaBreached(orgId: string, ticket: { title: string; priority: string; slaDueAt: Date | null }) {
   const cfg = await prisma.teamsConfig.findUnique({ where: { orgId } });
   if (!cfg || !cfg.notifyOnSlaBreached) return;
 
-  await postToTeams(cfg.webhookUrl, teamCard(
+  await postToTeamsWithRetry(cfg.webhookUrl, teamCard(
     '⏰ SLA Breached',
     'red',
     [
@@ -84,14 +99,14 @@ export async function teamsSlaBreached(orgId: string, ticket: { title: string; p
       { name: 'Priority', value: ticket.priority },
       { name: 'Due was', value: ticket.slaDueAt?.toISOString() ?? 'N/A' },
     ],
-  )).catch(err => console.error('[teams] slaBreached error:', err.message));
+  ), orgId);
 }
 
 export async function teamsDealWon(orgId: string, deal: { title: string; value: number | string; assignee?: { name: string } | null }) {
   const cfg = await prisma.teamsConfig.findUnique({ where: { orgId } });
   if (!cfg || !cfg.notifyOnDealWon) return;
 
-  await postToTeams(cfg.webhookUrl, teamCard(
+  await postToTeamsWithRetry(cfg.webhookUrl, teamCard(
     `🏆 Deal Won: ${deal.title}`,
     'green',
     [
@@ -99,14 +114,14 @@ export async function teamsDealWon(orgId: string, deal: { title: string; value: 
       { name: 'Value', value: `$${Number(deal.value).toLocaleString()}` },
       { name: 'Closed by', value: deal.assignee?.name ?? 'Unknown' },
     ],
-  )).catch(err => console.error('[teams] dealWon error:', err.message));
+  ), orgId);
 }
 
 export async function teamsNewLead(orgId: string, lead: { id: string; contact?: { name: string; email?: string | null } | null; source?: string | null }) {
   const cfg = await prisma.teamsConfig.findUnique({ where: { orgId } });
   if (!cfg || !cfg.notifyOnNewLead) return;
 
-  await postToTeams(cfg.webhookUrl, teamCard(
+  await postToTeamsWithRetry(cfg.webhookUrl, teamCard(
     '🎯 New Lead Captured',
     'default',
     [
@@ -114,5 +129,5 @@ export async function teamsNewLead(orgId: string, lead: { id: string; contact?: 
       { name: 'Email', value: lead.contact?.email ?? '—' },
       { name: 'Source', value: lead.source ?? '—' },
     ],
-  )).catch(err => console.error('[teams] newLead error:', err.message));
+  ), orgId);
 }

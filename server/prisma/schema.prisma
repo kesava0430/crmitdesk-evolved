@@ -1647,3 +1647,32 @@ model CustomScript {
   @@index([orgId, entityType, trigger])
   @@map("custom_scripts")
 }
+
+// Postgres-backed retry queue for at-least-once background delivery (email,
+// Slack/Teams webhooks, web push). Deliberately a DB-polled queue, not a new
+// Redis/BullMQ dependency — see utils/scheduler.ts's doc comment for why this
+// app sticks to plain setInterval + DB polling (single Node process, no
+// infra beyond Postgres on the deploy target). See utils/jobQueue.ts for the
+// enqueue/process/backoff logic that owns this table.
+model BackgroundJob {
+  id            String    @id @default(cuid())
+  // Not a foreign key — some jobs (e.g. platform-wide sends) aren't tied to
+  // a single org, and a job outliving its org (deleted mid-retry) shouldn't
+  // ever be blocked by a constraint. orgId here is purely informational, for
+  // filtering the admin "Failed Jobs" panel to one org.
+  orgId         String?   @map("org_id")
+  type          String    // 'send_email' | 'slack_webhook' | 'teams_webhook' | 'web_push'
+  payload       Json
+  status        String    @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(6) @map("max_attempts")
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  completedAt   DateTime? @map("completed_at")
+
+  @@index([status, nextAttemptAt])
+  @@index([orgId])
+  @@map("background_jobs")
+}

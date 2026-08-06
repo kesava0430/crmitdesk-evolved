@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { prisma } from './prisma';
+import { enqueueJob, registerJobHandler } from './jobQueue';
 
 /**
  * Real browser/OS-level push notifications (Push API), separate from the
@@ -60,8 +61,35 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       if (err?.statusCode === 404 || err?.statusCode === 410) {
         await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
       } else {
-        console.error(`[web-push] Failed to send to subscription ${sub.id}:`, err?.message || err);
+        // Transient failure (push service hiccup, timeout, etc) — queue a
+        // retry instead of just logging it and moving on. A gone/expired
+        // subscription (404/410, handled above) is not retried — that will
+        // never succeed no matter how many attempts.
+        console.error(`[web-push] Failed to send to subscription ${sub.id} — queuing retry:`, err?.message || err);
+        await enqueueJob('web_push', {
+          subscriptionId: sub.id,
+          endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth,
+          body,
+        });
       }
     }
   }));
 }
+
+registerJobHandler('web_push', async (payload: { subscriptionId: string; endpoint: string; p256dh: string; auth: string; body: string }) => {
+  try {
+    await webpush.sendNotification(
+      { endpoint: payload.endpoint, keys: { p256dh: payload.p256dh, auth: payload.auth } },
+      payload.body,
+    );
+  } catch (err: any) {
+    if (err?.statusCode === 404 || err?.statusCode === 410) {
+      // Subscription expired/was revoked between the original attempt and
+      // this retry — nothing left to deliver to, and not a failure worth
+      // retrying further. Clean it up and treat the job as done.
+      await prisma.pushSubscription.delete({ where: { id: payload.subscriptionId } }).catch(() => {});
+      return;
+    }
+    throw err; // still failing — let jobQueue's backoff/attempts logic handle it
+  }
+});

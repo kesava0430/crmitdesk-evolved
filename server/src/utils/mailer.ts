@@ -3,6 +3,7 @@ import { prisma } from './prisma';
 import { decryptSecretOrPlain } from './crypto';
 import { recordUsage } from './usageTracking';
 import { getPlatformMailConfig, type PlatformMailConfig } from './platformSettings';
+import { enqueueJob, registerJobHandler } from './jobQueue';
 
 interface MailOptions {
   to: string;
@@ -144,7 +145,14 @@ function withBrandHeader(html: string, branding: MailBranding): string {
   return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto 4px;padding-bottom:12px;border-bottom:3px solid ${branding.primaryColor}">${mark}</div>${html}`;
 }
 
-export async function sendMail(opts: MailOptions): Promise<void> {
+/**
+ * Does the actual delivery work, with no swallowing on final failure — a
+ * Resend/SMTP error here is thrown to the caller. Split out from sendMail()
+ * below so both the "try it right now" path and the job-queue retry path
+ * (registerJobHandler('send_email', ...) at the bottom of this file) share
+ * one implementation instead of duplicating the branding/fallback logic.
+ */
+async function performSendMail(opts: MailOptions): Promise<void> {
   if (opts.orgId) {
     try {
       const orgMailer = await getOrgMailer(opts.orgId);
@@ -174,29 +182,46 @@ export async function sendMail(opts: MailOptions): Promise<void> {
   const replyTo = branding?.replyTo || undefined;
 
   if (cfg.resendApiKey) {
-    try {
-      await sendViaResend({ ...opts, html }, cfg.resendApiKey, from, replyTo);
-      console.log(`[Email sent via Resend]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
-      if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
-    } catch (err) {
-      console.error('[Email error — Resend]', err);
-    }
+    // No try/catch here — a Resend failure propagates to the caller
+    // (sendMail() below, or the job-queue retry handler), which is what
+    // decides whether to queue a retry or record the final failure.
+    await sendViaResend({ ...opts, html }, cfg.resendApiKey, from, replyTo);
+    console.log(`[Email sent via Resend]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
+    if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
     return;
   }
 
   const transporter = buildPlatformTransporter(cfg);
   if (!transporter) {
+    // Not a failure — nothing is configured, so there's nothing a retry
+    // would accomplish either. Same as before: log and no-op.
     console.log(`[Email skipped — no Resend key or SMTP configured] To: ${opts.to} | ${opts.subject}`);
     return;
   }
+  await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html });
+  console.log(`[Email sent via SMTP]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
+  if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
+}
+
+/**
+ * Public entry point every caller in the app already uses. Tries delivery
+ * immediately (same as before); on failure, instead of just logging and
+ * dropping the message, queues a retry with exponential backoff — see
+ * jobQueue.ts. Still never throws, so every existing `await sendMail(...)`
+ * call site keeps working exactly as it did.
+ */
+export async function sendMail(opts: MailOptions): Promise<void> {
   try {
-    await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html });
-    console.log(`[Email sent via SMTP]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
-    if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
+    await performSendMail(opts);
   } catch (err) {
-    console.error('[Email error — SMTP]', err);
+    console.error('[Email error — queuing retry]', err);
+    await enqueueJob('send_email', opts, { orgId: opts.orgId ?? null });
   }
 }
+
+registerJobHandler('send_email', async (payload: MailOptions) => {
+  await performSendMail(payload);
+});
 
 // ─── Reusable HTML templates ─────────────────────────────────────────────────
 

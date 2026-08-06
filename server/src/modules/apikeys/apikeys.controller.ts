@@ -15,7 +15,12 @@ export async function createKey(req: AuthRequest, res: Response, next: NextFunct
     const orgId = req.user!.orgId;
     const { name, scopes, expiresAt } = z.object({
       name:      z.string().min(1).max(80),
-      scopes:    z.array(z.string()).default([]),
+      // Previously z.array(z.string()) — accepted (and silently ignored) any
+      // string at all, including the resource-level scopes the old frontend
+      // picker offered ("read:tickets" etc) that authenticateApiKey() below
+      // never actually checked. Constraining to the 3 values it does check
+      // means what you grant here is what the key can actually do.
+      scopes:    z.array(z.enum(SCOPES)).default(['read']),
       expiresAt: z.string().optional(),
     }).parse(req.body);
 
@@ -70,6 +75,19 @@ export async function revokeKey(req: AuthRequest, res: Response, next: NextFunct
 
 // ─── Middleware: authenticate via X-API-Key header ───────────────────────────
 
+/**
+ * Mounted globally in index.ts, ahead of every route — this used to be true
+ * only in the sense that the middleware existed; it was never actually
+ * wired into the request pipeline anywhere, so an X-API-Key header did
+ * nothing and every "API key" created in Settings → API Keys was decorative.
+ * Now: a request carrying X-API-Key is authenticated here (bypassing the
+ * regular JWT check — see authenticate() in middleware/authenticate.ts,
+ * which no-ops if req.user is already set) and scope-gated by HTTP method,
+ * since the key's scopes (read/write/admin — see SCOPES above) are the only
+ * granularity this API actually models. 'read' allows GET/HEAD; 'write' (or
+ * 'admin') allows everything else. Requests without X-API-Key are untouched
+ * and fall through to the normal JWT flow.
+ */
 export async function authenticateApiKey(
   req: AuthRequest, res: Response, next: NextFunction,
 ) {
@@ -84,10 +102,31 @@ export async function authenticateApiKey(
     return res.status(401).json({ error: 'API key expired' });
   }
 
+  const scopes = apiKey.scopes as string[];
+  const isAdmin = scopes.includes('admin');
+  const canWrite = isAdmin || scopes.includes('write');
+  const canRead = canWrite || scopes.includes('read');
+  const isWriteMethod = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+
+  if (isWriteMethod && !canWrite) {
+    return res.status(403).json({ error: `This API key only has read access. Add the "write" scope to make ${req.method} requests.` });
+  }
+  if (!isWriteMethod && !canRead) {
+    return res.status(403).json({ error: 'This API key has no usable scopes configured.' });
+  }
+
   // Update last used (fire-and-forget)
   prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
 
-  // Attach minimal user-like context
+  // Attach minimal user-like context. Role 'API' intentionally satisfies no
+  // requireRole(...) check anywhere (ADMIN/MANAGERS/etc all list real user
+  // roles) — an API key can reach whatever a route's requireRole would let
+  // an EMPLOYEE-and-up reach only where a route has no requireRole at all.
+  // Routes gated to manager/admin roles (billing, user management, this
+  // apikeys module itself, org settings) stay out of reach of API keys
+  // entirely, regardless of scope. That's a deliberate ceiling, not a gap —
+  // key management itself should never be manageable by a key.
   req.user = { id: 'api', orgId: apiKey.orgId, role: 'API' as any, email: '' };
+  (req as any).apiKeyId = apiKey.id; // for the per-key rate limiter in index.ts
   next();
 }

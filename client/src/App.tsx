@@ -55,6 +55,7 @@ const CampaignsPage      = lazy(() => import('./pages/CampaignsPage'));
 const ChangeRequestsPage = lazy(() => import('./pages/ChangeRequestsPage'));
 const ApiKeysPage        = lazy(() => import('./pages/ApiKeysPage'));
 const AuditLogPage       = lazy(() => import('./pages/AuditLogPage'));
+const JobsPage           = lazy(() => import('./pages/JobsPage'));
 const AIStudioPage       = lazy(() => import('./pages/AIStudioPage'));
 const CustomFieldsPage   = lazy(() => import('./pages/CustomFieldsPage'));
 const TemplatesPage      = lazy(() => import('./pages/TemplatesPage'));
@@ -155,6 +156,7 @@ export default function App() {
             <Route path="reports" element={<ReportsPage />} />
             <Route path="api-keys" element={<ApiKeysPage />} />
             <Route path="audit-logs" element={<AuditLogPage />} />
+            <Route path="jobs" element={<JobsPage />} />
             <Route path="custom-fields" element={<CustomFieldsPage />} />
             <Route path="templates" element={<TemplatesPage />} />
             <Route path="import" element={<BulkImportPage />} />

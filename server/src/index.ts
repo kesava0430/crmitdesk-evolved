@@ -36,6 +36,7 @@ import { csatRouter } from './modules/csat/csat.routes';
 import { campaignsRouter } from './modules/campaigns/campaigns.routes';
 import { changeRequestsRouter } from './modules/changemanagement/changeRequests.routes';
 import { apiKeysRouter } from './modules/apikeys/apikeys.routes';
+import { authenticateApiKey } from './modules/apikeys/apikeys.controller';
 import { customFieldsRouter } from './modules/customfields/customfields.routes';
 import { auditLogRouter } from './modules/core/auditlog/auditlog.routes';
 import { brandingRouter } from './modules/branding/branding.routes';
@@ -60,10 +61,12 @@ import { gdprRouter } from './modules/gdpr/gdpr.routes';
 import { attendanceRouter } from './modules/hr/attendance/attendance.routes';
 import { leaveRouter } from './modules/hr/leave/leave.routes';
 import { invoicesRouter } from './modules/invoices/invoices.routes';
+import { jobsRouter } from './modules/jobs/jobs.routes';
 import { startSchedulePoller } from './utils/scheduler';
 import { startCustomModuleSyncPoller } from './utils/customModuleSync';
 import { startDateAutomationPoller } from './utils/dateAutomation';
 import { startSlaMonitorPoller } from './utils/slaMonitor';
+import { startJobQueuePoller } from './utils/jobQueue';
 import { syncAllEmailAccounts } from './utils/email-sync';
 import { errorHandler } from './middleware/errorHandler';
 import { prisma } from './utils/prisma';
@@ -123,7 +126,31 @@ const apiLimiter = rateLimit({
   skip: () => !isProd,
 });
 
+// Public API traffic (X-API-Key) is rate-limited per key, not per IP — a
+// third-party integration can call from a shared IP (a serverless function,
+// an office NAT) that would otherwise starve every other key or user behind
+// the same address under the plain apiLimiter above. authenticateApiKey is
+// mounted just above this, so (req as any).apiKeyId is already set by the
+// time this runs. Requests with no API key (skip returns true) fall through
+// to the ordinary IP-based apiLimiter untouched.
+const apiKeyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,                  // per key, per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'API key rate limit exceeded — 120 requests/minute per key' },
+  skip: (req) => !isProd || !(req as any).apiKeyId,
+  keyGenerator: (req) => (req as any).apiKeyId,
+});
+
+// Populates req.user from X-API-Key before either limiter or any router
+// runs, so requests carrying a valid key skip the JWT check entirely (see
+// authenticate()'s early-return in middleware/authenticate.ts) and get
+// their own rate-limit bucket via apiKeyLimiter above instead of sharing
+// the generic per-IP one.
+app.use('/api/', authenticateApiKey);
 app.use('/api/', apiLimiter);
+app.use('/api/', apiKeyLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/demo-login', authLimiter);
 app.use('/api/auth/register', authLimiter);
@@ -142,6 +169,45 @@ app.get('/health', async (_req, res) => {
   } catch {
     res.status(503).json({ status: 'error', db: 'unreachable', timestamp: new Date().toISOString() });
   }
+});
+
+// ─── Public API docs ──────────────────────────────────────────────────────────
+// Unauthenticated, machine-readable reference for anyone building against an
+// API key created in Settings → API Keys. Deliberately covers the resources
+// a third-party integration is actually likely to want (CRM + helpdesk core
+// objects) rather than every one of this app's ~50 internal route modules —
+// most of those (billing, branding, custom scripts, platform admin, ...) are
+// app-internal, not public-API surface. Every listed path also works with
+// the normal JWT session the way it always has; X-API-Key is an alternative,
+// not a replacement.
+app.get('/api/docs', (_req, res) => {
+  res.json({
+    baseUrl: '/api',
+    authentication: {
+      header: 'X-API-Key',
+      note: 'Generate a key in Settings → API Keys (org admin only). Include it as the X-API-Key header on every request instead of an Authorization bearer token.',
+    },
+    scopes: {
+      read: 'GET/HEAD requests only',
+      write: 'Includes read, plus POST/PUT/PATCH/DELETE',
+      admin: 'Includes write, plus org-admin-only endpoints the key\'s scope allows — a key can never reach routes gated to a manager/admin user role (billing, user management, API key management itself), regardless of scope',
+    },
+    rateLimit: '120 requests/minute per API key',
+    resources: [
+      { path: '/crm/contacts', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+      { path: '/crm/leads', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+      { path: '/crm/deals', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+      { path: '/crm/accounts', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+      { path: '/crm/activities', methods: ['GET', 'POST'] },
+      { path: '/itdesk/tickets', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+      { path: '/itdesk/articles', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+      { path: '/itdesk/assets', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+      { path: '/invoices', methods: ['GET', 'POST', 'PUT'] },
+      { path: '/quotes', methods: ['GET', 'POST', 'PUT'] },
+      { path: '/search', methods: ['GET'], note: 'q= query param; searches contacts, deals, tickets, leads, articles, assets, invoices' },
+    ],
+    example: `curl -H "X-API-Key: crm_..." ${(process.env.APP_URL || 'https://your-app.example.com')}/api/crm/contacts`,
+  });
 });
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -201,6 +267,7 @@ app.use('/api/gdpr', gdprRouter);
 app.use('/api/hr/attendance', attendanceRouter);
 app.use('/api/hr/leave', leaveRouter);
 app.use('/api/invoices', invoicesRouter);
+app.use('/api/jobs', jobsRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -234,6 +301,12 @@ startDateAutomationPoller();
 // notifications for any ticket that just crossed its resolution deadline —
 // see utils/slaMonitor.ts
 startSlaMonitorPoller();
+
+// Background job retry queue: picks up failed email/Slack/Teams/push sends
+// (mailer.ts, slack.ts, teams.ts, webPush.ts all enqueue here on failure
+// instead of just logging and dropping the message) and retries them with
+// exponential backoff — see utils/jobQueue.ts.
+startJobQueuePoller();
 
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal: string) {

@@ -7,7 +7,7 @@ import {
   BarChart2, UserCog, Inbox, Zap, Globe, CreditCard, Slack, Monitor,
   Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
   FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive, Layers,
-  Clock, CalendarCheck, Building2, Receipt,
+  Clock, CalendarCheck, Building2, Receipt, RefreshCw,
 } from "lucide-react";
 import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -101,6 +101,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: "/branding",      label: "Branding",      icon: Palette },
       { to: "/audit-logs",    label: "Audit Log",     icon: Shield,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/api-keys",      label: "API Keys",      icon: Key,       roles: ['SUPER_ADMIN'] },
+      { to: "/jobs",          label: "Background Jobs", icon: RefreshCw, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
     ],
   },
   {
@@ -145,6 +146,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/branding":          "Branding",
   "/audit-logs":        "Audit Log",
   "/api-keys":          "API Keys",
+  "/jobs":              "Background Jobs",
   "/slack":             "Slack Integration",
   "/teams":             "Microsoft Teams",
   "/storage":           "Storage",

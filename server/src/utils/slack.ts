@@ -1,6 +1,7 @@
 import https from 'https';
 import { URL } from 'url';
 import { prisma } from './prisma';
+import { enqueueJob, registerJobHandler } from './jobQueue';
 
 // ─── Low-level Slack webhook POST ─────────────────────────────────────────────
 
@@ -34,6 +35,25 @@ export async function postToSlack(webhookUrl: string, payload: object): Promise<
   });
 }
 
+/**
+ * Sends now; on failure, queues a retry instead of just logging and dropping
+ * the alert — a rate-limited or momentarily-down Slack webhook used to mean
+ * the notification (new ticket, SLA breach, deal won...) just never arrived,
+ * with only a console.error nobody was watching as evidence it happened.
+ */
+async function postToSlackWithRetry(webhookUrl: string, payload: object, orgId?: string): Promise<void> {
+  try {
+    await postToSlack(webhookUrl, payload);
+  } catch (err: any) {
+    console.error('[slack] send error — queuing retry:', err.message);
+    await enqueueJob('slack_webhook', { webhookUrl, payload }, { orgId: orgId ?? null });
+  }
+}
+
+registerJobHandler('slack_webhook', async (data: { webhookUrl: string; payload: object }) => {
+  await postToSlack(data.webhookUrl, data.payload);
+});
+
 // ─── Severity color map ───────────────────────────────────────────────────────
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -55,7 +75,7 @@ export async function slackNewTicket(orgId: string, ticket: {
   if (isCritical && !cfg.notifyOnCritical) return;
   if (!isCritical && !cfg.notifyOnNewTicket) return;
 
-  await postToSlack(cfg.webhookUrl, {
+  await postToSlackWithRetry(cfg.webhookUrl, {
     text: `🎫 New ${ticket.priority} ticket`,
     attachments: [{
       color: PRIORITY_COLOR[ticket.priority] ?? '#718096',
@@ -67,7 +87,7 @@ export async function slackNewTicket(orgId: string, ticket: {
       footer: 'CRM & IT Desk',
       ts: Math.floor(Date.now() / 1000).toString(),
     }],
-  }).catch((err) => console.error('[slack] newTicket send error:', err.message));
+  }, orgId);
 }
 
 export async function slackSlaBreached(orgId: string, ticket: {
@@ -76,7 +96,7 @@ export async function slackSlaBreached(orgId: string, ticket: {
   const cfg = await prisma.slackConfig.findUnique({ where: { orgId } });
   if (!cfg || !cfg.notifyOnSlaBreached) return;
 
-  await postToSlack(cfg.webhookUrl, {
+  await postToSlackWithRetry(cfg.webhookUrl, {
     text: `⏰ SLA breached`,
     attachments: [{
       color: '#e53e3e',
@@ -88,7 +108,7 @@ export async function slackSlaBreached(orgId: string, ticket: {
       footer: 'CRM & IT Desk',
       ts: Math.floor(Date.now() / 1000).toString(),
     }],
-  }).catch((err) => console.error('[slack] slaBreached send error:', err.message));
+  }, orgId);
 }
 
 export async function slackDealWon(orgId: string, deal: {
@@ -97,7 +117,7 @@ export async function slackDealWon(orgId: string, deal: {
   const cfg = await prisma.slackConfig.findUnique({ where: { orgId } });
   if (!cfg || !cfg.notifyOnDealWon) return;
 
-  await postToSlack(cfg.webhookUrl, {
+  await postToSlackWithRetry(cfg.webhookUrl, {
     text: `🏆 Deal won: *${deal.title}*`,
     attachments: [{
       color: '#48bb78',
@@ -109,7 +129,7 @@ export async function slackDealWon(orgId: string, deal: {
       footer: 'CRM & IT Desk',
       ts: Math.floor(Date.now() / 1000).toString(),
     }],
-  }).catch((err) => console.error('[slack] dealWon send error:', err.message));
+  }, orgId);
 }
 
 export async function slackNewLead(orgId: string, lead: {
@@ -118,7 +138,7 @@ export async function slackNewLead(orgId: string, lead: {
   const cfg = await prisma.slackConfig.findUnique({ where: { orgId } });
   if (!cfg || !cfg.notifyOnNewLead) return;
 
-  await postToSlack(cfg.webhookUrl, {
+  await postToSlackWithRetry(cfg.webhookUrl, {
     text: `🎯 New lead captured`,
     attachments: [{
       color: '#667eea',
@@ -130,5 +150,5 @@ export async function slackNewLead(orgId: string, lead: {
       footer: 'CRM & IT Desk',
       ts: Math.floor(Date.now() / 1000).toString(),
     }],
-  }).catch((err) => console.error('[slack] newLead send error:', err.message));
+  }, orgId);
 }
