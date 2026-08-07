@@ -604,10 +604,11 @@ export function guardEntityClassification(command: string, parsed: NlCommandResu
 // the real command shares none of that sample's distinctive words, the
 // result is rejected outright rather than silently creating the wrong record.
 const NL_COMMAND_SAMPLES: Array<{ entity: NlCommandEntity; fields: Record<string, any>; distinctiveWords: string[] }> = [
-  { entity: 'ticket',  fields: { title: 'VPN issues', priority: 'MEDIUM' },       distinctiveWords: ['vpn'] },
+  { entity: 'ticket',  fields: { title: 'VPN issues', body: 'The user is reporting an issue with VPN connectivity.' }, distinctiveWords: ['vpn'] },
   { entity: 'contact', fields: { name: 'Jane Smith', company: 'Acme Corp' },       distinctiveWords: ['jane', 'smith'] },
   { entity: 'lead',    fields: { name: 'John Doe', source: 'LinkedIn' },           distinctiveWords: ['john', 'doe', 'linkedin'] },
   { entity: 'deal',    fields: { title: 'Acme Corp deal', value: 50000 },          distinctiveWords: ['acme', '50,000', '50000', '$50'] },
+  { entity: 'ticket',  fields: { title: 'Production database down', body: 'The user is reporting the production database is completely down and affecting everyone.', priority: 'CRITICAL' }, distinctiveWords: ['production', 'database'] },
 ];
 
 function fieldsExactlyMatch(a: Record<string, any>, b: Record<string, any>): boolean {
@@ -659,15 +660,21 @@ Fields allowed per entity:
 - deal: title, value (number), stage, probability (0-100), contactId, notes
 - article: title, body, status (DRAFT/PUBLISHED)
 
+SMART INFERENCE — applies only to ticket priority, ticket categoryId, and ticket body, and only in the specific ways below. Everywhere else, the strict rule still applies: if a detail isn't in the command, omit that field rather than inventing or borrowing one.
+- priority: only set this if the command's own wording actually conveys urgency or severity — words/phrases like "urgent", "asap", "critical", "down", "outage", "everyone is affected", "can't work", "production". Map that to LOW/MEDIUM/HIGH/CRITICAL. If the command conveys no urgency either way, leave priority out entirely — do NOT default it to MEDIUM yourself, the app's own form already does that.
+- categoryId: only set this if the command's topic clearly and confidently matches the NAME of one of the categories listed in the context block below (e.g. a command about a VPN matches a category literally named "Network" or "VPN Access"). If nothing in the Categories list is a good topical match, leave categoryId out — never guess or pick the closest-sounding one.
+- body: if the command gives no separate description beyond the subject itself, you may write ONE short sentence that rephrases the subject into fuller prose (e.g. subject "VPN issues" -> body "The user is reporting an issue with VPN connectivity."). This must be a rephrasing only — it must not invent specific facts, causes, steps, names, dates, or numbers that the command didn't state. If you can't rephrase without adding invented specifics, leave body out.
+
 The block below shows the RESPONSE SHAPE ONLY, for four unrelated made-up sample commands. They are NOT the command you're being asked about, and their field values (VPN, Jane Smith, Acme Corp, John Doe, LinkedIn, $50,000, ...) must NEVER appear in your actual answer unless the real command at the bottom of this prompt happens to contain that exact same information itself. Copying any of these sample values into your answer when the real command doesn't contain them is a critical error.
 
 Sample shape (ignore the content, copy only the JSON structure):
-"Create a new ticket about VPN issues" -> {"intent":"create","entity":"ticket","fields":{"title":"VPN issues","priority":"MEDIUM"},"confidence":90,"explanation":"Reports a VPN problem — a support ticket."}
+"Create a new ticket about VPN issues" -> {"intent":"create","entity":"ticket","fields":{"title":"VPN issues","body":"The user is reporting an issue with VPN connectivity."},"confidence":90,"explanation":"Reports a VPN problem — a support ticket. No urgency stated, so priority was left out; no matching category was in context."}
 "Add a contact named Jane Smith from Acme Corp" -> {"intent":"create","entity":"contact","fields":{"name":"Jane Smith","company":"Acme Corp"},"confidence":92,"explanation":"Explicitly asks to add a contact."}
 "New lead from LinkedIn named John Doe" -> {"intent":"create","entity":"lead","fields":{"name":"John Doe","source":"LinkedIn"},"confidence":90,"explanation":"A new lead from a named source."}
 "Create a deal with Acme Corp worth $50,000" -> {"intent":"create","entity":"deal","fields":{"title":"Acme Corp deal","value":50000},"confidence":88,"explanation":"Sales opportunity with a dollar value."}
+"URGENT - create a ticket, production database is completely down for everyone" -> {"intent":"create","entity":"ticket","fields":{"title":"Production database down","body":"The user is reporting the production database is completely down and affecting everyone.","priority":"CRITICAL"},"confidence":93,"explanation":"Explicit urgency and total outage wording maps to CRITICAL priority."}
 
-Now read the ACTUAL command given below (in the user message, not this list) and extract fields ONLY from its own words. If it doesn't mention a detail (e.g. no priority given), omit that field entirely rather than inventing or borrowing one from the samples above.
+Now read the ACTUAL command given below (in the user message, not this list) and extract fields from its own words, applying SMART INFERENCE only where this prompt explicitly allows it above.
 
 Respond with a single JSON object only: {"intent": "create"|"update", "entity": "ticket"|"contact"|"lead"|"deal"|"article", "fields": {...}, "confidence": 0-100, "explanation": "1 sentence"}`,
     `Command: "${command}"\n\nContext (for resolving names to IDs only — NOT for choosing the entity):\nUsers: ${JSON.stringify(context.users ?? [])}\nCategories: ${JSON.stringify(context.categories ?? [])}\nContacts (only relevant for a deal's contactId): ${JSON.stringify(context.contacts ?? [])}`,
