@@ -55,13 +55,13 @@ async function chat(
   client: OpenAI,
   system: string,
   user: string,
-  opts: { maxTokens?: number; temperature?: number; model?: string } = {}
+  opts: { maxTokens?: number; temperature?: number; model?: string; json?: boolean } = {}
 ): Promise<string> {
   const model = opts.model ?? AI_MODEL;
   const maxTokens = opts.maxTokens ?? 800;
   const temperature = opts.temperature ?? 0.3;
 
-  const key = cacheKey(model, system, user);
+  const key = cacheKey(model, system, user, opts.json ? 'json' : '');
   const cached = getCached(key);
   if (cached) return cached;
 
@@ -77,6 +77,11 @@ async function chat(
         ],
         temperature,
         max_tokens: maxTokens,
+        // Groq/OpenAI JSON mode — forces a syntactically valid JSON object
+        // back instead of relying purely on a "respond only with JSON"
+        // instruction the model can (and, on the fast/small models, does)
+        // ignore by wrapping the reply in prose or markdown fences.
+        ...(opts.json ? { response_format: { type: 'json_object' as const } } : {}),
       });
       const text = res.choices[0]?.message?.content?.trim() || '';
       setCached(key, text);
@@ -513,6 +518,79 @@ export async function checkEmailTone(email: {
 
 // ─── Natural Language Command Parser (AI CRUD) ────────────────────────────────
 
+export type NlCommandEntity = 'ticket' | 'contact' | 'lead' | 'deal' | 'article' | 'unknown';
+
+export interface NlCommandResult {
+  intent: 'create' | 'update' | 'unknown';
+  entity: NlCommandEntity;
+  fields: Record<string, any>;
+  confidence: number;
+  explanation: string;
+}
+
+// Which fields are legitimate for each entity — anything else the model
+// returns (e.g. a stray `company`/`email` on a `ticket`, leaked in from the
+// Contacts context) gets silently dropped rather than forwarded into the
+// create form.
+const NL_COMMAND_ALLOWED_FIELDS: Record<Exclude<NlCommandEntity, 'unknown'>, string[]> = {
+  ticket:  ['title', 'body', 'priority', 'categoryId', 'assignedTo'],
+  contact: ['name', 'email', 'phone', 'jobTitle', 'company'],
+  lead:    ['name', 'email', 'source', 'status', 'notes'],
+  deal:    ['title', 'value', 'stage', 'probability', 'contactId', 'notes'],
+  article: ['title', 'body', 'status'],
+};
+
+// Keyword signals for each entity, used only as a deterministic sanity check
+// on top of the model's own classification — never as the primary classifier.
+// This exists specifically to catch the failure mode where a small/fast model,
+// given an unrelated list of existing Contacts as "the only concrete named
+// data in context", defaults to entity: "contact" for a command that's
+// actually describing a support issue (or any other entity) with zero
+// contact-shaped wording anywhere in it.
+const NL_ENTITY_KEYWORDS: Record<Exclude<NlCommandEntity, 'unknown'>, RegExp> = {
+  ticket:  /\b(ticket|issue|bug|broken|not working|malfunction|outage|crash(ed|ing)?|error|troubleshoot|support (request|issue)|password reset|vpn|printer|laptop|wifi|network (down|issue)|server down|can'?t (log ?in|connect|access))\b/i,
+  contact: /\b(contact|save (his|her|their) (number|email|info)|phone number|add (a )?contact|new contact|save (a )?contact)\b/i,
+  lead:    /\b(lead|prospect|inquiry|inbound|potential customer|interested in (our|the))\b/i,
+  deal:    /\b(deal|opportunity|pipeline|proposal|worth \$?\d|close (the|this) deal|\bstage\b)\b/i,
+  article: /\b(article|knowledge ?base|\bkb\b|how-?to guide|documentation|help ?doc)\b/i,
+};
+
+export function sanitizeNlCommandFields(entity: NlCommandEntity, fields: Record<string, any>): Record<string, any> {
+  if (entity === 'unknown' || !fields || typeof fields !== 'object') return {};
+  const allowed = NL_COMMAND_ALLOWED_FIELDS[entity];
+  const out: Record<string, any> = {};
+  for (const key of Object.keys(fields)) {
+    if (allowed.includes(key)) out[key] = fields[key];
+  }
+  return out;
+}
+
+// Deterministic guardrail applied after the LLM call. If the model picked an
+// entity that has zero keyword support in the command text, but exactly one
+// *other* entity does, trust the command's own wording over the model's
+// guess, downgrade confidence to reflect the correction, and note it in the
+// explanation for transparency. Ambiguous cases (0 or 2+ entities matched)
+// are left exactly as the model returned them — this only intervenes when
+// there's an unambiguous, provable mismatch.
+export function guardEntityClassification(command: string, parsed: NlCommandResult): NlCommandResult {
+  if (parsed.entity === 'unknown') return parsed;
+  const matched = (Object.keys(NL_ENTITY_KEYWORDS) as Array<Exclude<NlCommandEntity, 'unknown'>>)
+    .filter(entity => NL_ENTITY_KEYWORDS[entity].test(command));
+
+  if (matched.includes(parsed.entity as any) || matched.length !== 1) {
+    return parsed; // model's pick is supported, or the command is genuinely ambiguous
+  }
+
+  const corrected = matched[0];
+  return {
+    ...parsed,
+    entity: corrected,
+    fields: sanitizeNlCommandFields(corrected, parsed.fields),
+    confidence: Math.min(parsed.confidence, 55),
+    explanation: `${parsed.explanation} (entity corrected to "${corrected}" — the command's wording didn't support "${parsed.entity}")`,
+  };
+}
+
 export async function parseNaturalLanguageCommand(
   command: string,
   context: {
@@ -520,28 +598,51 @@ export async function parseNaturalLanguageCommand(
     categories?: Array<{ id: string; name: string }>;
     contacts?: Array<{ id: string; name: string }>;
   }
-): Promise<{
-  intent: 'create' | 'update' | 'unknown';
-  entity: 'ticket' | 'contact' | 'lead' | 'deal' | 'article' | 'unknown';
-  fields: Record<string, any>;
-  confidence: number;
-  explanation: string;
-}> {
+): Promise<NlCommandResult> {
   const client = getClient();
   if (!client) return { intent: 'unknown', entity: 'unknown', fields: {}, confidence: 0, explanation: 'AI not configured' };
   const reply = await chat(client,
-    `You are a CRM command parser. Parse natural language commands into structured actions.
-For tickets: fields can be title, body, priority (LOW/MEDIUM/HIGH/CRITICAL), categoryId, assignedTo (user id)
-For contacts: fields can be name, email, phone, jobTitle, company
-For leads: fields can be name, email, source, status, notes
-For deals: fields can be title, value (number), stage, probability (0-100), contactId, notes
-For articles: fields can be title, body, status (DRAFT/PUBLISHED)
-Respond ONLY with valid JSON: {"intent": "create"|"update", "entity": "ticket"|"contact"|"lead"|"deal"|"article", "fields": {...}, "confidence": 0-100, "explanation": "1 sentence"}
-Match user/category names to IDs from the context when provided.`,
-    `Command: "${command}"\n\nContext:\nUsers: ${JSON.stringify(context.users ?? [])}\nCategories: ${JSON.stringify(context.categories ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}`,
-    { maxTokens: 300 }
+    `You are a CRM/IT-Desk command parser. Read the user's command and decide exactly ONE target entity to create or update: "ticket", "contact", "lead", "deal", or "article".
+
+Decide the entity from the command's OWN wording — not from anything in the context block below:
+- ticket: reporting a problem/bug/outage or asking for IT/support help ("ticket", "issue", "broken", "not working", "error", "VPN", "printer", "password reset", "can't log in"...).
+- contact: saving a person's info as a CRM contact ("add a contact", "save contact", "new contact").
+- lead: logging a new sales prospect/inquiry ("lead", "prospect", "inquiry", a source like LinkedIn/website/referral).
+- deal: creating/sizing a sales opportunity ("deal", "opportunity", a dollar amount, "pipeline", "stage", "close").
+- article: writing/publishing a knowledge-base/help article ("article", "KB", "how-to", "documentation").
+
+The Users/Categories/Contacts lists in the context block exist ONLY to resolve a name mentioned in the command to its id (e.g. matching "assign it to Priya" to a user id, or "deal with Jane Smith" to a contact id for a deal's contactId field). They are never a signal for which entity to create — do not default to "contact" just because contacts happen to exist in the org.
+
+Fields allowed per entity:
+- ticket: title, body, priority (LOW/MEDIUM/HIGH/CRITICAL), categoryId, assignedTo (user id)
+- contact: name, email, phone, jobTitle, company
+- lead: name, email, source, status, notes
+- deal: title, value (number), stage, probability (0-100), contactId, notes
+- article: title, body, status (DRAFT/PUBLISHED)
+
+Examples:
+"Create a new ticket about VPN issues" -> {"intent":"create","entity":"ticket","fields":{"title":"VPN issues","priority":"MEDIUM"},"confidence":90,"explanation":"Reports a VPN problem — a support ticket."}
+"Add a contact named Jane Smith from Acme Corp" -> {"intent":"create","entity":"contact","fields":{"name":"Jane Smith","company":"Acme Corp"},"confidence":92,"explanation":"Explicitly asks to add a contact."}
+"New lead from LinkedIn named John Doe" -> {"intent":"create","entity":"lead","fields":{"name":"John Doe","source":"LinkedIn"},"confidence":90,"explanation":"A new lead from a named source."}
+"Create a deal with Acme Corp worth $50,000" -> {"intent":"create","entity":"deal","fields":{"title":"Acme Corp deal","value":50000},"confidence":88,"explanation":"Sales opportunity with a dollar value."}
+
+Respond with a single JSON object only: {"intent": "create"|"update", "entity": "ticket"|"contact"|"lead"|"deal"|"article", "fields": {...}, "confidence": 0-100, "explanation": "1 sentence"}`,
+    `Command: "${command}"\n\nContext (for resolving names to IDs only — NOT for choosing the entity):\nUsers: ${JSON.stringify(context.users ?? [])}\nCategories: ${JSON.stringify(context.categories ?? [])}\nContacts (only relevant for a deal's contactId): ${JSON.stringify(context.contacts ?? [])}`,
+    // The command-parsing path mutates real records off a single inference,
+    // so it's worth trading the fast/small model's latency for the smart
+    // model's much better instruction-following — plus JSON mode so the
+    // "respond with JSON only" instruction is enforced by the API, not just
+    // requested.
+    { maxTokens: 300, model: AI_MODEL_SMART, json: true }
   );
-  try { return JSON.parse(reply); } catch { return { intent: 'unknown', entity: 'unknown', fields: {}, confidence: 0, explanation: 'Could not parse command' }; }
+  let parsed: NlCommandResult;
+  try {
+    parsed = JSON.parse(reply);
+  } catch {
+    return { intent: 'unknown', entity: 'unknown', fields: {}, confidence: 0, explanation: 'Could not parse command' };
+  }
+  parsed.fields = sanitizeNlCommandFields(parsed.entity, parsed.fields);
+  return guardEntityClassification(command, parsed);
 }
 
 // ─── AI Action Planner (whitelisted action execution) ─────────────────────────
