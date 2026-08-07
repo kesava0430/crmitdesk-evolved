@@ -591,6 +591,45 @@ export function guardEntityClassification(command: string, parsed: NlCommandResu
   };
 }
 
+// The exact (command -> fields) pairs shown as JSON-shape samples in the
+// system prompt above. A correctly-working model only ever produces these
+// values when the real command actually contains that same information —
+// but small/fast models are prone to pattern-echo: copying a nearby
+// example's answer instead of extracting from the real input, especially
+// once the prompt got busier with disambiguation rules. This is what
+// "creating tickets/contacts always named after the same sample values, no
+// matter what I actually typed" looks like from the outside. Since no prompt
+// wording can 100% guarantee a model won't do this, this is a deterministic
+// backstop: if the returned fields exactly match one of these samples but
+// the real command shares none of that sample's distinctive words, the
+// result is rejected outright rather than silently creating the wrong record.
+const NL_COMMAND_SAMPLES: Array<{ entity: NlCommandEntity; fields: Record<string, any>; distinctiveWords: string[] }> = [
+  { entity: 'ticket',  fields: { title: 'VPN issues', priority: 'MEDIUM' },       distinctiveWords: ['vpn'] },
+  { entity: 'contact', fields: { name: 'Jane Smith', company: 'Acme Corp' },       distinctiveWords: ['jane', 'smith'] },
+  { entity: 'lead',    fields: { name: 'John Doe', source: 'LinkedIn' },           distinctiveWords: ['john', 'doe', 'linkedin'] },
+  { entity: 'deal',    fields: { title: 'Acme Corp deal', value: 50000 },          distinctiveWords: ['acme', '50,000', '50000', '$50'] },
+];
+
+function fieldsExactlyMatch(a: Record<string, any>, b: Record<string, any>): boolean {
+  const bKeys = Object.keys(b);
+  return bKeys.length > 0 && bKeys.every(k => String(a?.[k] ?? '').toLowerCase() === String(b[k]).toLowerCase());
+}
+
+export function guardAgainstEchoedSample(command: string, parsed: NlCommandResult): NlCommandResult {
+  const lowerCommand = command.toLowerCase();
+  const sample = NL_COMMAND_SAMPLES.find(s => s.entity === parsed.entity && fieldsExactlyMatch(parsed.fields, s.fields));
+  if (!sample) return parsed;
+  const commandActuallyMentionsIt = sample.distinctiveWords.some(w => lowerCommand.includes(w));
+  if (commandActuallyMentionsIt) return parsed; // legitimate — the user really did type this
+  return {
+    intent: parsed.intent,
+    entity: parsed.entity,
+    fields: {},
+    confidence: 0,
+    explanation: "The AI returned placeholder sample values instead of reading your command — please try rephrasing with more specific details.",
+  };
+}
+
 export async function parseNaturalLanguageCommand(
   command: string,
   context: {
@@ -620,11 +659,15 @@ Fields allowed per entity:
 - deal: title, value (number), stage, probability (0-100), contactId, notes
 - article: title, body, status (DRAFT/PUBLISHED)
 
-Examples:
+The block below shows the RESPONSE SHAPE ONLY, for four unrelated made-up sample commands. They are NOT the command you're being asked about, and their field values (VPN, Jane Smith, Acme Corp, John Doe, LinkedIn, $50,000, ...) must NEVER appear in your actual answer unless the real command at the bottom of this prompt happens to contain that exact same information itself. Copying any of these sample values into your answer when the real command doesn't contain them is a critical error.
+
+Sample shape (ignore the content, copy only the JSON structure):
 "Create a new ticket about VPN issues" -> {"intent":"create","entity":"ticket","fields":{"title":"VPN issues","priority":"MEDIUM"},"confidence":90,"explanation":"Reports a VPN problem — a support ticket."}
 "Add a contact named Jane Smith from Acme Corp" -> {"intent":"create","entity":"contact","fields":{"name":"Jane Smith","company":"Acme Corp"},"confidence":92,"explanation":"Explicitly asks to add a contact."}
 "New lead from LinkedIn named John Doe" -> {"intent":"create","entity":"lead","fields":{"name":"John Doe","source":"LinkedIn"},"confidence":90,"explanation":"A new lead from a named source."}
 "Create a deal with Acme Corp worth $50,000" -> {"intent":"create","entity":"deal","fields":{"title":"Acme Corp deal","value":50000},"confidence":88,"explanation":"Sales opportunity with a dollar value."}
+
+Now read the ACTUAL command given below (in the user message, not this list) and extract fields ONLY from its own words. If it doesn't mention a detail (e.g. no priority given), omit that field entirely rather than inventing or borrowing one from the samples above.
 
 Respond with a single JSON object only: {"intent": "create"|"update", "entity": "ticket"|"contact"|"lead"|"deal"|"article", "fields": {...}, "confidence": 0-100, "explanation": "1 sentence"}`,
     `Command: "${command}"\n\nContext (for resolving names to IDs only — NOT for choosing the entity):\nUsers: ${JSON.stringify(context.users ?? [])}\nCategories: ${JSON.stringify(context.categories ?? [])}\nContacts (only relevant for a deal's contactId): ${JSON.stringify(context.contacts ?? [])}`,
@@ -642,7 +685,9 @@ Respond with a single JSON object only: {"intent": "create"|"update", "entity": 
     return { intent: 'unknown', entity: 'unknown', fields: {}, confidence: 0, explanation: 'Could not parse command' };
   }
   parsed.fields = sanitizeNlCommandFields(parsed.entity, parsed.fields);
-  return guardEntityClassification(command, parsed);
+  parsed = guardEntityClassification(command, parsed);
+  parsed = guardAgainstEchoedSample(command, parsed);
+  return parsed;
 }
 
 // ─── AI Action Planner (whitelisted action execution) ─────────────────────────

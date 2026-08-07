@@ -472,7 +472,11 @@ export function TicketsPage() {
   const plural = entityLabel('ticket', 'plural', 'Tickets');
 
   useEffect(() => {
-    if (aiPrefill) setCreateModal(true);
+    // Also close the ticket Detail modal if one happened to be open — it's a
+    // separate `selectedId` state from `createModal`, so without this the AI's
+    // "Go Create" could leave an existing ticket's detail/edit view stacked
+    // on screen alongside (or instead of, visually) the new Create modal.
+    if (aiPrefill) { setSelectedId(null); setCreateModal(true); }
   }, [aiPrefill]);
 
   return (

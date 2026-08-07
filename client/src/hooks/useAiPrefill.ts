@@ -12,6 +12,18 @@ import { useLocation, useNavigate } from 'react-router-dom';
  * with the parsed fields in `location.state`, but nothing on any of these
  * pages ever read it back out, so the AI's "Go Create X" button just landed
  * on the plain list page and did nothing.
+ *
+ * The effect depends on `location.key` rather than `[]`. `location.key` is a
+ * fresh, unique value on EVERY navigation — including one that lands back on
+ * a pathname you're already viewing. An empty dependency array only ever
+ * fires once, on this component's first mount, so if the AI Command Bar was
+ * used while already sitting on the target list page (the most common case —
+ * e.g. asking it to "create a ticket" while already viewing Tickets), the
+ * page never remounts, this effect never re-runs, and the freshly-navigated
+ * `aiPrefill` in `location.state` is silently missed: no modal opens, no
+ * fields populate, and any *other* modal that happened to be open already
+ * (e.g. an existing record's edit view) is left exactly as it was —
+ * which is what made it look like "Go Create" was opening an edit screen.
  */
 export function useAiPrefill<T = Record<string, any>>(): T | null {
   const location = useLocation();
@@ -25,7 +37,7 @@ export function useAiPrefill<T = Record<string, any>>(): T | null {
       navigate(location.pathname, { replace: true, state: {} });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.key]);
 
   return prefill;
 }

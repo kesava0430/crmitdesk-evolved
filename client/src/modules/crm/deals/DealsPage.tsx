@@ -423,7 +423,13 @@ export function DealsPage() {
   const aiPrefill = useAiPrefill<{ title?: string; value?: number; stage?: string; probability?: number; contactId?: string }>();
 
   useEffect(() => {
-    if (aiPrefill) setModal(true);
+    // Clear any other deal modal that might already be open (an existing
+    // deal's Edit view or Detail view) so the AI's "Go Create" always lands
+    // on a genuinely fresh "New Deal" form — otherwise `Modal open={modal ||
+    // !!editingDeal}` could stay pinned to a stale editingDeal from before
+    // and the create modal's own `modal` flag flipping true wouldn't matter,
+    // since the title/initial values would still be the old edit's.
+    if (aiPrefill) { setEditingDeal(null); setSelectedDealId(null); setModal(true); }
   }, [aiPrefill]);
 
   function handleDrop(e: React.DragEvent, toStage: string) {
