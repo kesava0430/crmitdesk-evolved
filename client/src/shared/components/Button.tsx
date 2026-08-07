@@ -20,19 +20,21 @@ const variants: Record<string, string> = {
     'focus-visible:ring-brand-400',
   secondary:
     'bg-white text-gray-700 border border-gray-200 shadow-sm ' +
+    'dark:bg-gray-900 dark:text-gray-300 dark:border-gray-700 ' +
     'hover:bg-gray-50 hover:border-gray-300 active:bg-gray-100 active:scale-[0.98] ' +
+    'dark:hover:bg-gray-800 dark:hover:border-gray-600 dark:active:bg-gray-700 ' +
     'focus-visible:ring-gray-300',
   danger:
     'bg-red-600 text-white shadow-sm ' +
     'hover:bg-red-700 active:bg-red-800 active:scale-[0.98] ' +
     'focus-visible:ring-red-400',
   ghost:
-    'text-gray-600 ' +
-    'hover:bg-gray-100 active:bg-gray-200 active:scale-[0.98] ' +
+    'text-gray-600 dark:text-gray-400 ' +
+    'hover:bg-gray-100 dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700 active:scale-[0.98] ' +
     'focus-visible:ring-gray-300',
   outline:
-    'border border-brand-300 text-brand-700 ' +
-    'hover:bg-brand-50 active:bg-brand-100 active:scale-[0.98] ' +
+    'border border-brand-300 text-brand-700 dark:border-brand-700 dark:text-brand-400 ' +
+    'hover:bg-brand-50 dark:hover:bg-brand-500/10 active:bg-brand-100 dark:active:bg-brand-500/20 active:scale-[0.98] ' +
     'focus-visible:ring-brand-400',
 };
 

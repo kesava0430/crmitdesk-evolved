@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { PageHeader, Button, Modal, Badge, Spinner, EmptyState, RowActions } from '../../shared/components';
-import { Building2, Plus, Pencil, Trash2, Tag, MapPin } from 'lucide-react';
+import { Building2, Plus, Pencil, Trash2, Tag, MapPin, Wifi } from 'lucide-react';
 
 interface OfficeLocation {
   id: string; name: string; latitude: number; longitude: number;
@@ -22,6 +22,7 @@ function OfficeLocationsSection() {
   const [form, setForm] = useState(emptyOffice);
   const [error, setError] = useState('');
   const [locating, setLocating] = useState(false);
+  const [detectingIp, setDetectingIp] = useState(false);
 
   const { data, isLoading } = useQuery<OfficeLocation[]>({
     queryKey: ['office-locations'],
@@ -76,26 +77,48 @@ function OfficeLocationsSection() {
     );
   }
 
+  // Fetches the caller's public IP exactly as the server sees it (same
+  // extractClientIp() logic used at check-in time), so this can never
+  // populate an IP that check-in would then fail to match.
+  async function useMyIp() {
+    setDetectingIp(true);
+    setError('');
+    try {
+      const { data } = await api.get('/hr/attendance/my-ip');
+      const ip = data?.ip;
+      if (!ip) { setError('Could not detect your public IP.'); return; }
+      setForm(f => {
+        const existing = f.allowedIps.split(',').map(s => s.trim()).filter(Boolean);
+        if (existing.includes(ip)) return f;
+        return { ...f, allowedIps: [...existing, ip].join(', ') };
+      });
+    } catch {
+      setError('Could not detect your public IP.');
+    } finally {
+      setDetectingIp(false);
+    }
+  }
+
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><Building2 size={14} /> Office Locations</p>
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Building2 size={14} /> Office Locations</p>
         <Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add Location</Button>
       </div>
-      <p className="text-xs text-gray-400 mb-4">Employees must be within the radius of an active location, or on an allowed IP/network, to check in.</p>
+      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Employees must be within the radius of an active location, or on an allowed IP/network, to check in.</p>
 
       {isLoading ? <Spinner /> : (data || []).length === 0 ? (
         <EmptyState icon={<Building2 size={20} />} title="No office locations yet" description="Add one so employees can check in" />
       ) : (
         <div className="space-y-2">
           {(data || []).map(loc => (
-            <div key={loc.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 rounded-xl flex-wrap">
+            <div key={loc.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl flex-wrap">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-gray-800 text-sm">{loc.name}</span>
+                  <span className="font-medium text-gray-800 dark:text-gray-200 text-sm">{loc.name}</span>
                   <Badge variant={loc.isActive ? 'green' : 'gray'}>{loc.isActive ? 'Active' : 'Inactive'}</Badge>
                 </div>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                   {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)} · {loc.radiusMeters}m radius
                   {loc.allowedIps && ` · IP allowlist: ${loc.allowedIps}`}
                 </p>
@@ -118,7 +141,7 @@ function OfficeLocationsSection() {
           </Button>
         </>}>
         <div className="space-y-4">
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
           <div>
             <label className="form-label">Name</label>
             <input className="ui-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Main Office" />
@@ -133,7 +156,7 @@ function OfficeLocationsSection() {
               <input className="ui-input" value={form.longitude} onChange={e => setForm(f => ({ ...f, longitude: e.target.value }))} placeholder="77.5946" />
             </div>
           </div>
-          <button type="button" onClick={useMyLocation} disabled={locating} className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1">
+          <button type="button" onClick={useMyLocation} disabled={locating} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 flex items-center gap-1">
             {locating ? <Spinner /> : <MapPin size={12} />} Use my current location
           </button>
           <div>
@@ -143,7 +166,10 @@ function OfficeLocationsSection() {
           <div>
             <label className="form-label">Allowed IPs / CIDR (optional)</label>
             <input className="ui-input" value={form.allowedIps} onChange={e => setForm(f => ({ ...f, allowedIps: e.target.value }))} placeholder="203.0.113.4, 203.0.113.0/24" />
-            <p className="text-[11px] text-gray-400 mt-1">Comma-separated. If set, check-in also verifies the employee's public IP matches the office network.</p>
+            <button type="button" onClick={useMyIp} disabled={detectingIp} className="mt-1.5 text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 flex items-center gap-1">
+              {detectingIp ? <Spinner /> : <Wifi size={12} />} Use my current IP
+            </button>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Comma-separated. If set, check-in also verifies the employee's public IP matches the office network.</p>
           </div>
         </div>
       </Modal>
@@ -194,7 +220,7 @@ function LeaveTypesSection() {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><Tag size={14} /> Leave Types</p>
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Tag size={14} /> Leave Types</p>
         <Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add Type</Button>
       </div>
 
@@ -203,11 +229,11 @@ function LeaveTypesSection() {
       ) : (
         <div className="space-y-2">
           {(data || []).map(t => (
-            <div key={t.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 rounded-xl flex-wrap">
+            <div key={t.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.color }} />
-                <span className="font-medium text-gray-800 text-sm">{t.name}</span>
-                <span className="text-xs text-gray-400">{t.annualQuota} days/yr · {t.isPaid ? 'Paid' : 'Unpaid'}</span>
+                <span className="font-medium text-gray-800 dark:text-gray-200 text-sm">{t.name}</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">{t.annualQuota} days/yr · {t.isPaid ? 'Paid' : 'Unpaid'}</span>
                 {!t.isActive && <Badge variant="gray">Inactive</Badge>}
               </div>
               <RowActions items={[
@@ -227,7 +253,7 @@ function LeaveTypesSection() {
           </Button>
         </>}>
         <div className="space-y-4">
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
           <div>
             <label className="form-label">Name</label>
             <input className="ui-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Annual Leave" />
@@ -236,7 +262,7 @@ function LeaveTypesSection() {
             <label className="form-label">Annual quota (days)</label>
             <input className="ui-input" type="number" min={0} max={365} value={form.annualQuota} onChange={e => setForm(f => ({ ...f, annualQuota: e.target.value }))} />
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input type="checkbox" checked={form.isPaid} onChange={e => setForm(f => ({ ...f, isPaid: e.target.checked }))} />
             Paid leave
           </label>

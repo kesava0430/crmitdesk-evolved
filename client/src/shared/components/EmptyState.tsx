@@ -11,14 +11,14 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
   return (
     <div className="flex flex-col items-center justify-center py-20 px-4 gap-5 text-center">
       <div
-        className="w-16 h-16 flex items-center justify-center text-gray-300 bg-gray-50 border border-gray-100"
+        className="w-16 h-16 flex items-center justify-center text-gray-300 dark:text-gray-600 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700"
         style={{ borderRadius: 'var(--ui-card-radius, 16px)' }}
       >
         <span className="[&>svg]:w-7 [&>svg]:h-7">{icon}</span>
       </div>
       <div className="max-w-[260px]">
-        <p className="font-semibold text-gray-800 text-[14px] tracking-tight">{title}</p>
-        <p className="text-[13px] text-gray-400 mt-1.5 leading-relaxed">{description}</p>
+        <p className="font-semibold text-gray-800 dark:text-gray-200 text-[14px] tracking-tight">{title}</p>
+        <p className="text-[13px] text-gray-400 dark:text-gray-500 mt-1.5 leading-relaxed">{description}</p>
       </div>
       {action && (
         <Button size="sm" onClick={action.onClick}>{action.label}</Button>

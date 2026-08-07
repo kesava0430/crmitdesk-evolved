@@ -3,10 +3,10 @@ import { X, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { subscribe, removeToast, Toast } from './toastStore';
 
 const CONFIG: Record<Toast['type'], { icon: React.ReactNode; bg: string; bar: string }> = {
-  error:   { icon: <AlertCircle size={17} />,   bg: 'bg-red-50 border-red-200 text-red-800',     bar: 'bg-red-400' },
-  success: { icon: <CheckCircle size={17} />,   bg: 'bg-green-50 border-green-200 text-green-800', bar: 'bg-green-400' },
-  warning: { icon: <AlertTriangle size={17} />, bg: 'bg-amber-50 border-amber-200 text-amber-800', bar: 'bg-amber-400' },
-  info:    { icon: <Info size={17} />,           bg: 'bg-blue-50 border-blue-200 text-blue-800',   bar: 'bg-blue-400' },
+  error:   { icon: <AlertCircle size={17} />,   bg: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-500/10 dark:border-red-800/50 dark:text-red-300',     bar: 'bg-red-400' },
+  success: { icon: <CheckCircle size={17} />,   bg: 'bg-green-50 border-green-200 text-green-800 dark:bg-green-500/10 dark:border-green-800/50 dark:text-green-300', bar: 'bg-green-400' },
+  warning: { icon: <AlertTriangle size={17} />, bg: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-800/50 dark:text-amber-300', bar: 'bg-amber-400' },
+  info:    { icon: <Info size={17} />,           bg: 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-500/10 dark:border-blue-800/50 dark:text-blue-300',   bar: 'bg-blue-400' },
 };
 
 export function ToastContainer() {

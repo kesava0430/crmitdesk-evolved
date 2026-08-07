@@ -18,10 +18,10 @@ import { useLabels } from '../../../hooks/useLabels';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
 
 const sentimentConfig: Record<string, { label: string; color: string }> = {
-  POSITIVE:   { label: '😊 Positive',   color: 'text-green-600 bg-green-50 border-green-200' },
-  NEUTRAL:    { label: '😐 Neutral',    color: 'text-gray-600 bg-gray-50 border-gray-200' },
-  NEGATIVE:   { label: '😟 Negative',   color: 'text-orange-600 bg-orange-50 border-orange-200' },
-  FRUSTRATED: { label: '😤 Frustrated', color: 'text-red-600 bg-red-50 border-red-200' },
+  POSITIVE:   { label: '😊 Positive',   color: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30' },
+  NEUTRAL:    { label: '😐 Neutral',    color: 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700' },
+  NEGATIVE:   { label: '😟 Negative',   color: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30' },
+  FRUSTRATED: { label: '😤 Frustrated', color: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30' },
 };
 
 const PRIORITIES = ['LOW','MEDIUM','HIGH','CRITICAL'];
@@ -74,7 +74,7 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, lo
               { v: 'contact', label: 'A contact' },
             ].map(o => (
               <button key={o.v} type="button" onClick={() => setRequesterMode(o.v as any)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${requesterMode === o.v ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600'}`}>
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${requesterMode === o.v ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-400'}`}>
                 {o.label}
               </button>
             ))}
@@ -100,11 +100,11 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, lo
                 labelOverrides. */}
             <input aria-label={fieldLabel('ticket', 'title', 'Title')} required className="ui-input" value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
             {aiDupes.data?.duplicates && aiDupes.data.duplicates.length > 0 && (
-              <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 space-y-1">
+              <div className="mt-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2.5 space-y-1">
                 {aiDupes.data.duplicates.map((d: any) => (
-                  <p key={d.id} className="text-xs text-amber-800">
+                  <p key={d.id} className="text-xs text-amber-800 dark:text-amber-300">
                     <span className="font-semibold">Possible duplicate:</span> {d.title}{' '}
-                    <span className="text-amber-600">({Math.round(d.confidence * 100)}% similar)</span>
+                    <span className="text-amber-600 dark:text-amber-400">({Math.round(d.confidence * 100)}% similar)</span>
                   </p>
                 ))}
               </div>
@@ -155,7 +155,7 @@ function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
   }
 
   return (
-    <div className="space-y-3 bg-gray-50 rounded-xl p-3 border border-gray-100">
+    <div className="space-y-3 bg-gray-50 dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700">
       <div>
         <label className="form-label">Title</label>
         <input aria-label="Edit title" className="ui-input" value={form.title} onChange={f('title')} />
@@ -228,13 +228,13 @@ function TicketDetailModal({ id, users, categories }: any) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b border-gray-100">
+      <div className="flex gap-1 border-b border-gray-100 dark:border-gray-800">
         {[
           { v: 'details', label: 'Details' },
           { v: 'history', label: `History${ticket.history?.length ? ` (${ticket.history.length})` : ''}` },
         ].map(t => (
           <button key={t.v} onClick={() => setTab(t.v as any)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.v ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.v ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}>
             {t.label}
           </button>
         ))}
@@ -242,11 +242,11 @@ function TicketDetailModal({ id, users, categories }: any) {
 
       {tab === 'history' ? (
         !ticket.history?.length ? (
-          <p className="text-sm text-gray-400 text-center py-8">No status changes recorded yet.</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No status changes recorded yet.</p>
         ) : (
           <div className="space-y-1">
             {ticket.history.map((h: any) => (
-              <div key={h.id} className="flex items-center gap-2 text-xs text-gray-400 py-1">
+              <div key={h.id} className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 py-1">
                 <CheckCircle size={12} className="text-green-400" />
                 <span>{h.fromStatus ? `${h.fromStatus} -> ` : ''}{h.toStatus}</span>
                 <span>· {formatDistanceToNow(new Date(h.changedAt), { addSuffix: true })}</span>
@@ -268,14 +268,14 @@ function TicketDetailModal({ id, users, categories }: any) {
               <button
                 onClick={() => aiSentiment.mutate(ticket.id)}
                 disabled={aiSentiment.isPending}
-                className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 font-medium disabled:opacity-40 border border-violet-200 rounded-full px-2 py-0.5 bg-violet-50"
+                className="flex items-center gap-1 text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 font-medium disabled:opacity-40 border border-violet-200 dark:border-violet-500/30 rounded-full px-2 py-0.5 bg-violet-50 dark:bg-violet-500/10"
               >
                 <SmilePlus size={11} />
                 {aiSentiment.isPending ? 'Analyzing...' : 'Detect Sentiment'}
               </button>
             )}
             {!editingDetails && (
-              <button onClick={() => setEditingDetails(true)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 font-medium border border-gray-200 rounded-full px-2 py-0.5 ml-auto">
+              <button onClick={() => setEditingDetails(true)} className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400 font-medium border border-gray-200 dark:border-gray-700 rounded-full px-2 py-0.5 ml-auto">
                 <Pencil size={11} /> Edit
               </button>
             )}
@@ -283,29 +283,29 @@ function TicketDetailModal({ id, users, categories }: any) {
           {editingDetails ? (
             <TicketEditForm ticket={ticket} categories={categories} onSaved={() => setEditingDetails(false)} onCancel={() => setEditingDetails(false)} />
           ) : (
-            <p className="text-gray-600 text-sm leading-relaxed">{ticket.body}</p>
+            <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">{ticket.body}</p>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Requester</p><p className="font-medium">{ticket.requester?.name}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Requester</p><p className="font-medium dark:text-gray-200">{ticket.requester?.name}</p></div>
         {ticket.contact && (
-          <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">On behalf of (Contact)</p><p className="font-medium">{ticket.contact.name}</p></div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">On behalf of (Contact)</p><p className="font-medium dark:text-gray-200">{ticket.contact.name}</p></div>
         )}
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Category</p><p className="font-medium">{ticket.category?.name || '--'}</p></div>
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Created</p><p className="font-medium">{formatDistanceToNow(new Date(ticket.createdAt), { addSuffix: true })}</p></div>
-        <div className={`rounded-xl p-3 ${slaBreach ? 'bg-red-50' : 'bg-gray-50'}`}><p className="text-gray-400 text-xs mb-1">SLA Due</p><p className={`font-medium ${slaBreach ? 'text-red-600' : ''}`}>{ticket.slaDueAt ? formatDistanceToNow(new Date(ticket.slaDueAt), { addSuffix: true }) : '--'}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Category</p><p className="font-medium dark:text-gray-200">{ticket.category?.name || '--'}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Created</p><p className="font-medium dark:text-gray-200">{formatDistanceToNow(new Date(ticket.createdAt), { addSuffix: true })}</p></div>
+        <div className={`rounded-xl p-3 ${slaBreach ? 'bg-red-50 dark:bg-red-500/10' : 'bg-gray-50 dark:bg-gray-800'}`}><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">SLA Due</p><p className={`font-medium ${slaBreach ? 'text-red-600 dark:text-red-400' : 'dark:text-gray-200'}`}>{ticket.slaDueAt ? formatDistanceToNow(new Date(ticket.slaDueAt), { addSuffix: true }) : '--'}</p></div>
       </div>
 
       <CustomFieldsDisplay entityType="TICKET" entityId={ticket.id} />
 
-      <div className="border-t pt-4 space-y-3">
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4 space-y-3">
         <div><label className="form-label">Update Status</label>
           <div className="flex flex-wrap gap-2">
             {STATUSES.map(s => (
               <button key={s} onClick={() => changeStatus.mutate({ id: ticket.id, status: s })}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${ticket.status === s ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600'}`}>
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${ticket.status === s ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-400'}`}>
                 {s.replace('_',' ')}
               </button>
             ))}
@@ -317,9 +317,9 @@ function TicketDetailModal({ id, users, categories }: any) {
       </div>
 
       {/* AI Reply Suggestion */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <Sparkles size={14} className="text-violet-500" /> AI Reply Suggestion
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={handleAIReply} loading={aiReply.isPending}>
@@ -327,9 +327,9 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         </div>
         {suggestedReply && (
-          <div className="relative bg-violet-50 border border-violet-100 rounded-xl p-3">
-            <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto pr-8">{suggestedReply}</pre>
-            <button onClick={copyReply} className="absolute top-2 right-2 p-1.5 hover:bg-violet-100 rounded-lg text-violet-400 hover:text-violet-700 transition-colors">
+          <div className="relative bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20 rounded-xl p-3">
+            <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto pr-8">{suggestedReply}</pre>
+            <button onClick={copyReply} className="absolute top-2 right-2 p-1.5 hover:bg-violet-100 dark:hover:bg-violet-500/20 rounded-lg text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors">
               {copiedReply ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
             </button>
           </div>
@@ -337,9 +337,9 @@ function TicketDetailModal({ id, users, categories }: any) {
       </div>
 
       {/* AI Auto-Route */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <Route size={14} className="text-indigo-500" /> AI Auto-Routing
           </p>
           <Button size="sm" variant="secondary" icon={<Route size={12} />} onClick={handleAutoRoute} loading={autoRouting}>
@@ -347,19 +347,19 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         </div>
         {autoRouteResult && (
-          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-sm">
-            <p className="text-indigo-700 font-medium mb-1">Routing applied:</p>
-            {autoRouteResult.categoryName && <p className="text-gray-600">Category -&gt; <span className="font-medium">{autoRouteResult.categoryName}</span></p>}
-            {autoRouteResult.agentName && <p className="text-gray-600">Assigned -&gt; <span className="font-medium">{autoRouteResult.agentName}</span></p>}
-            <p className="text-gray-400 text-xs mt-1">{autoRouteResult.reason}</p>
+          <div className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-xl p-3 text-sm">
+            <p className="text-indigo-700 dark:text-indigo-300 font-medium mb-1">Routing applied:</p>
+            {autoRouteResult.categoryName && <p className="text-gray-600 dark:text-gray-300">Category -&gt; <span className="font-medium">{autoRouteResult.categoryName}</span></p>}
+            {autoRouteResult.agentName && <p className="text-gray-600 dark:text-gray-300">Assigned -&gt; <span className="font-medium">{autoRouteResult.agentName}</span></p>}
+            <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">{autoRouteResult.reason}</p>
           </div>
         )}
       </div>
 
       {/* AI Thread Summary */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <Layers size={14} className="text-blue-500" /> Thread Summary
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiSummary.mutate(ticket.id)} loading={aiSummary.isPending}>
@@ -367,16 +367,16 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         </div>
         {aiSummary.data?.summary && (
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-gray-700 leading-relaxed">
+          <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 rounded-xl p-3 text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
             {aiSummary.data.summary}
           </div>
         )}
       </div>
 
       {/* Resolution Time Estimate */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <Clock size={14} className="text-amber-500" /> Resolution Estimate
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiEstimate.mutate(ticket.id)} loading={aiEstimate.isPending}>
@@ -384,17 +384,17 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         </div>
         {aiEstimate.data && (
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm">
-            <p className="font-semibold text-amber-800">{aiEstimate.data.label}</p>
-            <p className="text-gray-500 text-xs mt-0.5">{aiEstimate.data.reason}</p>
+          <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl p-3 text-sm">
+            <p className="font-semibold text-amber-800 dark:text-amber-300">{aiEstimate.data.label}</p>
+            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{aiEstimate.data.reason}</p>
           </div>
         )}
       </div>
 
       {/* SLA Risk */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <AlertTriangle size={14} className="text-red-500" /> SLA Risk
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiSlaRisk.mutate(ticket.id)} loading={aiSlaRisk.isPending}>
@@ -402,22 +402,22 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         </div>
         {aiSlaRisk.data && (
-          <div className={`border rounded-xl p-3 text-sm ${aiSlaRisk.data.risk === 'HIGH' ? 'bg-red-50 border-red-200' : aiSlaRisk.data.risk === 'MEDIUM' ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+          <div className={`border rounded-xl p-3 text-sm ${aiSlaRisk.data.risk === 'HIGH' ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30' : aiSlaRisk.data.risk === 'MEDIUM' ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' : 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'}`}>
             <div className="flex items-center gap-2 mb-0.5">
-              <span className={`font-bold text-sm ${aiSlaRisk.data.risk === 'HIGH' ? 'text-red-700' : aiSlaRisk.data.risk === 'MEDIUM' ? 'text-amber-700' : 'text-green-700'}`}>
+              <span className={`font-bold text-sm ${aiSlaRisk.data.risk === 'HIGH' ? 'text-red-700 dark:text-red-400' : aiSlaRisk.data.risk === 'MEDIUM' ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
                 {aiSlaRisk.data.risk} RISK
               </span>
-              <span className="text-gray-400 text-xs">({aiSlaRisk.data.score}/100)</span>
+              <span className="text-gray-400 dark:text-gray-500 text-xs">({aiSlaRisk.data.score}/100)</span>
             </div>
-            <p className="text-gray-500 text-xs">{aiSlaRisk.data.reason}</p>
+            <p className="text-gray-500 dark:text-gray-400 text-xs">{aiSlaRisk.data.reason}</p>
           </div>
         )}
       </div>
 
       {/* KB Article Generator */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <BookOpen size={14} className="text-emerald-500" /> Generate KB Article
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiKb.mutate(ticket.id)} loading={aiKb.isPending}>
@@ -425,11 +425,11 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         </div>
         {aiKb.data && (
-          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-sm space-y-2">
-            <p className="font-semibold text-emerald-800">{aiKb.data.title}</p>
-            <pre className="text-gray-600 text-xs whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto">{aiKb.data.body}</pre>
+          <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-xl p-3 text-sm space-y-2">
+            <p className="font-semibold text-emerald-800 dark:text-emerald-300">{aiKb.data.title}</p>
+            <pre className="text-gray-600 dark:text-gray-300 text-xs whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto">{aiKb.data.body}</pre>
             <button onClick={() => navigator.clipboard.writeText(`# ${aiKb.data!.title}\n\n${aiKb.data!.body}`)}
-              className="text-xs text-emerald-600 hover:underline">Copy to clipboard</button>
+              className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline">Copy to clipboard</button>
           </div>
         )}
       </div>
@@ -480,16 +480,16 @@ export function TicketsPage() {
       {reports && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {[
-            { label: 'Open', value: reports.open, color: 'text-blue-600', bg: 'bg-blue-50', icon: <Ticket size={18} /> },
-            { label: 'In Progress', value: reports.inProgress, color: 'text-yellow-600', bg: 'bg-yellow-50', icon: <Clock size={18} /> },
-            { label: 'SLA Breached', value: reports.slaBreached, color: 'text-red-600', bg: 'bg-red-50', icon: <AlertCircle size={18} /> },
-            { label: 'Resolved', value: reports.resolved, color: 'text-green-600', bg: 'bg-green-50', icon: <CheckCircle size={18} /> },
+            { label: 'Open', value: reports.open, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', icon: <Ticket size={18} /> },
+            { label: 'In Progress', value: reports.inProgress, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-500/10', icon: <Clock size={18} /> },
+            { label: 'SLA Breached', value: reports.slaBreached, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-500/10', icon: <AlertCircle size={18} /> },
+            { label: 'Resolved', value: reports.resolved, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-500/10', icon: <CheckCircle size={18} /> },
           ].map(({ label, value, color, bg, icon }) => (
             <div key={label} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 flex items-center gap-3 card-hover shadow-sm">
               <div className={`w-10 h-10 rounded-xl ${bg} ${color} flex items-center justify-center shadow-sm`}>{icon}</div>
               <div>
-                <p className="text-2xl font-bold text-gray-900 tabular-nums">{value}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{label}</p>
               </div>
             </div>
           ))}
@@ -502,11 +502,11 @@ export function TicketsPage() {
         actions={<>
           <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500">
               <option value="">All Statuses</option>
               {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s] ?? s.replace('_',' ')}</option>)}
             </select>
-            <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500">
               <option value="">All Priorities</option>
               {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
@@ -521,26 +521,26 @@ export function TicketsPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
           <div className="table-container">
             <table className="w-full text-sm min-w-[800px]">
-              <thead><tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{fieldLabel('ticket', 'title', 'Title')}</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{fieldLabel('ticket', 'status', 'Status')}</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{fieldLabel('ticket', 'priority', 'Priority')}</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Sentiment</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Category</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Requester</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Assigned To</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">SLA</th>
+              <thead><tr className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{fieldLabel('ticket', 'title', 'Title')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{fieldLabel('ticket', 'status', 'Status')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{fieldLabel('ticket', 'priority', 'Priority')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sentiment</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">Category</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">Requester</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned To</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">SLA</th>
                 <th className="px-4 py-3"></th>
               </tr></thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {filtered?.map((t: any) => {
                   const slaBreach = t.slaDueAt && new Date(t.slaDueAt) < new Date() && !['RESOLVED','CLOSED'].includes(t.status);
                   return (
-                    <tr key={t.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => setSelectedId(t.id)}>
+                    <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors cursor-pointer" onClick={() => setSelectedId(t.id)}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold flex-shrink-0 ${t.priority === 'CRITICAL' ? 'bg-red-500' : t.priority === 'HIGH' ? 'bg-orange-400' : t.priority === 'MEDIUM' ? 'bg-blue-400' : 'bg-gray-300'}`}>{t.priority[0]}</span>
-                          <span className="font-medium text-gray-900 max-w-[180px] sm:max-w-xs truncate">{t.title}</span>
+                          <span className="font-medium text-gray-900 dark:text-gray-100 max-w-[180px] sm:max-w-xs truncate">{t.title}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3"><Badge variant={ticketStatusVariant[t.status]}>{STATUS_LABELS[t.status] ?? t.status.replace('_',' ')}</Badge></td>
@@ -548,20 +548,20 @@ export function TicketsPage() {
                       <td className="px-4 py-3">
                         {t.sentiment && sentimentConfig[t.sentiment]
                           ? <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${sentimentConfig[t.sentiment].color}`}>{sentimentConfig[t.sentiment].label}</span>
-                          : <span className="text-gray-300 text-xs">--</span>}
+                          : <span className="text-gray-300 dark:text-gray-600 text-xs">--</span>}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{t.category?.name || '--'}</td>
-                      <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{t.requester?.name}</td>
-                      <td className="px-4 py-3 text-gray-500">{t.assignee?.name || <span className="text-gray-300">Unassigned</span>}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">{t.category?.name || '--'}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">{t.requester?.name}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{t.assignee?.name || <span className="text-gray-300 dark:text-gray-600">Unassigned</span>}</td>
                       <td className="px-4 py-3 hidden md:table-cell">
                         {t.slaDueAt ? (
-                          <span className={`text-xs ${slaBreach ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>
+                          <span className={`text-xs ${slaBreach ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}`}>
                             {slaBreach ? 'Breached' : formatDistanceToNow(new Date(t.slaDueAt), { addSuffix: true })}
                           </span>
-                        ) : <span className="text-gray-300 text-xs">--</span>}
+                        ) : <span className="text-gray-300 dark:text-gray-600 text-xs">--</span>}
                       </td>
                       <td className="px-4 py-3">
-                        <Pencil size={14} className="text-gray-300 hover:text-gray-600" />
+                        <Pencil size={14} className="text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300" />
                       </td>
                     </tr>
                   );

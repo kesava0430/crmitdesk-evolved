@@ -66,7 +66,7 @@ export function Modal({
       >
         {/* Mobile drag handle */}
         <div className="sm:hidden flex justify-center pt-3 pb-1 shrink-0">
-          <div className="w-10 h-1 rounded-full bg-gray-200" />
+          <div className="w-10 h-1 rounded-full bg-gray-200 dark:bg-gray-700" />
         </div>
 
         {/* Theme accent bar */}
@@ -81,24 +81,24 @@ export function Modal({
           }}
         >
           {icon && (
-            <div className="shrink-0 w-9 h-9 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600 mt-0.5">
+            <div className="shrink-0 w-9 h-9 rounded-xl bg-brand-50 dark:bg-brand-500/10 border border-brand-100 dark:border-brand-500/20 flex items-center justify-center text-brand-600 dark:text-brand-400 mt-0.5">
               {icon}
             </div>
           )}
           <div className="flex-1 min-w-0">
             <h2
               id="modal-title"
-              className="text-[15px] font-semibold text-gray-900 leading-snug tracking-tight"
+              className="text-[15px] font-semibold text-gray-900 dark:text-white leading-snug tracking-tight"
             >
               {title}
             </h2>
             {subtitle && (
-              <p className="text-[13px] text-gray-500 mt-0.5 leading-relaxed">{subtitle}</p>
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{subtitle}</p>
             )}
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 ml-1 -mt-0.5 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:bg-gray-200 transition-all"
+            className="shrink-0 ml-1 -mt-0.5 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700 transition-all"
             aria-label="Close"
           >
             <X size={16} strokeWidth={2.25} />

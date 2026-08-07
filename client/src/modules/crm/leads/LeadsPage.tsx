@@ -13,9 +13,9 @@ const STATUSES = ['NEW','CONTACTED','QUALIFIED','UNQUALIFIED','CONVERTED'];
 const SOURCES = ['Web','Referral','Cold Outreach','Event','Social Media','Other'];
 
 function scoreColor(score: number) {
-  if (score >= 75) return 'bg-green-100 text-green-700 border-green-200';
-  if (score >= 50) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-  return 'bg-red-100 text-red-700 border-red-200';
+  if (score >= 75) return 'bg-green-100 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/30';
+  if (score >= 50) return 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/30';
+  return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/30';
 }
 
 function LeadForm({ initial, entityId, onSubmit, loading, aiPrefill }: any) {
@@ -108,15 +108,15 @@ function ConvertLeadModal({ lead, onClose }: { lead: any; onClose: () => void })
 
   return (
     <form onSubmit={handleConvert} className="space-y-5">
-      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm flex-shrink-0">
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3 dark:bg-indigo-500/10 dark:border-indigo-500/30">
+        <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm flex-shrink-0 dark:bg-indigo-500/20 dark:text-indigo-400">
           {contactName[0]?.toUpperCase()}
         </div>
         <div>
-          <p className="font-semibold text-gray-900">{contactName}</p>
-          <p className="text-xs text-gray-500">{lead.contact?.email} · {lead.source || 'Unknown source'}</p>
+          <p className="font-semibold text-gray-900 dark:text-white">{contactName}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{lead.contact?.email} · {lead.source || 'Unknown source'}</p>
         </div>
-        <ArrowRight size={18} className="text-indigo-400 ml-auto" />
+        <ArrowRight size={18} className="text-indigo-400 ml-auto dark:text-indigo-500" />
       </div>
       <div className="form-section">
         <p className="form-section-title">New Deal Details</p>
@@ -141,7 +141,7 @@ function ConvertLeadModal({ lead, onClose }: { lead: any; onClose: () => void })
           </div>
         </div>
       </div>
-      <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-sm text-green-700 flex items-start gap-2">
+      <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-sm text-green-700 flex items-start gap-2 dark:bg-green-500/10 dark:border-green-500/30 dark:text-green-400">
         <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0" />
         <span>Converting will mark this lead as <strong>Converted</strong> and create the deal in your pipeline.</span>
       </div>
@@ -171,43 +171,43 @@ function FollowUpModal({ lead, onClose }: { lead: any; onClose: () => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-violet-50 border border-violet-100 rounded-xl p-4 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center">
-          <Sparkles size={18} className="text-violet-600" />
+      <div className="bg-violet-50 border border-violet-100 rounded-xl p-4 flex items-center gap-3 dark:bg-violet-500/10 dark:border-violet-500/30">
+        <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center dark:bg-violet-500/20">
+          <Sparkles size={18} className="text-violet-600 dark:text-violet-400" />
         </div>
         <div>
-          <p className="font-semibold text-gray-900">{lead.contact?.name || 'Lead'}</p>
-          <p className="text-xs text-gray-500">{lead.contact?.email} · {lead.source || 'Unknown source'}</p>
+          <p className="font-semibold text-gray-900 dark:text-white">{lead.contact?.name || 'Lead'}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{lead.contact?.email} · {lead.source || 'Unknown source'}</p>
         </div>
       </div>
 
       {!result ? (
         <div className="text-center py-6">
-          <p className="text-sm text-gray-500 mb-4">AI will write a personalized follow-up email based on this lead's data, source, and notes.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">AI will write a personalized follow-up email based on this lead's data, source, and notes.</p>
           <Button icon={<Sparkles size={15} />} onClick={generate} loading={followUp.isPending}>
             Generate Follow-up Email
           </Button>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="bg-gray-50 px-4 py-2 flex items-center justify-between border-b border-gray-100">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Subject</span>
-              <button onClick={() => copy(result.subject, 'subject')} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700">
+          <div className="border border-gray-200 rounded-xl overflow-hidden dark:border-gray-700">
+            <div className="bg-gray-50 px-4 py-2 flex items-center justify-between border-b border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Subject</span>
+              <button onClick={() => copy(result.subject, 'subject')} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300">
                 {copied === 'subject' ? <><Check size={12} className="text-green-500" /> Copied</> : <><Copy size={12} /> Copy</>}
               </button>
             </div>
-            <p className="px-4 py-3 text-sm font-medium text-gray-800">{result.subject}</p>
+            <p className="px-4 py-3 text-sm font-medium text-gray-800 dark:text-gray-200">{result.subject}</p>
           </div>
 
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="bg-gray-50 px-4 py-2 flex items-center justify-between border-b border-gray-100">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Email Body</span>
-              <button onClick={() => copy(result.body, 'body')} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700">
+          <div className="border border-gray-200 rounded-xl overflow-hidden dark:border-gray-700">
+            <div className="bg-gray-50 px-4 py-2 flex items-center justify-between border-b border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Email Body</span>
+              <button onClick={() => copy(result.body, 'body')} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300">
                 {copied === 'body' ? <><Check size={12} className="text-green-500" /> Copied</> : <><Copy size={12} /> Copy</>}
               </button>
             </div>
-            <pre className="px-4 py-3 text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed max-h-64 overflow-y-auto">{result.body}</pre>
+            <pre className="px-4 py-3 text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed max-h-64 overflow-y-auto dark:text-gray-300">{result.body}</pre>
           </div>
 
           <div className="flex justify-between pt-1">
@@ -225,19 +225,19 @@ function NurtureSequenceModal({ lead, onClose }: { lead: any; onClose: () => voi
 
   return (
     <div className="space-y-4">
-      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center">
-          <Calendar size={18} className="text-indigo-600" />
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3 dark:bg-indigo-500/10 dark:border-indigo-500/30">
+        <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center dark:bg-indigo-500/20">
+          <Calendar size={18} className="text-indigo-600 dark:text-indigo-400" />
         </div>
         <div>
-          <p className="font-semibold text-gray-900">{lead.contact?.name || 'Lead'}</p>
-          <p className="text-xs text-gray-500">{lead.source || 'Unknown source'}</p>
+          <p className="font-semibold text-gray-900 dark:text-white">{lead.contact?.name || 'Lead'}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{lead.source || 'Unknown source'}</p>
         </div>
       </div>
 
       {!nurture.data ? (
         <div className="text-center py-6">
-          <p className="text-sm text-gray-500 mb-4">AI will generate a personalized 3-step nurture email sequence for this lead.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">AI will generate a personalized 3-step nurture email sequence for this lead.</p>
           <Button icon={<Sparkles size={15} />} onClick={() => nurture.mutate(lead.id)} loading={nurture.isPending}>
             Generate Nurture Sequence
           </Button>
@@ -245,15 +245,15 @@ function NurtureSequenceModal({ lead, onClose }: { lead: any; onClose: () => voi
       ) : (
         <div className="space-y-3">
           {nurture.data.sequence.map((step: { day: number; subject: string; body: string }, i: number) => (
-            <div key={i} className="border border-gray-200 rounded-xl overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2 flex items-center gap-2 border-b border-gray-100">
-                <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{i + 1}</div>
-                <span className="text-xs font-semibold text-indigo-600">Day {step.day}</span>
-                <span className="text-xs text-gray-500 ml-auto truncate max-w-xs">{step.subject}</span>
+            <div key={i} className="border border-gray-200 rounded-xl overflow-hidden dark:border-gray-700">
+              <div className="bg-gray-50 px-4 py-2 flex items-center gap-2 border-b border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+                <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0 dark:bg-indigo-500/20 dark:text-indigo-400">{i + 1}</div>
+                <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Day {step.day}</span>
+                <span className="text-xs text-gray-500 ml-auto truncate max-w-xs dark:text-gray-400">{step.subject}</span>
               </div>
               <div className="px-4 py-3">
-                <p className="text-xs font-semibold text-gray-500 mb-1">Subject: {step.subject}</p>
-                <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed max-h-24 overflow-y-auto">{step.body}</pre>
+                <p className="text-xs font-semibold text-gray-500 mb-1 dark:text-gray-400">Subject: {step.subject}</p>
+                <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed max-h-24 overflow-y-auto dark:text-gray-300">{step.body}</pre>
               </div>
             </div>
           ))}
@@ -289,48 +289,48 @@ function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center"><ListTodo size={18} className="text-indigo-600" /></div>
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3 dark:bg-indigo-500/10 dark:border-indigo-500/30">
+        <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center dark:bg-indigo-500/20"><ListTodo size={18} className="text-indigo-600 dark:text-indigo-400" /></div>
         <div>
-          <p className="font-semibold text-gray-900">{lead.contact?.name || 'Lead'}</p>
-          <p className="text-xs text-gray-500">Scheduled calls, emails, meetings and tasks for this lead — separate from deal-side activity once it converts.</p>
+          <p className="font-semibold text-gray-900 dark:text-white">{lead.contact?.name || 'Lead'}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Scheduled calls, emails, meetings and tasks for this lead — separate from deal-side activity once it converts.</p>
         </div>
       </div>
 
       {isLoading ? <Spinner /> : activities.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-4">No follow-ups scheduled yet.</p>
+        <p className="text-sm text-gray-400 text-center py-4 dark:text-gray-500">No follow-ups scheduled yet.</p>
       ) : (
         <div className="space-y-2 max-h-72 overflow-y-auto">
           {activities.map((a: any) => {
             const Icon = ACTIVITY_ICON[a.type] || ClipboardList;
             return (
-              <div key={a.id} className={`flex items-start gap-2.5 border rounded-xl p-3 ${a.done ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
+              <div key={a.id} className={`flex items-start gap-2.5 border rounded-xl p-3 ${a.done ? 'border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/60' : 'border-gray-200 dark:border-gray-700'}`}>
                 <button
                   type="button"
                   onClick={() => updateActivity.mutate({ id: a.id, done: !a.done })}
-                  className={`mt-0.5 flex-shrink-0 ${a.done ? 'text-green-500' : 'text-gray-300 hover:text-gray-400'}`}
+                  className={`mt-0.5 flex-shrink-0 ${a.done ? 'text-green-500' : 'text-gray-300 hover:text-gray-400 dark:text-gray-600 dark:hover:text-gray-500'}`}
                   aria-label={a.done ? 'Mark as not done' : 'Mark as done'}
                 >
                   {a.done ? <CheckCircle2 size={16} /> : <Circle size={16} />}
                 </button>
-                <Icon size={14} className="text-gray-400 mt-1 flex-shrink-0" />
+                <Icon size={14} className="text-gray-400 mt-1 flex-shrink-0 dark:text-gray-500" />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${a.done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{a.title}</p>
-                  {a.body && <p className="text-xs text-gray-500 mt-0.5">{a.body}</p>}
+                  <p className={`text-sm font-medium ${a.done ? 'text-gray-400 line-through dark:text-gray-600' : 'text-gray-900 dark:text-white'}`}>{a.title}</p>
+                  {a.body && <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">{a.body}</p>}
                   <div className="flex items-center gap-2 mt-1">
-                    {a.dueAt && <span className="text-[11px] text-gray-400">Due {new Date(a.dueAt).toLocaleDateString()}</span>}
-                    {a.createdByUser?.name && <span className="text-[11px] text-gray-300">· {a.createdByUser.name}</span>}
+                    {a.dueAt && <span className="text-[11px] text-gray-400 dark:text-gray-500">Due {new Date(a.dueAt).toLocaleDateString()}</span>}
+                    {a.createdByUser?.name && <span className="text-[11px] text-gray-300 dark:text-gray-600">· {a.createdByUser.name}</span>}
                   </div>
                 </div>
-                <button type="button" onClick={() => deleteActivity.mutate(a.id)} className="text-gray-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
+                <button type="button" onClick={() => deleteActivity.mutate(a.id)} className="text-gray-300 hover:text-red-500 flex-shrink-0 dark:text-gray-600 dark:hover:text-red-400"><Trash2 size={13} /></button>
               </div>
             );
           })}
         </div>
       )}
 
-      <form onSubmit={addFollowUp} className="border-t border-gray-100 pt-3 space-y-2">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Schedule a follow-up</p>
+      <form onSubmit={addFollowUp} className="border-t border-gray-100 pt-3 space-y-2 dark:border-gray-800">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Schedule a follow-up</p>
         <div className="flex flex-wrap gap-2">
           <select aria-label="Follow-up type" value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value as any }))} className="ui-input w-32">
             {ACTIVITY_TYPES.map(t => <option key={t} value={t}>{t[0] + t.slice(1).toLowerCase()}</option>)}
@@ -395,7 +395,7 @@ export function LeadsPage() {
           <div className="flex flex-wrap gap-2">
             <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-              className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500">
               <option value="">All Statuses</option>
               {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -410,30 +410,30 @@ export function LeadsPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[600px]">
-              <thead><tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Score</th>
-                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+              <thead><tr className="bg-gray-50 border-b border-gray-100 dark:bg-gray-800/60 dark:border-gray-800">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Name</th>
+                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Email</th>
+                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Source</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Status</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">AI Score</th>
+                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Notes</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
               </tr></thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {leads?.map((lead: any) => (
                   <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors duration-150">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                          lead.status === 'CONVERTED' ? 'bg-green-100 text-green-600' : 'bg-indigo-100 text-indigo-600'
+                          lead.status === 'CONVERTED' ? 'bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400'
                         }`}>
                           {(lead.contact?.name || '?')[0]?.toUpperCase()}
                         </div>
-                        <span className="font-medium text-gray-900">{lead.contact?.name || '--'}</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{lead.contact?.name || '--'}</span>
                       </div>
                     </td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500">{lead.contact?.email || '--'}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500">{lead.source || '--'}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500 dark:text-gray-400">{lead.contact?.email || '--'}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500 dark:text-gray-400">{lead.source || '--'}</td>
                     <td className="px-4 py-3"><Badge variant={leadStatusVariant[lead.status]}>{lead.status}</Badge></td>
                     <td className="px-4 py-3">
                       {lead.aiScore != null ? (
@@ -441,34 +441,34 @@ export function LeadsPage() {
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${scoreColor(lead.aiScore)}`}>
                             {lead.aiScore}
                           </span>
-                          <button title={lead.aiScoreReason || 'Re-score'} onClick={() => score.mutate(lead.id)} className="text-gray-300 hover:text-violet-500 transition-colors">
+                          <button title={lead.aiScoreReason || 'Re-score'} onClick={() => score.mutate(lead.id)} className="text-gray-300 hover:text-violet-500 transition-colors dark:text-gray-600 dark:hover:text-violet-400">
                             <Zap size={12} />
                           </button>
                         </div>
                       ) : (
                         <button onClick={() => score.mutate(lead.id)} disabled={score.isPending}
-                          className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 font-medium disabled:opacity-40">
+                          className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 font-medium disabled:opacity-40 dark:text-violet-400 dark:hover:text-violet-300">
                           <Sparkles size={12} />
                           {score.isPending ? 'Scoring...' : 'Score'}
                         </button>
                       )}
                     </td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-gray-400 text-xs max-w-xs truncate">{lead.notes}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-gray-400 text-xs max-w-xs truncate dark:text-gray-500">{lead.notes}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 flex-wrap">
                         <button onClick={() => setModal({ type: 'followups', lead })} title="Follow-up activities"
-                          className="relative p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors">
+                          className="relative p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors dark:hover:bg-indigo-500/10 dark:text-gray-500 dark:hover:text-indigo-400">
                           <ListTodo size={14} />
                           {lead._count?.activities > 0 && (
                             <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-indigo-500 text-white text-[9px] leading-[14px] text-center">{lead._count.activities}</span>
                           )}
                         </button>
                         <button onClick={() => setModal({ type: 'followup', lead })} title="AI follow-up email"
-                          className="p-1.5 hover:bg-violet-50 rounded-lg text-gray-400 hover:text-violet-600 transition-colors">
+                          className="p-1.5 hover:bg-violet-50 rounded-lg text-gray-400 hover:text-violet-600 transition-colors dark:hover:bg-violet-500/10 dark:text-gray-500 dark:hover:text-violet-400">
                           <Mail size={14} />
                         </button>
                         <button onClick={() => setModal({ type: 'nurture', lead })} title="AI nurture sequence"
-                          className="p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors">
+                          className="p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors dark:hover:bg-indigo-500/10 dark:text-gray-500 dark:hover:text-indigo-400">
                           <Calendar size={14} />
                         </button>
                         {lead.status !== 'CONVERTED' ? (
@@ -476,7 +476,7 @@ export function LeadsPage() {
                             Convert
                           </Button>
                         ) : (
-                          <span className="flex items-center gap-1 text-xs text-green-600 font-medium px-2">
+                          <span className="flex items-center gap-1 text-xs text-green-600 font-medium px-2 dark:text-green-400">
                             <CheckCircle2 size={13} /> Converted
                           </span>
                         )}

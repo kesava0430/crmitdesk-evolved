@@ -23,13 +23,13 @@ const ICONS: Record<string, any> = {
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  contact: 'text-blue-500 bg-blue-50',
-  ticket: 'text-orange-500 bg-orange-50',
-  lead: 'text-purple-500 bg-purple-50',
-  deal: 'text-green-500 bg-green-50',
-  article: 'text-teal-500 bg-teal-50',
-  asset: 'text-slate-500 bg-slate-50',
-  invoice: 'text-pink-500 bg-pink-50',
+  contact: 'text-blue-500 bg-blue-50 dark:bg-blue-500/10',
+  ticket: 'text-orange-500 bg-orange-50 dark:bg-orange-500/10',
+  lead: 'text-purple-500 bg-purple-50 dark:bg-purple-500/10',
+  deal: 'text-green-500 bg-green-50 dark:bg-green-500/10',
+  article: 'text-teal-500 bg-teal-50 dark:bg-teal-500/10',
+  asset: 'text-slate-500 bg-slate-50 dark:bg-slate-500/10',
+  invoice: 'text-pink-500 bg-pink-50 dark:bg-pink-500/10',
 };
 
 function useSearch(query: string) {
@@ -153,9 +153,9 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{r.title}</p>
-                      {r.subtitle && <p className="text-xs text-gray-500 truncate">{r.subtitle}</p>}
+                      {r.subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{r.subtitle}</p>}
                     </div>
-                    <span className="text-xs text-gray-400 capitalize flex-shrink-0">{r.type}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 capitalize flex-shrink-0">{r.type}</span>
                   </button>
                 </li>
               );

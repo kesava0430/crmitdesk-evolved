@@ -147,15 +147,15 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
   const hasFieldLabels = labels && Object.keys(labels.fields ?? {}).length > 0;
 
   return (
-    <div className="pt-6 mt-6 border-t border-gray-100">
+    <div className="pt-6 mt-6 border-t border-gray-100 dark:border-gray-800">
       <p className="form-label mb-1">Generate Setup</p>
-      <p className="text-xs text-gray-500 mb-3">
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
         Uses your industry and company description above to propose relabeled terminology (e.g. "Tickets" → "Cases")
         and a handful of draft automation rules tailored to your business — nothing changes until you review and apply.
       </p>
 
       {!hasContext && (
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+        <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 mb-3">
           Fill in and save your industry and company description above first.
         </p>
       )}
@@ -172,7 +172,7 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
       )}
 
       {generate.isError && (
-        <p className="text-sm text-red-600 mt-2">
+        <p className="text-sm text-red-600 dark:text-red-400 mt-2">
           {(generate.error as any)?.response?.data?.error || 'Could not generate a setup — try again.'}
         </p>
       )}
@@ -180,11 +180,11 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
       {(hasEntityLabels || hasFieldLabels) && labels && (
         <div className="mt-4 space-y-4">
           <div>
-            <p className="text-sm font-semibold text-gray-800 mb-2">Suggested terminology</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Suggested terminology</p>
             <div className="space-y-2">
               {Object.entries(labels.entities ?? {}).map(([entity, names]) => (
-                <div key={entity} className="border border-gray-200 rounded-lg p-3">
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-800 mb-2">
+                <div key={entity} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100 mb-2">
                     <input type="checkbox" checked={enabledEntities.has(entity)}
                       onChange={() => toggle(enabledEntities, setEnabledEntities, entity)} />
                     {ENTITY_DISPLAY[entity] ?? entity} → {(names as any).plural}
@@ -192,20 +192,20 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
                   <div className="grid grid-cols-2 gap-2 pl-6 mb-2">
                     <input value={(names as any).singular} placeholder="Singular"
                       onChange={e => updateEntityLabel(entity, 'singular', e.target.value)}
-                      className="border border-gray-200 rounded-md px-2 py-1 text-xs" />
+                      className="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-1 text-xs" />
                     <input value={(names as any).plural} placeholder="Plural"
                       onChange={e => updateEntityLabel(entity, 'plural', e.target.value)}
-                      className="border border-gray-200 rounded-md px-2 py-1 text-xs" />
+                      className="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-1 text-xs" />
                   </div>
                   {(labels.fields as any)?.[entity] && (
                     <div className="pl-6 space-y-1">
                       {Object.entries((labels.fields as any)[entity] as Record<string, string>).map(([field, val]) => (
-                        <label key={field} className="flex items-center gap-2 text-xs text-gray-600">
+                        <label key={field} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
                           <input type="checkbox" checked={enabledFields.has(`${entity}.${field}`)}
                             onChange={() => toggle(enabledFields, setEnabledFields, `${entity}.${field}`)} />
                           {FIELD_DISPLAY[entity]?.[field] ?? field}:
                           <input value={val} onChange={e => updateFieldLabel(entity, field, e.target.value)}
-                            className="flex-1 border border-gray-200 rounded-md px-2 py-0.5 text-xs" />
+                            className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-0.5 text-xs" />
                         </label>
                       ))}
                     </div>
@@ -217,19 +217,19 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
 
           {rules.length > 0 && (
             <div>
-              <p className="text-sm font-semibold text-gray-800 mb-2">Draft automation rules</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Draft automation rules</p>
               <div className="space-y-2">
                 {rules.map(rule => {
                   const missing = stillNeedsInput(rule);
                   return (
-                    <div key={rule._draftId} className="border border-gray-200 rounded-lg p-3">
+                    <div key={rule._draftId} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
                       <label className="flex items-start gap-2 text-sm">
                         <input type="checkbox" checked={enabledRules.has(rule._draftId)} className="mt-0.5"
                           onChange={() => toggle(enabledRules, setEnabledRules, rule._draftId)} />
                         <div>
-                          <p className="font-medium text-gray-800">{rule.name}</p>
-                          {rule.description && <p className="text-xs text-gray-500 mt-0.5">{rule.description}</p>}
-                          <p className="text-[11px] text-gray-400 mt-1">
+                          <p className="font-medium text-gray-800 dark:text-gray-100">{rule.name}</p>
+                          {rule.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rule.description}</p>}
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
                             Trigger: {rule.trigger} · Actions: {rule.actions.map(a => a.type).join(', ')}
                           </p>
                         </div>
@@ -238,17 +238,17 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
                         <div className="pl-6 mt-2 space-y-1.5">
                           {rule.needsInput.map(need => (
                             <div key={need} className="flex items-center gap-2">
-                              <span className="text-[11px] text-gray-500 w-32 shrink-0">{need}:</span>
+                              <span className="text-[11px] text-gray-500 dark:text-gray-400 w-32 shrink-0">{need}:</span>
                               <input
                                 placeholder={need.endsWith('.userId') ? 'User ID' : need.endsWith('.to') ? 'Recipient email' : 'Webhook URL'}
                                 value={ruleInputs[rule._draftId]?.[need] ?? ''}
                                 onChange={e => setRuleInputs(p => ({ ...p, [rule._draftId]: { ...p[rule._draftId], [need]: e.target.value } }))}
-                                className="flex-1 border border-gray-200 rounded-md px-2 py-1 text-xs"
+                                className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-1 text-xs"
                               />
                             </div>
                           ))}
                           {missing.length > 0 && (
-                            <p className="text-[11px] text-amber-600">Fill these in, or this rule won't be created.</p>
+                            <p className="text-[11px] text-amber-600 dark:text-amber-400">Fill these in, or this rule won't be created.</p>
                           )}
                         </div>
                       )}
@@ -270,14 +270,14 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
             </button>
             <button
               onClick={() => { setLabels(null); setRules([]); }}
-              className="text-sm text-gray-500 hover:text-gray-700"
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
               Discard
             </button>
           </div>
 
           {apply.isSuccess && apply.data && (
-            <p className="text-sm text-green-600 flex items-center gap-1.5">
+            <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5">
               <CheckCircle2 size={14} />
               Applied — {apply.data.rulesCreated} rule{apply.data.rulesCreated === 1 ? '' : 's'} created
               {apply.data.rulesSkipped > 0 ? `, ${apply.data.rulesSkipped} skipped (still missing required input)` : ''}.
@@ -317,12 +317,12 @@ function BusinessContextTab() {
     set('terminology', t);
   }
 
-  if (isLoading) return <div className="py-16 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
+  if (isLoading) return <div className="py-16 text-center text-gray-400 dark:text-gray-500"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
 
   return (
     <div className="max-w-2xl space-y-6">
       <div>
-        <p className="text-sm text-gray-500 mb-4">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           Tell the AI about your business so every AI feature speaks your language and understands your domain.
         </p>
       </div>
@@ -363,7 +363,7 @@ function BusinessContextTab() {
               className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
                 (current.tone ?? 'professional') === t
                   ? 'bg-brand-600 text-white border-brand-600'
-                  : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               {t}
@@ -375,7 +375,7 @@ function BusinessContextTab() {
       {/* Domain Terminology */}
       <div>
         <label className="form-label">Domain Terminology</label>
-        <p className="text-xs text-gray-500 mb-3">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
           Teach the AI your company's specific terms. E.g., "policy" = "insurance coverage", "client" = "patient".
         </p>
         <div className="flex gap-2 mb-2">
@@ -383,13 +383,13 @@ function BusinessContextTab() {
             value={termKey}
             onChange={e => setTermKey(e.target.value)}
             placeholder="Term (e.g. patient)"
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
           <input
             value={termVal}
             onChange={e => setTermVal(e.target.value)}
             placeholder="Means (e.g. customer with active policy)"
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
           <button
             onClick={addTerm}
@@ -401,11 +401,11 @@ function BusinessContextTab() {
         {Object.entries(current.terminology ?? {}).length > 0 && (
           <div className="space-y-1">
             {Object.entries(current.terminology ?? {}).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
-                <span className="font-medium text-gray-800">{k}</span>
-                <span className="text-gray-400">→</span>
-                <span className="text-gray-600 flex-1">{v as string}</span>
-                <button onClick={() => removeTerm(k)} className="text-gray-400 hover:text-red-500">
+              <div key={k} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-1.5 text-sm">
+                <span className="font-medium text-gray-800 dark:text-gray-100">{k}</span>
+                <span className="text-gray-400 dark:text-gray-500">→</span>
+                <span className="text-gray-600 dark:text-gray-300 flex-1">{v as string}</span>
+                <button onClick={() => removeTerm(k)} className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400">
                   <X size={14} />
                 </button>
               </div>
@@ -435,7 +435,7 @@ function BusinessContextTab() {
         Save Business Context
       </button>
       {save.isSuccess && (
-        <p className="text-sm text-green-600 flex items-center gap-1.5">
+        <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5">
           <CheckCircle2 size={14} /> Saved — all AI features now use this context.
         </p>
       )}
@@ -498,10 +498,10 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">{fn.id ? 'Edit Function' : 'New Custom AI Function'}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+      <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900 dark:text-white">{fn.id ? 'Edit Function' : 'New Custom AI Function'}</h3>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"><X size={20} /></button>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -549,12 +549,12 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
           <div>
             <label className="form-label">Input Fields</label>
             {(form.inputSchema ?? []).map((f, i) => (
-              <div key={i} className="flex items-center gap-2 mb-1 bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
-                <span className="font-medium text-gray-800 w-24 truncate">{f.label}</span>
-                <span className="text-gray-400 text-xs">{f.name}</span>
-                <span className="text-xs px-1.5 py-0.5 bg-gray-200 rounded text-gray-600">{f.type}</span>
-                {f.required && <span className="text-xs text-red-500">required</span>}
-                <button onClick={() => removeField(i)} className="ml-auto text-gray-400 hover:text-red-500"><X size={12} /></button>
+              <div key={i} className="flex items-center gap-2 mb-1 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-1.5 text-sm">
+                <span className="font-medium text-gray-800 dark:text-gray-100 w-24 truncate">{f.label}</span>
+                <span className="text-gray-400 dark:text-gray-500 text-xs">{f.name}</span>
+                <span className="text-xs px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-300">{f.type}</span>
+                {f.required && <span className="text-xs text-red-500 dark:text-red-400">required</span>}
+                <button onClick={() => removeField(i)} className="ml-auto text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"><X size={12} /></button>
               </div>
             ))}
             <div className="flex gap-2 mt-2">
@@ -562,18 +562,18 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
                 value={newField.name ?? ''}
                 onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
                 placeholder="field_name"
-                className="w-28 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+                className="w-28 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
               />
               <input
                 value={newField.label ?? ''}
                 onChange={e => setNewField(p => ({ ...p, label: e.target.value }))}
                 placeholder="Label"
-                className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
               <select
                 value={newField.type ?? 'text'}
                 onChange={e => setNewField(p => ({ ...p, type: e.target.value as any }))}
-                className="w-24 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-24 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
               </select>
@@ -585,15 +585,15 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
 
           {/* Test panel */}
           {fn.id && (
-            <div className="border border-dashed border-gray-200 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-600 mb-3">Test this function</p>
+            <div className="border border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-4">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-3">Test this function</p>
               {(form.inputSchema ?? []).map(f => (
                 <div key={f.name} className="mb-2">
-                  <label className="block text-xs text-gray-500 mb-0.5">{f.label}</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">{f.label}</label>
                   <input
                     value={testInputs[f.name] ?? ''}
                     onChange={e => setTestInputs(p => ({ ...p, [f.name]: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-400"
+                    className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-400"
                   />
                 </div>
               ))}
@@ -602,7 +602,7 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
                   value={testInputs['text'] ?? ''}
                   onChange={e => setTestInputs({ text: e.target.value })}
                   placeholder="Enter test input text…"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-400 mb-2"
+                  className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-400 mb-2"
                 />
               )}
               <button
@@ -622,7 +622,7 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
           )}
         </div>
         <div className="px-6 pb-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
             Cancel
           </button>
           <button
@@ -644,12 +644,12 @@ function FunctionsTab() {
   const updateFn = useUpdateFunction();
   const [editing, setEditing] = useState<Partial<CustomAIFunction> | null>(null);
 
-  if (isLoading) return <div className="py-16 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
+  if (isLoading) return <div className="py-16 text-center text-gray-400 dark:text-gray-500"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-500">Build reusable AI functions your team can call across the product.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Build reusable AI functions your team can call across the product.</p>
         <button
           onClick={() => setEditing(EMPTY_FN)}
           className="flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
@@ -659,7 +659,7 @@ function FunctionsTab() {
       </div>
 
       {fns.length === 0 ? (
-        <div className="py-16 text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
+        <div className="py-16 text-center text-gray-400 dark:text-gray-500 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
           <Zap size={32} className="mx-auto mb-3 opacity-30" />
           <p className="font-medium">No custom functions yet</p>
           <p className="text-sm mt-1">Create your first AI function to get started.</p>
@@ -667,22 +667,22 @@ function FunctionsTab() {
       ) : (
         <div className="space-y-3">
           {fns.map(fn => (
-            <div key={fn.id} data-testid="ai-function-card" className={`bg-white rounded-xl border shadow-sm p-4 ${!fn.isActive ? 'opacity-60' : ''}`}>
+            <div key={fn.id} data-testid="ai-function-card" className={`bg-white dark:bg-gray-900 rounded-xl border dark:border-gray-800 shadow-sm p-4 ${!fn.isActive ? 'opacity-60' : ''}`}>
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                  <Zap size={15} className="text-purple-600" />
+                <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                  <Zap size={15} className="text-purple-600 dark:text-purple-400" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-semibold text-gray-900 text-sm">{fn.name}</span>
-                    <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{fn.outputType}</span>
+                    <span className="font-semibold text-gray-900 dark:text-white text-sm">{fn.name}</span>
+                    <span className="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded">{fn.outputType}</span>
                     {fn.runCount > 0 && (
-                      <span className="text-xs text-gray-400">{fn.runCount} runs</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">{fn.runCount} runs</span>
                     )}
                   </div>
-                  {fn.description && <p className="text-xs text-gray-500">{fn.description}</p>}
+                  {fn.description && <p className="text-xs text-gray-500 dark:text-gray-400">{fn.description}</p>}
                   {fn.inputSchema?.length > 0 && (
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                       Inputs: {fn.inputSchema.map(f => f.label).join(', ')}
                     </p>
                   )}
@@ -690,17 +690,17 @@ function FunctionsTab() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => updateFn.mutate({ id: fn.id, isActive: !fn.isActive })}
-                    className="text-gray-400 hover:text-brand-600"
+                    className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400"
                     title={fn.isActive ? 'Disable' : 'Enable'}
                   >
                     {fn.isActive ? <ToggleRight size={18} className="text-brand-600" /> : <ToggleLeft size={18} />}
                   </button>
-                  <button onClick={() => setEditing(fn)} className="text-gray-400 hover:text-brand-600">
+                  <button onClick={() => setEditing(fn)} className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400">
                     <Pencil size={15} />
                   </button>
                   <button
                     onClick={() => { if (window.confirm('Delete this function?')) deleteFn.mutate(fn.id); }}
-                    className="text-gray-400 hover:text-red-500"
+                    className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
                   >
                     <Trash2 size={15} />
                   </button>
@@ -748,10 +748,10 @@ function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onCl
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">{script.id ? 'Edit Script' : 'New Custom Script'}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+      <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900 dark:text-white">{script.id ? 'Edit Script' : 'New Custom Script'}</h3>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"><X size={20} /></button>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -786,7 +786,7 @@ function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onCl
             </div>
             {form.trigger === 'onFieldChange' && (
               <div>
-                <label className="form-label">Field Target <span className="text-gray-400">(leave blank for all fields)</span></label>
+                <label className="form-label">Field Target <span className="text-gray-400 dark:text-gray-500">(leave blank for all fields)</span></label>
                 <input
                   value={form.fieldTarget ?? ''}
                   onChange={e => set('fieldTarget', e.target.value)}
@@ -809,11 +809,11 @@ function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onCl
           {/* Code editor */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-gray-600">Script <span className="text-gray-400">(JavaScript)</span></label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300">Script <span className="text-gray-400 dark:text-gray-500">(JavaScript)</span></label>
               <button
                 onClick={handleValidate}
                 disabled={validate.isPending}
-                className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700"
+                className="flex items-center gap-1 text-xs text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300"
               >
                 {validate.isPending ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
                 Validate syntax
@@ -827,7 +827,7 @@ function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onCl
               spellCheck={false}
             />
             {validation && (
-              <div className={`mt-1.5 flex items-center gap-1.5 text-xs ${validation.valid ? 'text-green-600' : 'text-red-600'}`}>
+              <div className={`mt-1.5 flex items-center gap-1.5 text-xs ${validation.valid ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                 {validation.valid
                   ? <><CheckCircle2 size={13} /> Syntax OK — script is valid</>
                   : <><XCircle size={13} /> {validation.error}</>
@@ -837,9 +837,9 @@ function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onCl
           </div>
 
           {/* Context reference */}
-          <details className="text-xs text-gray-500">
-            <summary className="cursor-pointer font-medium text-gray-600 hover:text-gray-800">Available context API</summary>
-            <pre className="mt-2 bg-gray-50 rounded-lg p-3 text-xs overflow-x-auto">{`context.entity          // current form data (object)
+          <details className="text-xs text-gray-500 dark:text-gray-400">
+            <summary className="cursor-pointer font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">Available context API</summary>
+            <pre className="mt-2 bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 text-xs overflow-x-auto">{`context.entity          // current form data (object)
 context.field           // { name, value } — only on onFieldChange
 context.user            // { id, name, role }
 context.setValue(field, value)   // set a form field
@@ -849,7 +849,7 @@ await context.ai(prompt)         // call AI, returns string`}</pre>
           </details>
         </div>
         <div className="px-6 pb-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
             Cancel
           </button>
           <button
@@ -871,12 +871,12 @@ function ScriptsTab() {
   const updateScript = useUpdateScript();
   const [editing, setEditing] = useState<Partial<CustomScript> | null>(null);
 
-  if (isLoading) return <div className="py-16 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
+  if (isLoading) return <div className="py-16 text-center text-gray-400 dark:text-gray-500"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Write JavaScript that runs on form events — auto-fill fields, validate inputs, call AI, or show notifications.
         </p>
         <button
@@ -888,7 +888,7 @@ function ScriptsTab() {
       </div>
 
       {scripts.length === 0 ? (
-        <div className="py-16 text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
+        <div className="py-16 text-center text-gray-400 dark:text-gray-500 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
           <Code2 size={32} className="mx-auto mb-3 opacity-30" />
           <p className="font-medium">No custom scripts yet</p>
           <p className="text-sm mt-1">Create scripts to automate form behaviour across your CRM & IT Desk forms.</p>
@@ -896,35 +896,35 @@ function ScriptsTab() {
       ) : (
         <div className="space-y-3">
           {scripts.map(s => (
-            <div key={s.id} data-testid="ai-script-card" className={`bg-white rounded-xl border shadow-sm p-4 ${!s.isActive ? 'opacity-60' : ''}`}>
+            <div key={s.id} data-testid="ai-script-card" className={`bg-white dark:bg-gray-900 rounded-xl border dark:border-gray-800 shadow-sm p-4 ${!s.isActive ? 'opacity-60' : ''}`}>
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                  <Code2 size={15} className="text-emerald-600" />
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                  <Code2 size={15} className="text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-semibold text-gray-900 text-sm">{s.name}</span>
-                    <span className="text-xs px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded capitalize">{s.entityType}</span>
-                    <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">{s.trigger}</span>
+                    <span className="font-semibold text-gray-900 dark:text-white text-sm">{s.name}</span>
+                    <span className="text-xs px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded capitalize">{s.entityType}</span>
+                    <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded">{s.trigger}</span>
                     {s.fieldTarget && (
-                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded font-mono">.{s.fieldTarget}</span>
+                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-mono">.{s.fieldTarget}</span>
                     )}
                   </div>
-                  {s.description && <p className="text-xs text-gray-500">{s.description}</p>}
+                  {s.description && <p className="text-xs text-gray-500 dark:text-gray-400">{s.description}</p>}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => updateScript.mutate({ id: s.id, isActive: !s.isActive })}
-                    className="text-gray-400 hover:text-brand-600"
+                    className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400"
                   >
                     {s.isActive ? <ToggleRight size={18} className="text-brand-600" /> : <ToggleLeft size={18} />}
                   </button>
-                  <button onClick={() => setEditing(s)} className="text-gray-400 hover:text-brand-600">
+                  <button onClick={() => setEditing(s)} className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400">
                     <Pencil size={15} />
                   </button>
                   <button
                     onClick={() => { if (window.confirm('Delete this script?')) deleteScript.mutate(s.id); }}
-                    className="text-gray-400 hover:text-red-500"
+                    className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
                   >
                     <Trash2 size={15} />
                   </button>
@@ -961,21 +961,21 @@ export default function AIStudioPage() {
           <Brain size={20} className="text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI Studio</h1>
-          <p className="text-sm text-gray-500">Configure your AI to match your domain, build custom functions, and automate forms</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AI Studio</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Configure your AI to match your domain, build custom functions, and automate forms</p>
         </div>
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1">
+      <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
         {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${
               tab === t.id
-                ? 'bg-white shadow text-brand-700'
-                : 'text-gray-500 hover:text-gray-800'
+                ? 'bg-white dark:bg-gray-700 shadow text-brand-700 dark:text-brand-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
             }`}
           >
             <t.icon size={15} />

@@ -29,12 +29,12 @@ function BalanceCards() {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       {(data || []).map(b => (
-        <div key={b.leaveType.id} className="bg-white border border-gray-200 rounded-xl p-3.5">
+        <div key={b.leaveType.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3.5">
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: b.leaveType.color }} />
-            <p className="text-xs text-gray-500 truncate">{b.leaveType.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{b.leaveType.name}</p>
           </div>
-          <p className="text-xl font-bold text-gray-900">{b.remaining}<span className="text-xs font-normal text-gray-400"> / {b.leaveType.annualQuota} left</span></p>
+          <p className="text-xl font-bold text-gray-900 dark:text-white">{b.remaining}<span className="text-xs font-normal text-gray-400 dark:text-gray-500"> / {b.leaveType.annualQuota} left</span></p>
         </div>
       ))}
     </div>
@@ -67,7 +67,7 @@ function ApplyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         </Button>
       </>}>
       <div className="space-y-4">
-        {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
         <div>
           <label className="form-label">Leave type</label>
           <SearchableSelect

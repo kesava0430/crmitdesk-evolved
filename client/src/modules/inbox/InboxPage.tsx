@@ -28,13 +28,13 @@ function channelIcon(channel: Channel, size = 14) {
 }
 
 function channelAvatarBg(channel: Channel) {
-  return channel === 'EMAIL' ? 'bg-blue-100' : channel === 'CHAT' ? 'bg-violet-100' : 'bg-green-100';
+  return channel === 'EMAIL' ? 'bg-blue-100 dark:bg-blue-500/10' : channel === 'CHAT' ? 'bg-violet-100 dark:bg-violet-500/10' : 'bg-green-100 dark:bg-green-500/10';
 }
 
 function statusColor(status: string) {
-  return status === 'OPEN' ? 'bg-green-100 text-green-700'
-    : status === 'PENDING' ? 'bg-yellow-100 text-yellow-700'
-    : 'bg-gray-100 text-gray-500';
+  return status === 'OPEN' ? 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400'
+    : status === 'PENDING' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400'
+    : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400';
 }
 
 // ─── Settings Modal ────────────────────────────────────────────────────────────
@@ -56,24 +56,24 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-2">
-            <Settings size={18} className="text-gray-500" />
-            <h2 className="font-semibold text-gray-900">Inbox Settings</h2>
+            <Settings size={18} className="text-gray-500 dark:text-gray-400" />
+            <h2 className="font-semibold text-gray-900 dark:text-white">Inbox Settings</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
-            <X size={16} className="text-gray-500" />
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+            <X size={16} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-100">
+        <div className="flex border-b border-gray-100 dark:border-gray-800">
           {(['email', 'whatsapp'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
-                tab === t ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                tab === t ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
               }`}>
               {t === 'email' ? <Mail size={14} /> : <MessageCircle size={14} />}
               {t === 'email' ? 'Email (IMAP)' : 'WhatsApp (Twilio)'}
@@ -86,20 +86,20 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             settings?.emailAccount ? (
               /* Email connected */
               <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
-                  <Wifi size={18} className="text-green-600 flex-shrink-0" />
+                <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/30 rounded-xl">
+                  <Wifi size={18} className="text-green-600 dark:text-green-400 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-green-800 text-sm">{settings.emailAccount.email}</p>
-                    <p className="text-xs text-green-600 mt-0.5">
+                    <p className="font-medium text-green-800 dark:text-green-300 text-sm">{settings.emailAccount.email}</p>
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
                       {settings.emailAccount.imapHost}:{settings.emailAccount.imapPort} · SMTP {settings.emailAccount.smtpHost}:{settings.emailAccount.smtpPort}
                     </p>
                     {settings.emailAccount.lastSyncAt && (
-                      <p className="text-xs text-green-500 mt-0.5">Last synced {timeAgo(settings.emailAccount.lastSyncAt)}</p>
+                      <p className="text-xs text-green-500 dark:text-green-400 mt-0.5">Last synced {timeAgo(settings.emailAccount.lastSyncAt)}</p>
                     )}
                   </div>
                   <button
                     onClick={() => disconnectEmail.mutate(undefined, { onSuccess: () => {} })}
-                    className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50">
+                    className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10">
                     Disconnect
                   </button>
                 </div>
@@ -108,7 +108,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               /* Email form */
               <form onSubmit={e => { e.preventDefault(); connectEmail.mutate(emailForm, { onSuccess: onClose }); }}
                 className="space-y-3">
-                <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-xl p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 rounded-xl p-3">
                   For Gmail, use an <strong>App Password</strong> (not your regular password). Enable 2FA → Google Account → Security → App Passwords.
                 </p>
                 <div className="form-section">
@@ -152,7 +152,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
                 {connectEmail.isError && (
-                  <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">
+                  <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg p-2">
                     {(connectEmail.error as any)?.response?.data?.error || 'Connection failed'}
                   </p>
                 )}
@@ -167,24 +167,24 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             /* WhatsApp tab */
             settings?.whatsAppConfig ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
-                  <MessageCircle size={18} className="text-green-600 flex-shrink-0" />
+                <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/30 rounded-xl">
+                  <MessageCircle size={18} className="text-green-600 dark:text-green-400 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-green-800 text-sm">{settings.whatsAppConfig.phoneNumber}</p>
-                    <p className="text-xs text-green-600 mt-0.5">Account: {settings.whatsAppConfig.accountSid}</p>
-                    <p className="text-xs text-green-600 mt-0.5">
-                      Notification number: {settings.whatsAppConfig.notifyNumber || <span className="text-green-500 italic">same as above</span>}
+                    <p className="font-medium text-green-800 dark:text-green-300 text-sm">{settings.whatsAppConfig.phoneNumber}</p>
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">Account: {settings.whatsAppConfig.accountSid}</p>
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                      Notification number: {settings.whatsAppConfig.notifyNumber || <span className="text-green-500 dark:text-green-400 italic">same as above</span>}
                     </p>
                   </div>
                   <button
                     onClick={() => disconnectWA.mutate(undefined, { onSuccess: () => {} })}
-                    className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50">
+                    className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10">
                     Disconnect
                   </button>
                 </div>
-                <div className="p-3 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-600 space-y-1">
-                  <p className="font-medium text-gray-700">Twilio Webhook URL</p>
-                  <code className="block text-xs bg-gray-100 rounded px-2 py-1 font-mono break-all">
+                <div className="p-3 bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800 rounded-xl text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                  <p className="font-medium text-gray-700 dark:text-gray-300">Twilio Webhook URL</p>
+                  <code className="block text-xs bg-gray-100 dark:bg-gray-800 rounded px-2 py-1 font-mono break-all">
                     {window.location.origin.replace('5173', '4000')}/api/inbox/whatsapp/webhook
                   </code>
                   <p>Set this as the webhook in your Twilio console under WhatsApp sandbox or number settings.</p>
@@ -193,7 +193,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             ) : (
               <form onSubmit={e => { e.preventDefault(); connectWA.mutate(waForm, { onSuccess: onClose }); }}
                 className="space-y-3">
-                <p className="text-xs text-gray-500 bg-green-50 border border-green-100 rounded-xl p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400 bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/30 rounded-xl p-3">
                   Get credentials from <strong>console.twilio.com</strong>. Use the WhatsApp Sandbox for testing or a production number for live messages.
                 </p>
                 <div className="form-section">
@@ -223,7 +223,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
                 {connectWA.isError && (
-                  <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">
+                  <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg p-2">
                     {(connectWA.error as any)?.response?.data?.error || 'Connection failed'}
                   </p>
                 )}
@@ -248,7 +248,7 @@ function ConvItem({ conv, selected, onClick }: { conv: Conversation; selected: b
 
   return (
     <button onClick={onClick}
-      className={`w-full text-left p-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selected ? 'bg-brand-50 border-l-2 border-l-brand-600' : ''}`}>
+      className={`w-full text-left p-3 border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${selected ? 'bg-brand-50 dark:bg-brand-500/10 border-l-2 border-l-brand-600' : ''}`}>
       <div className="flex items-start gap-2.5">
         {/* Channel icon */}
         <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${channelAvatarBg(conv.channel)}`}>
@@ -257,16 +257,16 @@ function ConvItem({ conv, selected, onClick }: { conv: Conversation; selected: b
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
-            <span className={`text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+            <span className={`text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900 dark:text-white' : 'font-medium text-gray-700 dark:text-gray-300'}`}>
               {conv.contactName}
             </span>
-            <span className="text-xs text-gray-400 flex-shrink-0">{timeAgo(conv.lastMessageAt)}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">{timeAgo(conv.lastMessageAt)}</span>
           </div>
           {conv.subject && (
-            <p className="text-xs text-gray-500 truncate mt-0.5">{conv.subject}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{conv.subject}</p>
           )}
           {lastMsg && (
-            <p className="text-xs text-gray-400 truncate mt-0.5 leading-snug">
+            <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5 leading-snug">
               {lastMsg.direction === 'OUTBOUND' && <span className="text-brand-500">You: </span>}
               {lastMsg.body}
             </p>
@@ -292,11 +292,11 @@ function MessageBubble({ msg }: { msg: { direction: string; body: string; sentAt
       <div className={`max-w-[88%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 ${
         isOut
           ? 'bg-brand-600 text-white rounded-br-md'
-          : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md shadow-sm'
+          : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-100 rounded-bl-md shadow-sm'
       }`}>
         <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.body}</p>
         <div className={`flex items-center gap-1 mt-1 ${isOut ? 'justify-end' : 'justify-start'}`}>
-          <span className={`text-xs ${isOut ? 'text-brand-200' : 'text-gray-400'}`}>
+          <span className={`text-xs ${isOut ? 'text-brand-200' : 'text-gray-400 dark:text-gray-500'}`}>
             {new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
           {isOut && <CheckCheck size={11} className="text-brand-200" />}
@@ -358,29 +358,29 @@ export function InboxPage() {
   }
 
   return (
-    <div className="flex h-full bg-gray-50 overflow-hidden">
+    <div className="flex h-full bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* ── Left panel: conversation list ──
           Full-width on mobile, fixed 320px column on sm+. On mobile, hidden
           once a conversation is selected (see the thread panel's back
           button) rather than rendered side-by-side, which used to force
           the whole layout wider than the viewport. */}
-      <div className={`w-full sm:w-80 sm:flex-shrink-0 flex-col bg-white sm:border-r border-gray-200 ${selectedId ? 'hidden sm:flex' : 'flex'}`}>
+      <div className={`w-full sm:w-80 sm:flex-shrink-0 flex-col bg-white dark:bg-gray-900 sm:border-r border-gray-200 dark:border-gray-800 ${selectedId ? 'hidden sm:flex' : 'flex'}`}>
         {/* Header */}
-        <div className="px-4 py-3.5 border-b border-gray-100">
+        <div className="px-4 py-3.5 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Inbox size={18} className="text-brand-600" />
-              <h1 className="font-semibold text-gray-900">Unified Inbox</h1>
+              <h1 className="font-semibold text-gray-900 dark:text-white">Unified Inbox</h1>
             </div>
             <div className="flex items-center gap-1">
               <button onClick={() => triggerSync.mutate(undefined, {})}
                 disabled={!hasEmail || triggerSync.isPending}
                 title="Sync email"
-                className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg disabled:opacity-30 transition-colors">
+                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg disabled:opacity-30 transition-colors">
                 <RefreshCw size={14} className={triggerSync.isPending ? 'animate-spin' : ''} />
               </button>
               <button onClick={() => setShowSettings(true)}
-                className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
+                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg transition-colors">
                 <Settings size={14} />
               </button>
             </div>
@@ -393,7 +393,7 @@ export function InboxPage() {
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   channelFilter === ch
                     ? 'bg-brand-600 text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}>
                 {ch === 'EMAIL' && <Mail size={10} />}
                 {ch === 'WHATSAPP' && <MessageCircle size={10} />}
@@ -410,7 +410,7 @@ export function InboxPage() {
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   statusFilter === s
                     ? 'bg-gray-800 text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}>
                 {s === 'ALL' ? 'All' : s === 'OPEN' ? 'Open' : 'Closed'}
               </button>
@@ -420,10 +420,10 @@ export function InboxPage() {
 
         {/* Channel connection prompts */}
         {(!hasEmail || !hasWhatsApp) && (
-          <div className="px-3 py-2 bg-amber-50 border-b border-amber-100">
+          <div className="px-3 py-2 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-100 dark:border-amber-500/30">
             <div className="flex items-start gap-2">
               <AlertCircle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-700">
+              <div className="text-xs text-amber-700 dark:text-amber-400">
                 {!hasEmail && !hasWhatsApp
                   ? 'No channels connected.'
                   : !hasEmail ? 'Email not connected.'
@@ -441,9 +441,9 @@ export function InboxPage() {
             <div className="p-4"><Spinner label="Loading conversations…" /></div>
           ) : conversations.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-center px-4">
-              <Inbox size={32} className="text-gray-300 mb-2" />
-              <p className="text-sm font-medium text-gray-500">No conversations yet</p>
-              <p className="text-xs text-gray-400 mt-1">
+              <Inbox size={32} className="text-gray-300 dark:text-gray-600 mb-2" />
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No conversations yet</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                 {hasEmail || hasWhatsApp
                   ? 'New messages will appear here automatically'
                   : 'Connect Email or WhatsApp in Settings'}
@@ -473,28 +473,28 @@ export function InboxPage() {
         {selectedId && conversation ? (
           <>
             {/* Thread header */}
-            <div className="px-4 sm:px-6 py-3 sm:py-4 bg-white border-b border-gray-200 flex items-center justify-between gap-2">
+            <div className="px-4 sm:px-6 py-3 sm:py-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <button onClick={() => setSelectedId(null)}
-                  className="sm:hidden -ml-1 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg flex-shrink-0">
+                  className="sm:hidden -ml-1 p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg flex-shrink-0">
                   <ChevronLeft size={18} />
                 </button>
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${channelAvatarBg(conversation.channel)}`}>
                   {channelIcon(conversation.channel, 18)}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="font-semibold text-gray-900 truncate">{conversation.contactName}</h2>
+                  <h2 className="font-semibold text-gray-900 dark:text-white truncate">{conversation.contactName}</h2>
                   <div className="flex items-center gap-2 mt-0.5">
                     {conversation.contactEmail && (
-                      <span className="text-xs text-gray-400 truncate">{conversation.contactEmail}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{conversation.contactEmail}</span>
                     )}
                     {conversation.contactPhone && !conversation.contactEmail && (
-                      <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
                         <Phone size={10} /> {conversation.contactPhone.replace('whatsapp:', '')}
                       </span>
                     )}
                     {conversation.subject && (
-                      <span className="text-xs text-gray-400 truncate">· {conversation.subject}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500 truncate">· {conversation.subject}</span>
                     )}
                   </div>
                 </div>
@@ -507,14 +507,14 @@ export function InboxPage() {
                 {conversation.status === 'OPEN' && (
                   <button
                     onClick={() => updateConv.mutate({ id: conversation.id, status: 'CLOSED' })}
-                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                     <Check size={12} /> Close
                   </button>
                 )}
                 {conversation.status === 'CLOSED' && (
                   <button
                     onClick={() => updateConv.mutate({ id: conversation.id, status: 'OPEN' })}
-                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors">
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-brand-600 border border-brand-200 dark:border-brand-500/30 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-colors">
                     <MailOpen size={12} /> Reopen
                   </button>
                 )}
@@ -522,7 +522,7 @@ export function InboxPage() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3 bg-gray-50">
+            <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3 bg-gray-50 dark:bg-gray-950">
               {convLoading ? (
                 <div className="flex items-center justify-center h-32">
                   <Spinner label="Loading messages…" />
@@ -536,15 +536,15 @@ export function InboxPage() {
                 </>
               ) : (
                 <div className="flex flex-col items-center justify-center h-32 text-center">
-                  <p className="text-sm text-gray-400">No messages yet</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">No messages yet</p>
                 </div>
               )}
             </div>
 
             {/* Reply composer */}
-            <div className="px-3 sm:px-6 py-3 sm:py-4 bg-white border-t border-gray-200">
+            <div className="px-3 sm:px-6 py-3 sm:py-4 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800">
               {conversation.status === 'CLOSED' ? (
-                <div className="text-center text-sm text-gray-400 py-2">
+                <div className="text-center text-sm text-gray-400 dark:text-gray-500 py-2">
                   This conversation is closed.{' '}
                   <button onClick={() => updateConv.mutate({ id: conversation.id, status: 'OPEN' })}
                     className="text-brand-600 underline">Reopen</button> to reply.
@@ -560,7 +560,7 @@ export function InboxPage() {
                       }}
                       placeholder={`Reply via ${conversation.channel === 'EMAIL' ? 'email' : conversation.channel === 'CHAT' ? 'live chat' : 'WhatsApp'}… (⌘↵ to send)`}
                       rows={3}
-                      className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50"
+                      className="w-full px-4 py-3 text-sm border border-gray-200 dark:border-gray-700 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-brand-400 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
                     />
                   </div>
                   <button
@@ -574,7 +574,7 @@ export function InboxPage() {
                 </div>
               )}
               {sendReply.isError && (
-                <p className="text-xs text-red-600 mt-2">
+                <p className="text-xs text-red-600 dark:text-red-400 mt-2">
                   {(sendReply.error as any)?.response?.data?.error || 'Failed to send reply'}
                 </p>
               )}

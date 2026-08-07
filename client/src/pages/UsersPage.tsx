@@ -79,7 +79,7 @@ function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2.5 rounded-lg">{error}</div>}
+      {error && <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm px-3 py-2.5 rounded-lg">{error}</div>}
       <div className="form-section">
         <p className="form-section-title">Invite Details</p>
         <div className="space-y-4">
@@ -111,13 +111,13 @@ function CopyLink({ link }: { link: string }) {
   }
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-        <Check size={16} className="text-green-600 flex-shrink-0" />
-        <span className="text-sm text-green-700 font-medium">Invite link generated!</span>
+      <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-lg">
+        <Check size={16} className="text-green-600 dark:text-green-400 flex-shrink-0" />
+        <span className="text-sm text-green-700 dark:text-green-300 font-medium">Invite link generated!</span>
       </div>
-      <p className="text-sm text-gray-600">Share this link with the invitee — it expires in 7 days:</p>
+      <p className="text-sm text-gray-600 dark:text-gray-300">Share this link with the invitee — it expires in 7 days:</p>
       <div className="flex gap-2">
-        <input readOnly value={link} className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 font-mono truncate" />
+        <input readOnly value={link} className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-200 font-mono truncate" />
         <button onClick={copy} className="flex items-center gap-1 px-3 py-2 bg-brand-600 text-white text-xs rounded-lg hover:bg-brand-700 transition-colors flex-shrink-0">
           {copied ? <Check size={13} /> : <Copy size={13} />}
           {copied ? 'Copied!' : 'Copy'}
@@ -184,7 +184,7 @@ export function UsersPage() {
   if (currentUser && BLOCKED_ROLES.includes(currentUser.role)) {
     return (
       <div className="p-8 text-center">
-        <p className="text-red-600 text-sm font-medium">Access denied. You don't have permission to view this page.</p>
+        <p className="text-red-600 dark:text-red-400 text-sm font-medium">Access denied. You don't have permission to view this page.</p>
       </div>
     );
   }
@@ -194,9 +194,9 @@ export function UsersPage() {
       {/* Role summary */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {ROLES.map(role => (
-          <div key={role} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
-            <p className="text-xl font-bold text-gray-900">{roleGroups[role]}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{role.replace(/_/g,' ')}</p>
+          <div key={role} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-gray-900 dark:text-white">{roleGroups[role]}</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{role.replace(/_/g,' ')}</p>
           </div>
         ))}
       </div>
@@ -213,15 +213,15 @@ export function UsersPage() {
 
       {/* Pending Invites */}
       {pendingInvites.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-amber-800 mb-2">Pending Invites ({pendingInvites.length})</p>
+        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">Pending Invites ({pendingInvites.length})</p>
           <div className="space-y-1">
             {pendingInvites.map((inv: any) => (
               <div key={inv.id} className="flex items-center justify-between text-sm">
-                <span className="text-amber-700">{inv.email}</span>
+                <span className="text-amber-700 dark:text-amber-300">{inv.email}</span>
                 <div className="flex items-center gap-2">
                   <Badge variant="yellow">{inv.role.replace(/_/g,' ')}</Badge>
-                  <span className="text-xs text-amber-500">Expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                  <span className="text-xs text-amber-500 dark:text-amber-400">Expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
                 </div>
               </div>
             ))}
@@ -235,16 +235,16 @@ export function UsersPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
           <div className="table-container">
           <table className="w-full text-sm min-w-[640px]">
-            <thead><tr className="bg-gray-50 border-b border-gray-100">
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Department</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Last Login</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Created At</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            <thead><tr className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Department</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Last Login</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Created At</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
             </tr></thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
               {filtered?.map((u: any) => (
                 <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
                   <td className="px-4 py-3">
@@ -253,17 +253,17 @@ export function UsersPage() {
                         {u.name[0]?.toUpperCase()}
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900">{u.name}</p>
-                        <p className="text-xs text-gray-400">{u.email}</p>
+                        <p className="font-medium text-gray-900 dark:text-white">{u.name}</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">{u.email}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant={roleVariant[u.role] || 'gray'}>{u.role.replace(/_/g,' ')}</Badge>
                   </td>
-                  <td className="px-4 py-3 text-gray-500">{u.department || '—'}</td>
-                  <td className="px-4 py-3 hidden sm:table-cell text-gray-400">—</td>
-                  <td className="px-4 py-3 hidden sm:table-cell text-gray-400">
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{u.department || '—'}</td>
+                  <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">—</td>
+                  <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">
                     {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}
                   </td>
                   <td className="px-4 py-3">

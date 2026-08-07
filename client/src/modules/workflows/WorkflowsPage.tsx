@@ -160,27 +160,27 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
   switch (action.type) {
     case 'ASSIGN_TO':
       return <select value={String(p.userId || '')} onChange={e => set('userId', e.target.value)}
-        className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+        className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
         <option value="">— select a teammate —</option>
         {(orgUsers ?? []).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
       </select>;
     case 'SET_PRIORITY':
       return <select value={String(p.priority || 'MEDIUM')} onChange={e => set('priority', e.target.value)}
-        className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+        className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
         {['LOW','MEDIUM','HIGH','CRITICAL'].map(v => <option key={v}>{v}</option>)}
       </select>;
     case 'SET_STATUS':
       return <input value={String(p.status || '')} onChange={e => set('status', e.target.value)}
-        placeholder="OPEN / RESOLVED / etc." className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />;
+        placeholder="OPEN / RESOLVED / etc." className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />;
     case 'SEND_EMAIL':
       return <div className="flex-1 space-y-1">
         <input value={String(p.to || '')} onChange={e => set('to', e.target.value)}
-          placeholder="To email (use {{contact.email}})" className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
+          placeholder="To email (use {{contact.email}})" className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
         <input value={String(p.subject || '')} onChange={e => set('subject', e.target.value)}
-          placeholder="Subject" className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
+          placeholder="Subject" className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
         <textarea value={String(p.body || '')} onChange={e => set('body', e.target.value)}
           placeholder="Body (use {{title}}, {{priority}}, {{status}})" rows={2}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
       </div>;
     case 'SEND_WHATSAPP': {
       const baseOptions = WHATSAPP_RECIPIENT_OPTIONS[entity] || WHATSAPP_RECIPIENT_OPTIONS.TICKET;
@@ -188,51 +188,51 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
       const recipientType = String(p.recipientType || 'ASSIGNEE');
       return <div className="flex-1 space-y-1">
         {entity === 'LEAD' && (
-          <p className="text-[11px] text-amber-600">SEND_WHATSAPP isn't supported for leads — this action will be skipped when it runs.</p>
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">SEND_WHATSAPP isn't supported for leads — this action will be skipped when it runs.</p>
         )}
         <select value={recipientType} onChange={e => set('recipientType', e.target.value)}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
           {recipientOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {recipientType === 'CUSTOM_NUMBER' && (
           <input value={String(p.customNumber || '')} onChange={e => set('customNumber', e.target.value)}
-            placeholder="+14155551234" className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
+            placeholder="+14155551234" className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
         )}
         {recipientType === 'REFERENCE_FIELD' && (
           <select value={String(p.referenceFieldId || '')} onChange={e => set('referenceFieldId', e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+            className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
             <option value="">— select a reference field —</option>
             {referenceFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
         )}
         <textarea value={String(p.message || '')} onChange={e => set('message', e.target.value)}
           placeholder="Message (use {{title}}, {{priority}}, {{status}})" rows={2}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
       </div>;
     }
     case 'ADD_NOTE':
       return <textarea value={String(p.body || '')} onChange={e => set('body', e.target.value)}
         placeholder="Note body" rows={2}
-        className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />;
+        className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />;
     case 'SEND_WEBHOOK':
       return <input value={String(p.url || '')} onChange={e => set('url', e.target.value)}
-        placeholder="https://hooks.example.com/crm" className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />;
+        placeholder="https://hooks.example.com/crm" className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />;
     case 'CREATE_NOTIFICATION': {
       const recipientType = String(p.recipientType || 'ASSIGNEE');
       return <div className="flex-1 space-y-1">
         <input value={String(p.title || '')} onChange={e => set('title', e.target.value)}
-          placeholder="Notification title" className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
+          placeholder="Notification title" className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
         <textarea value={String(p.body || '')} onChange={e => set('body', e.target.value)}
           placeholder="Body (use {{title}}, {{priority}}, {{status}})" rows={2}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
         <select value={recipientType} onChange={e => set('recipientType', e.target.value)}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
           <option value="ASSIGNEE">Assignee / owner</option>
           <option value="USER">Specific user</option>
         </select>
         {recipientType === 'USER' && (
           <select value={String(p.userId || '')} onChange={e => set('userId', e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+            className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
             <option value="">— select a teammate —</option>
             {(orgUsers ?? []).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
@@ -242,32 +242,32 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
     case 'CREATE_TICKET':
       return <div className="flex-1 space-y-1">
         <input value={String(p.title || '')} onChange={e => set('title', e.target.value)}
-          placeholder="Ticket title (use {{title}})" className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
+          placeholder="Ticket title (use {{title}})" className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
         <textarea value={String(p.body || '')} onChange={e => set('body', e.target.value)}
           placeholder="Description" rows={2}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
         <select value={String(p.priority || 'MEDIUM')} onChange={e => set('priority', e.target.value)}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
           {['LOW','MEDIUM','HIGH','CRITICAL'].map(v => <option key={v}>{v}</option>)}
         </select>
       </div>;
     case 'SCORE_LEAD':
-      return <p className="flex-1 text-[11px] text-gray-400 italic px-1 py-1.5">No parameters — uses AI to score the lead and stores the result on the lead record.</p>;
+      return <p className="flex-1 text-[11px] text-gray-400 dark:text-gray-500 italic px-1 py-1.5">No parameters — uses AI to score the lead and stores the result on the lead record.</p>;
     case 'SEND_CSAT_SURVEY': {
       if (entity !== 'TICKET') {
-        return <p className="flex-1 text-[11px] text-amber-600 italic px-1 py-1.5">Only applies to Ticket-triggered rules — this action will be skipped otherwise.</p>;
+        return <p className="flex-1 text-[11px] text-amber-600 dark:text-amber-400 italic px-1 py-1.5">Only applies to Ticket-triggered rules — this action will be skipped otherwise.</p>;
       }
       const recipientType = String(p.recipientType || 'REQUESTER');
       return <div className="flex-1 space-y-1">
         <select value={recipientType} onChange={e => set('recipientType', e.target.value)}
-          className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
           <option value="REQUESTER">Whoever filed the ticket</option>
           <option value="CONTACT">Linked contact (if filed on behalf of one)</option>
           {referenceFields.length > 0 && <option value="REFERENCE_FIELD">A "Reference" custom field…</option>}
         </select>
         {recipientType === 'REFERENCE_FIELD' && (
           <select value={String(p.referenceFieldId || '')} onChange={e => set('referenceFieldId', e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
+            className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded focus:outline-none focus:ring-1 focus:ring-brand-400">
             <option value="">— select a reference field —</option>
             {referenceFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
@@ -331,7 +331,7 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
   const dayCount = Math.abs(config.offsetDays);
 
   return (
-    <div className="space-y-3 bg-brand-50/40 border border-brand-100 rounded-xl p-3">
+    <div className="space-y-3 bg-brand-50/40 dark:bg-brand-500/10 border border-brand-100 dark:border-brand-500/20 rounded-xl p-3">
       <div>
         <label className="form-label">Watch this date on…</label>
         <select
@@ -372,7 +372,7 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
             )}
           </select>
           {customDateFields.length === 0 && (
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               Add a custom Date field to {STANDARD_ENTITY_LABELS[config.entityType]} under Settings → Custom Fields to see more options here.
             </p>
           )}
@@ -396,7 +396,7 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
             <div>
               <label className="form-label">Date Field</label>
               {moduleDateFields.length === 0 ? (
-                <p className="text-xs text-amber-600">This module has no Date-type field yet — add one on the module's Fields tab first.</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400">This module has no Date-type field yet — add one on the module's Fields tab first.</p>
               ) : (
                 <select
                   value={config.dateField}
@@ -430,7 +430,7 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
               onChange={e => { const n = Math.max(0, Number(e.target.value)); onChange({ ...config, offsetDays: isBefore ? -n : n }); }}
               className="ui-input text-sm w-20"
             />
-            <span className="text-xs text-gray-500">day(s)</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">day(s)</span>
           </div>
         </div>
         <div>
@@ -445,7 +445,7 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
           </select>
         </div>
       </div>
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-gray-500 dark:text-gray-400">
         {dayCount === 0
           ? 'Fires on the date itself.'
           : `Fires ${dayCount} day${dayCount === 1 ? '' : 's'} ${isBefore ? 'before' : 'after'} the date.`}
@@ -499,14 +499,14 @@ function RuleEditor({
 
   return (
     <div role="dialog" aria-modal="true" className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-2">
             <Zap size={18} className="text-brand-600" />
-            <h2 className="font-semibold text-gray-900">{initial.name ? `Edit: ${initial.name}` : 'New Automation Rule'}</h2>
+            <h2 className="font-semibold text-gray-900 dark:text-white">{initial.name ? `Edit: ${initial.name}` : 'New Automation Rule'}</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={16} /></button>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-400 rounded-lg"><X size={16} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
@@ -555,7 +555,7 @@ function RuleEditor({
               </button>
             </div>
             {form.conditions.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">No conditions — rule runs for every {form.trigger.toLowerCase()} event</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic">No conditions — rule runs for every {form.trigger.toLowerCase()} event</p>
             ) : (
               <div className="space-y-2">
                 {form.conditions.map((cond, i) => (
@@ -564,7 +564,7 @@ function RuleEditor({
                   // fixed-width selects and a flex-1 value input, the value
                   // field used to get crushed down to almost nothing on
                   // narrow screens before wrapping ever kicked in.
-                  <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 bg-gray-50 sm:bg-transparent border border-gray-100 sm:border-0 rounded-xl p-2 sm:p-0">
+                  <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 bg-gray-50 dark:bg-gray-800 sm:bg-transparent dark:sm:bg-transparent border border-gray-100 dark:border-gray-800 sm:border-0 rounded-xl p-2 sm:p-0">
                     <select value={cond.field} onChange={e => updateCondition(i, { field: e.target.value })}
                       className="ui-input text-xs py-1.5 w-full sm:w-36 sm:flex-shrink-0">
                       {condFields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -584,7 +584,7 @@ function RuleEditor({
                         <input value={String(cond.value)} onChange={e => updateCondition(i, { value: e.target.value })}
                           placeholder="Value" className="ui-input flex-1 text-xs py-1.5 min-w-0" />
                       )}
-                      <button onClick={() => removeCondition(i)} className="text-gray-300 hover:text-red-400 flex-shrink-0"><Trash2 size={13} /></button>
+                      <button onClick={() => removeCondition(i)} className="text-gray-300 dark:text-gray-600 hover:text-red-400 flex-shrink-0"><Trash2 size={13} /></button>
                     </div>
                   </div>
                 ))}
@@ -602,37 +602,37 @@ function RuleEditor({
             </div>
             <div className="space-y-3">
               {form.actions.map((action, i) => (
-                <div key={i} className="flex flex-col sm:flex-row sm:items-start gap-2 bg-white border border-gray-100 rounded-xl p-3">
+                <div key={i} className="flex flex-col sm:flex-row sm:items-start gap-2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-3">
                   <div className="flex items-center gap-2">
                     <select value={action.type}
                       onChange={e => updateAction(i, { type: e.target.value as any, params: {} })}
                       className="ui-input text-xs py-1.5 w-full sm:w-40 sm:flex-shrink-0">
                       {ACTION_TYPES.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                     </select>
-                    <button onClick={() => removeAction(i)} className="sm:hidden text-gray-300 hover:text-red-400 flex-shrink-0"><Trash2 size={13} /></button>
+                    <button onClick={() => removeAction(i)} className="sm:hidden text-gray-300 dark:text-gray-600 hover:text-red-400 flex-shrink-0"><Trash2 size={13} /></button>
                   </div>
                   <div className="flex-1 min-w-0 flex items-start gap-2">
                     <ActionParamsEditor action={action} onChange={a => updateAction(i, a)} entity={entity} />
-                    <button onClick={() => removeAction(i)} className="hidden sm:block text-gray-300 hover:text-red-400 flex-shrink-0 mt-0.5"><Trash2 size={13} /></button>
+                    <button onClick={() => removeAction(i)} className="hidden sm:block text-gray-300 dark:text-gray-600 hover:text-red-400 flex-shrink-0 mt-0.5"><Trash2 size={13} /></button>
                   </div>
                 </div>
               ))}
               {form.actions.length === 0 && (
-                <p className="text-xs text-gray-400 italic">Add at least one action</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 italic">Add at least one action</p>
               )}
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="p-5 border-t border-gray-100 flex justify-between items-center">
+        <div className="p-5 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.isActive} onChange={e => setForm(f => ({ ...f, isActive: e.target.checked }))}
               className="w-4 h-4 accent-brand-600" />
-            <span className="text-gray-600">Active</span>
+            <span className="text-gray-600 dark:text-gray-300">Active</span>
           </label>
           <div className="flex gap-3">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-xl">Cancel</button>
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-xl">Cancel</button>
             <button onClick={() => onSave(form)} disabled={saving || !form.name || form.actions.length === 0 || dateConfigIncomplete}
               className="px-4 py-2 text-sm bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-40 flex items-center gap-2">
               {saving && <Spinner />}
@@ -651,40 +651,40 @@ function LogsDrawer({ ruleId, ruleName, onClose }: { ruleId: string; ruleName: s
   const { data: logs, isLoading } = useWorkflowLogs(ruleId);
 
   const icon = (result: string) => result === 'SUCCESS' ? <CheckCircle size={13} className="text-green-500" />
-    : result === 'SKIPPED' ? <Clock size={13} className="text-gray-400" />
+    : result === 'SKIPPED' ? <Clock size={13} className="text-gray-400 dark:text-gray-500" />
     : <XCircle size={13} className="text-red-400" />;
 
   return (
     <div className="fixed inset-0 bg-black/30 flex justify-end z-50">
-      <div className="bg-white w-full max-w-md flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between p-4 border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 w-full max-w-md flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
           <div>
-            <p className="font-semibold text-sm text-gray-900">Execution Log</p>
-            <p className="text-xs text-gray-400 mt-0.5">{ruleName}</p>
+            <p className="font-semibold text-sm text-gray-900 dark:text-white">Execution Log</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{ruleName}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={15} /></button>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-400 rounded-lg"><X size={15} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? <Spinner label="Loading logs…" />
             : !logs?.length ? (
-              <div className="text-center py-12 text-gray-400">
+              <div className="text-center py-12 text-gray-400 dark:text-gray-500">
                 <Play size={32} className="mx-auto mb-2 opacity-30" />
                 <p className="text-sm">No executions yet</p>
               </div>
             ) : (
               <div className="space-y-2">
                 {logs.map(log => (
-                  <div key={log.id} className="flex items-start gap-2.5 p-3 bg-gray-50 rounded-xl">
+                  <div key={log.id} className="flex items-start gap-2.5 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
                     <div className="mt-0.5 flex-shrink-0">{icon(log.result)}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs font-medium ${log.result === 'SUCCESS' ? 'text-green-700' : log.result === 'SKIPPED' ? 'text-gray-500' : 'text-red-600'}`}>
+                        <span className={`text-xs font-medium ${log.result === 'SUCCESS' ? 'text-green-700 dark:text-green-400' : log.result === 'SKIPPED' ? 'text-gray-500 dark:text-gray-400' : 'text-red-600 dark:text-red-400'}`}>
                           {log.result}
                         </span>
-                        <span className="text-xs text-gray-400">{log.entityType} · {log.entityId.slice(0, 8)}…</span>
+                        <span className="text-xs text-gray-400 dark:text-gray-500">{log.entityType} · {log.entityId.slice(0, 8)}…</span>
                       </div>
-                      {log.detail && <p className="text-xs text-gray-500 mt-0.5 truncate">{log.detail}</p>}
-                      <p className="text-xs text-gray-300 mt-0.5">{new Date(log.createdAt).toLocaleString()}</p>
+                      {log.detail && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{log.detail}</p>}
+                      <p className="text-xs text-gray-300 dark:text-gray-600 mt-0.5">{new Date(log.createdAt).toLocaleString()}</p>
                     </div>
                   </div>
                 ))}
@@ -725,9 +725,9 @@ export function WorkflowsPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Zap size={20} className="text-brand-600" />
-            <h1 className="text-xl font-bold text-gray-900">Workflow Automation</h1>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Workflow Automation</h1>
           </div>
-          <p className="text-sm text-gray-500">Automate repetitive tasks — assign tickets, send emails, update statuses, and more.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Automate repetitive tasks — assign tickets, send emails, update statuses, and more.</p>
         </div>
         <button onClick={() => { setEditingRule(null); setShowEditor(true); }}
           className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-colors">
@@ -739,13 +739,13 @@ export function WorkflowsPage() {
       {rules.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
-            { label: 'Total Rules', value: rules.length, color: 'text-gray-900' },
-            { label: 'Active', value: rules.filter(r => r.isActive).length, color: 'text-green-600' },
-            { label: 'Total Runs', value: rules.reduce((s, r) => s + r.runCount, 0), color: 'text-brand-600' },
+            { label: 'Total Rules', value: rules.length, color: 'text-gray-900 dark:text-white' },
+            { label: 'Active', value: rules.filter(r => r.isActive).length, color: 'text-green-600 dark:text-green-400' },
+            { label: 'Total Runs', value: rules.reduce((s, r) => s + r.runCount, 0), color: 'text-brand-600 dark:text-brand-400' },
           ].map(stat => (
-            <div key={stat.label} className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+            <div key={stat.label} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-center">
               <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{stat.label}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{stat.label}</p>
             </div>
           ))}
         </div>
@@ -753,12 +753,12 @@ export function WorkflowsPage() {
 
       {/* Rules list */}
       {isLoading ? <Spinner label="Loading rules…" /> : rules.length === 0 ? (
-        <div className="text-center py-20 bg-white border border-dashed border-gray-200 rounded-2xl">
-          <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-4">
+        <div className="text-center py-20 bg-white dark:bg-gray-900 border border-dashed border-gray-200 dark:border-gray-700 rounded-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center mx-auto mb-4">
             <Zap size={24} className="text-brand-400" />
           </div>
-          <h3 className="text-base font-semibold text-gray-700 mb-1">No automation rules yet</h3>
-          <p className="text-sm text-gray-400 max-w-sm mx-auto mb-5">
+          <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-1">No automation rules yet</h3>
+          <p className="text-sm text-gray-400 dark:text-gray-500 max-w-sm mx-auto mb-5">
             Create your first rule to automatically assign tickets, send follow-up emails, or update record statuses.
           </p>
           <button onClick={() => { setEditingRule(null); setShowEditor(true); }}
@@ -769,34 +769,34 @@ export function WorkflowsPage() {
       ) : (
         <div className="space-y-3">
           {rules.map(rule => (
-            <div key={rule.id} data-testid="workflow-rule" className="bg-white border border-gray-200 rounded-xl p-4 hover:border-brand-200 transition-colors overflow-hidden">
+            <div key={rule.id} data-testid="workflow-rule" className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:border-brand-200 dark:hover:border-brand-700 transition-colors overflow-hidden">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-3 min-w-0 flex-1">
                   {/* Active toggle */}
                   <button onClick={() => toggleRule.mutate(rule.id)} className="flex-shrink-0 mt-0.5">
                     {rule.isActive
                       ? <ToggleRight size={22} className="text-brand-600" />
-                      : <ToggleLeft size={22} className="text-gray-300" />}
+                      : <ToggleLeft size={22} className="text-gray-300 dark:text-gray-600" />}
                   </button>
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`font-medium text-sm truncate max-w-full ${rule.isActive ? 'text-gray-900' : 'text-gray-400'}`}>
+                      <span className={`font-medium text-sm truncate max-w-full ${rule.isActive ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}`}>
                         {rule.name}
                       </span>
-                      <span className="text-xs px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full font-medium flex-shrink-0">
+                      <span className="text-xs px-2 py-0.5 bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400 rounded-full font-medium flex-shrink-0">
                         {TRIGGERS.find(t => t.value === rule.trigger)?.label || rule.trigger}
                       </span>
                     </div>
                     {rule.description && (
-                      <p className="text-xs text-gray-400 mt-0.5 truncate">{rule.description}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{rule.description}</p>
                     )}
                     <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                      <span className="text-xs text-gray-400">{rule.conditions.length} condition{rule.conditions.length !== 1 ? 's' : ''}</span>
-                      <span className="text-gray-200">·</span>
-                      <span className="text-xs text-gray-400">{rule.actions.length} action{rule.actions.length !== 1 ? 's' : ''}</span>
-                      <span className="text-gray-200">·</span>
-                      <span className="text-xs text-gray-400">{rule.runCount} run{rule.runCount !== 1 ? 's' : ''}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">{rule.conditions.length} condition{rule.conditions.length !== 1 ? 's' : ''}</span>
+                      <span className="text-gray-200 dark:text-gray-700">·</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">{rule.actions.length} action{rule.actions.length !== 1 ? 's' : ''}</span>
+                      <span className="text-gray-200 dark:text-gray-700">·</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">{rule.runCount} run{rule.runCount !== 1 ? 's' : ''}</span>
                     </div>
                   </div>
                 </div>
@@ -819,12 +819,12 @@ export function WorkflowsPage() {
               {(rule.conditions.length > 0 || rule.actions.length > 0) && (
                 <div className="mt-3 flex flex-wrap gap-1.5 sm:pl-9">
                   {rule.conditions.map((c, i) => (
-                    <span key={i} className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full max-w-full truncate">
+                    <span key={i} className="text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full max-w-full truncate">
                       {c.field} {c.operator} "{c.value}"
                     </span>
                   ))}
                   {rule.actions.map((a, i) => (
-                    <span key={i} className="text-xs px-2 py-0.5 bg-green-50 text-green-600 rounded-full">
+                    <span key={i} className="text-xs px-2 py-0.5 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 rounded-full">
                       → {ACTION_TYPES.find(t => t.value === a.type)?.label || a.type}
                     </span>
                   ))}

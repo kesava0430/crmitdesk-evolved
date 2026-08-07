@@ -84,7 +84,7 @@ export function RowActions({ items, triggerLabel = 'Row actions' }: Props) {
         aria-label={triggerLabel}
         title="Actions"
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+        className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
       >
         <MoreHorizontal size={15} />
       </button>
@@ -93,7 +93,7 @@ export function RowActions({ items, triggerLabel = 'Row actions' }: Props) {
         <div
           ref={menuRef}
           style={{ position: 'fixed', top: coords.top, left: coords.left, width: MENU_WIDTH }}
-          className="z-[300] bg-white border border-gray-200 rounded-xl shadow-xl py-1 overflow-hidden"
+          className="z-[300] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-hidden"
         >
           {visible.map((item, i) => (
             <button
@@ -104,8 +104,8 @@ export function RowActions({ items, triggerLabel = 'Row actions' }: Props) {
               onClick={e => { e.stopPropagation(); item.onClick(); setOpen(false); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
                 item.variant === 'danger'
-                  ? 'text-red-600 hover:bg-red-50'
-                  : 'text-gray-700 hover:bg-gray-50'
+                  ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               {item.icon && <span className="flex-shrink-0">{item.icon}</span>}

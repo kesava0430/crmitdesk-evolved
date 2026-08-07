@@ -92,32 +92,32 @@ function CheckInWidget() {
 
   return (
     <div className="card p-6 text-center">
-      <p className="text-3xl font-bold text-gray-900 tabular-nums">{now.toLocaleTimeString()}</p>
-      <p className="text-sm text-gray-400 mt-1">{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+      <p className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{now.toLocaleTimeString()}</p>
+      <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
 
       <div className="flex items-center justify-center gap-6 mt-5 text-sm">
         <div>
-          <p className="text-gray-400 text-xs uppercase tracking-wide">Status</p>
-          <p className={`font-semibold mt-0.5 ${isCheckedInNow ? 'text-green-600' : 'text-gray-800'}`}>
+          <p className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide">Status</p>
+          <p className={`font-semibold mt-0.5 ${isCheckedInNow ? 'text-green-600 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'}`}>
             {isCheckedInNow ? 'Checked in' : 'Checked out'}
           </p>
         </div>
-        <div className="w-px h-8 bg-gray-200" />
+        <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
         <div>
-          <p className="text-gray-400 text-xs uppercase tracking-wide">Today's total</p>
-          <p className="font-semibold text-gray-800 mt-0.5">{fmtHours(totalMinutesToday)}</p>
+          <p className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide">Today's total</p>
+          <p className="font-semibold text-gray-800 dark:text-gray-200 mt-0.5">{fmtHours(totalMinutesToday)}</p>
         </div>
-        <div className="w-px h-8 bg-gray-200" />
+        <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
         <div>
-          <p className="text-gray-400 text-xs uppercase tracking-wide">Sessions</p>
-          <p className="font-semibold text-gray-800 mt-0.5">{todaysSessions.length}</p>
+          <p className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide">Sessions</p>
+          <p className="font-semibold text-gray-800 dark:text-gray-200 mt-0.5">{todaysSessions.length}</p>
         </div>
       </div>
 
       {todaysSessions.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
           {[...todaysSessions].reverse().map(s => (
-            <span key={s.id} className="text-xs px-2 py-1 bg-gray-50 border border-gray-100 rounded-lg text-gray-600">
+            <span key={s.id} className="text-xs px-2 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-300">
               {fmtTime(s.checkInAt)} – {s.checkOutAt ? fmtTime(s.checkOutAt) : 'now'}
             </span>
           ))}
@@ -125,7 +125,7 @@ function CheckInWidget() {
       )}
 
       {error && (
-        <div className="mt-4 flex items-start gap-2 text-left bg-red-50 border border-red-100 text-red-700 text-xs px-3 py-2.5 rounded-xl">
+        <div className="mt-4 flex items-start gap-2 text-left bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 text-red-700 dark:text-red-400 text-xs px-3 py-2.5 rounded-xl">
           <AlertCircle size={14} className="shrink-0 mt-0.5" /> {error}
         </div>
       )}
@@ -141,12 +141,12 @@ function CheckInWidget() {
         <button
           onClick={() => handle('out')}
           disabled={!isCheckedInNow || busy !== null}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
+          className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
         >
           {busy === 'out' ? <Spinner /> : <LogOut size={15} />} Check Out
         </button>
       </div>
-      <p className="text-[11px] text-gray-400 mt-4 flex items-center justify-center gap-1.5">
+      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-4 flex items-center justify-center gap-1.5">
         <MapPin size={11} /> Requires location access and being on-site · check in/out as many times as you need in a day
       </p>
     </div>
@@ -177,32 +177,32 @@ function MyHistory() {
 
   return (
     <div className="card p-5">
-      <p className="text-sm font-semibold text-gray-800 mb-3">This month</p>
+      <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">This month</p>
       <div className="table-container">
         <table className="w-full text-sm min-w-[560px]">
-          <thead><tr className="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
+          <thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
             <th className="pb-2 font-medium">Date</th>
             <th className="pb-2 font-medium">Sessions</th>
             <th className="pb-2 font-medium">Total</th>
             <th className="pb-2 font-medium">Verified</th>
           </tr></thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
             {days.map(day => {
               const allVerified = day.sessions.every(s => s.source === 'SELF' && s.checkInLocationOk && s.checkInNetworkOk);
               const anyManual = day.sessions.some(s => s.source === 'MANUAL');
               return (
                 <tr key={day.date}>
-                  <td className="py-2.5 align-top">{new Date(day.date).toLocaleDateString()}</td>
+                  <td className="py-2.5 align-top dark:text-gray-300">{new Date(day.date).toLocaleDateString()}</td>
                   <td className="py-2.5">
                     <div className="flex flex-wrap gap-1">
                       {[...day.sessions].reverse().map(s => (
-                        <span key={s.id} className="text-xs px-1.5 py-0.5 bg-gray-50 border border-gray-100 rounded text-gray-500 whitespace-nowrap">
+                        <span key={s.id} className="text-xs px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded text-gray-500 dark:text-gray-400 whitespace-nowrap">
                           {fmtTime(s.checkInAt)}–{s.checkOutAt ? fmtTime(s.checkOutAt) : 'now'}
                         </span>
                       ))}
                     </div>
                   </td>
-                  <td className="py-2.5 align-top font-medium text-gray-700">{fmtHours(sumWorkedMinutes(day.sessions))}</td>
+                  <td className="py-2.5 align-top font-medium text-gray-700 dark:text-gray-300">{fmtHours(sumWorkedMinutes(day.sessions))}</td>
                   <td className="py-2.5 align-top">
                     {anyManual ? <Badge variant="gray">Manual entry</Badge>
                       : allVerified ? <Badge variant="green">Verified</Badge>
@@ -212,7 +212,7 @@ function MyHistory() {
               );
             })}
             {days.length === 0 && (
-              <tr><td colSpan={4} className="py-6 text-center text-gray-400">No records yet this month</td></tr>
+              <tr><td colSpan={4} className="py-6 text-center text-gray-400 dark:text-gray-500">No records yet this month</td></tr>
             )}
           </tbody>
         </table>
@@ -242,40 +242,40 @@ function TeamToday() {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><Users size={14} /> Team — Today</p>
-        <span className="text-xs text-gray-400">{present} / {rows.length} checked in at some point</span>
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Users size={14} /> Team — Today</p>
+        <span className="text-xs text-gray-400 dark:text-gray-500">{present} / {rows.length} checked in at some point</span>
       </div>
       <div className="table-container">
         <table className="w-full text-sm min-w-[560px]">
-          <thead><tr className="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
+          <thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
             <th className="pb-2 font-medium">Employee</th>
             <th className="pb-2 font-medium">Sessions</th>
             <th className="pb-2 font-medium">Total today</th>
             <th className="pb-2 font-medium">Status</th>
           </tr></thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
             {rows.map(({ user, sessions, isCheckedInNow, totalMinutes }) => (
               <tr key={user.id}>
                 <td className="py-2.5">
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center justify-center text-xs font-bold shrink-0">
                       {user.name[0]?.toUpperCase()}
                     </div>
-                    <span className="text-gray-800">{user.name}</span>
+                    <span className="text-gray-800 dark:text-gray-200">{user.name}</span>
                   </div>
                 </td>
                 <td className="py-2.5">
-                  {sessions.length === 0 ? <span className="text-gray-300">—</span> : (
+                  {sessions.length === 0 ? <span className="text-gray-300 dark:text-gray-600">—</span> : (
                     <div className="flex flex-wrap gap-1">
                       {sessions.map(s => (
-                        <span key={s.id} className="text-xs px-1.5 py-0.5 bg-gray-50 border border-gray-100 rounded text-gray-500 whitespace-nowrap">
+                        <span key={s.id} className="text-xs px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded text-gray-500 dark:text-gray-400 whitespace-nowrap">
                           {fmtTime(s.checkInAt)}–{s.checkOutAt ? fmtTime(s.checkOutAt) : 'now'}
                         </span>
                       ))}
                     </div>
                   )}
                 </td>
-                <td className="py-2.5 text-gray-600 flex items-center gap-1"><Clock size={12} className="text-gray-300" /> {fmtHours(totalMinutes)}</td>
+                <td className="py-2.5 text-gray-600 dark:text-gray-400 flex items-center gap-1"><Clock size={12} className="text-gray-300 dark:text-gray-600" /> {fmtHours(totalMinutes)}</td>
                 <td className="py-2.5">
                   {sessions.length === 0 ? <Badge variant="red">Absent</Badge>
                     : isCheckedInNow ? <Badge variant="green">On-site now</Badge>
@@ -300,10 +300,10 @@ export default function AttendancePage() {
       <PageHeader title="Attendance" subtitle="Mark and track daily attendance" />
 
       {isManager && (
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
           {(['me', 'team'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-1.5 text-[13px] font-semibold rounded-lg transition-all ${tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              className={`px-4 py-1.5 text-[13px] font-semibold rounded-lg transition-all ${tab === t ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}>
               {t === 'me' ? 'My Attendance' : 'Team'}
             </button>
           ))}

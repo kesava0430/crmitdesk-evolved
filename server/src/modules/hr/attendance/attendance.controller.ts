@@ -238,6 +238,16 @@ export async function listOfficeLocations(req: AuthRequest, res: Response, next:
   } catch (err) { next(err); }
 }
 
+// Returns the caller's public IP exactly as check-in/check-out will see it —
+// reuses extractClientIp so "populate automatically" in the Allowed IPs field
+// can never disagree with what actually gets verified at check-in time.
+export async function myIp(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
+    res.json({ ip });
+  } catch (err) { next(err); }
+}
+
 export async function createOfficeLocation(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = OfficeLocationSchema.parse(req.body);

@@ -312,7 +312,7 @@ export function AppLayout() {
     : (PAGE_TITLES[location.pathname] ?? "CRM & IT Desk");
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
 
       {/* Mobile backdrop */}
       {sidebarOpen && (
@@ -341,7 +341,7 @@ export function AppLayout() {
         <header className="flex-shrink-0 flex items-center gap-3 px-4 h-14 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-700/50 shadow-topbar z-30">
           {/* Hamburger — mobile only */}
           <button
-            className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+            className="lg:hidden p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
           >
@@ -349,7 +349,7 @@ export function AppLayout() {
           </button>
 
           {/* Page title — use <p> not <h1> to avoid duplicate heading with PageHeader */}
-          <p className="text-sm font-semibold text-gray-800 hidden sm:block truncate">
+          <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 hidden sm:block truncate">
             {pageTitle}
           </p>
 
@@ -379,7 +379,7 @@ export function AppLayout() {
         </header>
 
         {/* Mobile search bar */}
-        <div className="md:hidden px-4 py-2 bg-white border-b border-gray-100">
+        <div className="md:hidden px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
           <AISmartSearch className="w-full" />
         </div>
 

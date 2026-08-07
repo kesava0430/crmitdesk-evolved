@@ -45,10 +45,10 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
         const { icon, text } = toastContent(t.event, t.data);
         return (
           <div key={t.id}
-            className="pointer-events-auto flex items-center gap-3 bg-white border border-gray-200 shadow-lg rounded-xl px-4 py-3 min-w-[260px] max-w-sm animate-slide-in">
+            className="pointer-events-auto flex items-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-lg rounded-xl px-4 py-3 min-w-[260px] max-w-sm animate-slide-in">
             <div className="flex-shrink-0">{icon}</div>
-            <p className="text-sm text-gray-800 flex-1">{text}</p>
-            <button onClick={() => onDismiss(t.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0">
+            <p className="text-sm text-gray-800 dark:text-gray-200 flex-1">{text}</p>
+            <button onClick={() => onDismiss(t.id)} className="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 flex-shrink-0">
               <X size={13} />
             </button>
           </div>
@@ -122,7 +122,7 @@ export function NotificationBell() {
     <>
       <div className="relative" ref={panelRef}>
         <button onClick={() => setOpen(o => !o)}
-          className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+          className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">
           <Bell size={18} />
           {unread > 0 && (
             <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
@@ -132,9 +132,9 @@ export function NotificationBell() {
         </button>
 
         {open && (
-          <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900">Notifications</h3>
+          <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</h3>
               <div className="flex items-center gap-3">
                 {push.isSupported && (
                   <button
@@ -147,7 +147,7 @@ export function NotificationBell() {
                         ? 'Turn off desktop push notifications'
                         : 'Get desktop push notifications, even when this tab is closed'
                     }
-                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     {push.subscribed ? <BellRing size={13} className="text-brand-500" /> : <BellOff size={13} />}
                     {push.subscribed ? 'Push on' : push.status === 'denied' ? 'Push blocked' : 'Enable push'}
@@ -161,21 +161,21 @@ export function NotificationBell() {
               </div>
             </div>
 
-            <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+            <div className="max-h-80 overflow-y-auto divide-y divide-gray-50 dark:divide-gray-800">
               {notifications.length === 0 ? (
                 <div className="text-center py-8">
-                  <Bell size={28} className="text-gray-200 mx-auto mb-2" />
-                  <p className="text-xs text-gray-400">No notifications yet</p>
+                  <Bell size={28} className="text-gray-200 dark:text-gray-700 mx-auto mb-2" />
+                  <p className="text-xs text-gray-400 dark:text-gray-500">No notifications yet</p>
                 </div>
               ) : (
                 notifications.slice(0, 20).map(n => (
                   <button key={n.id} onClick={() => markRead(n.id)}
-                    className={`w-full text-left flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${!n.readAt ? 'bg-brand-50/50' : ''}`}>
+                    className={`w-full text-left flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${!n.readAt ? 'bg-brand-50/50 dark:bg-brand-500/10' : ''}`}>
                     <div className="mt-0.5 flex-shrink-0">{notifIcon(n.type)}</div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-xs font-medium truncate ${!n.readAt ? 'text-gray-900' : 'text-gray-600'}`}>{n.title}</p>
-                      {n.body && <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{n.body}</p>}
-                      <p className="text-xs text-gray-300 mt-1">{new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      <p className={`text-xs font-medium truncate ${!n.readAt ? 'text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-400'}`}>{n.title}</p>
+                      {n.body && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>}
+                      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">{new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                     {!n.readAt && <span className="w-1.5 h-1.5 bg-brand-500 rounded-full mt-1.5 flex-shrink-0" />}
                   </button>

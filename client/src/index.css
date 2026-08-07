@@ -511,3 +511,77 @@
 .theme-swatch.active {
   box-shadow: 0 0 0 2px #6366f1, 0 6px 16px -4px rgba(99,102,241,0.3);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   DARK MODE OVERRIDES
+   Applied on top of the theme-specific vars above (equal specificity,
+   later in cascade wins — only the listed properties are overridden,
+   everything else keeps its per-theme radius/shadow/accent values).
+   ═══════════════════════════════════════════════════════════════════ */
+
+.dark {
+  --ui-modal-bg:            #1e293b;
+  --ui-modal-border:        rgba(255,255,255,0.08);
+  --ui-modal-header-bg:     #1e293b;
+  --ui-modal-header-border: rgba(255,255,255,0.08);
+  --ui-modal-footer-bg:     rgba(15,23,42,0.7);
+
+  --ui-backdrop-color:      rgba(0,0,0,0.6);
+
+  --ui-input-bg:            #0f172a;
+  --ui-input-border:        #334155;
+  --ui-input-ring:          rgba(99,102,241,0.25);
+}
+
+.dark .ui-input { color: #e2e8f0; }
+.dark .ui-input::placeholder { color: #64748b; }
+
+.dark .card {
+  background: #1e293b;
+  border-color: rgba(255,255,255,0.08);
+}
+
+.dark .page-header {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+.dark .form-label { color: #94a3b8; }
+.dark .form-section-title { color: #94a3b8; }
+.dark .form-hint { color: #64748b; }
+.dark .form-section {
+  background: rgba(15,23,42,0.5);
+  border-color: rgba(255,255,255,0.06);
+}
+
+.dark .btn-secondary {
+  background: #1e293b;
+  color: #cbd5e1;
+  border-color: #334155;
+}
+.dark .btn-secondary:hover { background: #273548; }
+.dark .btn-secondary:active { background: #334155; }
+
+.dark .table-auto th {
+  background: rgba(15,23,42,0.6);
+  color: #94a3b8;
+  border-color: #1e293b;
+}
+.dark .table-auto td {
+  color: #cbd5e1;
+  border-color: #1e293b;
+}
+.dark .table-auto tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+.dark .glass {
+  background: rgba(15,23,42,0.72);
+  border-color: rgba(255,255,255,0.08);
+}
+
+.dark .skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #273548 50%, #1e293b 75%);
+  background-size: 200% 100%;
+}
+
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }

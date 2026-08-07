@@ -71,7 +71,7 @@ function SLAForm({ initial, users, onSubmit, loading }: any) {
             options={(users ?? []).map((u: any) => ({ value: u.id, label: `${u.name} (${u.role.replace(/_/g, ' ')})` }))}
             placeholder="— nobody (use a Workflows rule instead) —"
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             Gets an in-app + push notification the moment a ticket under this policy misses its resolution deadline.
             Independent of Workflows — you can use this, an SLA Breach workflow rule, or both.
           </p>
@@ -109,19 +109,19 @@ export function CategoriesPage() {
       <div className="grid grid-cols-2 gap-6">
         {/* Categories */}
         <div>
-          <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Categories</p>
+          <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Categories</p>
           {isLoading ? <Spinner /> : categories?.length === 0 ? (
             <EmptyState icon={<FolderTree size={22} />} title="No categories" description="Create categories to organize tickets" action={{ label: 'New Category', onClick: () => setCatModal('create') }} />
           ) : (
             <div className="space-y-2">
               {categories?.map((cat: any) => (
-                <div key={cat.id} data-testid="category-card" className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between group hover:border-brand-200 transition-colors">
+                <div key={cat.id} data-testid="category-card" className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between group hover:border-brand-200 dark:hover:border-brand-700 transition-colors">
                   <div>
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-medium text-gray-800">{cat.name}</span>
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{cat.name}</span>
                       <Badge>{cat._count?.tickets ?? 0} tickets</Badge>
                     </div>
-                    {cat.slaPolicy && <p className="text-xs text-gray-400">{cat.slaPolicy.name} · {cat.slaPolicy.resolutionHours}h SLA</p>}
+                    {cat.slaPolicy && <p className="text-xs text-gray-400 dark:text-gray-500">{cat.slaPolicy.name} · {cat.slaPolicy.resolutionHours}h SLA</p>}
                   </div>
                   <RowActions items={[
                     { label: 'Edit category', icon: <Pencil size={14} />, onClick: () => setCatModal({ type: 'edit', cat }) },
@@ -135,24 +135,24 @@ export function CategoriesPage() {
 
         {/* SLA Policies */}
         <div>
-          <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">SLA Policies</p>
+          <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">SLA Policies</p>
           {slaPolicies?.length === 0 ? (
             <EmptyState icon={<FolderTree size={22} />} title="No SLA policies" description="Create SLA policies to set response and resolution targets" action={{ label: 'New SLA Policy', onClick: () => setSlaModal('create') }} />
           ) : (
             <div className="space-y-2">
               {slaPolicies?.map((p: any) => (
-                <div key={p.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between group hover:border-brand-200 transition-colors">
+                <div key={p.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between group hover:border-brand-200 dark:hover:border-brand-700 transition-colors">
                   <div>
-                    <p className="font-medium text-gray-800 mb-1">{p.name}</p>
+                    <p className="font-medium text-gray-800 dark:text-gray-200 mb-1">{p.name}</p>
                     <div className="flex flex-wrap items-center gap-3">
-                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Response: {p.responseHours}h</span>
-                      <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Resolution: {p.resolutionHours}h</span>
+                      <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 rounded-full">Response: {p.responseHours}h</span>
+                      <span className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full">Resolution: {p.resolutionHours}h</span>
                       {p.notifyUser ? (
-                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                        <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
                           <BellRing size={11} /> Notifies {p.notifyUser.name} on breach
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-300">No breach notification set</span>
+                        <span className="text-xs text-gray-300 dark:text-gray-600">No breach notification set</span>
                       )}
                     </div>
                   </div>

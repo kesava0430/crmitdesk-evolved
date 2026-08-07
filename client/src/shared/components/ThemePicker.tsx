@@ -46,9 +46,8 @@ export function ThemePicker() {
       {/* Panel */}
       {open && (
         <div
-          className="absolute bottom-10 left-0 z-[200] w-72 animate-slide-down"
+          className="absolute bottom-10 left-0 z-[200] w-72 animate-slide-down bg-white dark:bg-gray-900"
           style={{
-            background: '#ffffff',
             borderRadius: '16px',
             boxShadow: '0 20px 40px -8px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.06)',
             padding: '0',
@@ -56,14 +55,14 @@ export function ThemePicker() {
           }}
         >
           {/* Panel header */}
-          <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100">
+          <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100 dark:border-gray-800">
             <div className="flex items-center gap-2">
               <Palette size={14} className="text-brand-500" />
-              <span className="text-[13px] font-semibold text-gray-800">Appearance</span>
+              <span className="text-[13px] font-semibold text-gray-800 dark:text-gray-200">Appearance</span>
             </div>
             <button
               onClick={() => setOpen(false)}
-              className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+              className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
             >
               <X size={13} />
             </button>
@@ -72,7 +71,7 @@ export function ThemePicker() {
           <div className="p-4 space-y-5">
             {/* ── Theme style ── */}
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3">
                 Visual Style
               </p>
               <div className="grid grid-cols-2 gap-2">
@@ -86,7 +85,7 @@ export function ThemePicker() {
                       className={`theme-swatch relative text-left p-3 border transition-all ${
                         active
                           ? 'border-brand-500 bg-brand-50/60'
-                          : 'border-gray-100 bg-gray-50/60 hover:border-gray-200 hover:bg-white'
+                          : 'border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/60 hover:border-gray-200 dark:hover:border-gray-700 hover:bg-white dark:hover:bg-gray-800'
                       }`}
                       style={{ borderRadius: '10px' }}
                     >
@@ -130,10 +129,10 @@ export function ThemePicker() {
                         </div>
                       </div>
 
-                      <p className="text-[11.5px] font-semibold text-gray-800 leading-none">
+                      <p className="text-[11.5px] font-semibold text-gray-800 dark:text-gray-200 leading-none">
                         {THEME_LABELS[s].name}
                       </p>
-                      <p className="text-[10.5px] text-gray-400 mt-0.5 leading-snug">
+                      <p className="text-[10.5px] text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">
                         {THEME_LABELS[s].desc}
                       </p>
 
@@ -150,14 +149,14 @@ export function ThemePicker() {
 
             {/* ── Dark mode ── */}
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3">
                 Color Mode
               </p>
               <button
                 onClick={toggleDark}
-                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-gray-100 bg-gray-50/60 hover:bg-white hover:border-gray-200 transition-all"
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 hover:border-gray-200 dark:hover:border-gray-700 transition-all"
               >
-                <span className="flex items-center gap-2 text-[13px] font-medium text-gray-800">
+                <span className="flex items-center gap-2 text-[13px] font-medium text-gray-800 dark:text-gray-200">
                   {dark ? <Moon size={14} className="text-brand-500" /> : <Sun size={14} className="text-amber-500" />}
                   {dark ? 'Dark' : 'Light'}
                 </span>
@@ -173,7 +172,7 @@ export function ThemePicker() {
 
             {/* ── Font choice ── */}
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
                 <Type size={10} /> Font
               </p>
               <div className="space-y-1">
@@ -185,17 +184,17 @@ export function ThemePicker() {
                       onClick={() => setFont(f)}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all ${
                         active
-                          ? 'bg-brand-50 border border-brand-200'
-                          : 'hover:bg-gray-50 border border-transparent'
+                          ? 'bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
                       }`}
                     >
                       <span
-                        className="text-[13px] font-medium text-gray-800"
+                        className="text-[13px] font-medium text-gray-800 dark:text-gray-200"
                         style={{ fontFamily: FONT_LABELS[f].family }}
                       >
                         {FONT_SAMPLES[f]}
                       </span>
-                      <span className="text-[11px] text-gray-400">
+                      <span className="text-[11px] text-gray-400 dark:text-gray-500">
                         {active
                           ? <Check size={12} className="text-brand-500" />
                           : <span className="italic opacity-50">Aa</span>

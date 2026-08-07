@@ -21,8 +21,8 @@ export function AISuggestionPill({ suggestion, onApply, className = '' }: AISugg
       onClick={handleApply}
       className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-all
         ${applied
-          ? 'bg-green-50 border-green-200 text-green-700'
-          : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 hover:shadow-sm active:scale-95'
+          ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-500/10 dark:border-green-800/50 dark:text-green-300'
+          : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 hover:shadow-sm active:scale-95 dark:bg-indigo-500/10 dark:border-indigo-800/50 dark:text-indigo-300 dark:hover:bg-indigo-500/20'
         } ${className}`}
     >
       {applied ? <Check size={11} /> : <Sparkles size={11} />}
@@ -42,8 +42,8 @@ export function AISuggestionList({ suggestions, onApply, label = 'AI suggestions
   if (!suggestions.length) return null;
   return (
     <div className={`mt-2 ${className}`}>
-      <p className="text-xs text-gray-400 mb-1.5 flex items-center gap-1">
-        <Sparkles size={10} className="text-indigo-400" /> {label}
+      <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 flex items-center gap-1">
+        <Sparkles size={10} className="text-indigo-400 dark:text-indigo-300" /> {label}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {suggestions.map((s, i) => (

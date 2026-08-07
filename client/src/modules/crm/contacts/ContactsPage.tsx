@@ -72,7 +72,7 @@ function ContactForm({ initial, accounts, entityId, onSubmit, loading, aiPrefill
           <div>
             <label className="form-label">Date of Birth</label>
             <input aria-label="Date of Birth" type="date" className="ui-input" value={form.dateOfBirth ? String(form.dateOfBirth).slice(0, 10) : ''} onChange={f('dateOfBirth')} />
-            <p className="text-xs text-gray-400 mt-1">Optional — powers birthday automations under Settings → Workflows.</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Optional — powers birthday automations under Settings → Workflows.</p>
           </div>
         </div>
       </div>
@@ -156,31 +156,31 @@ export function ContactsPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
-              <thead><tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Phone</th>
-                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Job Title</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Account</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider"></th>
+              <thead><tr className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
+                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Phone</th>
+                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Job Title</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Account</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Source</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider"></th>
               </tr></thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {contacts?.map((c: any) => (
                   <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors duration-150 group">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 flex items-center justify-center text-xs font-bold flex-shrink-0">
                           {c.name[0]?.toUpperCase()}
                         </div>
-                        <Link to={`/crm/contacts/${c.id}`} className="font-medium text-gray-900 hover:text-brand-600 hover:underline">
+                        <Link to={`/crm/contacts/${c.id}`} className="font-medium text-gray-900 dark:text-white hover:text-brand-600 hover:underline">
                           {c.name}
                         </Link>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{c.email && <span className="flex items-center gap-1"><Mail size={12} />{c.email}</span>}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500">{c.phone && <span className="flex items-center gap-1"><Phone size={12} />{c.phone}</span>}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500">{c.jobTitle}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{c.email && <span className="flex items-center gap-1"><Mail size={12} />{c.email}</span>}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500 dark:text-gray-400">{c.phone && <span className="flex items-center gap-1"><Phone size={12} />{c.phone}</span>}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500 dark:text-gray-400">{c.jobTitle}</td>
                     <td className="px-4 py-3">{c.account && <Badge variant="blue">{c.account.name}</Badge>}</td>
                     <td className="px-4 py-3">{c.source && <Badge>{c.source}</Badge>}</td>
                     <td className="px-4 py-3">

@@ -15,8 +15,8 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
     <div className="flex items-center gap-2 mb-4">
       <div className="w-1 h-5 bg-brand-600 rounded-full" />
       <div>
-        <h2 className="text-sm font-semibold text-gray-700">{title}</h2>
-        {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</h2>
+        {subtitle && <p className="text-xs text-gray-400 dark:text-gray-500">{subtitle}</p>}
       </div>
     </div>
   );
@@ -30,7 +30,7 @@ function StarRow({ rating }: { rating: number }) {
   return (
     <span className="inline-flex items-center gap-0.5">
       {[1, 2, 3, 4, 5].map(n => (
-        <Star key={n} size={13} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200'} />
+        <Star key={n} size={13} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200 dark:text-gray-700'} />
       ))}
     </span>
   );
@@ -59,13 +59,13 @@ export function ReportsPage() {
     <div className="p-4 sm:p-6 space-y-6 animate-slide-up">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Reports & Analytics</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Last 30 days</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Reports & Analytics</h1>
+          <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">Last 30 days</p>
         </div>
-        <div className="flex flex-wrap rounded-lg border border-gray-200 overflow-hidden self-start sm:self-auto">
-          <button onClick={() => setTab('tickets')} className={`px-4 py-2 text-sm font-medium ${tab === 'tickets' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>IT Desk</button>
-          <button onClick={() => setTab('crm')} className={`px-4 py-2 text-sm font-medium ${tab === 'crm' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>CRM</button>
-          <button onClick={() => setTab('csat')} className={`px-4 py-2 text-sm font-medium ${tab === 'csat' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>Feedback</button>
+        <div className="flex flex-wrap rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden self-start sm:self-auto">
+          <button onClick={() => setTab('tickets')} className={`px-4 py-2 text-sm font-medium ${tab === 'tickets' ? 'bg-brand-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>IT Desk</button>
+          <button onClick={() => setTab('crm')} className={`px-4 py-2 text-sm font-medium ${tab === 'crm' ? 'bg-brand-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>CRM</button>
+          <button onClick={() => setTab('csat')} className={`px-4 py-2 text-sm font-medium ${tab === 'csat' ? 'bg-brand-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Feedback</button>
         </div>
       </div>
 
@@ -76,18 +76,18 @@ export function ReportsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card>
                 <p className="text-3xl font-bold text-brand-600">{ticketData?.slaCompliance ?? '—'}%</p>
-                <p className="text-sm text-gray-500 mt-1">SLA Compliance Rate</p>
-                <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">SLA Compliance Rate</p>
+                <div className="mt-3 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                   <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${ticketData?.slaCompliance || 0}%` }} />
                 </div>
               </Card>
               <Card>
                 <p className="text-3xl font-bold text-green-600">{ticketData?.statusBreakdown?.find((s: any) => s.status === 'RESOLVED')?._count ?? 0}</p>
-                <p className="text-sm text-gray-500 mt-1">Total Resolved</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Total Resolved</p>
               </Card>
               <Card>
                 <p className="text-3xl font-bold text-orange-600">{ticketData?.statusBreakdown?.find((s: any) => s.status === 'OPEN')?._count ?? 0}</p>
-                <p className="text-sm text-gray-500 mt-1">Currently Open</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Currently Open</p>
               </Card>
             </div>
 
@@ -148,18 +148,18 @@ export function ReportsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card>
                 <p className="text-3xl font-bold text-green-600">{crmData?.winRate ?? '—'}%</p>
-                <p className="text-sm text-gray-500 mt-1">Win Rate</p>
-                <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Win Rate</p>
+                <div className="mt-3 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                   <div className="h-full bg-green-500 rounded-full" style={{ width: `${crmData?.winRate || 0}%` }} />
                 </div>
               </Card>
               <Card>
                 <p className="text-3xl font-bold text-brand-600">{crmData?.won ?? '—'}</p>
-                <p className="text-sm text-gray-500 mt-1">Deals Won</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Deals Won</p>
               </Card>
               <Card>
                 <p className="text-3xl font-bold text-red-500">{crmData?.lost ?? '—'}</p>
-                <p className="text-sm text-gray-500 mt-1">Deals Lost</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Deals Lost</p>
               </Card>
             </div>
 
@@ -194,18 +194,18 @@ export function ReportsPage() {
               <Card>
                 <SectionHeader title="Top Contacts by Pipeline Value" />
                 {crmData?.contactsByValue?.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-8">No deal data yet</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No deal data yet</p>
                 ) : (
                   <div className="space-y-3 mt-2">
                     {(crmData?.contactsByValue || []).map((c: any, i: number) => (
                       <div key={c.name} className="flex items-center gap-3">
-                        <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-600 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                        <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between text-sm mb-1">
-                            <span className="font-medium text-gray-800 truncate">{c.name}</span>
+                            <span className="font-medium text-gray-800 dark:text-gray-200 truncate">{c.name}</span>
                             <span className="text-green-600 font-semibold ml-2">${c.value.toLocaleString()}</span>
                           </div>
-                          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                             <div className="h-full bg-brand-400 rounded-full" style={{ width: `${(c.value / (crmData.contactsByValue[0]?.value || 1)) * 100}%` }} />
                           </div>
                         </div>
@@ -225,17 +225,17 @@ export function ReportsPage() {
             {/* KPI row */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card>
-                <p className="text-3xl font-bold text-amber-500">{csatStats?.avg ?? '—'}<span className="text-lg text-gray-300">/5</span></p>
-                <p className="text-sm text-gray-500 mt-1">Average Rating</p>
+                <p className="text-3xl font-bold text-amber-500">{csatStats?.avg ?? '—'}<span className="text-lg text-gray-300 dark:text-gray-600">/5</span></p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Average Rating</p>
                 {typeof csatStats?.avg === 'number' && <div className="mt-2"><StarRow rating={Math.round(csatStats.avg)} /></div>}
               </Card>
               <Card>
                 <p className="text-3xl font-bold text-green-600">{csatStats?.satisfactionRate ?? '—'}%</p>
-                <p className="text-sm text-gray-500 mt-1">Satisfied (4-5 stars)</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Satisfied (4-5 stars)</p>
               </Card>
               <Card>
                 <p className="text-3xl font-bold text-brand-600">{csatStats?.total ?? 0}</p>
-                <p className="text-sm text-gray-500 mt-1">Total Responses</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Total Responses</p>
               </Card>
             </div>
 
@@ -243,7 +243,7 @@ export function ReportsPage() {
             <Card>
               <SectionHeader title="Rating Distribution" subtitle="How many responses landed at each star rating" />
               {!csatStats?.total ? (
-                <p className="text-sm text-gray-400 text-center py-8">No feedback submitted yet</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No feedback submitted yet</p>
               ) : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={[...(csatStats?.dist || [])].reverse()} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -264,32 +264,32 @@ export function ReportsPage() {
             <Card>
               <SectionHeader title="Recent Feedback" subtitle="Star rating + optional comment left by the ticket requester" />
               {csatResponsesLoading ? <Spinner /> : !csatResponses?.data.length ? (
-                <p className="text-sm text-gray-400 text-center py-8">No feedback submitted yet</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No feedback submitted yet</p>
               ) : (
                 <div className="space-y-3">
                   {csatResponses.data.map(r => (
-                    <div key={r.id} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
+                    <div key={r.id} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60">
                       <StarRow rating={r.rating} />
                       <div className="flex-1 min-w-0">
                         {r.ticket && (
-                          <Link to="/itdesk/tickets" className="text-sm font-medium text-gray-800 hover:text-brand-600 hover:underline truncate block">
+                          <Link to="/itdesk/tickets" className="text-sm font-medium text-gray-800 dark:text-gray-200 hover:text-brand-600 dark:hover:text-brand-400 hover:underline truncate block">
                             {r.ticket.title}
                           </Link>
                         )}
                         {r.comment && (
-                          <p className="text-xs text-gray-500 mt-1 flex items-start gap-1"><MessageSquare size={12} className="mt-0.5 flex-shrink-0" />{r.comment}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-start gap-1"><MessageSquare size={12} className="mt-0.5 flex-shrink-0" />{r.comment}</p>
                         )}
                       </div>
-                      <span className="text-xs text-gray-400 flex-shrink-0">{new Date(r.submittedAt).toLocaleDateString()}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">{new Date(r.submittedAt).toLocaleDateString()}</span>
                     </div>
                   ))}
                 </div>
               )}
               {csatResponses && csatResponses.total > csatResponses.limit && (
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
-                  <button disabled={csatPage <= 1} onClick={() => setCsatPage(p => p - 1)} className="text-xs text-brand-600 disabled:text-gray-300 font-medium">Previous</button>
-                  <span className="text-xs text-gray-400">Page {csatResponses.page} of {Math.ceil(csatResponses.total / csatResponses.limit)}</span>
-                  <button disabled={csatPage >= Math.ceil(csatResponses.total / csatResponses.limit)} onClick={() => setCsatPage(p => p + 1)} className="text-xs text-brand-600 disabled:text-gray-300 font-medium">Next</button>
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+                  <button disabled={csatPage <= 1} onClick={() => setCsatPage(p => p - 1)} className="text-xs text-brand-600 dark:text-brand-400 disabled:text-gray-300 dark:disabled:text-gray-600 font-medium">Previous</button>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">Page {csatResponses.page} of {Math.ceil(csatResponses.total / csatResponses.limit)}</span>
+                  <button disabled={csatPage >= Math.ceil(csatResponses.total / csatResponses.limit)} onClick={() => setCsatPage(p => p + 1)} className="text-xs text-brand-600 dark:text-brand-400 disabled:text-gray-300 dark:disabled:text-gray-600 font-medium">Next</button>
                 </div>
               )}
             </Card>

@@ -36,10 +36,10 @@ const STATUSES = ['active', 'inactive', 'retired', 'in_repair'];
 const ASSET_TYPES = ['Laptop', 'Desktop', 'Monitor', 'Phone', 'Tablet', 'Server', 'Printer', 'Network', 'Peripheral', 'Other'];
 
 const STATUS_COLOR: Record<string, string> = {
-  active:    'bg-green-100 text-green-700',
-  inactive:  'bg-gray-100 text-gray-600',
-  retired:   'bg-red-100 text-red-700',
-  in_repair: 'bg-yellow-100 text-yellow-700',
+  active:    'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400',
+  inactive:  'bg-gray-100 text-gray-600 dark:bg-gray-500/10 dark:text-gray-400',
+  retired:   'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400',
+  in_repair: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -85,10 +85,10 @@ function AssetModal({ asset, users, onClose }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">{asset ? 'Edit Asset' : 'Add Asset'}</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+      <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+          <h2 className="font-semibold text-gray-900 dark:text-white">{asset ? 'Edit Asset' : 'Add Asset'}</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"><X size={16} /></button>
         </div>
         <form onSubmit={submit} className="p-6 space-y-3">
           <div className="form-section">
@@ -131,7 +131,7 @@ function AssetModal({ asset, users, onClose }: {
           </div>
           {asset && <Attachments entityType="ASSET" entityId={asset.id} />}
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
             <button type="submit" disabled={save.isPending} className="flex-1 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">
               {save.isPending ? 'Saving…' : asset ? 'Save Changes' : 'Save Asset'}
             </button>
@@ -188,8 +188,8 @@ export default function AssetsPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Assets</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Track hardware and software across your organization</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Assets</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Track hardware and software across your organization</p>
         </div>
         <button onClick={() => setModal('new')}
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700">
@@ -200,19 +200,19 @@ export default function AssetsPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         {[
-          { label: 'Total', value: statsData?.total ?? 0, icon: Package, color: 'text-brand-600 bg-brand-50' },
-          { label: 'Active', value: statsData?.active ?? 0, icon: Activity, color: 'text-green-600 bg-green-50' },
-          { label: 'In Repair', value: statsData?.inRepair ?? 0, icon: Wrench, color: 'text-yellow-600 bg-yellow-50' },
-          { label: 'Retired', value: statsData?.retired ?? 0, icon: Archive, color: 'text-red-600 bg-red-50' },
+          { label: 'Total', value: statsData?.total ?? 0, icon: Package, color: 'text-brand-600 bg-brand-50 dark:text-brand-400 dark:bg-brand-500/10' },
+          { label: 'Active', value: statsData?.active ?? 0, icon: Activity, color: 'text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-500/10' },
+          { label: 'In Repair', value: statsData?.inRepair ?? 0, icon: Wrench, color: 'text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-500/10' },
+          { label: 'Retired', value: statsData?.retired ?? 0, icon: Archive, color: 'text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-500/10' },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 card-hover shadow-sm">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-gray-500">{label}</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
               <div className={`w-8 h-8 rounded-xl flex items-center justify-center shadow-sm ${color}`}>
                 <Icon size={15} />
               </div>
             </div>
-            <p className="text-2xl font-bold text-gray-900 tabular-nums">{value}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value}</p>
           </div>
         ))}
       </div>
@@ -220,79 +220,79 @@ export default function AssetsPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[160px] max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets…"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div className="relative">
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none bg-white">
+            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
             <option value="">All Statuses</option>
             {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
-          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
         </div>
         <div className="relative">
           <select value={filterType} onChange={e => setFilterType(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none bg-white">
+            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
             <option value="">All Types</option>
             {ASSET_TYPES.map(t => <option key={t}>{t}</option>)}
           </select>
-          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
         </div>
-        <p className="text-sm text-gray-400 ml-auto">{data?.total ?? 0} assets</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{data?.total ?? 0} assets</p>
       </div>
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="text-center py-12 text-gray-400 text-sm">Loading assets…</div>
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">Loading assets…</div>
         ) : assets.length === 0 ? (
           <div className="text-center py-16">
-            <Monitor size={40} className="text-gray-200 mx-auto mb-3" />
-            <p className="text-sm font-medium text-gray-500">No assets found</p>
-            <p className="text-xs text-gray-400 mt-1">Add your first asset to start tracking</p>
+            <Monitor size={40} className="text-gray-200 dark:text-gray-700 mx-auto mb-3" />
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No assets found</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Add your first asset to start tracking</p>
           </div>
         ) : (
           <div className="table-container">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Asset</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Serial #</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Assigned To</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Purchase Date</th>
+                <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/60">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Asset</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Serial #</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned To</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Purchase Date</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {assets.map(asset => (
                   <tr key={asset.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{asset.name}</p>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">{asset.name}</p>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{asset.type}</td>
-                    <td className="px-4 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">{asset.serialNumber ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{asset.type}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs hidden sm:table-cell">{asset.serialNumber ?? '—'}</td>
                     <td className="px-4 py-3">
                       {asset.assignee ? (
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                          <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-700 dark:text-brand-300 text-xs font-bold flex items-center justify-center flex-shrink-0">
                             {asset.assignee.name[0]}
                           </div>
-                          <span className="text-gray-700 truncate max-w-[100px]">{asset.assignee.name}</span>
+                          <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{asset.assignee.name}</span>
                         </div>
                       ) : (
-                        <span className="text-gray-400 italic">Unassigned</span>
+                        <span className="text-gray-400 dark:text-gray-500 italic">Unassigned</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[asset.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[asset.status] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-500/10 dark:text-gray-400'}`}>
                         {STATUS_LABEL[asset.status] ?? asset.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden sm:table-cell">
                       {asset.purchaseDate ? new Date(asset.purchaseDate).toLocaleDateString() : '—'}
                     </td>
                     <td className="px-4 py-3">

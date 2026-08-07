@@ -36,7 +36,7 @@ function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClos
           <label className="form-label">Description</label>
           <textarea aria-label="Description" className="ui-input" rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="What is this module for?" />
         </div>
-        <p className="text-xs text-gray-400">You'll add fields to it on the next screen — nothing shows up for other users until you add at least one field.</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500">You'll add fields to it on the next screen — nothing shows up for other users until you add at least one field.</p>
         <div className="flex justify-end pt-1"><Button type="submit" loading={create.isPending}>Create Module</Button></div>
       </form>
     </Modal>
@@ -112,24 +112,24 @@ function FieldsTab({ module_ }: { module_: any }) {
       ) : (
         <div className="table-container">
           <table className="w-full text-sm min-w-[560px]">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Label</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Key</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Required</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title Field</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Label</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Key</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Required</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Title Field</th>
                 <th></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {fields.map((f: any) => (
-                <tr key={f.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{f.label}</td>
-                  <td className="px-4 py-3"><code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{f.fieldKey}</code></td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-medium">{TYPE_LABELS[f.fieldType] ?? f.fieldType}</span></td>
-                  <td className="px-4 py-3">{f.required ? <span className="text-green-600 font-medium">Yes</span> : <span className="text-gray-400">No</span>}</td>
-                  <td className="px-4 py-3">{f.isPrimary ? <CheckCircle2 size={14} className="text-brand-500" /> : <span className="text-gray-300">—</span>}</td>
+                <tr key={f.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{f.label}</td>
+                  <td className="px-4 py-3"><code className="text-xs bg-gray-100 dark:bg-gray-800 dark:text-gray-300 px-1.5 py-0.5 rounded">{f.fieldKey}</code></td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">{TYPE_LABELS[f.fieldType] ?? f.fieldType}</span></td>
+                  <td className="px-4 py-3">{f.required ? <span className="text-green-600 dark:text-green-400 font-medium">Yes</span> : <span className="text-gray-400 dark:text-gray-500">No</span>}</td>
+                  <td className="px-4 py-3">{f.isPrimary ? <CheckCircle2 size={14} className="text-brand-500" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
                   <td className="px-4 py-3">
                     <RowActions items={[
                       { label: 'Edit field', icon: <Pencil size={14} />, onClick: () => setFieldModal(f) },
@@ -213,23 +213,23 @@ function RecordsTab({ module_ }: { module_: any }) {
       ) : (
         <div className="table-container">
           <table className="w-full text-sm min-w-[560px]">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                {fields.map((f: any) => <th key={f.id} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{f.label}</th>)}
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Source</th>
+                {fields.map((f: any) => <th key={f.id} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{f.label}</th>)}
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Source</th>
                 <th></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {records.data.map((r: any) => (
-                <tr key={r.id} className="hover:bg-gray-50">
+                <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/60">
                   {fields.map((f: any) => (
-                    <td key={f.id} className="px-4 py-3 text-gray-700">
+                    <td key={f.id} className="px-4 py-3 text-gray-700 dark:text-gray-300">
                       {f.fieldType === 'BOOLEAN' ? (r.data[f.fieldKey] ? 'Yes' : 'No') : String(r.data[f.fieldKey] ?? '—')}
                     </td>
                   ))}
                   <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${r.source === 'SYNC' ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-500'}`}>{r.source}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${r.source === 'SYNC' ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>{r.source}</span>
                   </td>
                   <td className="px-4 py-3">
                     <RowActions items={[
@@ -282,20 +282,20 @@ function SyncTab({ module_ }: { module_: any }) {
 
   return (
     <div className="space-y-5">
-      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-xs text-indigo-700 leading-relaxed">
+      <div className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/30 rounded-xl p-4 text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed">
         Polls an external REST API on a schedule, validates each record against this module's fields, and upserts it —
         deduped on the field you pick as the external ID (if any). Runs automatically once saved; use "Sync now" to test immediately.
       </div>
 
       {config && (
-        <div className="flex flex-wrap items-center gap-3 border border-gray-200 rounded-xl p-3">
+        <div className="flex flex-wrap items-center gap-3 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
           <div className="flex items-center gap-1.5 text-sm">
-            {config.lastStatus === 'SUCCESS' ? <CheckCircle2 size={15} className="text-green-500" /> : config.lastStatus === 'FAILED' ? <XCircle size={15} className="text-red-500" /> : <Clock size={15} className="text-gray-300" />}
-            <span className="font-medium text-gray-700">{config.lastStatus ? `Last sync: ${config.lastStatus}` : 'Never synced'}</span>
+            {config.lastStatus === 'SUCCESS' ? <CheckCircle2 size={15} className="text-green-500" /> : config.lastStatus === 'FAILED' ? <XCircle size={15} className="text-red-500" /> : <Clock size={15} className="text-gray-300 dark:text-gray-600" />}
+            <span className="font-medium text-gray-700 dark:text-gray-300">{config.lastStatus ? `Last sync: ${config.lastStatus}` : 'Never synced'}</span>
           </div>
-          {config.lastSyncAt && <span className="text-xs text-gray-400">{new Date(config.lastSyncAt).toLocaleString()}</span>}
-          {config.lastRecordCount != null && <span className="text-xs text-gray-400">· {config.lastRecordCount} record(s)</span>}
-          {config.lastError && <span className="text-xs text-red-500">· {config.lastError}</span>}
+          {config.lastSyncAt && <span className="text-xs text-gray-400 dark:text-gray-500">{new Date(config.lastSyncAt).toLocaleString()}</span>}
+          {config.lastRecordCount != null && <span className="text-xs text-gray-400 dark:text-gray-500">· {config.lastRecordCount} record(s)</span>}
+          {config.lastError && <span className="text-xs text-red-500 dark:text-red-400">· {config.lastError}</span>}
           <Button size="sm" variant="secondary" icon={<RefreshCw size={13} />} onClick={() => trigger.mutate(module_.id)} loading={trigger.isPending} className="ml-auto">Sync Now</Button>
         </div>
       )}
@@ -346,11 +346,11 @@ function SyncTab({ module_ }: { module_: any }) {
 
         <div className="form-section">
           <p className="form-section-title">Field Mapping</p>
-          <p className="text-xs text-gray-400 mb-2">For each module field, the key to read from each external record.</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">For each module field, the key to read from each external record.</p>
           <div className="space-y-2">
             {fields.map((f: any) => (
               <div key={f.id} className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 w-40 flex-shrink-0 truncate">{f.label}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300 w-40 flex-shrink-0 truncate">{f.label}</span>
                 <input
                   aria-label={`Mapping for ${f.label}`}
                   className="ui-input flex-1"

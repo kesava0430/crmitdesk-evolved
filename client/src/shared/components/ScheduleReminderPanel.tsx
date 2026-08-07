@@ -36,9 +36,9 @@ const RECURRENCE_OPTIONS: { value: Recurrence; label: string }[] = [
 ];
 
 const STATUS_CONFIG: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
-  PENDING: { icon: <Clock size={12} />, color: 'text-blue-600 bg-blue-50 border-blue-200', label: 'Upcoming' },
-  SENT: { icon: <CheckCircle2 size={12} />, color: 'text-green-600 bg-green-50 border-green-200', label: 'Sent' },
-  FAILED: { icon: <AlertCircle size={12} />, color: 'text-red-600 bg-red-50 border-red-200', label: 'Failed' },
+  PENDING: { icon: <Clock size={12} />, color: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30', label: 'Upcoming' },
+  SENT: { icon: <CheckCircle2 size={12} />, color: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30', label: 'Sent' },
+  FAILED: { icon: <AlertCircle size={12} />, color: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30', label: 'Failed' },
 };
 
 /** Local datetime-local input value for "now" (rounded to the next minute), used as a sane min. */
@@ -79,20 +79,20 @@ export function ScheduleReminderPanel({ entityType, entityId }: Props) {
   }
 
   return (
-    <div className="border-t pt-4 mt-4">
+    <div className="border-t dark:border-gray-800 pt-4 mt-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-          <Bell size={14} className="text-brand-500" /> WhatsApp Reminders ({schedules.length})
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+          <Bell size={14} className="text-brand-500 dark:text-brand-400" /> WhatsApp Reminders ({schedules.length})
         </h3>
         {!open && (
-          <button onClick={() => setOpen(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">
+          <button onClick={() => setOpen(true)} className="text-xs text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium">
             + Schedule a reminder
           </button>
         )}
       </div>
 
       {open && (
-        <form onSubmit={handleSubmit} className="bg-gray-50 rounded-xl p-3 space-y-3 mb-3">
+        <form onSubmit={handleSubmit} className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3 space-y-3 mb-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Due <span className="req">*</span></label>
@@ -152,13 +152,13 @@ export function ScheduleReminderPanel({ entityType, entityId }: Props) {
           )}
 
           {create.isError && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">
+            <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg p-2">
               {(create.error as any)?.response?.data?.error || 'Could not schedule the reminder'}
             </p>
           )}
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={reset} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+            <button type="button" onClick={reset} className="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Cancel</button>
             <button type="submit" disabled={create.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 disabled:opacity-40">
               <Send size={12} /> Schedule reminder
@@ -168,34 +168,34 @@ export function ScheduleReminderPanel({ entityType, entityId }: Props) {
       )}
 
       {isLoading ? (
-        <p className="text-xs text-gray-400">Loading…</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500">Loading…</p>
       ) : schedules.length === 0 ? (
-        !open && <p className="text-xs text-gray-400 text-center py-3">No reminders scheduled yet.</p>
+        !open && <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-3">No reminders scheduled yet.</p>
       ) : (
         <div className="space-y-2">
           {schedules.map(s => {
             const status = STATUS_CONFIG[s.status] || STATUS_CONFIG.PENDING;
             return (
-              <div key={s.id} className="flex items-start justify-between gap-2 bg-white border border-gray-100 rounded-xl p-2.5">
+              <div key={s.id} className="flex items-start justify-between gap-2 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full border ${status.color}`}>
                       {status.icon} {status.label}
                     </span>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
                       {new Date(s.dueAt).toLocaleString()} · {formatDistanceToNow(new Date(s.dueAt), { addSuffix: true })}
                     </span>
                     {s.recurrence !== 'NONE' && (
-                      <span className="text-[11px] text-violet-500 bg-violet-50 px-1.5 py-0.5 rounded-full">{s.recurrence === 'DAILY' ? 'Daily' : 'Weekly'}</span>
+                      <span className="text-[11px] text-violet-500 dark:text-violet-400 bg-violet-50 dark:bg-violet-500/10 px-1.5 py-0.5 rounded-full">{s.recurrence === 'DAILY' ? 'Daily' : 'Weekly'}</span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-700 mt-1 truncate">{s.message}</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 truncate">{s.message}</p>
                   {s.status === 'FAILED' && s.lastError && (
-                    <p className="text-xs text-red-500 mt-0.5">{s.lastError}</p>
+                    <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">{s.lastError}</p>
                   )}
                 </div>
                 <button onClick={() => cancel.mutate(s.id)} title="Cancel reminder"
-                  className="p-1 text-gray-300 hover:text-red-500 flex-shrink-0">
+                  className="p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 flex-shrink-0">
                   <Trash2 size={13} />
                 </button>
               </div>

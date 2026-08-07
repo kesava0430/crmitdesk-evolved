@@ -49,9 +49,9 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="Paste raw meeting notes here... Include names, companies, action items, deals discussed, etc."
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+            className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
           />
-          <p className="text-xs text-gray-400 mt-1">{notes.length} characters{notes.length < 10 ? ' (minimum 10)' : ''}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{notes.length} characters{notes.length < 10 ? ' (minimum 10)' : ''}</p>
         </div>
 
         <div className="flex justify-center">
@@ -67,22 +67,22 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
 
         {/* Results */}
         {data && (
-          <div className="space-y-3 border-t pt-4">
-            <p className="text-sm font-semibold text-gray-700">Parsed Results</p>
+          <div className="space-y-3 border-t dark:border-gray-800 pt-4">
+            <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Parsed Results</p>
 
             {/* Contacts */}
             {data.contacts?.length > 0 && (
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-violet-50 px-4 py-2 flex items-center gap-2">
-                  <Users size={14} className="text-violet-500" />
-                  <span className="text-xs font-semibold text-violet-700 uppercase tracking-wider">Contacts</span>
-                  <span className="ml-auto text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">{data.contacts.length}</span>
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                <div className="bg-violet-50 dark:bg-violet-500/10 px-4 py-2 flex items-center gap-2">
+                  <Users size={14} className="text-violet-500 dark:text-violet-400" />
+                  <span className="text-xs font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wider">Contacts</span>
+                  <span className="ml-auto text-xs bg-violet-100 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 px-2 py-0.5 rounded-full">{data.contacts.length}</span>
                 </div>
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-gray-50 dark:divide-gray-800">
                   {data.contacts.map((c: any, i: number) => (
                     <div key={i} className="px-4 py-2 text-sm">
-                      <span className="font-medium text-gray-800">{c.name || c}</span>
-                      {c.email && <span className="text-gray-400 ml-2 text-xs">{c.email}</span>}
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{c.name || c}</span>
+                      {c.email && <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">{c.email}</span>}
                     </div>
                   ))}
                 </div>
@@ -91,17 +91,17 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
 
             {/* Leads */}
             {data.leads?.length > 0 && (
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-indigo-50 px-4 py-2 flex items-center gap-2">
-                  <Target size={14} className="text-indigo-500" />
-                  <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Leads</span>
-                  <span className="ml-auto text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{data.leads.length}</span>
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                <div className="bg-indigo-50 dark:bg-indigo-500/10 px-4 py-2 flex items-center gap-2">
+                  <Target size={14} className="text-indigo-500 dark:text-indigo-400" />
+                  <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">Leads</span>
+                  <span className="ml-auto text-xs bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">{data.leads.length}</span>
                 </div>
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-gray-50 dark:divide-gray-800">
                   {data.leads.map((l: any, i: number) => (
                     <div key={i} className="px-4 py-2 text-sm">
-                      <span className="font-medium text-gray-800">{l.name || l}</span>
-                      {l.source && <span className="text-gray-400 ml-2 text-xs">via {l.source}</span>}
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{l.name || l}</span>
+                      {l.source && <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">via {l.source}</span>}
                     </div>
                   ))}
                 </div>
@@ -110,17 +110,17 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
 
             {/* Deals */}
             {data.deals?.length > 0 && (
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-green-50 px-4 py-2 flex items-center gap-2">
-                  <TrendingUp size={14} className="text-green-500" />
-                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">Deals</span>
-                  <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{data.deals.length}</span>
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                <div className="bg-green-50 dark:bg-green-500/10 px-4 py-2 flex items-center gap-2">
+                  <TrendingUp size={14} className="text-green-500 dark:text-green-400" />
+                  <span className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase tracking-wider">Deals</span>
+                  <span className="ml-auto text-xs bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">{data.deals.length}</span>
                 </div>
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-gray-50 dark:divide-gray-800">
                   {data.deals.map((d: any, i: number) => (
                     <div key={i} className="px-4 py-2 text-sm">
-                      <span className="font-medium text-gray-800">{d.title || d}</span>
-                      {d.value && <span className="text-green-600 ml-2 text-xs font-semibold">${Number(d.value).toLocaleString()}</span>}
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{d.title || d}</span>
+                      {d.value && <span className="text-green-600 dark:text-green-400 ml-2 text-xs font-semibold">${Number(d.value).toLocaleString()}</span>}
                     </div>
                   ))}
                 </div>
@@ -129,15 +129,15 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
 
             {/* Next Steps */}
             {data.nextSteps?.length > 0 && (
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-amber-50 px-4 py-2 flex items-center gap-2">
-                  <CheckSquare size={14} className="text-amber-500" />
-                  <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Next Steps</span>
-                  <span className="ml-auto text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{data.nextSteps.length}</span>
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                <div className="bg-amber-50 dark:bg-amber-500/10 px-4 py-2 flex items-center gap-2">
+                  <CheckSquare size={14} className="text-amber-500 dark:text-amber-400" />
+                  <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wider">Next Steps</span>
+                  <span className="ml-auto text-xs bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full">{data.nextSteps.length}</span>
                 </div>
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-gray-50 dark:divide-gray-800">
                   {data.nextSteps.map((s: any, i: number) => (
-                    <div key={i} className="px-4 py-2 text-sm text-gray-700">{typeof s === 'string' ? s : s.text || JSON.stringify(s)}</div>
+                    <div key={i} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">{typeof s === 'string' ? s : s.text || JSON.stringify(s)}</div>
                   ))}
                 </div>
               </div>

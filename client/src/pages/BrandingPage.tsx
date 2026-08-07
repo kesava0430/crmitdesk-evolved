@@ -49,16 +49,16 @@ export default function BrandingPage() {
       <div className="flex items-center gap-3 mb-6">
         <Palette size={24} className="text-brand-600" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Org Branding</h1>
-          <p className="text-sm text-gray-500">Customize your organization's appearance and portal</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Org Branding</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Customize your organization's appearance and portal</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Form */}
         <div className="lg:col-span-3 space-y-5">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
-            <h2 className="font-semibold text-gray-800">Brand Identity</h2>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 space-y-4">
+            <h2 className="font-semibold text-gray-800 dark:text-gray-100">Brand Identity</h2>
 
             <div>
               <label className="form-label">Company Name</label>
@@ -71,7 +71,7 @@ export default function BrandingPage() {
               <div className="flex items-center gap-3">
                 <input type="color" value={form.primaryColor}
                   onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))}
-                  className="w-12 h-10 rounded-lg border border-gray-200 cursor-pointer" />
+                  className="w-12 h-10 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer" />
                 <input aria-label="Primary Color" className="ui-input flex-1 font-mono"
                   value={form.primaryColor}
                   onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))} />
@@ -93,8 +93,8 @@ export default function BrandingPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
-            <h2 className="font-semibold text-gray-800">Customer Portal</h2>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 space-y-4">
+            <h2 className="font-semibold text-gray-800 dark:text-gray-100">Customer Portal</h2>
 
             <div>
               <label className="form-label">Support Email</label>
@@ -123,10 +123,10 @@ export default function BrandingPage() {
 
         {/* Live preview */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-6">
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-              <Eye size={15} className="text-gray-400" />
-              <span className="text-sm font-medium text-gray-600">Portal Preview</span>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden sticky top-6">
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
+              <Eye size={15} className="text-gray-400 dark:text-gray-500" />
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Portal Preview</span>
             </div>
             <div className="p-4" style={{ '--preview-color': form.primaryColor } as React.CSSProperties}>
               {/* Simulated portal header */}

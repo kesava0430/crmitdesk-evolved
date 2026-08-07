@@ -19,10 +19,10 @@ interface Quote {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'bg-gray-100 text-gray-600',
-  SENT: 'bg-blue-100 text-blue-700',
-  ACCEPTED: 'bg-green-100 text-green-700',
-  REJECTED: 'bg-red-100 text-red-600',
+  DRAFT: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+  SENT: 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300',
+  ACCEPTED: 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-300',
+  REJECTED: 'bg-red-100 text-red-600 dark:bg-red-500/10 dark:text-red-400',
 };
 
 const EMPTY_LINE: QuoteLine = { description: '', quantity: 1, unitPrice: 0 };
@@ -100,7 +100,7 @@ export default function QuotesPage() {
 
   const lineTotal = form.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
 
-  if (isLoading) return <div className="p-8 text-gray-500">Loading…</div>;
+  if (isLoading) return <div className="p-8 text-gray-500 dark:text-gray-400">Loading…</div>;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -108,8 +108,8 @@ export default function QuotesPage() {
         <div className="flex items-center gap-3">
           <FileText size={24} className="text-brand-600" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Quotes & Proposals</h1>
-            <p className="text-sm text-gray-500">Create and manage sales quotes</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Quotes & Proposals</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Create and manage sales quotes</p>
           </div>
         </div>
         <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
@@ -119,47 +119,47 @@ export default function QuotesPage() {
 
       <div className="grid grid-cols-1 gap-4">
         {quotes.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-xl py-16 text-center text-gray-400">
+          <div className="bg-white border border-gray-200 rounded-xl py-16 text-center text-gray-400 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-500">
             <FileText size={40} className="mx-auto mb-3 opacity-30" />
             <p>No quotes yet. Create your first proposal.</p>
           </div>
         ) : (
           quotes.map(q => (
-            <div key={q.id} data-testid="quote-card" className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+            <div key={q.id} data-testid="quote-card" className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow dark:bg-gray-900 dark:border-gray-800">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-semibold text-gray-900">{q.title}</h3>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[q.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{q.title}</h3>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[q.status] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>
                       {q.status}
                     </span>
                   </div>
-                  {q.deal && <p className="text-xs text-gray-500">Deal: {q.deal.title}</p>}
-                  <p className="text-xs text-gray-400 mt-0.5">{new Date(q.createdAt).toLocaleDateString()}</p>
+                  {q.deal && <p className="text-xs text-gray-500 dark:text-gray-400">Deal: {q.deal.title}</p>}
+                  <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">{new Date(q.createdAt).toLocaleDateString()}</p>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-1 text-xl font-bold text-gray-900">
+                  <div className="flex items-center gap-1 text-xl font-bold text-gray-900 dark:text-white">
                     <DollarSign size={18} className="text-green-500" />
                     {(q.lines?.reduce((s, l) => s + Number(l.quantity) * Number(l.unitPrice), 0) ?? 0)
                       .toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </div>
                   {q.validUntil && (
-                    <p className="text-xs text-gray-400">Valid until {new Date(q.validUntil).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Valid until {new Date(q.validUntil).toLocaleDateString()}</p>
                   )}
                 </div>
               </div>
 
               {/* Line preview */}
               {q.lines?.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
                   <div className="space-y-1">
                     {q.lines.slice(0, 3).map((l, i) => (
-                      <div key={i} className="flex justify-between text-xs text-gray-500">
+                      <div key={i} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                         <span>{l.description} × {Number(l.quantity)}</span>
                         <span>${(Number(l.quantity) * Number(l.unitPrice)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                       </div>
                     ))}
-                    {q.lines.length > 3 && <p className="text-xs text-gray-400">+{q.lines.length - 3} more items</p>}
+                    {q.lines.length > 3 && <p className="text-xs text-gray-400 dark:text-gray-500">+{q.lines.length - 3} more items</p>}
                   </div>
                 </div>
               )}
@@ -167,25 +167,25 @@ export default function QuotesPage() {
               <div className="flex items-center gap-2 mt-4">
                 {q.status === 'DRAFT' && (
                   <button onClick={() => changeStatus.mutate({ id: q.id, status: 'SENT' })}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100">
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20">
                     <Send size={12} /> Send
                   </button>
                 )}
                 {q.status === 'SENT' && (
                   <>
                     <button onClick={() => changeStatus.mutate({ id: q.id, status: 'ACCEPTED' })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100">
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 dark:bg-green-500/10 dark:text-green-300 dark:hover:bg-green-500/20">
                       <CheckCircle size={12} /> Accept
                     </button>
                     <button onClick={() => changeStatus.mutate({ id: q.id, status: 'REJECTED' })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-100">
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-100 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
                       <XCircle size={12} /> Reject
                     </button>
                   </>
                 )}
                 {(q.status === 'SENT' || q.status === 'ACCEPTED') && (
                   <button onClick={() => copyShareLink(q.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100">
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">
                     {copiedId === q.id ? <><CheckIcon size={12} /> Copied</> : <><Link2 size={12} /> Copy customer link</>}
                   </button>
                 )}
@@ -202,8 +202,8 @@ export default function QuotesPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div role="dialog" aria-modal="true" className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-            <h2 className="text-xl font-bold mb-5">{editing ? 'Edit Quote' : 'New Quote'}</h2>
+          <div role="dialog" aria-modal="true" className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 dark:bg-gray-900">
+            <h2 className="text-xl font-bold mb-5 text-gray-900 dark:text-white">{editing ? 'Edit Quote' : 'New Quote'}</h2>
 
             <div className="space-y-3">
               {!editing && quoteTemplates && quoteTemplates.length > 0 && (
@@ -241,7 +241,7 @@ export default function QuotesPage() {
               <div className="form-section">
                 <p className="form-section-title">Line Items</p>
                 <div className="space-y-2">
-                  <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase px-1">
+                  <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase px-1 dark:text-gray-400">
                     <div className="col-span-6">Description</div>
                     <div className="col-span-2">Qty</div>
                     <div className="col-span-3">Unit Price</div>
@@ -249,19 +249,19 @@ export default function QuotesPage() {
                   </div>
                   {form.lines.map((line, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2">
-                      <input className="col-span-6 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                      <input className="col-span-6 border border-gray-200 rounded-lg px-2 py-1.5 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
                         aria-label="Description" placeholder="Service description"
                         value={line.description}
                         onChange={e => updateLine(i, 'description', e.target.value)} />
-                      <input type="number" min="1" aria-label="Qty" className="col-span-2 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center"
+                      <input type="number" min="1" aria-label="Qty" className="col-span-2 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
                         value={line.quantity}
                         onChange={e => updateLine(i, 'quantity', Number(e.target.value))} />
-                      <input type="number" min="0" step="0.01" className="col-span-3 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                      <input type="number" min="0" step="0.01" className="col-span-3 border border-gray-200 rounded-lg px-2 py-1.5 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
                         aria-label="Price" placeholder="0.00"
                         value={line.unitPrice}
                         onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} />
                       <button onClick={() => removeLine(i)} disabled={form.lines.length === 1}
-                        className="col-span-1 p-1 text-gray-300 hover:text-red-500 disabled:opacity-0">
+                        className="col-span-1 p-1 text-gray-300 hover:text-red-500 disabled:opacity-0 dark:text-gray-600 dark:hover:text-red-400">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -277,15 +277,15 @@ export default function QuotesPage() {
               {editing && <Attachments entityType="QUOTE" entityId={editing.id} />}
 
               {/* Total */}
-              <div className="flex justify-end pt-2 border-t border-gray-100">
+              <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
                 <div className="text-right">
-                  <span className="text-sm text-gray-500">Total: </span>
-                  <span className="text-lg font-bold text-gray-900">${lineTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Total: </span>
+                  <span className="text-lg font-bold text-gray-900 dark:text-white">${lineTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
             <div className="flex gap-3 mt-5">
-              <button onClick={closeModal} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              <button onClick={closeModal} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">Cancel</button>
               <button
                 disabled={!form.title || form.lines.length === 0 || save.isPending}
                 onClick={() => save.mutate(form)}

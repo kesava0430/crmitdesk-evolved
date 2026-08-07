@@ -47,9 +47,9 @@ function ArticleView({ article }: any) {
       <div className="flex items-center gap-2 flex-wrap">
         <Badge variant={articleStatusVariant[article.status]}>{article.status}</Badge>
         {article.category && <Badge variant="blue">{article.category.name}</Badge>}
-        <span className="text-xs text-gray-400">by {article.author?.name} · {formatDistanceToNow(new Date(article.createdAt), { addSuffix: true })}</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">by {article.author?.name} · {formatDistanceToNow(new Date(article.createdAt), { addSuffix: true })}</span>
       </div>
-      <div className="prose prose-sm max-w-none bg-gray-50 rounded-xl p-4 text-gray-700 whitespace-pre-wrap font-mono text-xs leading-relaxed">
+      <div className="prose prose-sm dark:prose-invert max-w-none bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono text-xs leading-relaxed">
         {article.body}
       </div>
     </div>
@@ -90,7 +90,7 @@ export function ArticlesPage() {
         subtitle={`${filtered?.length ?? 0} articles`}
         actions={<>
           <SearchInput value={search} onChange={setSearch} placeholder="Search articles..." />
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500">
             <option value="">All Statuses</option>
             {['DRAFT','PUBLISHED','ARCHIVED'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -103,14 +103,14 @@ export function ArticlesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-3">
           {filtered?.map((a: any) => (
-            <div key={a.id} data-testid="article-card" className="bg-white border border-gray-200 rounded-xl p-4 flex items-start justify-between hover:border-brand-200 hover:shadow-sm transition-all">
+            <div key={a.id} data-testid="article-card" className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 flex items-start justify-between hover:border-brand-200 dark:hover:border-brand-700 hover:shadow-sm transition-all">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <Badge variant={articleStatusVariant[a.status]}>{a.status}</Badge>
                   {a.category && <Badge variant="blue">{a.category.name}</Badge>}
                 </div>
-                <h3 className="font-semibold text-gray-900 mb-0.5 truncate">{a.title}</h3>
-                <p className="text-xs text-gray-400">by {a.author?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}</p>
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-0.5 truncate">{a.title}</h3>
+                <p className="text-xs text-gray-400 dark:text-gray-500">by {a.author?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}</p>
               </div>
               <RowActions items={[
                 { label: 'View article', icon: <Eye size={14} />, onClick: () => setModal({ type: 'view', article: a }) },

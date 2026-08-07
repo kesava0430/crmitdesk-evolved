@@ -19,10 +19,10 @@ interface Job {
 const STATUS_TABS = ['FAILED', 'PENDING', 'PROCESSING', 'COMPLETED'] as const;
 
 const STATUS_STYLE: Record<string, string> = {
-  FAILED: 'text-red-600 bg-red-50',
-  PENDING: 'text-amber-600 bg-amber-50',
-  PROCESSING: 'text-blue-600 bg-blue-50',
-  COMPLETED: 'text-green-600 bg-green-50',
+  FAILED: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10',
+  PENDING: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',
+  PROCESSING: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10',
+  COMPLETED: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10',
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -65,8 +65,8 @@ export default function JobsPage() {
       <div className="flex items-center gap-3 mb-2">
         <RefreshCw size={24} className="text-brand-600" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Background Jobs</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Background Jobs</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Email, Slack, Teams, and push notifications retry automatically on failure. Anything here has already been retried up to its limit — retry it manually, or check the error below to see why it keeps failing.
           </p>
         </div>
@@ -77,7 +77,7 @@ export default function JobsPage() {
           <button
             key={s}
             onClick={() => setStatus(s)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${status === s ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${status === s ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
           >
             {s === 'FAILED' && <AlertTriangle size={13} className="inline mr-1 -mt-0.5" />}
             {s === 'COMPLETED' && <CheckCircle2 size={13} className="inline mr-1 -mt-0.5" />}
@@ -88,37 +88,37 @@ export default function JobsPage() {
 
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
         {isLoading ? (
-          <div className="py-16 text-center text-gray-400"><Loader2 size={24} className="mx-auto animate-spin" /></div>
+          <div className="py-16 text-center text-gray-400 dark:text-gray-500"><Loader2 size={24} className="mx-auto animate-spin" /></div>
         ) : jobs.length === 0 ? (
-          <div className="py-16 text-center text-gray-400">
+          <div className="py-16 text-center text-gray-400 dark:text-gray-500">
             <CheckCircle2 size={40} className="mx-auto mb-3 opacity-30" />
             <p>Nothing here.</p>
           </div>
         ) : (
           <div className="table-container">
             <table className="w-full text-sm min-w-[720px]">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Details</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Attempts</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Last error</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"></th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Details</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Attempts</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hidden sm:table-cell">Last error</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {jobs.map(j => (
                   <tr key={j.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{TYPE_LABEL[j.type] ?? j.type}</td>
-                    <td className="px-4 py-3 text-gray-600 max-w-[240px] truncate" title={describePayload(j.type, j.payload)}>
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">{TYPE_LABEL[j.type] ?? j.type}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 max-w-[240px] truncate" title={describePayload(j.type, j.payload)}>
                       {describePayload(j.type, j.payload)}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[j.status]}`}>{j.status}</span>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{j.attempts} / {j.maxAttempts}</td>
-                    <td className="px-4 py-3 text-red-500 text-xs max-w-[260px] truncate hidden sm:table-cell" title={j.lastError ?? ''}>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{j.attempts} / {j.maxAttempts}</td>
+                    <td className="px-4 py-3 text-red-500 dark:text-red-400 text-xs max-w-[260px] truncate hidden sm:table-cell" title={j.lastError ?? ''}>
                       {j.lastError ?? '—'}
                     </td>
                     <td className="px-4 py-3">
@@ -126,13 +126,13 @@ export default function JobsPage() {
                         <button
                           onClick={() => retry.mutate(j.id)}
                           disabled={retry.isPending}
-                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50 rounded-lg transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg transition-colors disabled:opacity-50"
                         >
                           <RefreshCw size={12} className={retry.isPending && retry.variables === j.id ? 'animate-spin' : ''} /> Retry
                         </button>
                       )}
                       {j.status === 'PENDING' && (
-                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                        <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
                           <Clock size={12} /> {new Date(j.nextAttemptAt).toLocaleTimeString()}
                         </span>
                       )}

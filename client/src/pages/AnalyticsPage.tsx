@@ -42,14 +42,14 @@ function KpiCard({ label, value, change, prefix = '', suffix = '', icon: Icon }:
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-4 sm:p-5 overflow-hidden">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-medium text-gray-500">{label}</p>
-        <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
-          <Icon size={15} className="text-brand-600" />
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
+        <div className="w-8 h-8 rounded-xl bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center">
+          <Icon size={15} className="text-brand-600 dark:text-brand-400" />
         </div>
       </div>
-      <p className="text-2xl font-bold text-gray-900">{prefix}{value}{suffix}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-white">{prefix}{value}{suffix}</p>
       {change !== undefined && (
-        <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${isPos ? 'text-green-600' : isNeg ? 'text-red-500' : 'text-gray-400'}`}>
+        <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${isPos ? 'text-green-600 dark:text-green-400' : isNeg ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}`}>
           {isPos ? <TrendingUp size={12} /> : isNeg ? <TrendingDown size={12} /> : <Minus size={12} />}
           {isPos ? '+' : ''}{change}% vs prev 30d
         </div>
@@ -64,9 +64,9 @@ function Section({ title, children, onExport }: { title: string; children: React
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-4 sm:p-5 overflow-hidden">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="font-semibold text-gray-900 text-sm">{title}</h2>
+        <h2 className="font-semibold text-gray-900 dark:text-white text-sm">{title}</h2>
         {onExport && (
-          <button onClick={onExport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
+          <button onClick={onExport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
             <Download size={11} /> Export CSV
           </button>
         )}
@@ -121,12 +121,12 @@ export function AnalyticsPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <BarChart2 size={20} className="text-brand-600" />
-            <h1 className="text-xl font-bold text-gray-900">Analytics</h1>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Analytics</h1>
           </div>
-          <p className="text-sm text-gray-500">Performance metrics, trends, and forecasts.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Performance metrics, trends, and forecasts.</p>
         </div>
         <select value={days} onChange={e => setDays(Number(e.target.value))}
-          className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white self-start sm:self-auto">
+          className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 self-start sm:self-auto">
           <option value={7}>Last 7 days</option>
           <option value={14}>Last 14 days</option>
           <option value={30}>Last 30 days</option>
@@ -146,17 +146,17 @@ export function AnalyticsPage() {
       {(tickets?.slaCompliance != null || crm?.deals.winRate != null) && (
         <div className="flex flex-wrap gap-3 mb-6">
           {tickets?.slaCompliance != null && (
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border ${tickets.slaCompliance >= 90 ? 'bg-green-50 border-green-200 text-green-800' : tickets.slaCompliance >= 70 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border ${tickets.slaCompliance >= 90 ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30 text-green-800 dark:text-green-300' : tickets.slaCompliance >= 70 ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300' : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-300'}`}>
               SLA Compliance: <strong>{tickets.slaCompliance}%</strong>
             </div>
           )}
           {crm?.deals.winRate != null && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-brand-50 border border-brand-200 text-brand-800 rounded-xl text-sm font-medium">
+            <div className="flex items-center gap-2 px-4 py-2 bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 text-brand-800 dark:text-brand-300 rounded-xl text-sm font-medium">
               Deal Win Rate: <strong>{crm.deals.winRate}%</strong>
             </div>
           )}
           {crm?.leads.conversionRate != null && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-violet-50 border border-violet-200 text-violet-800 rounded-xl text-sm font-medium">
+            <div className="flex items-center gap-2 px-4 py-2 bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/30 text-violet-800 dark:text-violet-300 rounded-xl text-sm font-medium">
               Lead Conversion: <strong>{crm.leads.conversionRate}%</strong>
             </div>
           )}
@@ -203,7 +203,7 @@ export function AnalyticsPage() {
 
         {/* Ticket status donut */}
         <Section title="Tickets by Status" onExport={() => downloadCsv(statusData, 'ticket_status.csv')}>
-          {ticketsLoading ? <Spinner /> : statusData.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">No data yet</p> : (
+          {ticketsLoading ? <Spinner /> : statusData.length === 0 ? <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No data yet</p> : (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={e => `${e.name} (${e.value})`} labelLine={false}>
@@ -234,7 +234,7 @@ export function AnalyticsPage() {
 
         {/* Deal pipeline */}
         <Section title="Deal Pipeline by Stage" onExport={() => downloadCsv(pipelineData, 'deal_pipeline.csv')}>
-          {crmLoading ? <Spinner /> : pipelineData.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">No open deals</p> : (
+          {crmLoading ? <Spinner /> : pipelineData.length === 0 ? <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No open deals</p> : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={pipelineData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -265,7 +265,7 @@ export function AnalyticsPage() {
 
         {/* Lead status */}
         <Section title="Lead Status Distribution" onExport={() => downloadCsv(leadStatusData, 'lead_status.csv')}>
-          {crmLoading ? <Spinner /> : leadStatusData.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">No leads yet</p> : (
+          {crmLoading ? <Spinner /> : leadStatusData.length === 0 ? <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No leads yet</p> : (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={leadStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={e => `${e.name} (${e.value})`}>

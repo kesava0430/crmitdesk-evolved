@@ -14,31 +14,43 @@ import { Spinner } from '../shared/components';
 import { AiInsightsWidget } from '../shared/components/AiInsightsWidget';
 import { MeetingNotesModal } from '../shared/components/MeetingNotesModal';
 
+const ICON_COLORS = {
+  blue:    { bg: 'bg-blue-50 dark:bg-blue-500/10',       icon: 'text-blue-600 dark:text-blue-400' },
+  emerald: { bg: 'bg-emerald-50 dark:bg-emerald-500/10', icon: 'text-emerald-600 dark:text-emerald-400' },
+  violet:  { bg: 'bg-violet-50 dark:bg-violet-500/10',   icon: 'text-violet-600 dark:text-violet-400' },
+  indigo:  { bg: 'bg-indigo-50 dark:bg-indigo-500/10',   icon: 'text-indigo-600 dark:text-indigo-400' },
+  orange:  { bg: 'bg-orange-50 dark:bg-orange-500/10',   icon: 'text-orange-600 dark:text-orange-400' },
+  amber:   { bg: 'bg-amber-50 dark:bg-amber-500/10',     icon: 'text-amber-600 dark:text-amber-400' },
+  red:     { bg: 'bg-red-50 dark:bg-red-500/10',         icon: 'text-red-600 dark:text-red-400' },
+  gray:    { bg: 'bg-gray-50 dark:bg-gray-800',          icon: 'text-gray-500 dark:text-gray-400' },
+} as const;
+type IconColor = keyof typeof ICON_COLORS;
+
 interface StatCardProps {
   label: string;
   value: string | number | undefined;
   icon: React.ElementType;
-  iconBg: string;
-  iconColor: string;
+  color: IconColor;
   trend?: string;
   trendUp?: boolean;
   onClick?: () => void;
 }
 
-function StatCard({ label, value, icon: Icon, iconBg, iconColor, trend, trendUp, onClick }: StatCardProps) {
+function StatCard({ label, value, icon: Icon, color, trend, trendUp, onClick }: StatCardProps) {
+  const c = ICON_COLORS[color];
   return (
-    <div onClick={onClick} className={`bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-5 flex flex-col gap-4 hover:border-gray-200 hover:shadow-card-hover card-hover transition-all ${onClick ? 'cursor-pointer' : ''}`}>
+    <div onClick={onClick} className={`bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-5 flex flex-col gap-4 hover:border-gray-200 dark:hover:border-gray-700 hover:shadow-card-hover card-hover transition-all ${onClick ? 'cursor-pointer' : ''}`}>
       <div className="flex items-start justify-between">
-        <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          <Icon size={18} className={iconColor} />
+        <div className={`w-10 h-10 rounded-xl ${c.bg} flex items-center justify-center shrink-0`}>
+          <Icon size={18} className={c.icon} />
         </div>
-        {onClick && <ArrowUpRight size={15} className="text-gray-300 group-hover:text-gray-400" />}
+        {onClick && <ArrowUpRight size={15} className="text-gray-300 dark:text-gray-600 group-hover:text-gray-400" />}
       </div>
       <div>
-        <p className="text-2xl font-bold text-gray-900 tabular-nums">{value ?? '--'}</p>
-        <p className="text-sm text-gray-500 mt-0.5">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value ?? '--'}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{label}</p>
         {trend && (
-          <p className={`text-xs mt-1.5 font-medium ${trendUp ? 'text-emerald-600' : 'text-red-500'}`}>
+          <p className={`text-xs mt-1.5 font-medium ${trendUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
             {trendUp ? 'Up' : 'Down'} {trend}
           </p>
         )}
@@ -52,10 +64,10 @@ function SectionTitle({ color, label, action, onAction }: { color: string; label
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-2.5">
         <span className={`w-1 h-5 rounded-full ${color}`} />
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">{label}</h2>
+        <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{label}</h2>
       </div>
       {action && onAction && (
-        <button onClick={onAction} className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
+        <button onClick={onAction} className="flex items-center gap-1 text-xs text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium">
           {action} <ArrowRight size={12} />
         </button>
       )}
@@ -63,17 +75,18 @@ function SectionTitle({ color, label, action, onAction }: { color: string; label
   );
 }
 
-function QuickAction({ label, icon: Icon, iconBg, iconColor, onClick }: { label: string; icon: React.ElementType; iconBg: string; iconColor: string; onClick: () => void }) {
+function QuickAction({ label, icon: Icon, color, onClick }: { label: string; icon: React.ElementType; color: IconColor; onClick: () => void }) {
+  const c = ICON_COLORS[color];
   return (
-    <button onClick={onClick} className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-card-hover transition-all text-left">
-      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
-        <Icon size={16} className={iconColor} />
+    <button onClick={onClick} className="flex items-center gap-3 p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 hover:border-gray-200 dark:hover:border-gray-700 hover:shadow-card-hover transition-all text-left">
+      <div className={`w-9 h-9 rounded-lg ${c.bg} flex items-center justify-center shrink-0`}>
+        <Icon size={16} className={c.icon} />
       </div>
       <div>
-        <p className="text-sm font-medium text-gray-800">{label}</p>
-        <p className="text-xs text-gray-400">Click to open</p>
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{label}</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500">Click to open</p>
       </div>
-      <Plus size={15} className="text-gray-300 ml-auto" />
+      <Plus size={15} className="text-gray-300 dark:text-gray-600 ml-auto" />
     </button>
   );
 }
@@ -103,18 +116,18 @@ function AIQueryBar() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-2">
-        <Sparkles size={15} className="text-violet-500" />
-        <span className="text-sm font-semibold text-gray-800">Ask AI about your data</span>
-        <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-600">Beta</span>
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800 flex items-center gap-2">
+        <Sparkles size={15} className="text-violet-500 dark:text-violet-400" />
+        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Ask AI about your data</span>
+        <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-300">Beta</span>
       </div>
       <div className="p-5 space-y-4">
         <div className="flex gap-2">
           <input value={question} onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && ask(question)}
             placeholder="e.g. How many tickets are SLA-breached today?"
-            className="flex-1 px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white placeholder-gray-400 transition-all" />
+            className="flex-1 px-3.5 py-2.5 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white dark:focus:bg-gray-800 placeholder-gray-400 dark:placeholder-gray-500 transition-all" />
           <button onClick={() => ask(question)} disabled={nlQuery.isPending || !question.trim()}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-colors shrink-0">
             {nlQuery.isPending ? <Spinner /> : <Send size={13} />}
@@ -125,28 +138,28 @@ function AIQueryBar() {
           <div className="flex flex-wrap gap-2">
             {QUERIES.map(q => (
               <button key={q} onClick={() => ask(q)}
-                className="text-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-gray-600 hover:bg-violet-600 hover:text-white hover:border-violet-600 transition-all">
+                className="text-xs px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full text-gray-600 dark:text-gray-300 hover:bg-violet-600 hover:text-white hover:border-violet-600 transition-all">
                 {q}
               </button>
             ))}
           </div>
         )}
         {nlQuery.isPending && (
-          <div className="flex items-center gap-2 text-sm text-violet-600 animate-pulse py-1">
+          <div className="flex items-center gap-2 text-sm text-violet-600 dark:text-violet-400 animate-pulse py-1">
             <Sparkles size={13} /> Thinking...
           </div>
         )}
         {nlQuery.isError && (
-          <div className="flex items-center justify-between bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-            <p className="text-sm text-red-600">{(nlQuery.error as any)?.response?.data?.error || 'AI request failed.'}</p>
-            <button onClick={() => nlQuery.reset()} className="text-xs text-red-400 hover:text-red-600 ml-3 shrink-0">Dismiss</button>
+          <div className="flex items-center justify-between bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 rounded-xl px-4 py-3">
+            <p className="text-sm text-red-600 dark:text-red-400">{(nlQuery.error as any)?.response?.data?.error || 'AI request failed.'}</p>
+            <button onClick={() => nlQuery.reset()} className="text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300 ml-3 shrink-0">Dismiss</button>
           </div>
         )}
         {nlQuery.data && (
-          <div className="bg-violet-50 border border-violet-100 rounded-xl p-4">
+          <div className="bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20 rounded-xl p-4">
             <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider mb-2">AI Answer</p>
-            <p className="text-sm text-gray-800 leading-relaxed">{nlQuery.data.answer}</p>
-            <button onClick={() => { nlQuery.reset(); setQuestion(''); }} className="text-xs text-violet-500 hover:text-violet-700 mt-3 font-medium">
+            <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">{nlQuery.data.answer}</p>
+            <button onClick={() => { nlQuery.reset(); setQuestion(''); }} className="text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 mt-3 font-medium">
               Ask another
             </button>
           </div>
@@ -179,18 +192,18 @@ export function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-0 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900" aria-label="Dashboard">{greeting}, {firstName}!</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white" aria-label="Dashboard">{greeting}, {firstName}!</h1>
+          <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setMeetingNotesOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             <FileText size={14} /> Parse Meeting Notes
           </button>
           <button onClick={() => navigate('/crm/contacts')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             <Plus size={14} /> Contact
           </button>
           <button onClick={() => navigate('/itdesk/tickets')}
@@ -207,10 +220,10 @@ export function DashboardPage() {
           <div className="h-32 flex items-center"><Spinner label="Loading CRM..." /></div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Open Deals" value={totalOpenDeals} icon={TrendingUp} iconBg="bg-blue-50" iconColor="text-blue-600" onClick={() => navigate('/crm/deals')} />
-            <StatCard label="Forecast Revenue" value={dealReports?.forecast != null ? `$${dealReports.forecast.toLocaleString()}` : '--'} icon={DollarSign} iconBg="bg-emerald-50" iconColor="text-emerald-600" onClick={() => navigate('/crm/deals')} />
-            <StatCard label="Contacts" value={contacts?.length ?? '--'} icon={Users} iconBg="bg-violet-50" iconColor="text-violet-600" onClick={() => navigate('/crm/contacts')} />
-            <StatCard label="Active Leads" value={activeLeads ?? '--'} icon={Target} iconBg="bg-indigo-50" iconColor="text-indigo-600" onClick={() => navigate('/crm/leads')} />
+            <StatCard label="Open Deals" value={totalOpenDeals} icon={TrendingUp} color="blue" onClick={() => navigate('/crm/deals')} />
+            <StatCard label="Forecast Revenue" value={dealReports?.forecast != null ? `$${dealReports.forecast.toLocaleString()}` : '--'} icon={DollarSign} color="emerald" onClick={() => navigate('/crm/deals')} />
+            <StatCard label="Contacts" value={contacts?.length ?? '--'} icon={Users} color="violet" onClick={() => navigate('/crm/contacts')} />
+            <StatCard label="Active Leads" value={activeLeads ?? '--'} icon={Target} color="indigo" onClick={() => navigate('/crm/leads')} />
           </div>
         )}
       </section>
@@ -223,14 +236,14 @@ export function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="grid grid-cols-2 gap-4 lg:col-span-2">
-              <StatCard label="Open" value={ticketReports?.open} icon={Ticket} iconBg="bg-orange-50" iconColor="text-orange-600" onClick={() => navigate('/itdesk/tickets')} />
-              <StatCard label="In Progress" value={ticketReports?.inProgress} icon={Clock} iconBg="bg-amber-50" iconColor="text-amber-600" onClick={() => navigate('/itdesk/tickets')} />
-              <StatCard label="SLA Breached" value={ticketReports?.slaBreached} icon={AlertCircle} iconBg="bg-red-50" iconColor="text-red-600" onClick={() => navigate('/itdesk/tickets')} />
-              <StatCard label="Resolved" value={ticketReports?.resolved} icon={CheckCircle} iconBg="bg-emerald-50" iconColor="text-emerald-600" onClick={() => navigate('/itdesk/tickets')} />
+              <StatCard label="Open" value={ticketReports?.open} icon={Ticket} color="orange" onClick={() => navigate('/itdesk/tickets')} />
+              <StatCard label="In Progress" value={ticketReports?.inProgress} icon={Clock} color="amber" onClick={() => navigate('/itdesk/tickets')} />
+              <StatCard label="SLA Breached" value={ticketReports?.slaBreached} icon={AlertCircle} color="red" onClick={() => navigate('/itdesk/tickets')} />
+              <StatCard label="Resolved" value={ticketReports?.resolved} icon={CheckCircle} color="emerald" onClick={() => navigate('/itdesk/tickets')} />
             </div>
             {ticketReports?.byPriority?.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-100 p-5">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">By Priority</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-5">
+                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-4">By Priority</p>
                 <div className="space-y-3">
                   {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(p => {
                     const entry = ticketReports.byPriority.find((b: any) => b.priority === p);
@@ -240,10 +253,10 @@ export function DashboardPage() {
                     return (
                       <div key={p}>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-600">{cfg.label}</span>
-                          <span className="text-xs font-bold text-gray-800 tabular-nums">{count}</span>
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{cfg.label}</span>
+                          <span className="text-xs font-bold text-gray-800 dark:text-gray-200 tabular-nums">{count}</span>
                         </div>
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                           <div className={`h-full rounded-full ${cfg.bar} transition-all`} style={{ width: `${pct}%` }} />
                         </div>
                       </div>
@@ -262,12 +275,12 @@ export function DashboardPage() {
         <div className="space-y-3">
           <SectionTitle color="bg-gray-300" label="Quick Actions" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <QuickAction label="New Contact"  icon={Users}       iconBg="bg-violet-50"  iconColor="text-violet-600"  onClick={() => navigate('/crm/contacts')} />
-            <QuickAction label="New Lead"     icon={Target}      iconBg="bg-indigo-50"  iconColor="text-indigo-600"  onClick={() => navigate('/crm/leads')} />
-            <QuickAction label="New Deal"     icon={TrendingUp}  iconBg="bg-blue-50"    iconColor="text-blue-600"    onClick={() => navigate('/crm/deals')} />
-            <QuickAction label="New Ticket"   icon={Ticket}      iconBg="bg-orange-50"  iconColor="text-orange-600"  onClick={() => navigate('/itdesk/tickets')} />
-            <QuickAction label="Reports"      icon={BarChart2}   iconBg="bg-emerald-50" iconColor="text-emerald-600" onClick={() => navigate('/reports')} />
-            <QuickAction label="Import CSV"   icon={ArrowUpRight} iconBg="bg-gray-50"   iconColor="text-gray-500"    onClick={() => navigate('/import')} />
+            <QuickAction label="New Contact"  icon={Users}       color="violet"  onClick={() => navigate('/crm/contacts')} />
+            <QuickAction label="New Lead"     icon={Target}      color="indigo"  onClick={() => navigate('/crm/leads')} />
+            <QuickAction label="New Deal"     icon={TrendingUp}  color="blue"    onClick={() => navigate('/crm/deals')} />
+            <QuickAction label="New Ticket"   icon={Ticket}      color="orange"  onClick={() => navigate('/itdesk/tickets')} />
+            <QuickAction label="Reports"      icon={BarChart2}   color="emerald" onClick={() => navigate('/reports')} />
+            <QuickAction label="Import CSV"   icon={ArrowUpRight} color="gray"   onClick={() => navigate('/import')} />
           </div>
         </div>
       </div>

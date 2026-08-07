@@ -103,35 +103,35 @@ export function SearchableSelect({
         onClick={() => !disabled && setOpen(o => !o)}
         className={`ui-input w-full flex items-center justify-between gap-2 text-left ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
-        <span className={`truncate ${selected ? 'text-gray-900' : 'text-gray-400'}`}>
+        <span className={`truncate ${selected ? 'text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500'}`}>
           {selected ? selected.label : placeholder}
         </span>
         <ChevronDown
           size={14}
-          className={`text-gray-400 flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          className={`text-gray-400 dark:text-gray-500 flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute z-[200] mt-1 w-full min-w-[180px] bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+        <div className="absolute z-[200] mt-1 w-full min-w-[180px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden">
           {/* Search input */}
-          <div className="p-2 border-b border-gray-100">
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 rounded-lg border border-gray-100 focus-within:border-brand-300 focus-within:ring-2 focus-within:ring-brand-100 transition-all">
-              <Search size={12} className="text-gray-400 flex-shrink-0" />
+          <div className="p-2 border-b border-gray-100 dark:border-gray-800">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 focus-within:border-brand-300 focus-within:ring-2 focus-within:ring-brand-100 dark:focus-within:ring-brand-500/20 transition-all">
+              <Search size={12} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
               <input
                 ref={searchRef}
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Type to search…"
-                className="text-sm bg-transparent outline-none flex-1 text-gray-700 placeholder-gray-400 min-w-0"
+                className="text-sm bg-transparent outline-none flex-1 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 min-w-0"
               />
               {search && (
                 <button
                   type="button"
                   onClick={() => setSearch('')}
-                  className="text-gray-300 hover:text-gray-500 text-xs leading-none flex-shrink-0"
+                  className="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 text-xs leading-none flex-shrink-0"
                 >
                   ✕
                 </button>
@@ -146,7 +146,7 @@ export function SearchableSelect({
               <button
                 type="button"
                 onClick={() => select('')}
-                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 transition-colors ${!value ? 'text-brand-600 font-medium bg-brand-50' : 'text-gray-400'}`}
+                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${!value ? 'text-brand-600 dark:text-brand-400 font-medium bg-brand-50 dark:bg-brand-500/10' : 'text-gray-400 dark:text-gray-500'}`}
               >
                 {placeholder}
                 {!value && <Check size={12} className="flex-shrink-0 ml-2" />}
@@ -155,7 +155,7 @@ export function SearchableSelect({
 
             {/* Filtered options */}
             {filtered.length === 0 ? (
-              <p className="px-3 py-3 text-sm text-gray-400 italic text-center">
+              <p className="px-3 py-3 text-sm text-gray-400 dark:text-gray-500 italic text-center">
                 No results for "{search}"
               </p>
             ) : (
@@ -164,7 +164,7 @@ export function SearchableSelect({
                   key={opt.value}
                   type="button"
                   onClick={() => select(opt.value)}
-                  className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 transition-colors ${value === opt.value ? 'text-brand-600 bg-brand-50 font-medium' : 'text-gray-700'}`}
+                  className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${value === opt.value ? 'text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-500/10 font-medium' : 'text-gray-700 dark:text-gray-300'}`}
                 >
                   <span className="truncate">{opt.label}</span>
                   {value === opt.value && <Check size={12} className="flex-shrink-0 ml-2 text-brand-500" />}

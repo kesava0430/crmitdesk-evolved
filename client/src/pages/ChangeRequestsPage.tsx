@@ -28,25 +28,25 @@ interface ChangeRequest {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<string, string> = {
-  DRAFT:         'bg-gray-100 text-gray-600',
-  SUBMITTED:     'bg-blue-100 text-blue-700',
-  APPROVED:      'bg-green-100 text-green-700',
-  REJECTED:      'bg-red-100 text-red-700',
-  IMPLEMENTING:  'bg-yellow-100 text-yellow-700',
-  DONE:          'bg-emerald-100 text-emerald-700',
+  DRAFT:         'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+  SUBMITTED:     'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400',
+  APPROVED:      'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400',
+  REJECTED:      'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400',
+  IMPLEMENTING:  'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400',
+  DONE:          'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400',
 };
 
 const PRIORITY_COLOR: Record<string, string> = {
-  LOW:      'text-gray-500',
-  MEDIUM:   'text-yellow-600',
-  HIGH:     'text-orange-600',
-  CRITICAL: 'text-red-600',
+  LOW:      'text-gray-500 dark:text-gray-400',
+  MEDIUM:   'text-yellow-600 dark:text-yellow-400',
+  HIGH:     'text-orange-600 dark:text-orange-400',
+  CRITICAL: 'text-red-600 dark:text-red-400',
 };
 
 const TYPE_COLOR: Record<string, string> = {
-  NORMAL:    'bg-blue-50 text-blue-700',
-  EMERGENCY: 'bg-red-50 text-red-700',
-  STANDARD:  'bg-gray-50 text-gray-600',
+  NORMAL:    'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400',
+  EMERGENCY: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400',
+  STANDARD:  'bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
 };
 
 const STATUS_FLOW: Record<string, string[]> = {
@@ -81,10 +81,10 @@ function ChangeRequestModal({ cr, users, onClose }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
-          <h2 className="font-semibold text-gray-900">{cr ? 'Edit Change Request' : 'New Change Request'}</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+      <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white dark:bg-gray-900 dark:border-gray-800">
+          <h2 className="font-semibold text-gray-900 dark:text-white">{cr ? 'Edit Change Request' : 'New Change Request'}</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
         </div>
         <form onSubmit={e => { e.preventDefault(); save.mutate({ ...form, assignedTo: form.assignedTo || null, plannedStart: form.plannedStart || null, plannedEnd: form.plannedEnd || null }); }} className="p-6 space-y-3">
           <div className="form-section">
@@ -134,7 +134,7 @@ function ChangeRequestModal({ cr, users, onClose }: {
           </div>
           {cr && <Attachments entityType="CHANGE_REQUEST" entityId={cr.id} />}
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
             <button type="submit" disabled={save.isPending} className="flex-1 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">
               {save.isPending ? 'Saving…' : cr ? 'Save Changes' : 'Create Request'}
             </button>
@@ -197,8 +197,8 @@ export default function ChangeRequestsPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Change Requests</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Track and approve infrastructure and system changes</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Change Requests</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Track and approve infrastructure and system changes</p>
         </div>
         <button onClick={() => setModal('new')}
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700">
@@ -210,23 +210,23 @@ export default function ChangeRequestsPage() {
       <div className="flex items-center gap-3 mb-4">
         <div className="relative">
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none bg-white">
+            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100">
             <option value="">All Statuses</option>
             {['DRAFT','SUBMITTED','APPROVED','REJECTED','IMPLEMENTING','DONE'].map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
         </div>
-        <p className="text-sm text-gray-400 ml-auto">{changeRequests.length} requests</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{changeRequests.length} requests</p>
       </div>
 
       {isLoading ? (
-        <div className="text-center py-16 text-gray-400">Loading…</div>
+        <div className="text-center py-16 text-gray-400 dark:text-gray-500">Loading…</div>
       ) : changeRequests.length === 0 ? (
         <div className="text-center py-20">
-          <GitBranch size={48} className="text-gray-200 mx-auto mb-4" />
-          <p className="font-medium text-gray-500">No change requests</p>
+          <GitBranch size={48} className="text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+          <p className="font-medium text-gray-500 dark:text-gray-400">No change requests</p>
           <button onClick={() => setModal('new')} className="mt-4 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold">
             Create First Request
           </button>
@@ -234,42 +234,42 @@ export default function ChangeRequestsPage() {
       ) : (
         <div className="space-y-3">
           {changeRequests.map(cr => (
-            <div key={cr.id} data-testid="cr-card" className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div key={cr.id} data-testid="cr-card" className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5">
               <div className="flex items-start gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <h3 className="font-semibold text-gray-900">{cr.title}</h3>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{cr.title}</h3>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[cr.status]}`}>{cr.status}</span>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TYPE_COLOR[cr.type]}`}>{cr.type}</span>
                     <span className={`text-xs font-semibold ${PRIORITY_COLOR[cr.priority]}`}>{cr.priority}</span>
                   </div>
-                  <p className="text-sm text-gray-600 line-clamp-2">{cr.description}</p>
-                  <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
+                  <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{cr.description}</p>
+                  <div className="flex items-center gap-4 mt-2 text-xs text-gray-400 dark:text-gray-500">
                     <span>By {cr.requester.name}</span>
                     {cr.assignee && <span>→ {cr.assignee.name}</span>}
                     {cr.plannedStart && <span>Planned: {new Date(cr.plannedStart).toLocaleDateString()} – {cr.plannedEnd ? new Date(cr.plannedEnd).toLocaleDateString() : '?'}</span>}
                     <span>{new Date(cr.createdAt).toLocaleDateString()}</span>
                   </div>
                   {cr.status === 'REJECTED' && cr.rejectionReason && (
-                    <p className="text-xs text-red-600 mt-1.5 bg-red-50 px-3 py-1.5 rounded-lg">Rejected: {cr.rejectionReason}</p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1.5 bg-red-50 dark:bg-red-500/10 px-3 py-1.5 rounded-lg">Rejected: {cr.rejectionReason}</p>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   {cr.status === 'SUBMITTED' && (
                     <>
                       <button onClick={() => approve.mutate(cr.id)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 rounded-lg">
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20 rounded-lg">
                         <CheckCircle size={13} /> Approve
                       </button>
                       <button onClick={() => setRejectId(cr.id)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 rounded-lg">
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg">
                         <XCircle size={13} /> Reject
                       </button>
                     </>
                   )}
                   {STATUS_FLOW[cr.status]?.length > 0 && (
                     <button onClick={() => advanceStatus.mutate({ id: cr.id, status: STATUS_FLOW[cr.status][0] })}
-                      className="px-2.5 py-1.5 text-xs font-medium bg-brand-50 text-brand-700 hover:bg-brand-100 rounded-lg">
+                      className="px-2.5 py-1.5 text-xs font-medium bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400 hover:bg-brand-100 dark:hover:bg-brand-500/20 rounded-lg">
                       → {STATUS_FLOW[cr.status][0]}
                     </button>
                   )}
@@ -287,13 +287,13 @@ export default function ChangeRequestsPage() {
       {/* Reject modal */}
       {rejectId && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div role="dialog" aria-modal="true" className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6">
-            <h3 className="font-semibold text-gray-900 mb-4">Reject Change Request</h3>
+          <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm shadow-2xl p-6">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Reject Change Request</h3>
             <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3}
               className="ui-input"
               placeholder="Reason for rejection…" />
             <div className="flex gap-3">
-              <button onClick={() => setRejectId(null)} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm">Cancel</button>
+              <button onClick={() => setRejectId(null)} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
               <button onClick={() => rejectReason && reject.mutate({ id: rejectId, reason: rejectReason })}
                 disabled={!rejectReason || reject.isPending}
                 className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-50">

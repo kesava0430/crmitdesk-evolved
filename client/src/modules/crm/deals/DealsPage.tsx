@@ -98,26 +98,26 @@ function DealCard({ deal, onDelete, onSelect }: any) {
       draggable
       onDragStart={e => { setDragging(true); e.dataTransfer.setData('dealId', deal.id); e.dataTransfer.setData('fromStage', deal.stage); }}
       onDragEnd={() => setDragging(false)}
-      className={`bg-white border border-gray-200 rounded-xl p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-all group w-full ${dragging ? 'opacity-50' : ''}`}
+      className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-all group w-full ${dragging ? 'opacity-50' : ''}`}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p onClick={() => onSelect(deal)} className="font-medium text-gray-900 text-sm leading-snug hover:text-brand-600 cursor-pointer">{deal.title}</p>
-        <button onClick={() => onDelete(deal.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all flex-shrink-0">
+        <p onClick={() => onSelect(deal)} className="font-medium text-gray-900 dark:text-white text-sm leading-snug hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer">{deal.title}</p>
+        <button onClick={() => onDelete(deal.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 transition-all flex-shrink-0">
           <Trash2 size={12} />
         </button>
       </div>
       {deal.value > 0 && (
-        <div className="flex items-center gap-1 text-green-600 font-semibold text-sm mb-2">
+        <div className="flex items-center gap-1 text-green-600 dark:text-green-400 font-semibold text-sm mb-2">
           <DollarSign size={13} />{Number(deal.value).toLocaleString()}
         </div>
       )}
       <div className="flex items-center justify-between">
-        {deal.contact && <span className="text-xs text-gray-400">{deal.contact.name}</span>}
-        <span className="text-xs text-gray-400 ml-auto">{deal.probability}%</span>
+        {deal.contact && <span className="text-xs text-gray-400 dark:text-gray-500">{deal.contact.name}</span>}
+        <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{deal.probability}%</span>
       </div>
       {deal.assignee && <div className="mt-2 flex items-center gap-1">
-        <div className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold">{deal.assignee.name[0]}</div>
-        <span className="text-xs text-gray-400">{deal.assignee.name}</span>
+        <div className="w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center justify-center text-xs font-bold">{deal.assignee.name[0]}</div>
+        <span className="text-xs text-gray-400 dark:text-gray-500">{deal.assignee.name}</span>
       </div>}
     </div>
   );
@@ -136,18 +136,18 @@ function DealDetailPanel({ deal }: { deal: any }) {
   }
 
   const probColor = winProb.data
-    ? winProb.data.probability >= 70 ? 'text-green-600' : winProb.data.probability >= 40 ? 'text-amber-600' : 'text-red-600'
+    ? winProb.data.probability >= 70 ? 'text-green-600 dark:text-green-400' : winProb.data.probability >= 40 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
     : '';
   const probBg = winProb.data
-    ? winProb.data.probability >= 70 ? 'bg-green-50 border-green-200' : winProb.data.probability >= 40 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+    ? winProb.data.probability >= 70 ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30' : winProb.data.probability >= 40 ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
     : '';
 
   return (
     <div className="space-y-4">
       {/* Win Probability */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <Activity size={14} className="text-brand-500" /> Win Probability
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => winProb.mutate(deal.id)} loading={winProb.isPending}>
@@ -160,16 +160,16 @@ function DealDetailPanel({ deal }: { deal: any }) {
             {winProb.data.factors?.length > 0 && (
               <ul className="space-y-1 mb-3">
                 {winProb.data.factors.map((factor: string, i: number) => (
-                  <li key={i} className="text-xs text-gray-600 flex items-start gap-1.5">
-                    <span className="text-gray-400 mt-0.5">&#8226;</span>{factor}
+                  <li key={i} className="text-xs text-gray-600 dark:text-gray-400 flex items-start gap-1.5">
+                    <span className="text-gray-400 dark:text-gray-500 mt-0.5">&#8226;</span>{factor}
                   </li>
                 ))}
               </ul>
             )}
             {winProb.data.recommendation && (
-              <div className="border-t border-gray-200 pt-2 mt-2">
-                <p className="text-xs font-semibold text-gray-500 mb-1">Recommendation</p>
-                <p className="text-xs text-gray-700">{winProb.data.recommendation}</p>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Recommendation</p>
+                <p className="text-xs text-gray-700 dark:text-gray-300">{winProb.data.recommendation}</p>
               </div>
             )}
           </div>
@@ -177,9 +177,9 @@ function DealDetailPanel({ deal }: { deal: any }) {
       </div>
 
       {/* Follow-up Email */}
-      <div className="border-t pt-4">
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
             <Mail size={14} className="text-violet-500" /> Follow-up Email
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => followUp.mutate(deal.id)} loading={followUp.isPending}>
@@ -188,38 +188,38 @@ function DealDetailPanel({ deal }: { deal: any }) {
         </div>
         {followUp.data && (
           <div className="space-y-2">
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
-              <div className="bg-gray-50 px-3 py-2 flex items-center justify-between border-b border-gray-100">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Subject</span>
-                <button onClick={() => copy(followUp.data!.subject, 'subject')} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+              <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subject</span>
+                <button onClick={() => copy(followUp.data!.subject, 'subject')} className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
                   {copied === 'subject' ? <><Check size={12} className="text-green-500" /> Copied</> : <><Copy size={12} /> Copy</>}
                 </button>
               </div>
-              <p className="px-3 py-2 text-sm font-medium text-gray-800">{followUp.data.subject}</p>
+              <p className="px-3 py-2 text-sm font-medium text-gray-800 dark:text-gray-200">{followUp.data.subject}</p>
             </div>
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
-              <div className="bg-gray-50 px-3 py-2 flex items-center justify-between border-b border-gray-100">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Email Body</span>
+            <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+              <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email Body</span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => toneCheck.mutate({ subject: followUp.data!.subject, body: followUp.data!.body })}
                     disabled={toneCheck.isPending}
-                    className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 disabled:opacity-40"
+                    className="flex items-center gap-1 text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 disabled:opacity-40"
                   >
                     <Sparkles size={11} />
                     {toneCheck.isPending ? 'Checking...' : 'Tone Check'}
                   </button>
-                  <button onClick={() => copy(followUp.data!.body, 'body')} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700">
+                  <button onClick={() => copy(followUp.data!.body, 'body')} className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
                     {copied === 'body' ? <><Check size={12} className="text-green-500" /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
                 </div>
               </div>
-              <pre className="px-3 py-2 text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">{followUp.data.body}</pre>
+              <pre className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">{followUp.data.body}</pre>
             </div>
             {toneCheck.data && (
-              <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 text-sm">
-                <p className="text-xs font-semibold text-violet-600 mb-1">Tone Analysis</p>
-                <p className="text-gray-700 text-xs leading-relaxed">{typeof toneCheck.data === 'string' ? toneCheck.data : JSON.stringify(toneCheck.data)}</p>
+              <div className="bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/30 rounded-xl p-3 text-sm">
+                <p className="text-xs font-semibold text-violet-600 dark:text-violet-400 mb-1">Tone Analysis</p>
+                <p className="text-gray-700 dark:text-gray-300 text-xs leading-relaxed">{typeof toneCheck.data === 'string' ? toneCheck.data : JSON.stringify(toneCheck.data)}</p>
               </div>
             )}
           </div>
@@ -241,29 +241,29 @@ function PipelineHealthModal({ open, onClose }: { open: boolean; onClose: () => 
         </div>
         {health.data && (
           <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2">Summary</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{health.data.summary}</p>
+            <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 rounded-xl p-4">
+              <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Summary</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{health.data.summary}</p>
             </div>
             {health.data.risks?.length > 0 && (
-              <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-                <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2">Risks</p>
+              <div className="bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-xl p-4">
+                <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider mb-2">Risks</p>
                 <ul className="space-y-1.5">
                   {health.data.risks.map((r: string, i: number) => (
-                    <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
-                      <span className="text-red-400 mt-0.5 flex-shrink-0">&#8226;</span>{r}
+                    <li key={i} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-1.5">
+                      <span className="text-red-400 dark:text-red-500 mt-0.5 flex-shrink-0">&#8226;</span>{r}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
             {health.data.opportunities?.length > 0 && (
-              <div className="bg-green-50 border border-green-100 rounded-xl p-4">
-                <p className="text-xs font-semibold text-green-600 uppercase tracking-wider mb-2">Opportunities</p>
+              <div className="bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/30 rounded-xl p-4">
+                <p className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider mb-2">Opportunities</p>
                 <ul className="space-y-1.5">
                   {health.data.opportunities.map((o: string, i: number) => (
-                    <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
-                      <span className="text-green-500 mt-0.5 flex-shrink-0">&#8226;</span>{o}
+                    <li key={i} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-1.5">
+                      <span className="text-green-500 dark:text-green-400 mt-0.5 flex-shrink-0">&#8226;</span>{o}
                     </li>
                   ))}
                 </ul>
@@ -308,26 +308,26 @@ function StageRow({ pipelineId, stage, index, total, allLabels, onMoved }: any) 
   }
 
   return (
-    <div className="border border-gray-200 rounded-xl p-3">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-3">
       <div className="flex items-center gap-2">
-        <div className="flex flex-col text-gray-300">
-          <button type="button" disabled={index === 0} onClick={() => move(-1)} className="hover:text-gray-600 disabled:opacity-20 leading-none text-xs">▲</button>
-          <button type="button" disabled={index === total - 1} onClick={() => move(1)} className="hover:text-gray-600 disabled:opacity-20 leading-none text-xs">▼</button>
+        <div className="flex flex-col text-gray-300 dark:text-gray-600">
+          <button type="button" disabled={index === 0} onClick={() => move(-1)} className="hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20 leading-none text-xs">▲</button>
+          <button type="button" disabled={index === total - 1} onClick={() => move(1)} className="hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20 leading-none text-xs">▼</button>
         </div>
-        <GripVertical size={14} className="text-gray-300" />
-        <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-7 h-7 rounded cursor-pointer border border-gray-200" />
+        <GripVertical size={14} className="text-gray-300 dark:text-gray-600" />
+        <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-7 h-7 rounded cursor-pointer border border-gray-200 dark:border-gray-700" />
         <input className="ui-input flex-1" value={label} onChange={e => setLabel(e.target.value)} aria-label={`Stage name ${index + 1}`} />
         <input type="number" min={0} max={100} className="ui-input w-20" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
-        <span className="text-xs text-gray-400">%</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">%</span>
         {dirty && <Button size="sm" onClick={save} loading={updateStage.isPending}>Save</Button>}
-        <button type="button" onClick={remove} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+        <button type="button" onClick={remove} className="p-1.5 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400"><Trash2 size={14} /></button>
       </div>
       {blockedCount && (
-        <div className="mt-2 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+        <div className="mt-2 flex items-center gap-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           <span className="flex-1">{blockedCount}</span>
           <SearchableSelect ariaLabel="Reassign deals to" value={reassignTo} onChange={setReassignTo} options={allLabels.filter((l: string) => l !== stage.label).map((l: string) => ({ value: l, label: l }))} placeholder="Move deals to…" />
           <Button size="sm" variant="secondary" onClick={remove} disabled={!reassignTo}>Move &amp; Delete</Button>
-          <button type="button" onClick={() => setBlockedCount(null)}><X size={14} className="text-amber-400" /></button>
+          <button type="button" onClick={() => setBlockedCount(null)}><X size={14} className="text-amber-400 dark:text-amber-500" /></button>
         </div>
       )}
     </div>
@@ -344,7 +344,7 @@ function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <Modal open={open} onClose={onClose} title="Manage Pipeline Stages" size="lg">
       <div className="space-y-3">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           Rename, recolor, reorder, or remove stages on <strong>{pipeline?.name}</strong>. Renaming moves every deal
           currently in that stage along with it. Combine with a workflow automation (trigger: "Deal Stage Changed")
           to notify someone or send an email whenever a deal enters a specific stage.
@@ -380,10 +380,10 @@ function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; page
         </Button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Stage</p><p className="font-medium">{deal.stage}</p></div>
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Value</p><p className="font-medium text-green-600">${Number(deal.value).toLocaleString()}</p></div>
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Contact</p><p className="font-medium">{deal.contact?.name || '--'}</p></div>
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Assigned To</p><p className="font-medium">{deal.assignee?.name || '--'}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Stage</p><p className="font-medium">{deal.stage}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Value</p><p className="font-medium text-green-600 dark:text-green-400">${Number(deal.value).toLocaleString()}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Contact</p><p className="font-medium">{deal.contact?.name || '--'}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Assigned To</p><p className="font-medium">{deal.assignee?.name || '--'}</p></div>
       </div>
       <DealDetailPanel deal={deal} />
       <CustomFieldsDisplay entityType="DEAL" entityId={deal.id} card />
@@ -430,7 +430,7 @@ export function DealsPage() {
     const dealId = e.dataTransfer.getData('dealId');
     const fromStage = e.dataTransfer.getData('fromStage');
     if (dealId && fromStage !== toStage) moveStage.mutate({ id: dealId, stage: toStage });
-    e.currentTarget.classList.remove('bg-brand-50');
+    e.currentTarget.classList.remove('bg-brand-50', 'dark:bg-brand-500/10');
   }
 
   return (
@@ -440,9 +440,9 @@ export function DealsPage() {
         subtitle={pipelineData?.pipeline?.name}
         actions={
           <div className="flex flex-wrap gap-2">
-            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-              <button onClick={() => setView('kanban')} className={`px-3 py-1.5 text-sm ${view === 'kanban' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>Board</button>
-              <button onClick={() => setView('reports')} className={`px-3 py-1.5 text-sm ${view === 'reports' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>Reports</button>
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <button onClick={() => setView('kanban')} className={`px-3 py-1.5 text-sm ${view === 'kanban' ? 'bg-brand-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Board</button>
+              <button onClick={() => setView('reports')} className={`px-3 py-1.5 text-sm ${view === 'reports' ? 'bg-brand-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Reports</button>
             </div>
             <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setPipelineHealthOpen(true)}>Pipeline Health</Button>
             <Button variant="secondary" icon={<Settings size={14} />} onClick={() => setStagesOpen(true)}>Manage Stages</Button>
@@ -462,8 +462,8 @@ export function DealsPage() {
             const headerColor = color || '#6b7280';
             return (
               <div key={stage} className="flex-shrink-0 min-w-[260px] max-w-[300px] flex flex-col"
-                onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bg-brand-50'); }}
-                onDragLeave={e => e.currentTarget.classList.remove('bg-brand-50')}
+                onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bg-brand-50', 'dark:bg-brand-500/10'); }}
+                onDragLeave={e => e.currentTarget.classList.remove('bg-brand-50', 'dark:bg-brand-500/10')}
                 onDrop={e => handleDrop(e, stage)}>
                 <div className="rounded-t-xl px-3 py-2" style={{ backgroundColor: headerColor }}>
                   <div className="flex items-center justify-between flex-wrap gap-1">
@@ -471,8 +471,8 @@ export function DealsPage() {
                     <span className="bg-white/20 text-white text-xs px-2 py-0.5 rounded-full">{deals.length}</span>
                   </div>
                 </div>
-                <div className="flex-1 rounded-b-xl border-2 border-t-0 p-2 space-y-2 min-h-32 transition-colors bg-gray-50" style={{ borderColor: `${headerColor}33` }}>
-                  {deals.length === 0 && <p className="text-xs text-gray-300 text-center py-4">Drop deals here</p>}
+                <div className="flex-1 rounded-b-xl border-2 border-t-0 p-2 space-y-2 min-h-32 transition-colors bg-gray-50 dark:bg-gray-800" style={{ borderColor: `${headerColor}33` }}>
+                  {deals.length === 0 && <p className="text-xs text-gray-300 dark:text-gray-600 text-center py-4">Drop deals here</p>}
                   {deals.map((deal: any) => (
                     <DealCard key={deal.id} deal={deal} onDelete={(id: string) => del.mutate(id)} onSelect={(d: any) => { setSelectedDealId(d.id); setSelectedDealTitle(d.title); }} />
                   ))}
@@ -484,11 +484,11 @@ export function DealsPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
-            <h3 className="font-semibold text-gray-700 mb-4">Pipeline Funnel</h3>
+            <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-4">Pipeline Funnel</h3>
             {reports?.funnel?.map((s: any) => (
               <div key={s.stage} className="mb-3">
-                <div className="flex justify-between text-sm mb-1"><span className="text-gray-600">{s.stage}</span><span className="font-medium">{s.count} deals · ${s.value.toLocaleString()}</span></div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className="flex justify-between text-sm mb-1"><span className="text-gray-600 dark:text-gray-400">{s.stage}</span><span className="font-medium">{s.count} deals · ${s.value.toLocaleString()}</span></div>
+                <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                   <div className="h-full bg-brand-500 rounded-full" style={{ width: `${Math.min(100, (s.count / (reports.funnel[0]?.count || 1)) * 100)}%` }} />
                 </div>
               </div>
@@ -496,12 +496,12 @@ export function DealsPage() {
           </div>
           <div className="space-y-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center text-green-600"><TrendingUp size={22} /></div>
-              <div><p className="text-2xl font-bold text-gray-900">${reports?.forecast?.toLocaleString()}</p><p className="text-sm text-gray-500">Weighted Forecast</p></div>
+              <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-500/20 flex items-center justify-center text-green-600 dark:text-green-400"><TrendingUp size={22} /></div>
+              <div><p className="text-2xl font-bold text-gray-900 dark:text-white">${reports?.forecast?.toLocaleString()}</p><p className="text-sm text-gray-500 dark:text-gray-400">Weighted Forecast</p></div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-green-50 rounded-xl border border-green-100 p-4 text-center"><p className="text-2xl font-bold text-green-700">{reports?.won}</p><p className="text-sm text-green-600">Won</p></div>
-              <div className="bg-red-50 rounded-xl border border-red-100 p-4 text-center"><p className="text-2xl font-bold text-red-700">{reports?.lost}</p><p className="text-sm text-red-600">Lost</p></div>
+              <div className="bg-green-50 dark:bg-green-500/10 rounded-xl border border-green-100 dark:border-green-500/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-400">{reports?.won}</p><p className="text-sm text-green-600 dark:text-green-400">Won</p></div>
+              <div className="bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-100 dark:border-red-500/30 p-4 text-center"><p className="text-2xl font-bold text-red-700 dark:text-red-400">{reports?.lost}</p><p className="text-sm text-red-600 dark:text-red-400">Lost</p></div>
             </div>
           </div>
         </div>
