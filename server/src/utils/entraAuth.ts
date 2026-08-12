@@ -83,7 +83,9 @@ interface EntraProfile { id: string; mail: string | null; userPrincipalName: str
 export async function fetchEntraProfile(accessToken: string): Promise<EntraProfile> {
   const res = await fetch(GRAPH_ME_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) throw new Error('Could not verify your Microsoft account (Graph /me request failed)');
-  const data = await res.json();
+  // Node's global fetch types Body.json() as Promise<unknown> (stricter than
+  // DOM's `any`) — cast once here rather than at every property access below.
+  const data = await res.json() as any;
   if (!data.id) throw new Error('Microsoft Graph did not return a user id');
   return { id: data.id, mail: data.mail ?? null, userPrincipalName: data.userPrincipalName, displayName: data.displayName ?? data.userPrincipalName };
 }
@@ -99,7 +101,7 @@ export async function testEntraTenant(tenantId: string): Promise<{ ok: boolean; 
   try {
     const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/v2.0/.well-known/openid-configuration`);
     if (!res.ok) return { ok: false, error: `Tenant not found or not reachable (${res.status})` };
-    const json = await res.json();
+    const json = await res.json() as any;
     return { ok: true, issuer: json.issuer };
   } catch (err: any) {
     return { ok: false, error: err.message || 'Could not reach Microsoft Entra ID' };
