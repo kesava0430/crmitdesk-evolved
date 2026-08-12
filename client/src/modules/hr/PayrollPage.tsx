@@ -92,7 +92,8 @@ function SalaryStructuresSection() {
   function closeModal() { setModalOpen(false); setEditing(null); }
 
   const alreadyAssigned = new Set((data || []).map(s => s.userId));
-  const employeeOptions = (employees || []).map((u: EmployeeRef) => ({ value: u.id, label: u.name }));
+  const employeeOptions: { value: string; label: string }[] =
+    (employees || []).map((u: EmployeeRef) => ({ value: u.id, label: u.name }));
 
   return (
     <div className="card p-5">
