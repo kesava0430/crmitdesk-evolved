@@ -68,6 +68,7 @@ model Organization {
   payrollRuns       PayrollRun[]
   payslips          Payslip[]
   payslipTemplate   PayslipTemplate?
+  directoryConfig   DirectoryConfig?
 
   @@map("organizations")
 }
@@ -185,6 +186,12 @@ model User {
   // accepts a verified Google ID token in place of a password. Unique so no
   // two staff users can link the same Google account.
   googleId               String?            @unique @map("google_id")
+  // Microsoft Entra ID SSO linking — same shape as googleId above, set the
+  // first time a user signs in via their org's configured Entra tenant
+  // (matched first by this id, falling back to a one-time email match on
+  // first SSO login — see auth.controller.ts entraCallback()). Unique so an
+  // Entra identity can't end up linked to two different CRMITdesk users.
+  entraObjectId          String?            @unique @map("entra_object_id")
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @updatedAt @map("updated_at")
   orgId                  String?            @map("org_id")
@@ -946,6 +953,32 @@ model SlackConfig {
   org                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("slack_configs")
+}
+
+// Per-org Microsoft Entra ID SSO configuration — each customer registers
+// their own app registration in their own Entra tenant and pastes the
+// tenant/client ID + secret here (see server/src/utils/entraAuth.ts and
+// auth.controller.ts's entraLoginRedirect/entraCallback). `loginSlug` is the
+// public, org-chosen path segment employees use to reach their org's sign-in
+// (client route /login/:loginSlug) — deliberately separate from
+// Organization.slug so an admin can pick something short/memorable without
+// touching the org's internal slug. Phase 1 only: SSO login for existing
+// (invited) users — no auto-provisioning yet, see the integration plan doc.
+model DirectoryConfig {
+  id              String   @id @default(cuid())
+  orgId           String   @unique @map("org_id")
+  tenantId        String   @map("tenant_id")
+  clientId        String   @map("client_id")
+  // encryptSecret()'d — see utils/crypto.ts, same treatment as the connected-
+  // mailbox password.
+  clientSecretEnc String   @map("client_secret_enc")
+  loginSlug       String   @unique @map("login_slug")
+  isEnabled       Boolean  @default(true) @map("is_enabled")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("directory_configs")
 }
 
 model CsatResponse {

@@ -14,6 +14,8 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { PublicQuotePage } from './pages/PublicQuotePage';
 import { PublicInvoicePage } from './pages/PublicInvoicePage';
+import EntraLoginPage from './pages/EntraLoginPage';
+import SsoCallbackPage from './pages/SsoCallbackPage';
 import { CustomerPortal } from './modules/portal/CustomerPortal';
 
 // Page skeleton fallback for Suspense
@@ -50,6 +52,7 @@ const AIFeaturePage    = lazy(() => import('./pages/AIFeaturePage').then(m => ({
 
 // Default exports — direct import()
 const SlackPage          = lazy(() => import('./pages/SlackPage'));
+const DirectorySSOPage   = lazy(() => import('./pages/DirectorySSOPage'));
 const AssetsPage         = lazy(() => import('./modules/itdesk/assets/AssetsPage'));
 const CampaignsPage      = lazy(() => import('./pages/CampaignsPage'));
 const ChangeRequestsPage = lazy(() => import('./pages/ChangeRequestsPage'));
@@ -123,6 +126,12 @@ export default function App() {
         <Route path="/portal" element={<CustomerPortal />} />
         <Route path="/portal/verify" element={<CustomerPortal />} />
         <Route path="/login" element={<LoginPage />} />
+        {/* Per-org Entra ID sign-in link (shared by an admin from Settings →
+            Single Sign-On) and the landing page Microsoft redirects back to
+            once auth.controller.ts entraCallback finishes — both public,
+            outside ProtectedRoute, same as /login itself. */}
+        <Route path="/login/:orgSlug" element={<EntraLoginPage />} />
+        <Route path="/sso-callback" element={<SsoCallbackPage />} />
         <Route path="/demo" element={<DemoLandingPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/approve-org" element={<OrgApprovalPage />} />
@@ -155,6 +164,7 @@ export default function App() {
             <Route path="portal-users" element={<PortalUsersPage />} />
             <Route path="billing" element={<BillingPage />} />
             <Route path="slack" element={<SlackPage />} />
+            <Route path="directory-sso" element={<DirectorySSOPage />} />
             <Route path="itdesk/assets" element={<AssetsPage />} />
             <Route path="campaigns" element={<CampaignsPage />} />
             <Route path="change-requests" element={<ChangeRequestsPage />} />

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Ticket, TrendingUp, Users, Shield, Eye, EyeOff, Loader2, Sparkles, ArrowRight } from 'lucide-react';
 import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
@@ -68,11 +68,22 @@ function InputField({
   );
 }
 
+// Friendly text for ?error=... on the way back from a failed SSO redirect
+// (see auth.controller.ts entraLoginRedirect — a bad/disabled/unknown
+// sign-in slug bounces here rather than to a raw JSON error, since the
+// person clicking the org's SSO link isn't looking at an API response).
+const SSO_ERRORS: Record<string, string> = {
+  sso_not_found: "That sign-in link isn't recognized. Check the link with your admin.",
+  sso_disabled: 'Single sign-on is currently turned off for your organization. Sign in with your password instead.',
+  sso_error: 'Something went wrong starting Microsoft sign-in. Please try again.',
+};
+
 export function LoginPage() {
   const { login, register, googleLogin } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>('login');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => SSO_ERRORS[searchParams.get('error') || ''] || '');
   const [loading, setLoading] = useState(false);
   const [googleError, setGoogleError] = useState('');
 

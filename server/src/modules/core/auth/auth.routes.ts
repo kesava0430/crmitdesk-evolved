@@ -4,6 +4,7 @@ import {
   acceptInvite, inviteInfo, orgSignupInfo, approveOrgSignup,
   forgotPassword, resetPassword,
   googleLogin, googleStatus, linkGoogleAccount, unlinkGoogleAccount,
+  entraLoginRedirect, entraCallback,
 } from './auth.controller';
 import { authenticate } from '../../../middleware/authenticate';
 
@@ -30,6 +31,11 @@ authRouter.post('/google', googleLogin);
 authRouter.get('/google/status', authenticate, googleStatus);
 authRouter.post('/google/link', authenticate, linkGoogleAccount);
 authRouter.delete('/google/link', authenticate, unlinkGoogleAccount);
+// Public — Microsoft redirects the browser through these; org is resolved
+// from the slug / signed state param, not a session. See entraLoginRedirect/
+// entraCallback for why this can't create new users/orgs either.
+authRouter.get('/entra/:slug/login', entraLoginRedirect);
+authRouter.get('/entra/callback', entraCallback);
 authRouter.get('/me', authenticate, me);
 authRouter.put('/me', authenticate, updateMe);
 authRouter.put('/me/password', authenticate, changePassword);

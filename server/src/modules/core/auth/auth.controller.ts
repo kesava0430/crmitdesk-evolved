@@ -13,6 +13,8 @@ import { sendMail, emailTemplates } from '../../../utils/mailer';
 import { assertSeatAvailable } from '../../../utils/licensing';
 import { DEMO_LOGIN_EMAIL, DEMO_VERTICAL_SLUGS, DEFAULT_VERTICAL, loginEmailFor } from '../../../utils/seedDemoData';
 import { verifyGoogleIdToken, isGoogleSsoConfigured } from '../../../utils/googleAuth';
+import { decryptSecret } from '../../../utils/crypto';
+import { buildEntraAuthUrl, exchangeEntraCode, fetchEntraProfile } from '../../../utils/entraAuth';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -615,4 +617,97 @@ export async function unlinkGoogleAccount(req: AuthRequest, res: Response, next:
     logAction(req.user!.id, 'UPDATE', 'User', req.user!.id, { action: 'google_unlinked' });
     res.json({ linked: false });
   } catch (err) { next(err); }
+}
+
+// ─── Microsoft Entra ID SSO ──────────────────────────────────────────────────
+//
+// Phase 1: SSO login only, for an existing (already invited/created) user —
+// same "alternate login method for an existing account" boundary as Google
+// above, not a second signup path. Org resolution happens via a per-org
+// login URL (DirectoryConfig.loginSlug, e.g. /login/acme) rather than a
+// shared login page, since — unlike Google — each org configures its own
+// Entra tenant, so we have to know which org before redirecting to Microsoft.
+//
+// The OAuth round trip carries state the same way modules/calendar's Google
+// Calendar connection flow does: a short-lived JWT signed with JWT_SECRET
+// (see calendar.controller.ts getOAuthUrl/oauthCallback), not a DB row or
+// cookie — Microsoft's redirect back to /callback has no session of its own,
+// so this is how we know which org's config to use when it lands.
+
+/** GET /auth/entra/:slug/login — public; redirects to the org's Microsoft sign-in */
+export async function entraLoginRedirect(req: Request, res: Response) {
+  try {
+    const config = await prisma.directoryConfig.findUnique({ where: { loginSlug: req.params.slug } });
+    if (!config) return res.redirect(`${FRONTEND_URL}/login?error=sso_not_found`);
+    if (!config.isEnabled) return res.redirect(`${FRONTEND_URL}/login?error=sso_disabled`);
+
+    const state = jwt.sign({ orgId: config.orgId }, process.env.JWT_SECRET!, { expiresIn: '10m' });
+    res.redirect(buildEntraAuthUrl({ tenantId: config.tenantId, clientId: config.clientId, state }));
+  } catch (err) {
+    console.error('[entra] login redirect failed:', err);
+    res.redirect(`${FRONTEND_URL}/login?error=sso_error`);
+  }
+}
+
+/** GET /auth/entra/callback — public; Microsoft redirects the browser here after sign-in */
+export async function entraCallback(req: Request, res: Response) {
+  const fail = (reason: string) => res.redirect(`${FRONTEND_URL}/sso-callback#error=${encodeURIComponent(reason)}`);
+  try {
+    const { code, state, error, error_description } = req.query as Record<string, string>;
+    if (error) return fail(error_description || error);
+    if (!code || !state) return fail('Missing sign-in response from Microsoft.');
+
+    let orgId: string;
+    try {
+      ({ orgId } = jwt.verify(state, process.env.JWT_SECRET!) as { orgId: string });
+    } catch {
+      return fail('Your sign-in link expired — please try again.');
+    }
+
+    const config = await prisma.directoryConfig.findUnique({ where: { orgId } });
+    if (!config || !config.isEnabled) return fail('Single sign-on is not available for this organization.');
+
+    const { accessToken } = await exchangeEntraCode({
+      tenantId: config.tenantId, clientId: config.clientId,
+      clientSecret: decryptSecret(config.clientSecretEnc), code,
+    }).catch((e: Error) => { throw new AppError(401, e.message); });
+
+    const profile = await fetchEntraProfile(accessToken);
+    const email = (profile.mail || profile.userPrincipalName || '').toLowerCase();
+
+    let user = await prisma.user.findFirst({
+      where: { entraObjectId: profile.id, orgId },
+      include: { org: { select: { id: true, name: true, slug: true } } },
+    });
+
+    // First SSO login for this person — link by matching email within the
+    // same org instead of creating a new account (phase 1 has no
+    // auto-provisioning; see entraObjectId's schema comment).
+    if (!user && email) {
+      const byEmail = await prisma.user.findFirst({
+        where: { email, orgId },
+        include: { org: { select: { id: true, name: true, slug: true } } },
+      });
+      if (byEmail) {
+        user = await prisma.user.update({
+          where: { id: byEmail.id },
+          data: { entraObjectId: profile.id },
+          include: { org: { select: { id: true, name: true, slug: true } } },
+        });
+      }
+    }
+
+    if (!user) return fail('No CRMITdesk account was found for you. Ask your admin to invite you first.');
+    if (!user.isActive) return fail('Your account is deactivated. Contact your admin.');
+
+    const rawRefresh = generateRefreshToken();
+    await storeRefreshToken(user.id, rawRefresh);
+    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId: user.orgId ?? '' });
+    logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email, method: 'entra' });
+
+    res.redirect(`${FRONTEND_URL}/sso-callback#access=${encodeURIComponent(access)}&refresh=${encodeURIComponent(rawRefresh)}`);
+  } catch (err: any) {
+    console.error('[entra] callback failed:', err);
+    fail(err?.message || 'Sign-in failed — please try again.');
+  }
 }
