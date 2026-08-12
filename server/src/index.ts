@@ -60,6 +60,7 @@ import { calendarRouter } from './modules/calendar/calendar.routes';
 import { gdprRouter } from './modules/gdpr/gdpr.routes';
 import { attendanceRouter } from './modules/hr/attendance/attendance.routes';
 import { leaveRouter } from './modules/hr/leave/leave.routes';
+import { payrollRouter } from './modules/hr/payroll/payroll.routes';
 import { invoicesRouter } from './modules/invoices/invoices.routes';
 import { jobsRouter } from './modules/jobs/jobs.routes';
 import { startSchedulePoller } from './utils/scheduler';
@@ -266,6 +267,7 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/gdpr', gdprRouter);
 app.use('/api/hr/attendance', attendanceRouter);
 app.use('/api/hr/leave', leaveRouter);
+app.use('/api/hr/payroll', payrollRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/jobs', jobsRouter);
 

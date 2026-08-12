@@ -7,7 +7,7 @@ import {
   BarChart2, UserCog, Inbox, Zap, Globe, CreditCard, Slack, Monitor,
   Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
   FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive, Layers,
-  Clock, CalendarCheck, Building2, Receipt, RefreshCw,
+  Clock, CalendarCheck, Building2, Receipt, RefreshCw, Wallet,
 } from "lucide-react";
 import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -75,6 +75,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: "/hr/attendance", label: "Attendance",  icon: Clock },
       { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck },
+      { to: "/hr/payroll",    label: "Payroll",     icon: Wallet },
       { to: "/hr/settings",   label: "HR Settings", icon: Building2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
     ],
   },
@@ -130,6 +131,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/campaigns":         "Campaigns",
   "/hr/attendance":     "Attendance",
   "/hr/leave":          "Leave",
+  "/hr/payroll":        "Payroll",
   "/hr/settings":       "HR Settings",
   "/itdesk/tickets":    "Tickets",
   "/itdesk/categories": "Categories",

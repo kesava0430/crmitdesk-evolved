@@ -71,7 +71,9 @@ const PlatformAdminPage  = lazy(() => import('./pages/PlatformAdminPage').then(m
 const InvoicesPage       = lazy(() => import('./pages/InvoicesPage'));
 const AttendancePage     = lazy(() => import('./modules/hr/AttendancePage'));
 const LeavePage          = lazy(() => import('./modules/hr/LeavePage'));
+const PayrollPage        = lazy(() => import('./modules/hr/PayrollPage'));
 const HRSettingsPage     = lazy(() => import('./modules/hr/HRSettingsPage'));
+const PayslipPrintPage   = lazy(() => import('./pages/PayslipPrintPage'));
 
 // PLATFORM_ADMIN users have no orgId — the normal AppLayout/org-scoped pages
 // all assume one, so they're routed to the standalone /platform-admin
@@ -129,6 +131,11 @@ export default function App() {
         <Route path="/quote/:id" element={<PublicQuotePage />} />
         <Route path="/invoice/:id" element={<PublicInvoicePage />} />
         <Route path="/platform-admin" element={<PlatformAdminRoute><Suspense fallback={<PageSkeleton />}><PlatformAdminPage /></Suspense></PlatformAdminRoute>} />
+        {/* Authenticated but outside AppLayout — no sidebar chrome, so the
+            browser's print dialog produces a clean payslip PDF (see
+            PayslipPrintPage.tsx's comment). Access to the payslip itself is
+            still enforced server-side (own payslip, or any if a manager). */}
+        <Route path="/hr/payroll/payslips/:id/print" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><PayslipPrintPage /></Suspense></ProtectedRoute>} />
         <Route path="/" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><AppLayout /></Suspense></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           {/* RoleGate wraps every page below — see its comment above. Access
@@ -168,6 +175,7 @@ export default function App() {
             <Route path="invoices" element={<InvoicesPage />} />
             <Route path="hr/attendance" element={<AttendancePage />} />
             <Route path="hr/leave" element={<LeavePage />} />
+            <Route path="hr/payroll" element={<PayrollPage />} />
             <Route path="hr/settings" element={<HRSettingsPage />} />
             <Route path="security/2fa" element={<TwoFactorPage />} />
             <Route path="ai-builder" element={<AIFeaturePage />} />
