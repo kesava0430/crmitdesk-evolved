@@ -14,7 +14,8 @@ import { assertSeatAvailable } from '../../../utils/licensing';
 import { DEMO_LOGIN_EMAIL, DEMO_VERTICAL_SLUGS, DEFAULT_VERTICAL, loginEmailFor } from '../../../utils/seedDemoData';
 import { verifyGoogleIdToken, isGoogleSsoConfigured } from '../../../utils/googleAuth';
 import { decryptSecret } from '../../../utils/crypto';
-import { buildEntraAuthUrl, exchangeEntraCode, fetchEntraProfile } from '../../../utils/entraAuth';
+import { buildEntraAuthUrl, exchangeEntraCode, fetchEntraProfile, fetchEntraGroups } from '../../../utils/entraAuth';
+import { resolveRoleForGroups } from '../../directory/roleMapping';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -695,6 +696,39 @@ export async function entraCallback(req: Request, res: Response) {
           include: { org: { select: { id: true, name: true, slug: true } } },
         });
       }
+    }
+
+    // Phase 2: still no match — create an account if the org has opted into
+    // auto-provisioning, using group membership to pick a role (falling back
+    // to the org's default role). Off by default; see DirectoryConfig's
+    // schema comment.
+    if (!user && config.autoProvisioningEnabled) {
+      if (!email) return fail('Microsoft did not provide an email address for your account.');
+
+      const groupIds = await fetchEntraGroups(accessToken).catch(() => [] as string[]);
+      const role = await resolveRoleForGroups(orgId, groupIds, config.defaultRole);
+
+      try {
+        await assertSeatAvailable(orgId, role);
+      } catch {
+        return fail('Your organization has reached its user limit. Contact your admin.');
+      }
+
+      // Directory-provisioned accounts never use a password — a random,
+      // never-surfaced hash keeps User.passwordHash satisfied (it's a
+      // required column) without anyone being able to guess or brute-force
+      // their way in through the password form. If password login is ever
+      // wanted for this account, the existing "forgot password" flow works
+      // regardless of how the account was created.
+      const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+      user = await prisma.user.create({
+        data: {
+          name: profile.displayName, email, passwordHash, role, orgId,
+          entraObjectId: profile.id, provisionedVia: 'DIRECTORY',
+        },
+        include: { org: { select: { id: true, name: true, slug: true } } },
+      });
+      logAction(user.id, 'CREATE', 'User', user.id, { method: 'entra_jit', role });
     }
 
     if (!user) return fail('No CRMITdesk account was found for you. Ask your admin to invite you first.');

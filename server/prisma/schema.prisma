@@ -69,6 +69,8 @@ model Organization {
   payslips          Payslip[]
   payslipTemplate   PayslipTemplate?
   directoryConfig   DirectoryConfig?
+  directoryRoleMappings DirectoryRoleMapping[]
+  directorySyncLogs     DirectorySyncLog[]
 
   @@map("organizations")
 }
@@ -192,6 +194,13 @@ model User {
   // first SSO login — see auth.controller.ts entraCallback()). Unique so an
   // Entra identity can't end up linked to two different CRMITdesk users.
   entraObjectId          String?            @unique @map("entra_object_id")
+  // How this account came to exist — MANUAL | INVITE | DIRECTORY (the last
+  // meaning JIT- or sync-created from Entra ID; see auth.controller.ts
+  // entraCallback() and modules/directory/directorySync.ts). Null for
+  // accounts created before this column existed. Purely informational — the
+  // admin Users list uses it to warn before hand-editing a directory-managed
+  // account that a sync could just overwrite.
+  provisionedVia         String?            @map("provisioned_via")
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @updatedAt @map("updated_at")
   orgId                  String?            @map("org_id")
@@ -970,15 +979,65 @@ model DirectoryConfig {
   tenantId        String   @map("tenant_id")
   clientId        String   @map("client_id")
   // encryptSecret()'d — see utils/crypto.ts, same treatment as the connected-
-  // mailbox password.
+  // mailbox password. Also reused for the app-only (client_credentials)
+  // token the scheduled sync job uses — see utils/entraAuth.ts
+  // getAppOnlyToken() — so no separate secret is needed for phase 3.
   clientSecretEnc String   @map("client_secret_enc")
   loginSlug       String   @unique @map("login_slug")
   isEnabled       Boolean  @default(true) @map("is_enabled")
+  // Phase 2: when true, a first-time SSO sign-in with no matching CRMITdesk
+  // account creates one instead of being rejected — see auth.controller.ts
+  // entraCallback(). Off by default; a customer has to opt in.
+  autoProvisioningEnabled Boolean @default(false) @map("auto_provisioning_enabled")
+  // Role assigned when a JIT/sync-provisioned user isn't in any group listed
+  // in DirectoryRoleMapping below.
+  defaultRole             UserRole @default(EMPLOYEE) @map("default_role")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
   org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("directory_configs")
+}
+
+// Maps an Entra ID security group to a CRMITdesk role. The admin types in
+// the group's Object ID (copied from the Entra portal) and picks a label
+// themselves rather than this being populated from a Graph group picker —
+// listing all of a tenant's groups needs an application-level Graph
+// permission (Group.Read.All, app-only) beyond what sign-in itself requires,
+// which is a heavier ask than this phase needs. A user in multiple mapped
+// groups gets the highest-`priority` match; ties are undefined order.
+model DirectoryRoleMapping {
+  id         String   @id @default(cuid())
+  orgId      String   @map("org_id")
+  groupId    String   @map("group_id")
+  groupLabel String   @map("group_label")
+  role       UserRole
+  priority   Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, groupId])
+  @@index([orgId])
+  @@map("directory_role_mappings")
+}
+
+// One row per scheduled/manual sync run (phase 3) — see
+// modules/directory/directorySync.ts. Purely observational; nothing reads
+// this back except the admin UI's sync history.
+model DirectorySyncLog {
+  id               String    @id @default(cuid())
+  orgId            String    @map("org_id")
+  startedAt        DateTime  @default(now()) @map("started_at")
+  finishedAt       DateTime? @map("finished_at")
+  status           String    @default("RUNNING") // RUNNING | OK | ERROR
+  usersCreated     Int       @default(0) @map("users_created")
+  usersDeactivated Int       @default(0) @map("users_deactivated")
+  errorMessage     String?   @map("error_message")
+  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@map("directory_sync_logs")
 }
 
 model CsatResponse {

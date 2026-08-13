@@ -1,0 +1,42 @@
+name: Directory sync
+
+# Scheduled Entra ID directory sync (phase 3 of AD/Entra integration — see
+# AD-EntraID-Integration-Plan.md and server/src/modules/directory/directorySync.ts).
+# Pre-creates CRMITdesk accounts for anyone in a mapped Entra security group
+# who doesn't have one yet, and deactivates directory-provisioned accounts
+# for people no longer in any mapped group, for every org that has both SSO
+# and automatic provisioning turned on. Hits POST /api/directory/sync-all on
+# the live API, mirroring reset-demo.yml's cron + secret-header pattern.
+#
+# Requires a repo secret DIRECTORY_SYNC_SECRET whose value matches the
+# DIRECTORY_SYNC_SECRET environment variable set on the Render API service.
+# Without that secret configured, the API endpoint refuses every request
+# (404), so this workflow failing with a 404 almost always means the two
+# secrets don't match yet or DIRECTORY_SYNC_SECRET isn't set on Render.
+#
+# Each org's Entra admin must also grant this app's Entra registration the
+# GroupMember.Read.All *application* permission (not just the delegated one
+# used at sign-in) with admin consent — see the phase 3 testing notes.
+
+on:
+  schedule:
+    # 04:00 UTC every day — offset from reset-demo.yml's 03:00 run so they
+    # don't compete for the same window; adjust to fit your customers' hours.
+    - cron: '0 4 * * *'
+  workflow_dispatch: {} # manual "Run workflow" button in the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call directory sync-all endpoint
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "https://crm-itdesk-server.onrender.com/api/directory/sync-all" \
+            -H "X-Directory-Sync-Secret: ${{ secrets.DIRECTORY_SYNC_SECRET }}")
+          echo "HTTP status: $status"
+          cat /tmp/response.json
+          if [ "$status" != "200" ]; then
+            echo "Directory sync failed"
+            exit 1
+          fi

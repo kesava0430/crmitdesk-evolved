@@ -50,6 +50,18 @@ services:
       # Leave unset to disable the reset endpoint entirely (it 404s).
       - key: DEMO_RESET_SECRET
         sync: false
+      # Shared secret for POST /api/directory/sync-all
+      # (server/src/modules/directory) — the daily Entra ID directory sync
+      # (phase 3 of AD-EntraID-Integration-Plan.md), called by
+      # .github/workflows/directory-sync.yml. Generate any long random
+      # string and set the *same* value here and as the
+      # DIRECTORY_SYNC_SECRET secret in the GitHub repo (Settings → Secrets
+      # and variables → Actions). Leave unset to disable the endpoint
+      # entirely (it 404s) — orgs can still use the "Sync Now" button in
+      # Single Sign-On settings either way, since that's authenticated by
+      # the admin's own login instead.
+      - key: DIRECTORY_SYNC_SECRET
+        sync: false
       # Shared secret for POST /api/platform/bootstrap
       # (server/src/modules/platform-admin) — creates/promotes the one
       # cross-org PLATFORM_ADMIN login used to view every org's plan,
