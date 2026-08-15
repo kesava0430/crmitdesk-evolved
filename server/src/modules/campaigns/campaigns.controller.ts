@@ -71,6 +71,53 @@ export async function remove(req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 }
 
+/**
+ * Core send logic, pulled out of the send() route handler below so the AI
+ * action registry (SEND_CAMPAIGN in ai-actions.ts) can trigger the exact
+ * same recipient-gathering + throttled-batch-send behavior instead of a
+ * second, drifting copy of it — the existence check and "already sent" guard
+ * stay in each caller since those are about *whether* to send, not *how*.
+ */
+export async function sendCampaignNow(
+  campaign: { id: string; name: string; targetType: string; subject: string; body: string },
+  orgId: string
+): Promise<{ recipients: number }> {
+  // Gather recipients
+  let emails: string[] = [];
+  if (campaign.targetType === 'LEADS') {
+    const leads = await prisma.lead.findMany({
+      where: { orgId, status: { not: 'CONVERTED' } },
+      include: { contact: { select: { email: true } } },
+    });
+    emails = leads.map(l => l.contact?.email).filter(Boolean) as string[];
+  } else {
+    const contacts = await prisma.contact.findMany({ where: { orgId }, select: { email: true } });
+    emails = contacts.map(c => c.email).filter(Boolean) as string[];
+  }
+
+  // Mark as SENDING
+  await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'SENDING' } });
+
+  // Send emails in the background, throttled in small batches (see
+  // sendInBatches above) rather than all at once.
+  sendInBatches(emails, to =>
+    sendMail({
+      orgId,
+      to,
+      subject: campaign.subject,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">${campaign.body.replace(/\n/g, '<br/>')}</div>`,
+    })
+  ).then(async sent => {
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { status: 'SENT', sentAt: new Date(), sentCount: sent },
+    });
+    console.log(`[campaign] "${campaign.name}" sent to ${sent}/${emails.length} recipients`);
+  });
+
+  return { recipients: emails.length };
+}
+
 export async function send(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
@@ -78,39 +125,7 @@ export async function send(req: AuthRequest, res: Response, next: NextFunction) 
     if (!campaign) throw new AppError(404, 'Campaign not found');
     if (campaign.status === 'SENT') throw new AppError(400, 'Campaign already sent');
 
-    // Gather recipients
-    let emails: string[] = [];
-    if (campaign.targetType === 'LEADS') {
-      const leads = await prisma.lead.findMany({
-        where: { orgId, status: { not: 'CONVERTED' } },
-        include: { contact: { select: { email: true } } },
-      });
-      emails = leads.map(l => l.contact?.email).filter(Boolean) as string[];
-    } else {
-      const contacts = await prisma.contact.findMany({ where: { orgId }, select: { email: true } });
-      emails = contacts.map(c => c.email).filter(Boolean) as string[];
-    }
-
-    // Mark as SENDING
-    await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'SENDING' } });
-
-    // Send emails in the background, throttled in small batches (see
-    // sendInBatches above) rather than all at once.
-    sendInBatches(emails, to =>
-      sendMail({
-        orgId,
-        to,
-        subject: campaign.subject,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">${campaign.body.replace(/\n/g, '<br/>')}</div>`,
-      })
-    ).then(async sent => {
-      await prisma.campaign.update({
-        where: { id: campaign.id },
-        data: { status: 'SENT', sentAt: new Date(), sentCount: sent },
-      });
-      console.log(`[campaign] "${campaign.name}" sent to ${sent}/${emails.length} recipients`);
-    });
-
-    res.json({ message: `Sending to ${emails.length} recipients…`, recipients: emails.length });
+    const { recipients } = await sendCampaignNow(campaign, orgId);
+    res.json({ message: `Sending to ${recipients} recipients…`, recipients });
   } catch (err) { next(err); }
 }

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, ArrowRight, X, Loader2, ChevronRight, CheckCircle2, ShieldAlert, Zap } from "lucide-react";
-import { useNlCommand, usePlanAiAction, useExecuteAiAction } from "../../api/ai";
+import { Sparkles, ArrowRight, X, Loader2, ChevronRight, CheckCircle2, ShieldAlert, Zap, Info } from "lucide-react";
+import { useNlCommand, usePlanAiAction, useExecuteAiAction, useAiActionsMenu } from "../../api/ai";
 
 // Route mapping
 const ENTITY_ROUTES: Record<string, string> = {
@@ -52,10 +52,15 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<ResultMode>("none");
   const [searching, setSearching] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const nlCommand = useNlCommand();
   const planAction = usePlanAiAction();
   const execAction = useExecuteAiAction();
+  // Only fetched once help is actually opened — it's role-filtered server
+  // data (not static), so there's no point loading it on every command-bar
+  // open when most uses never touch the help panel.
+  const actionsMenu = useAiActionsMenu(showHelp);
 
   const result = nlCommand.data;
   const plan = planAction.data;
@@ -69,6 +74,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
       setQuery("");
       setMode("none");
       setSearching(false);
+      setShowHelp(false);
       nlCommand.reset();
       planAction.reset();
       execAction.reset();
@@ -127,6 +133,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
   }
 
   function handleSuggestion(text: string) {
+    setShowHelp(false);
     setQuery(text);
     runCommand(text);
   }
@@ -177,6 +184,15 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
             <p className="text-xs text-gray-400 dark:text-gray-500">Type a natural language command</p>
           </div>
           <button
+            onClick={() => setShowHelp(s => !s)}
+            className={`p-1.5 rounded-lg transition-colors ${showHelp ? "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/10" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-500 dark:hover:text-gray-300 dark:hover:bg-gray-800"}`}
+            aria-label="Show supported command syntax"
+            aria-pressed={showHelp}
+            title="What can I say?"
+          >
+            <Info size={16} />
+          </button>
+          <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-500 dark:hover:text-gray-300 dark:hover:bg-gray-800 transition-colors"
             aria-label="Close"
@@ -184,6 +200,61 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
             <X size={16} />
           </button>
         </div>
+
+        {/* Help panel: every supported command syntax, straight from the
+            server's action registry (ai-actions.ts) plus the fixed 5-entity
+            create/update list — so this can never list something that isn't
+            actually wired up. Click any example to run it immediately. */}
+        {showHelp && (
+          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 max-h-80 overflow-y-auto">
+            {actionsMenu.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <Loader2 size={14} className="animate-spin" /> Loading supported commands...
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Create or update a record</p>
+                  <div className="flex flex-col gap-1">
+                    {(actionsMenu.data?.legacy ?? []).map(l => (
+                      <button
+                        key={l.entity}
+                        onClick={() => handleSuggestion(l.example)}
+                        className="flex items-start gap-2 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-violet-50 hover:text-violet-700 dark:text-gray-300 dark:hover:bg-violet-500/10 dark:hover:text-violet-300 transition-colors text-left group"
+                      >
+                        <ChevronRight size={13} className="mt-0.5 text-gray-300 group-hover:text-violet-400 dark:text-gray-600 dark:group-hover:text-violet-400 flex-shrink-0" />
+                        <span>"{l.example}"</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {(actionsMenu.data?.actions?.length ?? 0) > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Actions</p>
+                    <div className="flex flex-col gap-1">
+                      {(actionsMenu.data?.actions ?? []).map(a => (
+                        <button
+                          key={a.name}
+                          onClick={() => handleSuggestion(a.example)}
+                          className="flex items-start gap-2 px-3 py-1.5 rounded-lg text-sm text-left group hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors"
+                        >
+                          <ChevronRight size={13} className="mt-0.5 text-gray-300 group-hover:text-violet-400 dark:text-gray-600 dark:group-hover:text-violet-400 flex-shrink-0" />
+                          <span>
+                            <span className="text-gray-600 group-hover:text-violet-700 dark:text-gray-300 dark:group-hover:text-violet-300">"{a.example}"</span>
+                            <span className="block text-[11px] text-gray-400 dark:text-gray-500">{a.label}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+                  Actions beyond the four free ones (lead scoring, ticket sentiment, auto-routing, auto-tagging) need a Pro or Enterprise plan.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Input area */}
         <div className="px-5 pt-4 pb-3">

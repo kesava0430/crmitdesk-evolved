@@ -631,6 +631,35 @@ export function guardAgainstEchoedSample(command: string, parsed: NlCommandResul
   };
 }
 
+// Custom modules (a whole separate CRUD surface — CREATE_CUSTOM_MODULE /
+// ADD_CUSTOM_MODULE_FIELD / CREATE_CUSTOM_MODULE_RECORD, all in
+// ai-actions.ts) are only ever handled by the whitelisted action registry
+// below, never by this 5-entity flow — there's no "module" entity here for
+// the model to pick. On a command like "create a custom module for Vendor
+// Contracts" the model still has to answer with one of ticket/contact/lead/
+// deal/article, and reliably guessed "article": building a new object/schema
+// vaguely resembles "creating a new piece of content" to a model with no
+// better option. AiCommandBar.tsx only ever tries the action-registry
+// planner when this legacy call returns entity "unknown" (see its
+// "never overridden" comment), so a wrong-but-confident "article" guess here
+// permanently shadowed the correct CREATE_CUSTOM_MODULE match — that's the
+// "create custom module command is going to KB" bug. This is a hard
+// override, not a confidence-based correction like the guards above: any
+// module-flavored wording forces this flow to step aside entirely and let
+// the action planner take it.
+const MODULE_COMMAND_RE = /\b(custom\s+)?modules?\b/i;
+
+export function guardAgainstModuleCommand(command: string, parsed: NlCommandResult): NlCommandResult {
+  if (!MODULE_COMMAND_RE.test(command)) return parsed;
+  return {
+    intent: parsed.intent,
+    entity: 'unknown',
+    fields: {},
+    confidence: 0,
+    explanation: 'Custom module requests are handled by the AI action planner, not the create/update form flow.',
+  };
+}
+
 export async function parseNaturalLanguageCommand(
   command: string,
   context: {
@@ -694,6 +723,7 @@ Respond with a single JSON object only: {"intent": "create"|"update", "entity": 
   parsed.fields = sanitizeNlCommandFields(parsed.entity, parsed.fields);
   parsed = guardEntityClassification(command, parsed);
   parsed = guardAgainstEchoedSample(command, parsed);
+  parsed = guardAgainstModuleCommand(command, parsed);
   return parsed;
 }
 
@@ -718,6 +748,13 @@ export async function planAiAction(
     contacts?: Array<{ id: string; name: string }>;
     modules?: Array<{ id: string; name: string; fields: Array<{ fieldKey: string; label: string; fieldType: string }> }>;
     assignableUsers?: Array<{ id: string; name: string }>;
+    quotes?: Array<{ id: string; title: string; status: string }>;
+    invoices?: Array<{ id: string; invoiceNumber: string; title: string; status: string }>;
+    campaigns?: Array<{ id: string; name: string; status: string }>;
+    assets?: Array<{ id: string; name: string; type: string }>;
+    leaveTypes?: Array<{ id: string; name: string }>;
+    pendingLeaveRequests?: Array<{ id: string; userName: string; leaveTypeName: string; startDate: string; endDate: string }>;
+    orgUsers?: Array<{ id: string; name: string }>;
   }
 ): Promise<{
   action: string | null;
@@ -742,8 +779,8 @@ export async function planAiAction(
   let reply: string;
   try {
     reply = await chat(client,
-      `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module mentioned by name to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
-      `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}`,
+      `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module/quote/invoice/campaign/asset/leave-type/leave-request/user mentioned by name (or invoice number) to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. Pending leave requests are matched by the requester's name, not the manager's. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
+      `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}\nQuotes: ${JSON.stringify(context.quotes ?? [])}\nInvoices: ${JSON.stringify(context.invoices ?? [])}\nCampaigns: ${JSON.stringify(context.campaigns ?? [])}\nAssets: ${JSON.stringify(context.assets ?? [])}\nLeave types: ${JSON.stringify(context.leaveTypes ?? [])}\nPending leave requests: ${JSON.stringify(context.pendingLeaveRequests ?? [])}\nOrg users (for MANUAL_ATTENDANCE_ENTRY): ${JSON.stringify(context.orgUsers ?? [])}`,
       { maxTokens: 500, model: AI_MODEL_SMART }
     );
   } catch (err: any) {

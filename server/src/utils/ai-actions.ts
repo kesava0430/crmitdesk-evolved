@@ -23,8 +23,11 @@ import { runWorkflows } from './workflow-engine';
 import { scoreLead as aiScoreLead } from './ai';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
-import { MANAGERS, CRM_STAFF, IT_STAFF, ALL_STAFF, CRM_MANAGERS } from '../middleware/authenticate';
+import { MANAGERS, CRM_STAFF, IT_STAFF, IT_MANAGERS, ALL_STAFF, ALL_USERS, CRM_MANAGERS } from '../middleware/authenticate';
 import { FIELD_TYPES, slugify, validateRecordData } from '../modules/custom-modules/customModules.service';
+import { pushCalendarEvent } from './googleCalendar';
+import { notifyOrgAdmins } from '../modules/notifications/notifications.controller';
+import { sendCampaignNow } from '../modules/campaigns/campaigns.controller';
 
 export interface AiActionContext {
   orgId: string;
@@ -41,6 +44,13 @@ export interface AiActionDefinition<TParams = any> {
   label: string;
   /** Shown to the LLM as part of its menu of choices — keep this precise. */
   description: string;
+  /** A single realistic natural-language command a user could actually type
+   * to trigger this action — shown in the AI Command Bar's "what can I say"
+   * help panel (GET /ai/actions), not sent to the LLM. Deliberately separate
+   * from the "e.g. ..." snippet inside `description` above: that one's
+   * written for the model (terse, embedded in a sentence), this one's
+   * written for a person skimming a list. */
+  example: string;
   /** Shown to the LLM so it knows what shape to fill `params` with. */
   paramsHint: string;
   /** Role names allowed to invoke this action — checked server-side, always. */
@@ -67,6 +77,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'MOVE_DEAL_STAGE',
     label: 'Move deal stage',
     description: 'Moves a deal to a different pipeline stage (e.g. "move the Acme deal to Proposal").',
+    example: 'Move the Acme deal to Proposal',
     paramsHint: '{ dealId: string, stage: string }',
     allowedRoles: CRM_STAFF,
     requiresConfirmation: true,
@@ -91,6 +102,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'UPDATE_TICKET_STATUS',
     label: 'Change ticket status',
     description: 'Changes a ticket\'s status (e.g. "mark the VPN ticket as resolved").',
+    example: 'Mark the VPN ticket as resolved',
     paramsHint: '{ ticketId: string, status: "OPEN"|"IN_PROGRESS"|"PENDING"|"RESOLVED"|"CLOSED" }',
     allowedRoles: IT_STAFF,
     requiresConfirmation: true,
@@ -121,6 +133,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'SCHEDULE_WHATSAPP_REMINDER',
     label: 'Schedule a WhatsApp reminder',
     description: 'Schedules a future WhatsApp reminder on a ticket or deal (e.g. "remind the assignee about the Acme deal tomorrow at 9am").',
+    example: 'Remind the assignee about the Acme deal tomorrow at 9am',
     paramsHint: '{ entityType: "TICKET"|"DEAL", entityId: string, dueAt: ISO datetime string, message: string, recipientType?: "CONTACT"|"ASSIGNEE"|"CUSTOM_NUMBER"|"ORG_DEFAULT" (default ASSIGNEE), customNumber?: string, recurrence?: "NONE"|"DAILY"|"WEEKLY" (default NONE) }',
     allowedRoles: ALL_STAFF,
     requiresConfirmation: true,
@@ -167,6 +180,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'SEND_WHATSAPP_NOW',
     label: 'Send a WhatsApp message now',
     description: 'Sends a WhatsApp message immediately (not scheduled) to the resolved recipient of a ticket or deal.',
+    example: 'Send a WhatsApp message to the Acme deal contact saying we’re on it',
     paramsHint: '{ entityType: "TICKET"|"DEAL", entityId: string, message: string, recipientType?: "CONTACT"|"ASSIGNEE"|"CUSTOM_NUMBER"|"ORG_DEFAULT" (default ASSIGNEE), customNumber?: string }',
     allowedRoles: ALL_STAFF,
     requiresConfirmation: true,
@@ -198,6 +212,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'ADD_NOTE',
     label: 'Add a note',
     description: 'Adds a note/comment to a ticket, deal, or contact (e.g. "add a note on the Acme deal saying we followed up").',
+    example: 'Add a note on the Acme deal saying we followed up',
     paramsHint: '{ entityType: "TICKET"|"DEAL"|"CONTACT", entityId: string, body: string }',
     allowedRoles: ALL_STAFF,
     requiresConfirmation: true,
@@ -221,6 +236,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'SCORE_LEAD',
     label: 'Score a lead',
     description: 'Runs AI lead scoring on a lead and saves the score (e.g. "score the John Doe lead").',
+    example: 'Score the John Doe lead',
     paramsHint: '{ leadId: string }',
     allowedRoles: CRM_STAFF,
     requiresConfirmation: false,
@@ -245,6 +261,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'TOGGLE_WORKFLOW_RULE',
     label: 'Toggle a workflow rule',
     description: 'Turns an automation/workflow rule on or off by name (e.g. "disable the auto-assign rule").',
+    example: 'Disable the auto-assign rule',
     paramsHint: '{ ruleId: string, isActive?: boolean (omit to just flip the current state) }',
     allowedRoles: MANAGERS,
     requiresConfirmation: true,
@@ -263,6 +280,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'ASSIGN_TICKET',
     label: 'Assign a ticket',
     description: 'Assigns a ticket to a specific agent and moves it to In Progress (e.g. "assign the VPN ticket to Priya"). Match the assignee by name from the assignableUsers context list.',
+    example: 'Assign the VPN ticket to Priya',
     paramsHint: '{ ticketId: string, assigneeId: string }',
     allowedRoles: IT_STAFF,
     requiresConfirmation: true,
@@ -286,6 +304,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'UPDATE_LEAD_STATUS',
     label: 'Change lead status',
     description: 'Changes a lead\'s status (e.g. "mark the John Doe lead as qualified").',
+    example: 'Mark the John Doe lead as qualified',
     paramsHint: '{ leadId: string, status: "NEW"|"CONTACTED"|"QUALIFIED"|"UNQUALIFIED"|"CONVERTED" }',
     allowedRoles: CRM_STAFF,
     requiresConfirmation: true,
@@ -317,6 +336,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'CREATE_CUSTOM_MODULE',
     label: 'Create a custom module',
     description: 'Creates a new custom module — a brand-new record type for data that doesn\'t fit CRM/IT Desk out of the box (e.g. "create a Vendor Contracts module under Admin"). Fields are added separately with ADD_CUSTOM_MODULE_FIELD — a module with no fields yet is invisible to everyone but managers. If the request doesn\'t say which part of the app it belongs to, default navSection to CRM.',
+    example: 'Create a Vendor Contracts module under Admin',
     paramsHint: '{ name: string, description?: string, navSection?: "CRM"|"IT_DESK"|"HR"|"ADMIN" (which sidebar section the module\'s link appears under once it has fields — default CRM) }',
     allowedRoles: CRM_MANAGERS,
     requiresConfirmation: true,
@@ -344,6 +364,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'ADD_CUSTOM_MODULE_FIELD',
     label: 'Add a field to a custom module',
     description: 'Adds a field to an existing custom module\'s schema (e.g. "add a Claim Amount currency field to Warranty Claims"). Match the module by name from the modules context list.',
+    example: 'Add a Claim Amount currency field to Warranty Claims',
     paramsHint: `{ moduleId: string, label: string, fieldType: ${FIELD_TYPES.map(t => `"${t}"`).join('|')}, options?: string[] (DROPDOWN only, the choices), required?: boolean, isPrimary?: boolean (use this field as the record's title in list views) }`,
     allowedRoles: CRM_MANAGERS,
     requiresConfirmation: true,
@@ -382,6 +403,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     name: 'CREATE_CUSTOM_MODULE_RECORD',
     label: 'Create a custom module record',
     description: 'Creates a record in an existing custom module (e.g. "add a Vendor Contracts record for Acme Supplies worth $5,000"). Match the module by name and its fields by fieldKey from the modules context list — never invent a fieldKey that isn\'t listed for that module.',
+    example: 'Add a Vendor Contracts record for Acme Supplies worth $5,000',
     paramsHint: '{ moduleId: string, data: { [fieldKey]: value } }',
     allowedRoles: ALL_STAFF,
     requiresConfirmation: true,
@@ -399,6 +421,318 @@ export const AI_ACTIONS: AiActionDefinition[] = [
       return { summary: `Created a new "${module_.name}" record.`, data: record };
     },
   },
+
+  // ── Create a new account (company/org record) ───────────────────────────
+  {
+    name: 'CREATE_ACCOUNT',
+    label: 'Create an account',
+    description: 'Creates a new company/account record (e.g. "create an account called Acme Industries").',
+    example: 'Create an account called Acme Industries',
+    paramsHint: '{ name: string, industry?: string, website?: string, phone?: string, address?: string }',
+    allowedRoles: CRM_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({
+      name: z.string().min(1).max(120),
+      industry: z.string().max(80).optional(),
+      website: z.string().max(200).optional(),
+      phone: z.string().max(40).optional(),
+      address: z.string().max(300).optional(),
+    }),
+    handler: async (params, ctx) => {
+      const account = await prisma.account.create({ data: { ...params, orgId: ctx.orgId, ownerId: ctx.userId } });
+      return { summary: `Created the "${account.name}" account.`, data: account };
+    },
+  },
+
+  // ── Log a call/email/meeting/task activity ───────────────────────────────
+  {
+    name: 'LOG_ACTIVITY',
+    label: 'Log an activity',
+    description: 'Logs a call, email, meeting, or task against a deal, contact, or lead (e.g. "log a call with the Acme deal about pricing"). Match the deal/contact/lead by name from the deals/contacts/leads context lists.',
+    example: 'Log a call with the Acme deal about pricing',
+    paramsHint: '{ type: "CALL"|"EMAIL"|"MEETING"|"TASK", title: string, body?: string, dealId?: string, contactId?: string, leadId?: string, dueAt?: ISO datetime string, done?: boolean }',
+    allowedRoles: CRM_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({
+      type: z.enum(['CALL', 'EMAIL', 'MEETING', 'TASK']),
+      title: z.string().min(1).max(200),
+      body: z.string().max(2000).optional(),
+      dealId: z.string().optional(),
+      contactId: z.string().optional(),
+      leadId: z.string().optional(),
+      dueAt: z.string().optional(),
+      done: z.boolean().optional(),
+    }),
+    handler: async (params, ctx) => {
+      const activity = await prisma.activity.create({
+        data: { ...params, dueAt: params.dueAt ? new Date(params.dueAt) : undefined, createdBy: ctx.userId, orgId: ctx.orgId },
+      });
+      // Mirrors activities.controller.ts's create() — cheap no-op for the
+      // (common) case of no calendar connected.
+      if (activity.dueAt && !activity.done) {
+        pushCalendarEvent(ctx.userId, 'activities', {
+          sourceId: `activity-${activity.id}`,
+          summary: `[${activity.type}] ${activity.title}`,
+          description: activity.body || '',
+          start: activity.dueAt,
+          end: new Date(activity.dueAt.getTime() + 30 * 60 * 1000),
+        }).catch(() => {});
+      }
+      return { summary: `Logged a ${activity.type.toLowerCase()}: "${activity.title}".`, data: activity };
+    },
+  },
+
+  // ── Change a quote's status ──────────────────────────────────────────────
+  {
+    name: 'CHANGE_QUOTE_STATUS',
+    label: 'Change quote status',
+    description: 'Sets a quote to Draft, Sent, or Rejected (e.g. "mark the Acme quote as sent"). Match the quote by title from the quotes context list. Accepted isn\'t settable here — a quote is only marked Accepted through the customer\'s own signed acceptance link, which also auto-generates its invoice.',
+    example: 'Mark the Acme quote as sent',
+    paramsHint: '{ quoteId: string, status: "DRAFT"|"SENT"|"REJECTED" }',
+    allowedRoles: CRM_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({ quoteId: z.string().min(1), status: z.enum(['DRAFT', 'SENT', 'REJECTED']) }),
+    handler: async (params, ctx) => {
+      const quote = await prisma.quote.findFirst({ where: { id: params.quoteId, orgId: ctx.orgId } });
+      if (!quote) throw new AppError(404, 'Quote not found');
+      const updated = await prisma.quote.update({ where: { id: quote.id }, data: { status: params.status } });
+      return { summary: `Set "${quote.title}" to ${params.status}.`, data: updated };
+    },
+  },
+
+  // ── Change an invoice's status ───────────────────────────────────────────
+  {
+    name: 'CHANGE_INVOICE_STATUS',
+    label: 'Change invoice status',
+    description: 'Sets an invoice\'s status, including marking it paid (e.g. "mark invoice INV-0007 as paid"). Match the invoice by number or title from the invoices context list.',
+    example: 'Mark invoice INV-0007 as paid',
+    paramsHint: '{ invoiceId: string, status: "DRAFT"|"SENT"|"PAID"|"OVERDUE"|"VOID" }',
+    allowedRoles: CRM_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({ invoiceId: z.string().min(1), status: z.enum(['DRAFT', 'SENT', 'PAID', 'OVERDUE', 'VOID']) }),
+    handler: async (params, ctx) => {
+      const invoice = await prisma.invoice.findFirst({ where: { id: params.invoiceId, orgId: ctx.orgId } });
+      if (!invoice) throw new AppError(404, 'Invoice not found');
+      const updated = await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { status: params.status, paidAt: params.status === 'PAID' ? new Date() : invoice.paidAt },
+      });
+      return { summary: `Set invoice ${invoice.invoiceNumber} to ${params.status}.`, data: updated };
+    },
+  },
+
+  // ── Send an email campaign ───────────────────────────────────────────────
+  {
+    name: 'SEND_CAMPAIGN',
+    label: 'Send a campaign',
+    description: 'Sends an existing email campaign to its target audience right now (e.g. "send the Spring Promo campaign"). Irreversible once started — match the campaign by name from the campaigns context list.',
+    example: 'Send the Spring Promo campaign',
+    paramsHint: '{ campaignId: string }',
+    allowedRoles: CRM_MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({ campaignId: z.string().min(1) }),
+    handler: async (params, ctx) => {
+      const campaign = await prisma.campaign.findFirst({ where: { id: params.campaignId, orgId: ctx.orgId } });
+      if (!campaign) throw new AppError(404, 'Campaign not found');
+      if (campaign.status === 'SENT') throw new AppError(400, 'Campaign already sent');
+      const { recipients } = await sendCampaignNow(campaign, ctx.orgId);
+      return { summary: `Sending "${campaign.name}" to ${recipients} recipient${recipients === 1 ? '' : 's'}.` };
+    },
+  },
+
+  // ── Create an IT asset ───────────────────────────────────────────────────
+  {
+    name: 'CREATE_ASSET',
+    label: 'Create an asset',
+    description: 'Adds a new IT asset to the registry (e.g. "add a Dell XPS 15 laptop asset").',
+    example: 'Add a Dell XPS 15 laptop asset',
+    paramsHint: '{ name: string, type: string, serialNumber?: string, assignedTo?: string (user id), status?: "active"|"inactive"|"retired"|"in_repair" (default active) }',
+    allowedRoles: IT_MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({
+      name: z.string().min(1).max(120),
+      type: z.string().min(1).max(60),
+      serialNumber: z.string().max(120).optional(),
+      assignedTo: z.string().optional(),
+      status: z.enum(['active', 'inactive', 'retired', 'in_repair']).default('active'),
+    }),
+    handler: async (params, ctx) => {
+      const asset = await prisma.asset.create({ data: { ...params, orgId: ctx.orgId } });
+      return { summary: `Added the "${asset.name}" asset.`, data: asset };
+    },
+  },
+
+  // ── Update an asset's status/assignment ──────────────────────────────────
+  {
+    name: 'UPDATE_ASSET_STATUS',
+    label: "Update an asset's status",
+    description: 'Changes an asset\'s status or reassigns it to a different user (e.g. "mark the Dell XPS 15 as retired"). Match the asset by name from the assets context list, and the new owner (if any) by name from the orgUsers context list.',
+    example: 'Mark the Dell XPS 15 asset as retired',
+    paramsHint: '{ assetId: string, status?: "active"|"inactive"|"retired"|"in_repair", assignedTo?: string (user id) }',
+    allowedRoles: IT_MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({
+      assetId: z.string().min(1),
+      status: z.enum(['active', 'inactive', 'retired', 'in_repair']).optional(),
+      assignedTo: z.string().optional(),
+    }),
+    handler: async (params, ctx) => {
+      const asset = await prisma.asset.findFirst({ where: { id: params.assetId, orgId: ctx.orgId } });
+      if (!asset) throw new AppError(404, 'Asset not found');
+      const updated = await prisma.asset.update({
+        where: { id: asset.id },
+        data: { status: params.status, assignedTo: params.assignedTo },
+      });
+      return { summary: `Updated "${asset.name}".`, data: updated };
+    },
+  },
+
+  // ── Create a ticket category ─────────────────────────────────────────────
+  {
+    name: 'CREATE_TICKET_CATEGORY',
+    label: 'Create a ticket category',
+    description: 'Creates a new IT Desk ticket category (e.g. "create a Network category for tickets").',
+    example: 'Create a Network ticket category',
+    paramsHint: '{ name: string }',
+    allowedRoles: IT_MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({ name: z.string().min(1).max(80) }),
+    handler: async (params, ctx) => {
+      const category = await prisma.category.create({ data: { name: params.name, orgId: ctx.orgId } });
+      return { summary: `Created the "${category.name}" category.`, data: category };
+    },
+  },
+
+  // ── Request leave (self-service) ─────────────────────────────────────────
+  {
+    name: 'REQUEST_LEAVE',
+    label: 'Request leave',
+    description: 'Submits a leave request for yourself (e.g. "request annual leave from Sept 1 to Sept 5"). Match the leave type by name from the leaveTypes context list.',
+    example: 'Request annual leave from Sept 1 to Sept 5',
+    paramsHint: '{ leaveTypeId: string, startDate: "YYYY-MM-DD", endDate: "YYYY-MM-DD", reason?: string }',
+    allowedRoles: ALL_USERS,
+    requiresConfirmation: true,
+    schema: z.object({
+      leaveTypeId: z.string().min(1),
+      startDate: z.string().min(1),
+      endDate: z.string().min(1),
+      reason: z.string().max(500).optional(),
+    }),
+    handler: async (params, ctx) => {
+      const leaveType = await prisma.leaveType.findFirst({ where: { id: params.leaveTypeId, orgId: ctx.orgId, isActive: true } });
+      if (!leaveType) throw new AppError(404, 'Leave type not found');
+      const [sy, sm, sd] = params.startDate.split('-').map(Number);
+      const [ey, em, ed] = params.endDate.split('-').map(Number);
+      const startDate = new Date(Date.UTC(sy, sm - 1, sd));
+      const endDate = new Date(Date.UTC(ey, em - 1, ed));
+      if (endDate < startDate) throw new AppError(400, 'End date must be on or after the start date');
+      const days = Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+
+      const request = await prisma.leaveRequest.create({
+        data: { orgId: ctx.orgId, userId: ctx.userId, leaveTypeId: params.leaveTypeId, startDate, endDate, days, reason: params.reason },
+        include: { user: { select: { name: true } } },
+      });
+      // In-app notification only here (not the email-every-manager loop
+      // leave.controller.ts's createRequest also does) — a reasonable trim,
+      // not a correctness gap: the request is fully created and visible
+      // either way, this just skips a duplicate notification channel.
+      notifyOrgAdmins({
+        orgId: ctx.orgId, type: 'LEAVE_REQUESTED', title: `${request.user.name} requested ${leaveType.name}`,
+        body: `${params.startDate} → ${params.endDate} (${days} day${days === 1 ? '' : 's'})`,
+        entityType: 'LEAVE_REQUEST', entityId: request.id,
+      }).catch(() => {});
+      return { summary: `Requested ${days} day${days === 1 ? '' : 's'} of ${leaveType.name} (${params.startDate} → ${params.endDate}).`, data: request };
+    },
+  },
+
+  // ── Approve a pending leave request ──────────────────────────────────────
+  {
+    name: 'APPROVE_LEAVE',
+    label: 'Approve a leave request',
+    description: 'Approves a pending leave request (e.g. "approve Priya\'s leave request"). Match the request from the pendingLeaveRequests context list.',
+    example: "Approve Priya's leave request",
+    paramsHint: '{ leaveRequestId: string }',
+    allowedRoles: MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({ leaveRequestId: z.string().min(1) }),
+    handler: async (params, ctx) => {
+      const request = await prisma.leaveRequest.findFirst({
+        where: { id: params.leaveRequestId, orgId: ctx.orgId },
+        include: { leaveType: true, user: { select: { name: true } } },
+      });
+      if (!request) throw new AppError(404, 'Leave request not found');
+      if (request.status !== 'PENDING') throw new AppError(400, `This request is already ${request.status.toLowerCase()}`);
+      const updated = await prisma.leaveRequest.update({
+        where: { id: request.id },
+        data: { status: 'APPROVED', decidedBy: ctx.userId, decidedAt: new Date() },
+      });
+      await prisma.notification.create({
+        data: { orgId: ctx.orgId, userId: request.userId, type: 'STATUS_CHANGE', title: `Your ${request.leaveType.name} request was approved`, entityId: request.id, entityType: 'LEAVE_REQUEST' },
+      });
+      return { summary: `Approved ${request.user.name}'s ${request.leaveType.name} request.`, data: updated };
+    },
+  },
+
+  // ── Reject a pending leave request ───────────────────────────────────────
+  {
+    name: 'REJECT_LEAVE',
+    label: 'Reject a leave request',
+    description: 'Rejects a pending leave request with a reason (e.g. "reject Priya\'s leave request, we\'re short-staffed that week"). Match the request from the pendingLeaveRequests context list.',
+    example: "Reject Priya's leave request due to coverage",
+    paramsHint: '{ leaveRequestId: string, reason: string }',
+    allowedRoles: MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({ leaveRequestId: z.string().min(1), reason: z.string().min(1).max(500) }),
+    handler: async (params, ctx) => {
+      const request = await prisma.leaveRequest.findFirst({
+        where: { id: params.leaveRequestId, orgId: ctx.orgId },
+        include: { leaveType: true, user: { select: { name: true } } },
+      });
+      if (!request) throw new AppError(404, 'Leave request not found');
+      if (request.status !== 'PENDING') throw new AppError(400, `This request is already ${request.status.toLowerCase()}`);
+      const updated = await prisma.leaveRequest.update({
+        where: { id: request.id },
+        data: { status: 'REJECTED', decidedBy: ctx.userId, decidedAt: new Date(), rejectionReason: params.reason },
+      });
+      await prisma.notification.create({
+        data: { orgId: ctx.orgId, userId: request.userId, type: 'STATUS_CHANGE', title: `Your ${request.leaveType.name} request was rejected`, body: params.reason, entityId: request.id, entityType: 'LEAVE_REQUEST' },
+      });
+      return { summary: `Rejected ${request.user.name}'s ${request.leaveType.name} request.`, data: updated };
+    },
+  },
+
+  // ── Manual attendance entry (manager exception path) ─────────────────────
+  {
+    name: 'MANUAL_ATTENDANCE_ENTRY',
+    label: 'Add a manual attendance entry',
+    description: 'Adds a manual attendance session for an employee, bypassing the usual office-location/network checks (e.g. "log John as present today from 9 to 5"). Match the employee by name from the orgUsers context list. Self check-in/out isn\'t an AI action — it requires the employee\'s real device location, which the AI has no way to provide.',
+    example: 'Log John as present today from 9am to 5pm',
+    paramsHint: '{ userId: string, date: "YYYY-MM-DD", checkInAt?: ISO datetime string, checkOutAt?: ISO datetime string, notes?: string }',
+    allowedRoles: MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({
+      userId: z.string().min(1),
+      date: z.string().min(1),
+      checkInAt: z.string().optional(),
+      checkOutAt: z.string().optional(),
+      notes: z.string().max(300).optional(),
+    }),
+    handler: async (params, ctx) => {
+      const target = await prisma.user.findFirst({ where: { id: params.userId, orgId: ctx.orgId } });
+      if (!target) throw new AppError(404, 'User not found');
+      const [y, m, d] = params.date.split('-').map(Number);
+      const date = new Date(Date.UTC(y, m - 1, d));
+      const record = await prisma.attendanceRecord.create({
+        data: {
+          orgId: ctx.orgId, userId: params.userId, date,
+          checkInAt: params.checkInAt ? new Date(params.checkInAt) : undefined,
+          checkOutAt: params.checkOutAt ? new Date(params.checkOutAt) : undefined,
+          notes: params.notes, source: 'MANUAL',
+        },
+      });
+      return { summary: `Added a manual attendance entry for ${target.name} on ${params.date}.`, data: record };
+    },
+  },
 ];
 
 export function getAiAction(name: string): AiActionDefinition | undefined {
@@ -408,4 +742,18 @@ export function getAiAction(name: string): AiActionDefinition | undefined {
 /** Menu shape handed to the LLM planner — name/description/params only, no handler/roles leaked into the prompt. */
 export function actionMenuForPrompt() {
   return AI_ACTIONS.map(a => ({ name: a.name, description: a.description, params: a.paramsHint }));
+}
+
+/**
+ * List shape handed to the AI Command Bar's "what can I say" help panel
+ * (GET /api/ai/actions — ai.controller.ts's listActionsHandler). Filtered to
+ * whatever this specific user's role could actually run, same allowedRoles
+ * check executeActionHandler already does — showing an example the user's
+ * own role can't trigger would just be confusing. No schema/handler leaked,
+ * same as actionMenuForPrompt above.
+ */
+export function listActionsForRole(role: string) {
+  return AI_ACTIONS
+    .filter(a => a.allowedRoles.includes(role as any))
+    .map(a => ({ name: a.name, label: a.label, description: a.description, example: a.example }));
 }

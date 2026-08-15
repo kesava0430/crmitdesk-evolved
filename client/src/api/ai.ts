@@ -85,6 +85,22 @@ export interface AiActionPlan {
   requiresConfirmation: boolean;
 }
 
+// "What can I say" help panel data — no LLM call, safe to cache for the
+// whole session (staleTime: Infinity). Role-filtered server-side, so this
+// only ever shows actions the logged-in user could actually run.
+export interface AiActionMenuItem {
+  name: string;
+  label: string;
+  description: string;
+  example: string;
+}
+export interface AiActionMenu {
+  actions: AiActionMenuItem[];
+  legacy: Array<{ entity: string; label: string; example: string }>;
+}
+export const useAiActionsMenu = (enabled = true) =>
+  useQuery({ queryKey: ['ai-actions-menu'], queryFn: () => api.get('/ai/actions').then(r => r.data as AiActionMenu), staleTime: Infinity, enabled });
+
 export const usePlanAiAction = () =>
   useMutation({
     mutationFn: (command: string) => api.post('/ai/actions/plan', { command }).then(r => r.data as AiActionPlan),

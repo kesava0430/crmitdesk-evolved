@@ -64,6 +64,11 @@ aiRouter.post('/command',        requireRole(...ALL_STAFF),  aiAdvanced, trackAi
 // happens inside executeActionHandler against each action's own allowedRoles.
 // Both tracked: plan always calls the LLM to parse the command, and most
 // whitelisted actions execute() calls also go through AI helpers.
+// Metadata only — no LLM call, not feature-gated (see listActionsHandler's
+// comment). Registered before the two below just to keep all three
+// /actions/* routes grouped; there's no path-matching ambiguity since the
+// method+suffix differ from both.
+aiRouter.get('/actions',          requireRole(...ALL_STAFF), ai.listActionsHandler);
 aiRouter.post('/actions/plan',    requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.planActionHandler);
 aiRouter.post('/actions/execute', requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.executeActionHandler);
 

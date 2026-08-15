@@ -24,7 +24,7 @@ import {
   parseNaturalLanguageCommand,
   planAiAction,
 } from '../../utils/ai';
-import { getAiAction, actionMenuForPrompt } from '../../utils/ai-actions';
+import { getAiAction, actionMenuForPrompt, listActionsForRole } from '../../utils/ai-actions';
 import { logAction } from '../../utils/auditLog';
 
 // getClient() (utils/ai.ts) prefers GROQ_API_KEY over OPENAI_API_KEY whenever
@@ -629,6 +629,30 @@ export async function bulkScoreHandler(req: AuthRequest, res: Response, next: Ne
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
 
+// ─── AI Actions: List (metadata for the "what can I say" help panel) ────────
+// No LLM call here at all — just the same static registry actions/plan and
+// actions/execute already validate against, filtered to this user's role and
+// reshaped for display. Deliberately NOT behind requireFeature('ai_advanced')
+// like the actual AI endpoints below: it costs nothing to serve and a
+// FREE-plan org should still be able to see what AI actions exist (arguably
+// useful as an upgrade nudge), even though running one is gated.
+const LEGACY_COMMAND_EXAMPLES = [
+  { entity: 'ticket',  label: 'Ticket',  example: 'Create a new ticket about VPN issues' },
+  { entity: 'contact', label: 'Contact', example: 'Add a contact named Jane Smith from Acme Corp' },
+  { entity: 'lead',    label: 'Lead',    example: 'New lead from LinkedIn named John Doe' },
+  { entity: 'deal',    label: 'Deal',    example: 'Create a deal with Acme Corp worth $50,000' },
+  { entity: 'article', label: 'KB Article', example: 'Write a KB article about resetting a forgotten password' },
+];
+
+export async function listActionsHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    res.json({
+      actions: listActionsForRole(req.user!.role),
+      legacy: LEGACY_COMMAND_EXAMPLES,
+    });
+  } catch (err) { next(err); }
+}
+
 // ─── AI Actions: Plan (parse only — no mutation) ─────────────────────────────
 // Companion to nlCommandHandler above, but for the whitelisted action
 // registry (state changes / reminders / notes / scoring / toggles) rather
@@ -640,7 +664,10 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
     const { command } = z.object({ command: z.string().min(3).max(500) }).parse(req.body);
     const orgId = req.user!.orgId;
 
-    const [deals, tickets, leads, rules, contacts, modules, assignableUsers] = await Promise.all([
+    const [
+      deals, tickets, leads, rules, contacts, modules, assignableUsers,
+      quotes, invoices, campaigns, assets, leaveTypes, pendingLeaveRequests, orgUsers,
+    ] = await Promise.all([
       prisma.deal.findMany({ where: { orgId }, select: { id: true, title: true, stage: true }, take: 25, orderBy: { updatedAt: 'desc' } }),
       prisma.ticket.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { updatedAt: 'desc' } }),
       prisma.lead.findMany({ where: { orgId }, select: { id: true, contact: { select: { name: true } } }, take: 25, orderBy: { createdAt: 'desc' } }),
@@ -659,6 +686,23 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
       // For ASSIGN_TICKET's name -> id resolution — same role set tickets
       // are normally assigned to (IT_STAFF), not every org member.
       prisma.user.findMany({ where: { orgId, isActive: true, role: { in: [...IT_STAFF] } }, select: { id: true, name: true }, take: 50 }),
+      prisma.quote.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }),
+      prisma.invoice.findMany({ where: { orgId }, select: { id: true, invoiceNumber: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }),
+      prisma.campaign.findMany({ where: { orgId }, select: { id: true, name: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }),
+      prisma.asset.findMany({ where: { orgId }, select: { id: true, name: true, type: true }, take: 25, orderBy: { createdAt: 'desc' } }),
+      prisma.leaveType.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true }, take: 25 }),
+      // Only PENDING ones — APPROVE_LEAVE/REJECT_LEAVE can't act on anything
+      // else, so a decided request cluttering this list would just be a
+      // wrong-match trap for the model.
+      prisma.leaveRequest.findMany({
+        where: { orgId, status: 'PENDING' },
+        select: { id: true, startDate: true, endDate: true, user: { select: { name: true } }, leaveType: { select: { name: true } } },
+        take: 25, orderBy: { createdAt: 'desc' },
+      }),
+      // Broader than assignableUsers (IT_STAFF-only, for ticket assignment) —
+      // MANUAL_ATTENDANCE_ENTRY can target any active org member, including
+      // Employee-role staff who never appear in assignableUsers.
+      prisma.user.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true }, take: 50 }),
     ]);
 
     const plan = await planAiAction(command, {
@@ -670,6 +714,16 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
       contacts,
       modules,
       assignableUsers,
+      quotes,
+      invoices,
+      campaigns,
+      assets,
+      leaveTypes,
+      pendingLeaveRequests: pendingLeaveRequests.map(r => ({
+        id: r.id, userName: r.user.name, leaveTypeName: r.leaveType.name,
+        startDate: r.startDate.toISOString().slice(0, 10), endDate: r.endDate.toISOString().slice(0, 10),
+      })),
+      orgUsers,
     });
 
     // Filter to what this user's role is actually allowed to run, so the
