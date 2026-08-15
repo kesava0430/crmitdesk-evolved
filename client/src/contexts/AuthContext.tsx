@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { api } from '../api/client';
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { api, onAccessTokenRefreshed } from '../api/client';
 
 interface Org {
   id: string;
@@ -117,6 +117,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const updated: User = { ...res.data, org: res.data.org ?? res.data.organization ?? null };
     localStorage.setItem('user', JSON.stringify(updated));
     setState(prev => ({ ...prev, user: updated }));
+  }, []);
+
+  // api/client.ts's interceptor rotates the access token in the background
+  // on any 401 (and useSSE can now trigger the same rotation proactively) —
+  // it writes straight to localStorage since it's a plain module with no
+  // access to this component's state. Without this subscription,
+  // useAuth().accessToken would silently go stale the moment the first
+  // background refresh happened, even though every axios-based request kept
+  // working fine (axios re-reads localStorage per-request, not this state).
+  useEffect(() => {
+    onAccessTokenRefreshed(token => {
+      setState(prev => (prev.accessToken === token ? prev : { ...prev, accessToken: token }));
+    });
   }, []);
 
   return (

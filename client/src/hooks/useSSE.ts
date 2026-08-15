@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
+import { ensureFreshToken } from '../api/client';
 
 export type SSEEventType =
   | 'ticket:created'
@@ -80,8 +81,25 @@ export function useSSE() {
     es.onerror = () => {
       es.close();
       esRef.current = null;
-      // Reconnect after 5s
-      retryRef.current = setTimeout(connect, 5_000);
+      // EventSource doesn't expose the HTTP status to JS, so there's no way
+      // to tell "the access token expired" apart from a network blip here —
+      // rather than guessing, always try a refresh before reconnecting.
+      // ensureFreshToken() shares api/client.ts's single in-flight
+      // refreshPromise, so this never fires a second refresh request if one
+      // triggered by some other API call is already in progress. Once it
+      // resolves, AuthContext's onAccessTokenRefreshed subscription updates
+      // `accessToken` in state, `connect` picks up the new dependency value,
+      // and the effect below tears down and reconnects with the current
+      // token — this call is what makes that happen even in a tab that's
+      // otherwise idle (nothing else around to trigger a 401-driven refresh).
+      // If the refresh itself fails (refresh token also expired), this
+      // reconnects with the same stale token, 401s again, and retries in
+      // 5s exactly as before — the interceptor's own session-expiry
+      // redirect (from whichever REST call notices next) is what actually
+      // ends that loop, same as it always has.
+      ensureFreshToken().finally(() => {
+        retryRef.current = setTimeout(connect, 5_000);
+      });
     };
   }, [isAuthenticated, accessToken, qc]);
 

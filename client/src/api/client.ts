@@ -32,6 +32,19 @@ api.interceptors.request.use((config) => {
 let refreshPromise: Promise<{ access: string; refresh?: string }> | null = null;
 let loggedOutFromExpiry = false;
 
+// AuthContext's `accessToken` React state is only ever set by login/setSession
+// — a background refresh triggered here writes straight to localStorage and
+// has no way to tell React about it. Any consumer that reads the token from
+// `useAuth()` (useSSE's EventSource URL, notably) then keeps using the now-
+// replaced-but-still-in-state-as-old token indefinitely. AuthContext
+// subscribes to this on mount and mirrors whatever comes through into its
+// own state, so every consumer of useAuth().accessToken stays correct
+// without each of them needing their own refresh-awareness.
+let tokenListener: ((token: string) => void) | null = null;
+export function onAccessTokenRefreshed(cb: (token: string) => void) {
+  tokenListener = cb;
+}
+
 function performRefresh() {
   if (!refreshPromise) {
     const refresh = localStorage.getItem('refreshToken');
@@ -43,6 +56,27 @@ function performRefresh() {
       .finally(() => { refreshPromise = null; });
   }
   return refreshPromise;
+}
+
+/**
+ * Public wrapper so code outside the 401 interceptor (useSSE's onerror) can
+ * proactively trigger the same refresh instead of only ever reacting to a
+ * failed REST call. Shares performRefresh()'s single in-flight promise, so
+ * a proactive call here and an automatic one from a concurrent 401 never
+ * race each other into two separate refresh requests. Returns null (never
+ * throws) on failure — callers just treat that as "couldn't refresh, same
+ * as before."
+ */
+export async function ensureFreshToken(): Promise<string | null> {
+  try {
+    const data = await performRefresh();
+    localStorage.setItem('accessToken', data.access);
+    if (data.refresh) localStorage.setItem('refreshToken', data.refresh);
+    tokenListener?.(data.access);
+    return data.access;
+  } catch {
+    return null;
+  }
 }
 
 api.interceptors.response.use(
@@ -57,21 +91,18 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
       original._retry = true;
-      try {
-        const data = await performRefresh();
-        localStorage.setItem('accessToken', data.access);
-        if (data.refresh) localStorage.setItem('refreshToken', data.refresh);
-        original.headers.Authorization = `Bearer ${data.access}`;
+      const newToken = await ensureFreshToken();
+      if (newToken) {
+        original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
-      } catch {
-        if (!loggedOutFromExpiry) {
-          loggedOutFromExpiry = true;
-          addToast('Your session has expired — please sign in again.', 'warning', { duration: 6000 });
-          localStorage.clear();
-          window.location.href = '/login';
-        }
-        return Promise.reject(error);
       }
+      if (!loggedOutFromExpiry) {
+        loggedOutFromExpiry = true;
+        addToast('Your session has expired — please sign in again.', 'warning', { duration: 6000 });
+        localStorage.clear();
+        window.location.href = '/login';
+      }
+      return Promise.reject(error);
     }
 
     // Show toast for all other non-401 errors
