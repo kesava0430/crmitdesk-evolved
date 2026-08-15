@@ -16,9 +16,16 @@ const Schema = z.object({
   stage: z.string().optional(),
   probability: z.number().min(0).max(100).optional(),
   closeDate: z.string().optional(),
-  contactId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
-  accountId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
-  assignedTo: z.string().optional().or(z.literal('')).transform(v => v || undefined),
+  // z.preprocess maps a stray `null` to '' before the existing empty-string
+  // handling runs — the union below only ever accepted a real string or ''
+  // and 400'd on null (e.g. "Expected string, received null"), which every
+  // caller was expected to avoid by simply not sending the key. The AI
+  // Command Bar's prefill path didn't always honor that (see
+  // sanitizeNlCommandFields in utils/ai.ts), so this accepts null the same
+  // as "not set" rather than relying on every caller to never send one.
+  contactId: z.preprocess(v => (v === null ? '' : v), z.string().optional().or(z.literal(''))).transform(v => v || undefined),
+  accountId: z.preprocess(v => (v === null ? '' : v), z.string().optional().or(z.literal(''))).transform(v => v || undefined),
+  assignedTo: z.preprocess(v => (v === null ? '' : v), z.string().optional().or(z.literal(''))).transform(v => v || undefined),
   status: z.enum(['OPEN','WON','LOST']).optional(),
 });
 

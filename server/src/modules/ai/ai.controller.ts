@@ -741,6 +741,33 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
 }
 
 // ─── AI Actions: Execute (re-validates everything, then runs) ───────────────
+// Recursively drops `null` values from an object/array (in place shape,
+// returns a new value) before it's handed to a Zod schema. Same failure
+// mode as sanitizeNlCommandFields in utils/ai.ts fixed for the legacy
+// create/update flow: the model sometimes emits e.g. "stage": null for a
+// param it has no data for instead of omitting the key, and almost every
+// optional param across the 24 registered actions uses `.optional()`
+// (absent key only) rather than `.nullable()` (also accepts an explicit
+// null) — so an unlucky plan would 400 at execute time on a perfectly
+// legitimate command. Recursive because CREATE_CUSTOM_MODULE_RECORD's
+// `data` param is itself a nested object of field values that needs the
+// same treatment. Never strips nulls out of arrays' primitive entries,
+// only object values — no current action param shape needs that, and
+// silently dropping array elements would be a much stranger failure mode
+// than dropping an unset field.
+function stripNulls(value: any): any {
+  if (Array.isArray(value)) return value.map(stripNulls);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v === null) continue;
+      out[k] = stripNulls(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 export async function executeActionHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { action, params, command } = z.object({
@@ -759,7 +786,7 @@ export async function executeActionHandler(req: AuthRequest, res: Response, next
       return res.status(403).json({ error: `Your role isn't permitted to run "${actionDef.label}"` });
     }
 
-    const parsedParams = actionDef.schema.parse(params);
+    const parsedParams = actionDef.schema.parse(stripNulls(params));
     const result = await actionDef.handler(parsedParams, { orgId: req.user!.orgId, userId: req.user!.id });
 
     logAction(req.user!.id, 'UPDATE', `AI:${action}`, (parsedParams as any).dealId || (parsedParams as any).ticketId || (parsedParams as any).leadId || (parsedParams as any).ruleId || (parsedParams as any).moduleId || (parsedParams as any).entityId || 'n/a', {

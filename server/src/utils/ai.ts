@@ -560,7 +560,16 @@ export function sanitizeNlCommandFields(entity: NlCommandEntity, fields: Record<
   const allowed = NL_COMMAND_ALLOWED_FIELDS[entity];
   const out: Record<string, any> = {};
   for (const key of Object.keys(fields)) {
-    if (allowed.includes(key)) out[key] = fields[key];
+    // Drop null/undefined outright rather than passing them through — the
+    // model sometimes emits e.g. "contactId": null for a field it has no
+    // data for, instead of omitting the key entirely. That null then flows
+    // straight into the create form's prefill (useAiPrefill) and on to the
+    // server's Zod schema, which for optional relation fields like
+    // deal.contactId only ever accepts a string or "" — never null — so it
+    // 400s ("Expected string, received null") the instant the form
+    // auto-submits with an AI-suggested value. Treating null the same as
+    // "field omitted" here matches what the model actually means by it.
+    if (allowed.includes(key) && fields[key] !== null && fields[key] !== undefined) out[key] = fields[key];
   }
   return out;
 }
