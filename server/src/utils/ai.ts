@@ -732,11 +732,24 @@ export async function planAiAction(
     .map(a => `- ${a.name}: ${a.description}\n  params: ${a.params}`)
     .join('\n');
 
-  const reply = await chat(client,
-    `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module mentioned by name to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
-    `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}`,
-    { maxTokens: 500, model: AI_MODEL_SMART }
-  );
+  // The API call itself (not just a malformed reply) can fail — a request
+  // that's grown past the model's limits, a transient Groq/OpenAI error not
+  // in chat()'s narrow retry list, etc. This endpoint is advisory only (it
+  // never mutates anything — see the function comment above), so a failure
+  // here should degrade to "couldn't plan that" the same way a bad JSON
+  // reply already does below, rather than surfacing as a hard 500 that
+  // makes the whole command bar show a generic error.
+  let reply: string;
+  try {
+    reply = await chat(client,
+      `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module mentioned by name to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
+      `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}`,
+      { maxTokens: 500, model: AI_MODEL_SMART }
+    );
+  } catch (err: any) {
+    console.error('[planAiAction] chat call failed:', err?.status, err?.message || err);
+    return { action: null, params: {}, confidence: 0, explanation: 'AI request failed — try again in a moment' };
+  }
   try {
     const parsed = JSON.parse(reply);
     return {
@@ -746,6 +759,7 @@ export async function planAiAction(
       explanation: parsed.explanation ?? '',
     };
   } catch {
+    console.error('[planAiAction] non-JSON reply:', reply.slice(0, 300));
     return { action: null, params: {}, confidence: 0, explanation: 'Could not parse command' };
   }
 }

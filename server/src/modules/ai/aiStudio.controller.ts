@@ -467,11 +467,20 @@ Respond with ONLY the JSON object, no markdown fences, no commentary — exactly
     res.json({ labelOverrides: cleanLabels, workflowRules: rules });
   } catch (err: any) {
     if (err instanceof AppError) return next(err);
+    // Whichever provider getAiClient() above actually picked (Groq is
+    // preferred whenever GROQ_API_KEY is set) is whichever error message
+    // should reference — see ai.controller.ts's handleAIError for the same
+    // fix and fuller explanation of why a Groq 429 isn't a billing issue.
+    const usingGroq = !!process.env.GROQ_API_KEY;
     if (err?.status === 429 || err?.code === 'insufficient_quota') {
-      return res.status(402).json({ error: 'AI quota exceeded. Add billing credits at platform.openai.com.' });
+      return res.status(402).json({
+        error: usingGroq
+          ? 'Groq rate limit or usage cap reached. Check your usage at console.groq.com — usually temporary.'
+          : 'AI quota exceeded. Add billing credits at platform.openai.com.',
+      });
     }
     if (err?.status === 401) {
-      return res.status(401).json({ error: 'Invalid API key. Check GROQ_API_KEY in server/.env and restart the server.' });
+      return res.status(401).json({ error: usingGroq ? 'Invalid API key. Check GROQ_API_KEY in server/.env and restart the server.' : 'Invalid API key. Check OPENAI_API_KEY in server/.env and restart the server.' });
     }
     next(err);
   }

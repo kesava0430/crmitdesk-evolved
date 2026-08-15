@@ -27,10 +27,17 @@ export const useDeleteCustomModule = () => {
 };
 
 // ─── Fields ──────────────────────────────────────────────────────────────────
+// Field add/remove change a module's field COUNT, which the sidebar's nav
+// injection (AppLayout.tsx) reads off the *list* query (['custom-modules'])
+// to decide whether a module is visible yet — invalidating only the single-
+// module detail query (['custom-modules', moduleId]) left that list stale,
+// so a module could sit with 1+ fields and still never appear in the sidebar
+// until something else happened to refetch the list. Update doesn't change
+// the count, so it only needs the detail invalidation.
 export const useAddModuleField = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: ({ moduleId, ...data }: any) => api.post(`/custom-modules/${moduleId}/fields`, data).then(r => r.data),
-    onSuccess: (_d, vars: any) => qc.invalidateQueries({ queryKey: ['custom-modules', vars.moduleId] }) });
+    onSuccess: (_d, vars: any) => { qc.invalidateQueries({ queryKey: ['custom-modules', vars.moduleId] }); qc.invalidateQueries({ queryKey: ['custom-modules'], exact: true }); } });
 };
 export const useUpdateModuleField = () => {
   const qc = useQueryClient();
@@ -40,7 +47,7 @@ export const useUpdateModuleField = () => {
 export const useRemoveModuleField = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: ({ moduleId, fieldId }: any) => api.delete(`/custom-modules/${moduleId}/fields/${fieldId}`).then(r => r.data),
-    onSuccess: (_d, vars: any) => qc.invalidateQueries({ queryKey: ['custom-modules', vars.moduleId] }) });
+    onSuccess: (_d, vars: any) => { qc.invalidateQueries({ queryKey: ['custom-modules', vars.moduleId] }); qc.invalidateQueries({ queryKey: ['custom-modules'], exact: true }); } });
 };
 
 // ─── Records ─────────────────────────────────────────────────────────────────

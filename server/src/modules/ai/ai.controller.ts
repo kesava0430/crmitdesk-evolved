@@ -27,13 +27,28 @@ import {
 import { getAiAction, actionMenuForPrompt } from '../../utils/ai-actions';
 import { logAction } from '../../utils/auditLog';
 
+// getClient() (utils/ai.ts) prefers GROQ_API_KEY over OPENAI_API_KEY whenever
+// both are set, so whichever one is actually configured is whichever error
+// message here should mention — this used to hardcode "OpenAI" regardless,
+// which is actively misleading on a Groq-only setup (a Groq 429 read as
+// "add OpenAI billing" sends someone to the wrong dashboard entirely).
+const usingGroq = !!process.env.GROQ_API_KEY;
+
 function handleAIError(err: any, res: Response): boolean {
   if (err?.status === 429 || err?.code === 'insufficient_quota') {
-    res.status(402).json({ error: 'OpenAI quota exceeded. Add billing credits at platform.openai.com.' });
+    // Groq's free tier enforces per-minute/per-day request and token caps
+    // rather than a billing balance — a 429 there almost always means "wait
+    // for the rate limit to reset" or "usage cap hit", not "no money left",
+    // so the guidance differs meaningfully from OpenAI's quota model.
+    res.status(402).json({
+      error: usingGroq
+        ? 'Groq rate limit or usage cap reached. Check your usage at console.groq.com — this is usually temporary and clears within a minute, but a sustained cap means it\'s time to upgrade your Groq plan.'
+        : 'OpenAI quota exceeded. Add billing credits at platform.openai.com.',
+    });
     return true;
   }
   if (err?.status === 401) {
-    res.status(401).json({ error: 'Invalid API key. Check GROQ_API_KEY in server/.env and restart the server.' });
+    res.status(401).json({ error: usingGroq ? 'Invalid API key. Check GROQ_API_KEY in server/.env and restart the server.' : 'Invalid API key. Check OPENAI_API_KEY in server/.env and restart the server.' });
     return true;
   }
   return false; // caller must call next(err)
