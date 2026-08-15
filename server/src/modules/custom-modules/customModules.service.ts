@@ -97,3 +97,93 @@ export function recordTitle(fields: CustomModuleField[], data: Record<string, un
   const v = data[primary.fieldKey];
   return v === null || v === undefined || v === '' ? fallbackId : String(v);
 }
+
+// ─── Starter templates ──────────────────────────────────────────────────────
+//
+// Pre-built field sets an admin can start a new module from instead of
+// adding every field by hand — purely a convenience layer over the same
+// CustomModule/CustomModuleField creation the manual flow already does (see
+// createModule() in customModules.controller.ts, which creates all of a
+// template's fields in one transaction). Hardcoded here rather than stored
+// per-org, since these are meant as generic starting points every org gets,
+// not something an org customizes — "save a module as a reusable template"
+// is a different feature this doesn't attempt.
+
+export interface ModuleTemplateField {
+  label: string;
+  fieldType: (typeof FIELD_TYPES)[number];
+  options?: string[];
+  required?: boolean;
+  isPrimary?: boolean;
+}
+
+export interface ModuleTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  navSection: 'CRM' | 'IT_DESK' | 'HR' | 'ADMIN';
+  fields: ModuleTemplateField[];
+}
+
+export const MODULE_TEMPLATES: ModuleTemplate[] = [
+  {
+    id: 'vendor-contracts',
+    name: 'Vendor Contracts',
+    description: 'Track vendor agreements, renewal dates, and contract value.',
+    icon: 'Briefcase',
+    navSection: 'ADMIN',
+    fields: [
+      { label: 'Vendor Name', fieldType: 'TEXT', required: true, isPrimary: true },
+      { label: 'Contract Value', fieldType: 'CURRENCY' },
+      { label: 'Start Date', fieldType: 'DATE' },
+      { label: 'End Date', fieldType: 'DATE' },
+      { label: 'Status', fieldType: 'DROPDOWN', options: ['Active', 'Pending Renewal', 'Expired'] },
+    ],
+  },
+  {
+    id: 'asset-registry',
+    name: 'Asset Registry',
+    description: 'A lightweight equipment/asset log with serial numbers and warranty dates.',
+    icon: 'Boxes',
+    navSection: 'IT_DESK',
+    fields: [
+      { label: 'Asset Name', fieldType: 'TEXT', required: true, isPrimary: true },
+      { label: 'Serial Number', fieldType: 'TEXT' },
+      { label: 'Purchase Date', fieldType: 'DATE' },
+      { label: 'Warranty Expiry', fieldType: 'DATE' },
+      { label: 'Status', fieldType: 'DROPDOWN', options: ['In Use', 'In Storage', 'Retired'] },
+    ],
+  },
+  {
+    id: 'warranty-claims',
+    name: 'Warranty Claims',
+    description: 'Log warranty claims against products, with amount and outcome.',
+    icon: 'ClipboardList',
+    navSection: 'IT_DESK',
+    fields: [
+      { label: 'Claim Title', fieldType: 'TEXT', required: true, isPrimary: true },
+      { label: 'Product', fieldType: 'TEXT' },
+      { label: 'Claim Amount', fieldType: 'CURRENCY' },
+      { label: 'Filed Date', fieldType: 'DATE' },
+      { label: 'Status', fieldType: 'DROPDOWN', options: ['Open', 'Approved', 'Rejected'] },
+    ],
+  },
+  {
+    id: 'employee-equipment',
+    name: 'Employee Equipment',
+    description: 'Track which equipment has been issued to which employee.',
+    icon: 'Tag',
+    navSection: 'HR',
+    fields: [
+      { label: 'Employee Name', fieldType: 'TEXT', required: true, isPrimary: true },
+      { label: 'Equipment', fieldType: 'TEXT', required: true },
+      { label: 'Issued Date', fieldType: 'DATE' },
+      { label: 'Returned', fieldType: 'BOOLEAN' },
+    ],
+  },
+];
+
+export function getModuleTemplate(id: string): ModuleTemplate | undefined {
+  return MODULE_TEMPLATES.find(t => t.id === id);
+}

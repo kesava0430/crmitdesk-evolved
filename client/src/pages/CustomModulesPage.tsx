@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Layers, Plus, Trash2, Pencil, RefreshCw, CheckCircle2, XCircle, Clock, Zap } from 'lucide-react';
+import { Layers, Plus, Trash2, Pencil, RefreshCw, CheckCircle2, XCircle, Clock, Zap, Sparkles, FileEdit } from 'lucide-react';
 import {
-  useCustomModules, useCustomModule, useCreateCustomModule, useDeleteCustomModule,
+  useCustomModules, useCustomModule, useCreateCustomModule, useUpdateCustomModule, useDeleteCustomModule,
   useAddModuleField, useUpdateModuleField, useRemoveModuleField,
-  useSyncConfig, useSaveSyncConfig, useTriggerSync,
+  useSyncConfig, useSaveSyncConfig, useTriggerSync, useModuleTemplates,
 } from '../api/customModules';
 import { PageHeader, Button, Modal, Spinner, EmptyState, SearchableSelect, RowActions } from '../shared/components';
 import { CustomModuleRecordsTab } from '../shared/components/CustomModuleRecords';
@@ -15,20 +15,63 @@ const TYPE_LABELS: Record<string, string> = {
   BOOLEAN: 'Yes/No', DROPDOWN: 'Dropdown', EMAIL: 'Email', PHONE: 'Phone', URL: 'URL',
 };
 
+// Matches AppLayout.tsx's NAV_SECTIONS labels exactly — kept as a small
+// lookup here (rather than importing from AppLayout, a layout component
+// with its own heavy nav/auth dependencies) since it's just display text for
+// the picker.
+const NAV_SECTION_OPTIONS = [
+  { value: 'CRM', label: 'CRM' },
+  { value: 'IT_DESK', label: 'IT Desk' },
+  { value: 'HR', label: 'HR' },
+  { value: 'ADMIN', label: 'Admin' },
+];
+
+const CREATE_DEFAULT = { name: '', icon: 'Layers', description: '', navSection: 'CRM', templateId: undefined as string | undefined };
+
 function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
   const create = useCreateCustomModule();
-  const [form, setForm] = useState({ name: '', icon: 'Layers', description: '' });
+  const { data: templates } = useModuleTemplates();
+  const [form, setForm] = useState(CREATE_DEFAULT);
+
+  function pickTemplate(t: any | null) {
+    if (!t) { setForm(CREATE_DEFAULT); return; }
+    setForm({ name: t.name, icon: t.icon, description: t.description, navSection: t.navSection, templateId: t.id });
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const created = await create.mutateAsync(form);
+    setForm(CREATE_DEFAULT);
+    onCreated(created.id);
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title="New Custom Module">
-      <form
-        className="space-y-4"
-        onSubmit={async e => {
-          e.preventDefault();
-          const created = await create.mutateAsync(form);
-          setForm({ name: '', icon: 'Layers', description: '' });
-          onCreated(created.id);
-        }}
-      >
+    <Modal open={open} onClose={() => { setForm(CREATE_DEFAULT); onClose(); }} title="New Custom Module">
+      <form className="space-y-4" onSubmit={submit}>
+        <div>
+          <label className="form-label">Start from a template</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => pickTemplate(null)}
+              className={`text-left p-3 rounded-xl border text-sm ${!form.templateId ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 dark:border-brand-500' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+            >
+              <span className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-100"><FileEdit size={14} /> Start from scratch</span>
+              <span className="block text-xs text-gray-400 dark:text-gray-500 mt-0.5">Add your own fields afterward</span>
+            </button>
+            {(templates ?? []).map((t: any) => (
+              <button
+                type="button"
+                key={t.id}
+                onClick={() => pickTemplate(t)}
+                className={`text-left p-3 rounded-xl border text-sm ${form.templateId === t.id ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 dark:border-brand-500' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              >
+                <span className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-100"><Sparkles size={14} /> {t.name}</span>
+                <span className="block text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t.fieldCount} pre-built field{t.fieldCount === 1 ? '' : 's'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
         <div>
           <label className="form-label">Module Name <span className="req">*</span></label>
           <input aria-label="Module Name" required className="ui-input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Warranty Claims" />
@@ -37,8 +80,50 @@ function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClos
           <label className="form-label">Description</label>
           <textarea aria-label="Description" className="ui-input" rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="What is this module for?" />
         </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">You'll add fields to it on the next screen — nothing shows up for other users until you add at least one field.</p>
+        <div>
+          <label className="form-label">Sidebar section</label>
+          <select className="ui-input" aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}>
+            {NAV_SECTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Which part of the sidebar this module's link appears under, once it has at least one field.</p>
+        </div>
+        {!form.templateId && (
+          <p className="text-xs text-gray-400 dark:text-gray-500">You'll add fields to it on the next screen — nothing shows up for other users until you add at least one field.</p>
+        )}
         <div className="flex justify-end pt-1"><Button type="submit" loading={create.isPending}>Create Module</Button></div>
+      </form>
+    </Modal>
+  );
+}
+
+function EditModuleModal({ module_, onClose }: { module_: any; onClose: () => void }) {
+  const update = useUpdateCustomModule();
+  const [form, setForm] = useState({ name: module_.name, description: module_.description ?? '', navSection: module_.navSection ?? 'CRM' });
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    await update.mutateAsync({ id: module_.id, ...form });
+    onClose();
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Edit Module">
+      <form className="space-y-4" onSubmit={submit}>
+        <div>
+          <label className="form-label">Module Name <span className="req">*</span></label>
+          <input aria-label="Module Name" required className="ui-input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+        </div>
+        <div>
+          <label className="form-label">Description</label>
+          <textarea aria-label="Description" className="ui-input" rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
+        </div>
+        <div>
+          <label className="form-label">Sidebar section</label>
+          <select className="ui-input" aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}>
+            {NAV_SECTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="flex justify-end pt-1"><Button type="submit" loading={update.isPending}>Save Changes</Button></div>
       </form>
     </Modal>
   );
@@ -276,6 +361,7 @@ export default function CustomModulesPage() {
   const { data: module_ } = useCustomModule(selectedId ?? undefined);
   const deleteModule = useDeleteCustomModule();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState<'fields' | 'records' | 'sync'>('records');
 
   // Deep-link support — the "Manage module" link on a module's own
@@ -327,10 +413,18 @@ export default function CustomModulesPage() {
                     <h2 className="font-semibold text-gray-900">{module_.name}</h2>
                     {module_.description && <p className="text-xs text-gray-400">{module_.description}</p>}
                   </div>
-                  <button
-                    onClick={() => { if (confirm(`Delete "${module_.name}" and all its records? This can't be undone.`)) { deleteModule.mutate(module_.id); setSelectedId(null); } }}
-                    className="p-1.5 text-gray-300 hover:text-red-500"
-                  ><Trash2 size={15} /></button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEditOpen(true)}
+                      className="p-1.5 text-gray-300 hover:text-gray-600"
+                      aria-label="Edit module"
+                    ><Pencil size={15} /></button>
+                    <button
+                      onClick={() => { if (confirm(`Delete "${module_.name}" and all its records? This can't be undone.`)) { deleteModule.mutate(module_.id); setSelectedId(null); } }}
+                      className="p-1.5 text-gray-300 hover:text-red-500"
+                      aria-label="Delete module"
+                    ><Trash2 size={15} /></button>
+                  </div>
                 </div>
                 <div role="tablist" className="flex gap-2 mb-4">
                   {(['records', 'fields', 'sync'] as const).map(t => (
@@ -350,6 +444,7 @@ export default function CustomModulesPage() {
       )}
 
       <CreateModuleModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={id => { setSelectedId(id); setCreateOpen(false); setTab('fields'); }} />
+      {editOpen && module_ && <EditModuleModal module_={module_} onClose={() => setEditOpen(false)} />}
     </div>
   );
 }

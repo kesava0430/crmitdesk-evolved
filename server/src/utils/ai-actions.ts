@@ -316,11 +316,15 @@ export const AI_ACTIONS: AiActionDefinition[] = [
   {
     name: 'CREATE_CUSTOM_MODULE',
     label: 'Create a custom module',
-    description: 'Creates a new custom module — a brand-new record type for data that doesn\'t fit CRM/IT Desk out of the box (e.g. "create a Vendor Contracts module"). Fields are added separately with ADD_CUSTOM_MODULE_FIELD — a module with no fields yet is invisible to everyone but managers.',
-    paramsHint: '{ name: string, description?: string }',
+    description: 'Creates a new custom module — a brand-new record type for data that doesn\'t fit CRM/IT Desk out of the box (e.g. "create a Vendor Contracts module under Admin"). Fields are added separately with ADD_CUSTOM_MODULE_FIELD — a module with no fields yet is invisible to everyone but managers. If the request doesn\'t say which part of the app it belongs to, default navSection to CRM.',
+    paramsHint: '{ name: string, description?: string, navSection?: "CRM"|"IT_DESK"|"HR"|"ADMIN" (which sidebar section the module\'s link appears under once it has fields — default CRM) }',
     allowedRoles: CRM_MANAGERS,
     requiresConfirmation: true,
-    schema: z.object({ name: z.string().min(1).max(80), description: z.string().max(500).optional() }),
+    schema: z.object({
+      name: z.string().min(1).max(80),
+      description: z.string().max(500).optional(),
+      navSection: z.enum(['CRM', 'IT_DESK', 'HR', 'ADMIN']).default('CRM'),
+    }),
     handler: async (params, ctx) => {
       let slug = slugify(params.name);
       let suffix = 0;
@@ -329,9 +333,9 @@ export const AI_ACTIONS: AiActionDefinition[] = [
       }
       if (suffix) slug = `${slug}-${suffix}`;
       const module_ = await prisma.customModule.create({
-        data: { orgId: ctx.orgId, name: params.name, slug, icon: 'Layers', description: params.description, createdBy: ctx.userId },
+        data: { orgId: ctx.orgId, name: params.name, slug, icon: 'Layers', description: params.description, navSection: params.navSection, createdBy: ctx.userId },
       });
-      return { summary: `Created the "${module_.name}" module. Add fields to it next — it won't show up for other users until it has at least one.`, data: module_ };
+      return { summary: `Created the "${module_.name}" module under ${params.navSection}. Add fields to it next — it won't show up for other users until it has at least one.`, data: module_ };
     },
   },
 

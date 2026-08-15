@@ -8,6 +8,9 @@ customModulesRouter.use(authenticate);
 
 // Module admin — building/configuring a module is a manager-level action
 customModulesRouter.get('/',                          requireRole(...ALL_STAFF),    c.listModules);
+// Must be registered before GET /:id — otherwise Express would match
+// "templates" as an :id value and route here to getModule instead.
+customModulesRouter.get('/templates',                 requireRole(...CRM_MANAGERS), c.listModuleTemplates);
 customModulesRouter.post('/',                          requireRole(...CRM_MANAGERS), c.createModule);
 customModulesRouter.get('/:id',                        requireRole(...ALL_STAFF),    c.getModule);
 customModulesRouter.patch('/:id',                      requireRole(...CRM_MANAGERS), c.updateModule);

@@ -151,9 +151,41 @@ Every AI-executed action writes an audit entry. After running several of the abo
 
 ---
 
+---
+
+## 8. Module section picker (which part of the sidebar a module lives under)
+
+A required migration ships with this change (`20260815120000_custom_module_nav_section`) — confirm it applied cleanly in the Render deploy log before testing (`ALTER TABLE custom_modules ADD COLUMN nav_section...`).
+
+1. Go to **Custom Modules → New Module**. Under "Sidebar section", pick **IT Desk** instead of the CRM default. Name it "Test IT Module", add one field, save.
+2. Confirm it shows up in the sidebar under **IT Desk**, not CRM.
+3. Log in as a `SALES_REP` — confirm they do **not** see "Test IT Module" (IT Desk section isn't visible to them), but an `IT_AGENT` does.
+4. Back as a manager, open the module, click the new pencil **Edit module** icon next to Delete. Change the section to **HR**, save.
+5. Refresh — the module should have moved from IT Desk to HR in the sidebar. Confirm an `IT_AGENT` no longer sees it (HR section role rules apply now) but the record data itself is untouched.
+6. Sanity check the fallback: if you have any modules from before this change (created back when everything defaulted to CRM), confirm they still show up under CRM without needing manual re-editing.
+
+## 9. Starter templates
+
+1. **Custom Modules → New Module** — you should see a grid: "Start from scratch" plus four presets (Vendor Contracts, Asset Registry, Warranty Claims, Employee Equipment).
+2. Click **Asset Registry**. Confirm the Name, Description, and Sidebar section fields auto-fill (name "Asset Registry", section IT Desk) — all still editable before you save.
+3. Submit. Go straight to the Fields tab — confirm all 5 fields exist (Asset Name, Serial Number, Purchase Date, Warranty Expiry, Status) with the right types, and that "Asset Name" is marked as the title field.
+4. Go to Records, add one — confirm the Status field renders as a dropdown with the three preset options (In Use / In Storage / Retired).
+5. Confirm it appears in the sidebar under **IT Desk** without you having to set that manually.
+6. **Partial-failure sanity check (edge case, hard to trigger deliberately):** the module+fields are created in one DB transaction specifically so a mid-creation failure can't leave a module with only some of its template fields. Nothing to click here — just know that if you ever see a template-created module with a suspiciously incomplete field set, that's a real bug worth reporting, not expected behavior.
+7. Try renaming the module during creation (pick a template, then change the Name field before submitting) — confirm the final module uses your typed name, not the template's original name.
+
+### AI: create a module with a section
+
+With AI working (see section 0's prerequisites):
+
+- **"Create a Vendor Contracts module under Admin"** → confirm the resulting module lands in the Admin section, not CRM.
+- **"Create a module called Onboarding Checklist"** (no section mentioned) → confirm it defaults to CRM.
+
 ## Known limitations (not bugs)
 
 - **The AI can only do what's in the registry.** Ten actions currently. Anything else — creating quotes, invoices, assets, change requests, HR records; editing module fields; configuring sync — returns "couldn't understand" or falls back to the legacy 5-entity create flow. Extending it means adding registry entries, not retraining anything.
 - **Module sync config can't be set by AI.** Deliberate for now: it involves credentials and an external URL, which is a poor fit for a fuzzy natural-language command.
 - **Nav modules need a page refresh** to appear after being created via AI (the sidebar's module list is fetched on load and isn't invalidated by the AI execute path).
-- **Only one icon.** `CustomModule.icon` is always "Layers" since the create form has no picker; the nav supports several icons already, so adding a picker is a small change if wanted.
+- **No manual icon picker.** A module built from a template gets that template's icon (Briefcase, Boxes, etc.); one built from scratch is always "Layers." The nav already renders several icons, so adding a manual picker to the create/edit form is a small follow-up if wanted.
+- **Only 4 starter templates.** Vendor Contracts, Asset Registry, Warranty Claims, Employee Equipment — hardcoded in `customModules.service.ts`, not something an org can add to or customize themselves. "Save any existing module as a reusable template" is a different, not-yet-built feature.
+- **navSection is 4 fixed choices**, not free-form — a module can't create its own new sidebar section, only join CRM/IT Desk/HR/Admin.

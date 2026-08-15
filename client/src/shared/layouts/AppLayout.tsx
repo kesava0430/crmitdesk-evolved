@@ -210,17 +210,29 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   // sidebar entry here, instead of only being reachable through the generic
   // "Custom Modules" builder link under Admin — that link is still there for
   // defining fields/sync; these are the day-to-day "go look at the records"
-  // links. Built as an extra NavSection, appended only for rendering (NOT
+  // links. Folded into whichever existing section the module's own
+  // CustomModule.navSection picks (set on the module — see
+  // CreateModuleModal/EditModuleModal in CustomModulesPage.tsx), rather than
+  // always CRM or a dedicated section — appended only for rendering (NOT
   // pushed into the exported NAV_SECTIONS, since routeAccess.ts derives its
-  // role guard from that array — these dynamic /modules/:slug routes are
-  // deliberately unrestricted there instead, matching the underlying
-  // ALL_STAFF-gated records API; see App.tsx's route comment).
+  // role guard from that array). Note this means a module's link inherits
+  // whichever section it's placed in's role restriction for sidebar
+  // *visibility* (e.g. an IT Desk-placed module is hidden from a SALES_REP).
+  // The underlying /modules/:slug route and the records API itself stay
+  // ALL_STAFF/unrestricted regardless of placement (see App.tsx's route
+  // comment) — this only affects whether it shows up in the sidebar, same
+  // "hidden from nav, not blocked by URL" pattern routeAccess.ts already
+  // uses everywhere else.
+  const NAV_SECTION_LABELS: Record<string, string> = { CRM: "CRM", IT_DESK: "IT Desk", HR: "HR", ADMIN: "Admin" };
   const { data: customModules } = useCustomModules();
-  const moduleItems: NavItem[] = (customModules ?? [])
-    .filter((m: any) => m.isActive && (m._count?.fields ?? 0) > 0)
-    .map((m: any) => ({ to: `/modules/${m.slug}`, label: m.name, icon: CUSTOM_MODULE_ICONS[m.icon] ?? Layers }));
-  const sections: NavSection[] = moduleItems.length
-    ? [...NAV_SECTIONS, { label: "Modules", items: moduleItems }]
+  const visibleModules = (customModules ?? []).filter((m: any) => m.isActive && (m._count?.fields ?? 0) > 0);
+  const sections: NavSection[] = visibleModules.length
+    ? NAV_SECTIONS.map(section => {
+        const items = visibleModules
+          .filter((m: any) => (NAV_SECTION_LABELS[m.navSection] ?? "CRM") === section.label)
+          .map((m: any): NavItem => ({ to: `/modules/${m.slug}`, label: m.name, icon: CUSTOM_MODULE_ICONS[m.icon] ?? Layers }));
+        return items.length ? { ...section, items: [...section.items, ...items] } : section;
+      })
     : NAV_SECTIONS;
 
   return (

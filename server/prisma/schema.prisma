@@ -1165,6 +1165,14 @@ model CustomModule {
   slug        String
   icon        String    @default("Layers")
   description String?
+  // Which sidebar section (AppLayout.tsx's NAV_SECTIONS) this module's nav
+  // entry gets folded into — CRM | IT_DESK | HR | ADMIN. Plain string rather
+  // than a Postgres enum since it only ever needs to round-trip through the
+  // client's own picker and has no other consumer that needs DB-level
+  // constraint checking; an unrecognized value just falls back to CRM in the
+  // sidebar (see AppLayout.tsx). Defaults to CRM to match this feature's
+  // original (pre-picker) hardcoded placement.
+  navSection  String    @default("CRM") @map("nav_section")
   isActive    Boolean   @default(true) @map("is_active")
   createdBy   String    @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")

@@ -10,6 +10,9 @@ export const useCustomModules = () =>
 export const useCustomModule = (id?: string) =>
   useQuery({ queryKey: ['custom-modules', id], queryFn: () => api.get(`/custom-modules/${id}`).then(r => r.data), enabled: !!id });
 
+export const useModuleTemplates = () =>
+  useQuery({ queryKey: ['custom-module-templates'], queryFn: () => api.get('/custom-modules/templates').then(r => r.data), staleTime: Infinity });
+
 export const useCreateCustomModule = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (data: any) => api.post('/custom-modules', data).then(r => r.data),
