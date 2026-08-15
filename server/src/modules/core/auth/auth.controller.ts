@@ -353,7 +353,19 @@ export async function acceptInvite(req: Request, res: Response, next: NextFuncti
     const passwordHash = await bcrypt.hash(data.password, 12);
     const user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const u = await tx.user.create({
-        data: { name: data.name, email: invite.email, passwordHash, role: invite.role, orgId: invite.orgId },
+        data: {
+          name: data.name,
+          email: invite.email,
+          passwordHash,
+          role: invite.role,
+          // Carries a custom role through the invite. Without this the new
+          // user would land on `invite.role`'s enum value only — so someone
+          // invited as "Regional Sales Head" would silently become whatever
+          // base access level that role maps to, and lose every permission
+          // the custom role actually grants.
+          roleId: invite.roleId ?? undefined,
+          orgId: invite.orgId,
+        },
         select: { id: true, name: true, email: true, role: true, orgId: true, avatarUrl: true },
       });
       await tx.inviteToken.update({ where: { id: invite.id }, data: { usedAt: new Date() } });

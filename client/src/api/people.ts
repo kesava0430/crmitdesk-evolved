@@ -341,3 +341,122 @@ export const useDeleteLocation = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['locations'] }),
   });
 };
+
+// ─── Unified People surface ───────────────────────────────────────────────────
+//
+// One list over the User and Employee tables. They stay separate in the
+// database (see server/src/modules/people/people.controller.ts for why), but
+// nothing here or in the UI needs to know that — a person either can sign in
+// or cannot, and that is a property, not a different kind of record.
+
+export interface Person {
+  id: string;
+  employeeId: string | null;
+  userId: string | null;
+  employeeCode: string | null;
+  displayName: string;
+  email: string | null;
+  phone: string | null;
+  designation: string | null;
+  department: { id: string; name: string } | null;
+  location: { id: string; name: string } | null;
+  manager: { id: string; displayName: string } | null;
+  employmentStatus: string | null;
+  employmentType: string | null;
+  joiningDate: string | null;
+  photoUrl: string | null;
+  hasLogin: boolean;
+  loginActive: boolean;
+  role: string | null;
+  roleId: string | null;
+  roleName: string | null;
+}
+
+export interface PeopleStats {
+  total: number;
+  canSignIn: number;
+  noLogin: number;
+  onNotice: number;
+  activeLogins: number;
+  unlinkedLogins: number;
+}
+
+export const usePeople = (params: Record<string, string | undefined> = {}) =>
+  useQuery<Paged<Person>>({
+    queryKey: ['people', params],
+    queryFn: () => api.get('/people', { params }).then(r => r.data),
+  });
+
+export const usePeopleStats = () =>
+  useQuery<PeopleStats>({
+    queryKey: ['people-stats'],
+    queryFn: () => api.get('/people/stats').then(r => r.data),
+  });
+
+function invalidatePeopleViews(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['people'] });
+  qc.invalidateQueries({ queryKey: ['people-stats'] });
+  qc.invalidateQueries({ queryKey: ['employees'] });
+  qc.invalidateQueries({ queryKey: ['employee-stats'] });
+  qc.invalidateQueries({ queryKey: ['org-chart'] });
+  qc.invalidateQueries({ queryKey: ['admin-users'] });
+}
+
+export interface CreatePersonInput {
+  firstName: string;
+  lastName?: string;
+  designation?: string;
+  departmentId?: string | null;
+  locationId?: string | null;
+  managerId?: string | null;
+  phone?: string;
+  joiningDate: string;
+  employmentType?: string;
+  loginMode: 'none' | 'password' | 'invite';
+  email?: string;
+  password?: string;
+  roleId?: string;
+}
+
+export const useCreatePerson = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreatePersonInput) =>
+      api.post('/people', body).then(r => r.data as { person: Person; inviteLink: string | null }),
+    onSuccess: () => invalidatePeopleViews(qc),
+  });
+};
+
+export const useGrantLogin = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; email: string; roleId?: string; mode: 'password' | 'invite'; password?: string }) =>
+      api.post(`/people/${id}/grant-login`, body).then(r => r.data as { message: string; inviteLink: string | null }),
+    onSuccess: () => invalidatePeopleViews(qc),
+  });
+};
+
+export const useRevokeLogin = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/people/${id}/revoke-login`).then(r => r.data),
+    onSuccess: () => invalidatePeopleViews(qc),
+  });
+};
+
+export const useAssignPersonRole = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, roleId }: { id: string; roleId: string }) =>
+      api.post(`/people/${id}/role`, { roleId }).then(r => r.data),
+    onSuccess: () => invalidatePeopleViews(qc),
+  });
+};
+
+export const useRepairUnlinked = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post('/people/repair-unlinked').then(r => r.data as { created: number; message: string }),
+    onSuccess: () => invalidatePeopleViews(qc),
+  });
+};

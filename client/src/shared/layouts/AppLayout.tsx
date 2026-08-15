@@ -78,7 +78,8 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "HR",
     items: [
-      { to: "/hr/employees",  label: "Employees",   icon: UserSquare2 },
+      { to: "/people",        label: "People",      icon: UserSquare2 },
+      { to: "/hr/directory",  label: "Org Chart",   icon: Network },
       { to: "/hr/org",        label: "Org Structure", icon: Network, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/hr/attendance", label: "Attendance",  icon: Clock },
       { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck },
@@ -99,7 +100,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "Admin",
     items: [
-      { to: "/admin/users",   label: "Users",         icon: UserCog,  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/admin/users",   label: "Logins & Invites", icon: UserCog,  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/analytics",     label: "Analytics",     icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/reports",       label: "Reports",       icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/import",        label: "Import CSV",    icon: Upload,    roles: ['SUPER_ADMIN', 'CRM_MANAGER'] },

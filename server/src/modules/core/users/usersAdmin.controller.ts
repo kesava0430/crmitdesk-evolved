@@ -13,17 +13,24 @@ import { emailTemplates } from '../../../utils/mailer';
 // twice — see utils/employeeProvisioning.ts for why the split is invisible
 // in day-to-day use.
 import { ensureEmployeeForUser, syncUserToEmployee, reconcileOrphans, linkUserToEmployee } from '../../../utils/employeeProvisioning';
+import { invalidatePermCtx } from '../../../utils/permissions';
 
 // phone is preprocessed so an empty string (the form's untouched default)
 // doesn't get stored as '' — the WhatsApp "assignee" recipient resolver
 // treats a falsy phone as "not set", which '' would defeat.
 const emptyToUndefined = (v: unknown) => (v === '' ? undefined : v);
 
+// `roleId` is the modern input — it points at a Role row, including custom
+// roles an admin created. `role` (the enum) is kept because it still drives
+// requireRole() on every route and is what the e2e suite and existing API
+// clients send. When both arrive, roleId wins and the enum is derived from
+// that Role's legacyRole, so the two can never disagree.
 const CreateSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8),
-  role: z.enum(['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE']),
+  roleId: z.string().optional(),
+  role: z.enum(['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE']).optional(),
   department: z.string().optional(),
   phone: z.preprocess(emptyToUndefined, z.string().optional()),
   /** Set false for service/integration accounts that are not real people. */
@@ -32,16 +39,60 @@ const CreateSchema = z.object({
 
 const InviteSchema = z.object({
   email: z.string().email(),
+  roleId: z.string().optional(),
   role: z.enum(['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE']).default('EMPLOYEE'),
 });
 
 const UpdateSchema = z.object({
   name: z.string().min(2).optional(),
+  roleId: z.string().nullable().optional(),
   role: z.enum(['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE']).optional(),
   department: z.string().optional(),
   phone: z.preprocess(emptyToUndefined, z.string().optional()),
   isActive: z.boolean().optional(),
 });
+
+type LegacyRole = 'SUPER_ADMIN' | 'CRM_MANAGER' | 'SALES_REP' | 'IT_MANAGER' | 'IT_AGENT' | 'EMPLOYEE';
+const LEGACY_ROLES: LegacyRole[] = ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP', 'IT_MANAGER', 'IT_AGENT', 'EMPLOYEE'];
+
+/**
+ * Turns whatever the caller sent into the pair the database needs.
+ *
+ * Route guards still read the `role` enum, so every user must have one even
+ * when they hold a custom role that has no enum equivalent. `Role.legacyRole`
+ * is that mapping — the "base access level" chosen when the role was created.
+ * A custom role with none set falls back to EMPLOYEE, which is the safe
+ * direction to be wrong in: too little route access is visible and fixable,
+ * too much is a security hole.
+ */
+async function resolveRole(
+  orgId: string,
+  input: { roleId?: string | null; role?: LegacyRole }
+): Promise<{ roleId: string | null; role: LegacyRole }> {
+  if (input.roleId) {
+    const role = await prisma.role.findFirst({
+      where: { id: input.roleId, OR: [{ orgId }, { orgId: null }] },
+      select: { id: true, legacyRole: true, isActive: true },
+    });
+    if (!role) throw new AppError(404, 'That role was not found in this organization');
+    if (!role.isActive) throw new AppError(400, 'That role is deactivated');
+
+    const legacy = LEGACY_ROLES.includes(role.legacyRole as LegacyRole)
+      ? (role.legacyRole as LegacyRole)
+      : 'EMPLOYEE';
+    return { roleId: role.id, role: legacy };
+  }
+
+  const legacy = input.role ?? 'EMPLOYEE';
+  // Keep the two columns consistent even when only the enum was sent, so a
+  // user created through the API still shows the right role on screen.
+  const match = await prisma.role.findFirst({
+    where: { legacyRole: legacy, OR: [{ orgId }, { orgId: null }] },
+    orderBy: { orgId: 'desc' },
+    select: { id: true },
+  });
+  return { roleId: match?.id ?? null, role: legacy };
+}
 
 const select = { id: true, name: true, email: true, role: true, department: true, phone: true, isActive: true, createdAt: true, avatarUrl: true, orgId: true };
 
@@ -75,12 +126,18 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     const data = CreateSchema.parse(req.body);
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new AppError(409, 'Email already registered');
-    await assertSeatAvailable(req.user!.orgId, data.role);
+
+    const resolved = await resolveRole(req.user!.orgId, data);
+    // Seats are metered against the legacy role, so resolve first.
+    await assertSeatAvailable(req.user!.orgId, resolved.role);
     // Destructure password out so it is not spread into the Prisma create call
     // (the User model has `passwordHash`, not `password`)
-    const { password, createEmployee, ...rest } = data;
+    const { password, createEmployee, roleId: _roleId, role: _role, ...rest } = data;
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await prisma.user.create({ data: { ...rest, passwordHash, orgId: req.user!.orgId }, select });
+    const user = await prisma.user.create({
+      data: { ...rest, ...resolved, passwordHash, orgId: req.user!.orgId },
+      select,
+    });
 
     // Adding someone in Administration → Users also makes them an employee, so
     // HR isn't a second data-entry step. Non-throwing: a failure here leaves a
@@ -95,14 +152,16 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 /** Send an invite link — user sets their own password */
 export async function invite(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { email, role } = InviteSchema.parse(req.body);
+    const input = InviteSchema.parse(req.body);
+    const { role, roleId } = await resolveRole(req.user!.orgId, input);
     await assertSeatAvailable(req.user!.orgId, role);
+    const email = input.email;
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     const org = await prisma.organization.findUnique({ where: { id: req.user!.orgId }, select: { name: true } });
     const invite = await prisma.inviteToken.create({
-      data: { orgId: req.user!.orgId, email, role, token, expiresAt },
+      data: { orgId: req.user!.orgId, email, role, roleId, token, expiresAt },
     });
 
     const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/accept-invite?token=${token}`;
@@ -139,10 +198,22 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     // doesn't change the billable headcount, so it must NOT be re-checked
     // here — the target's own existing seat would otherwise cause a false
     // "at limit" block.
-    if (data.role && data.role !== target.role && !isMeteredRole(target.role)) {
-      await assertSeatAvailable(req.user!.orgId, data.role);
+    // Only resolve when the caller actually submitted a role change; an
+    // untouched role must not be rewritten by a lookup.
+    const changingRole = data.roleId !== undefined || data.role !== undefined;
+    const resolved = changingRole ? await resolveRole(req.user!.orgId, data) : null;
+
+    if (resolved && resolved.role !== target.role && !isMeteredRole(target.role)) {
+      await assertSeatAvailable(req.user!.orgId, resolved.role);
     }
-    const user = await prisma.user.update({ where: { id: req.params.id }, data, select });
+
+    const { roleId: _rid, role: _r, ...rest } = data;
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { ...rest, ...(resolved ?? {}) },
+      select,
+    });
+    if (resolved) invalidatePermCtx(user.id);
 
     // Mirror the fields that exist on both records. If this user has no
     // employee (a service account, or one created before HR was set up), the

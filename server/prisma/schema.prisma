@@ -196,6 +196,11 @@ model InviteToken {
   orgId     String       @map("org_id")
   email     String
   role      UserRole     @default(EMPLOYEE)
+  /// The Role row this invite was issued for, when the admin picked a custom
+  /// role. Deliberately a bare id with no foreign key: an invite is a
+  /// short-lived token, and a role deleted before it is accepted should make
+  /// the invite fall back to `role` above rather than fail to resolve.
+  roleId    String?      @map("role_id")
   token     String       @unique
   expiresAt DateTime     @map("expires_at")
   usedAt    DateTime?    @map("used_at")

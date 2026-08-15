@@ -80,6 +80,9 @@ const AttendancePage     = lazy(() => import('./modules/hr/AttendancePage'));
 // of the original set.
 const MyWorkPage         = lazy(() => import('./modules/tasks/MyWorkPage'));
 const EmployeesPage      = lazy(() => import('./modules/hr/EmployeesPage'));
+// One People screen over Users + Employees. The two old routes still resolve
+// (bookmarks, the e2e suite, links in old emails) — they just land here now.
+const PeoplePage         = lazy(() => import('./modules/people/PeoplePage'));
 const OrgStructurePage   = lazy(() => import('./modules/hr/OrgStructurePage'));
 const ApprovalsPage      = lazy(() => import('./modules/approvals/ApprovalsPage'));
 const RolesPermissionsPage = lazy(() => import('./pages/RolesPermissionsPage'));
@@ -204,7 +207,11 @@ export default function App() {
             <Route path="invoices" element={<InvoicesPage />} />
             <Route path="my-work" element={<MyWorkPage />} />
             <Route path="approvals" element={<ApprovalsPage />} />
-            <Route path="hr/employees" element={<EmployeesPage />} />
+            <Route path="people" element={<PeoplePage />} />
+            <Route path="hr/employees" element={<PeoplePage />} />
+            {/* The employee directory with the org chart is still reachable
+                directly; People is the everyday entry point. */}
+            <Route path="hr/directory" element={<EmployeesPage />} />
             <Route path="hr/org" element={<OrgStructurePage />} />
             <Route path="admin/roles" element={<RolesPermissionsPage />} />
             <Route path="admin/ai-governance" element={<AIGovernancePage />} />

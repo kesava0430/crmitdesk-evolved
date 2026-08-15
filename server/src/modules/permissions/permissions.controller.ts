@@ -85,6 +85,17 @@ const RoleSchema = z.object({
   key: z.string().min(2).max(50).regex(/^[A-Z0-9_]+$/, 'Use uppercase letters, digits and underscores'),
   name: z.string().min(1).max(100),
   description: z.string().optional().nullable(),
+  /**
+   * Which built-in role this one's *route* access mirrors.
+   *
+   * Permissions decide what data a role can touch, but requireRole() on each
+   * route still reads the legacy enum — so a custom role needs to say which
+   * of the six it behaves like at the routing layer. Without it a
+   * "Regional Sales Head" would be granted crm.deal.read and then be turned
+   * away at the CRM route by the enum check, which looks like the permission
+   * system is broken.
+   */
+  legacyRole: z.enum(['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP', 'IT_MANAGER', 'IT_AGENT', 'EMPLOYEE']).optional(),
   rank: z.number().int().min(0).max(999).optional(),
   isActive: z.boolean().optional(),
   permissions: z
@@ -139,6 +150,9 @@ export async function createRole(req: AuthRequest, res: Response, next: NextFunc
         key: data.key,
         name: data.name,
         description: data.description ?? null,
+        // Defaults to the most restrictive option — too little route access is
+        // visible and fixable; too much is a security hole.
+        legacyRole: data.legacyRole ?? 'EMPLOYEE',
         rank: data.rank ?? 100,
         isSystem: false,
         permissions: data.permissions?.length
@@ -218,6 +232,9 @@ export async function updateRole(req: AuthRequest, res: Response, next: NextFunc
         ...(data.description !== undefined ? { description: data.description } : {}),
         ...(data.rank !== undefined ? { rank: data.rank } : {}),
         ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+        // Built-in roles keep their mapping — changing SUPER_ADMIN's base
+        // access level would be a foot-gun with no legitimate use.
+        ...(data.legacyRole !== undefined && !existing.isSystem ? { legacyRole: data.legacyRole } : {}),
       },
       include: roleInclude,
     });

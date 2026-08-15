@@ -67,6 +67,9 @@ import { payrollRouter } from './modules/hr/payroll/payroll.routes';
 // routers are what the cross-suite workflows (onboarding, offboarding,
 // ownership transfer, the universal request centre) are built on.
 import { employeesRouter } from './modules/hr/employees/employees.routes';
+// One "People" surface over the User and Employee tables — see
+// modules/people/people.controller.ts for why they stay separate underneath.
+import { peopleRouter } from './modules/people/people.routes';
 import { orgStructureRouter } from './modules/hr/org/orgStructure.routes';
 import { tasksRouter } from './modules/tasks/tasks.routes';
 import { approvalsRouter } from './modules/approvals/approvals.routes';
@@ -286,6 +289,7 @@ app.use('/api/hr/payroll', payrollRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/hr/employees', employeesRouter);
+app.use('/api/people', peopleRouter);
 app.use('/api/hr/org', orgStructureRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/approvals', approvalsRouter);

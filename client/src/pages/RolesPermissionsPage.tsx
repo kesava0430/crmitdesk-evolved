@@ -238,45 +238,83 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
   );
 }
 
+/**
+ * Seniority tiers, so "rank" is a choice rather than a number to guess at.
+ *
+ * Rank exists for one job: stopping privilege escalation. An admin cannot
+ * create or edit a role more senior than their own, and cannot grant a
+ * permission they do not hold themselves. Lower number = more senior.
+ */
+const RANK_TIERS = [
+  { value: 10, label: 'Executive', hint: 'Cross-company visibility, usually read-only' },
+  { value: 20, label: 'Department head', hint: 'Runs a function — sales, IT, HR, finance' },
+  { value: 30, label: 'Team lead', hint: 'Owns a team and approves for it' },
+  { value: 50, label: 'Individual contributor', hint: 'Works their own records' },
+  { value: 90, label: 'Self-service only', hint: 'Own payslips, leave and requests' },
+];
+
 function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateRole();
-  const [form, setForm] = useState({ key: '', name: '', description: '', rank: 100 });
+  const { data: roles } = useRoles();
   const [error, setError] = useState('');
+  const [form, setForm] = useState({ key: '', name: '', description: '', rank: 50 });
+  // Which existing role to copy permissions from. A role created with nothing
+  // granted is useless, and setting ~130 permissions by hand to get to a
+  // working starting point is not a reasonable ask — so copying is the
+  // default path and "blank" is the deliberate exception.
+  const [copyFromId, setCopyFromId] = useState('');
+
+  const copyFrom = roles?.data.find(r => r.id === copyFromId);
+  const copiedCount = copyFrom?.permissions.filter(p => p.scope !== 'NONE').length ?? 0;
+
+  const reset = () => {
+    setForm({ key: '', name: '', description: '', rank: 50 });
+    setCopyFromId('');
+  };
+
+  const submit = () => {
+    setError('');
+    create.mutate(
+      {
+        ...form,
+        description: form.description || undefined,
+        // Copy only real grants; a NONE row is the same as no row.
+        permissions: copyFrom?.permissions.filter(p => p.scope !== 'NONE'),
+      },
+      {
+        onSuccess: () => {
+          reset();
+          onClose();
+        },
+        onError: (err: any) => setError(err?.response?.data?.error || 'Could not create that role.'),
+      }
+    );
+  };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="New role"
-      subtitle="Starts with no permissions — grant them after creating."
+      subtitle="A role is a set of permissions, each with a scope deciding whose records it covers."
       icon={<Shield size={16} />}
+      size="lg"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            loading={create.isPending}
-            disabled={!form.key.trim() || !form.name.trim()}
-            onClick={() => {
-              setError('');
-              create.mutate(form, {
-                onSuccess: () => {
-                  setForm({ key: '', name: '', description: '', rank: 100 });
-                  onClose();
-                },
-                onError: (err: any) => setError(err?.response?.data?.error || 'Could not create that role.'),
-              });
-            }}
-          >
+          <Button loading={create.isPending} disabled={!form.key.trim() || !form.name.trim()} onClick={submit}>
             Create role
           </Button>
         </>
       }
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div>
-          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">Display name</label>
+          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">
+            Display name <span className="text-red-500">*</span>
+          </label>
           <input
             className={field}
             value={form.name}
@@ -284,33 +322,75 @@ function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void })
               setForm({
                 ...form,
                 name: e.target.value,
+                // Only auto-fill the key while the admin hasn't typed their own.
                 key: form.key || e.target.value.toUpperCase().replace(/[^A-Z0-9]+/g, '_'),
               })
             }
             placeholder="e.g. Regional Sales Head"
           />
+          <p className="text-[11px] text-gray-400 mt-1">What people see in the role picker.</p>
         </div>
+
         <div>
-          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">Key</label>
+          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">
+            Key <span className="text-red-500">*</span>
+          </label>
           <input
             className={`${field} font-mono`}
             value={form.key}
-            onChange={e => setForm({ ...form, key: e.target.value.toUpperCase() })}
-          />
-          <p className="text-[11px] text-gray-400 mt-1">Uppercase, digits and underscores. Used by approval policies.</p>
-        </div>
-        <div>
-          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">Seniority rank</label>
-          <input
-            type="number"
-            className={field}
-            value={form.rank}
-            onChange={e => setForm({ ...form, rank: Number(e.target.value) })}
+            onChange={e => setForm({ ...form, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })}
+            placeholder="REGIONAL_SALES_HEAD"
           />
           <p className="text-[11px] text-gray-400 mt-1">
-            Lower is more senior. You cannot create a role more senior than your own.
+            Uppercase, digits and underscores. Approval policies reference roles by this key, so it is worth getting
+            right — renaming it later breaks any policy pointing at it.
           </p>
         </div>
+
+        <div>
+          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">Description</label>
+          <input
+            className={field}
+            value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })}
+            placeholder="Who this role is for and what they are expected to do"
+          />
+          <p className="text-[11px] text-gray-400 mt-1">
+            Optional, but the next admin deciding whether to use this role will thank you.
+          </p>
+        </div>
+
+        <div>
+          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">Seniority</label>
+          <select className={field} value={form.rank} onChange={e => setForm({ ...form, rank: Number(e.target.value) })}>
+            {RANK_TIERS.map(t => (
+              <option key={t.value} value={t.value}>
+                {t.label} — {t.hint}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">
+            Used only to prevent privilege escalation: nobody can create or edit a role more senior than their own.
+          </p>
+        </div>
+
+        <div>
+          <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">Start from</label>
+          <select className={field} value={copyFromId} onChange={e => setCopyFromId(e.target.value)}>
+            <option value="">Blank — no permissions at all</option>
+            {(roles?.data ?? []).map(r => (
+              <option key={r.id} value={r.id}>
+                Copy of {r.name} ({r.permissions.filter(p => p.scope !== 'NONE').length} permissions)
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">
+            {copyFrom
+              ? `Copies ${copiedCount} permission(s) with their scopes. Edit them after creating — field rules are not copied.`
+              : 'A blank role can sign in but see nothing. Pick the closest existing role and trim it down instead.'}
+          </p>
+        </div>
+
         {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
       </div>
     </Modal>

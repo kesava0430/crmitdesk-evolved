@@ -5,6 +5,27 @@ import { useAuth } from '../contexts/AuthContext';
 import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions } from '../shared/components';
 import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check, KeyRound } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
+import { useRoles } from '../api/work';
+
+/**
+ * Role options come from the Role table, not a hardcoded list.
+ *
+ * The six legacy enum values used to be the only choices here, which meant a
+ * role an admin created under Administration → Roles & Permissions — or any of
+ * the built-in HR Manager / Finance / Executive roles — simply never appeared
+ * when adding a user. Creating a role you could not then assign is worse than
+ * not offering role creation at all.
+ */
+function useRoleOptions() {
+  const { data, isLoading } = useRoles();
+  const options = (data?.data ?? [])
+    .filter(r => r.isActive)
+    .map(r => ({
+      value: r.id,
+      label: r.description ? `${r.name} — ${r.description}` : r.name,
+    }));
+  return { options, isLoading, roles: data?.data ?? [] };
+}
 
 const ROLES = ['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE'];
 const roleVariant: Record<string, any> = {
@@ -13,10 +34,29 @@ const roleVariant: Record<string, any> = {
 };
 
 function UserForm({ initial, onSubmit, loading }: any) {
-  const [form, setForm] = useState(initial || { name: '', email: '', password: '', role: 'EMPLOYEE', department: '', phone: '' });
+  const { options: roleOptions, isLoading: rolesLoading, roles } = useRoleOptions();
+  // An existing user may still be on the legacy enum with no Role row linked,
+  // so fall back to matching by legacyRole rather than showing an empty picker.
+  const initialRoleId =
+    initial?.roleId ?? roles.find(r => r.legacyRole === initial?.role)?.id ?? '';
+  const [form, setForm] = useState(
+    initial
+      ? { ...initial, roleId: initialRoleId }
+      : { name: '', email: '', password: '', roleId: '', department: '', phone: '' }
+  );
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit(form); }} className="space-y-3">
+    <form
+      onSubmit={e => {
+        e.preventDefault();
+        // Send roleId only. The server derives the legacy enum from the Role's
+        // base access level, so passing a stale `role` alongside it would just
+        // be a second source of truth to disagree with.
+        const { role: _legacy, ...payload } = form;
+        onSubmit(payload);
+      }}
+      className="space-y-3"
+    >
       <div className="form-section">
         <p className="form-section-title">Account Details</p>
         <div className="grid grid-cols-2 gap-4">
@@ -48,8 +88,16 @@ function UserForm({ initial, onSubmit, loading }: any) {
         <p className="form-section-title">Permissions</p>
         <div>
           <label className="form-label">Role <span className="req">*</span></label>
-<SearchableSelect ariaLabel="Role" value={form.role} onChange={val => setForm((p: any) => ({ ...p, role: val }))} required options={ROLES.map(r => ({ value: r, label: r.replace(/_/g, ' ') }))} />
-          <p className="form-hint">Controls what this user can see and do in the system.</p>
+          <SearchableSelect
+            ariaLabel="Role"
+            value={form.roleId || (initialRoleId ?? '')}
+            onChange={val => setForm((p: any) => ({ ...p, roleId: val }))}
+            required
+            options={rolesLoading ? [{ value: '', label: 'Loading roles…' }] : roleOptions}
+          />
+          <p className="form-hint">
+            Decides what this user can see and do. Manage the list under Administration → Roles &amp; Permissions.
+          </p>
         </div>
       </div>
       <div className="flex justify-end pt-1">
@@ -60,7 +108,8 @@ function UserForm({ initial, onSubmit, loading }: any) {
 }
 
 function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
-  const [form, setForm] = useState({ email: '', role: 'EMPLOYEE' });
+  const { options: roleOptions, isLoading: rolesLoading } = useRoleOptions();
+  const [form, setForm] = useState({ email: '', roleId: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -89,9 +138,17 @@ function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
             <input aria-label="Email" required type="email" className="ui-input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="colleague@company.com" />
           </div>
           <div>
-            <label className="form-label">Role</label>
-<SearchableSelect ariaLabel="Role" value={form.role} onChange={val => setForm(f => ({ ...f, role: val }))} required options={ROLES.map(r => ({ value: r, label: r.replace(/_/g, ' ') }))} />
-            <p className="form-hint">An invite link will be generated. Share it with the person you're inviting.</p>
+            <label className="form-label">Role <span className="req">*</span></label>
+            <SearchableSelect
+              ariaLabel="Role"
+              value={form.roleId}
+              onChange={val => setForm(f => ({ ...f, roleId: val }))}
+              required
+              options={rolesLoading ? [{ value: '', label: 'Loading roles…' }] : roleOptions}
+            />
+            <p className="form-hint">
+              The role is stored on the invite, so a custom role survives until the person accepts.
+            </p>
           </div>
         </div>
       </div>
@@ -294,7 +351,13 @@ export function UsersPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant={roleVariant[u.role] || 'gray'}>{u.role.replace(/_/g,' ')}</Badge>
+                    {/* Show the assigned Role's name when there is one — a
+                        custom role like "Regional Sales Head" is far more
+                        useful here than the base access level it maps to.
+                        Users still on the legacy enum fall back to it. */}
+                    <Badge variant={roleVariant[u.role] || 'gray'}>
+                      {u.roleRef?.name ?? u.role.replace(/_/g, ' ')}
+                    </Badge>
                   </td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{u.department || '—'}</td>
                   {/* Adding a user creates their employee record automatically, so
