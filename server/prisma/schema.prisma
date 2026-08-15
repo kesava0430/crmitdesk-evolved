@@ -12,6 +12,21 @@ model Organization {
   name           String
   slug           String             @unique
   plan           String             @default("FREE")
+  // ISO 4217 currency code (e.g. "USD", "EUR", "INR") — the single currency
+  // every $ amount across the app formats in for this org (deals, quotes,
+  // invoices, payroll). Chosen over per-record currency to avoid needing an
+  // exchange-rate story for anything that sums across records (pipeline
+  // forecast, payroll totals, reports) — see utils/format.ts (client) for
+  // where this actually gets applied via Intl.NumberFormat.
+  currency       String             @default("USD") @map("currency")
+  // IANA time zone name (e.g. "America/New_York", "Asia/Kolkata") — every
+  // date/time this org sees is formatted in this zone rather than the
+  // viewer's browser zone, so e.g. a ticket's "created 2 hours ago" reads
+  // the same for every teammate regardless of where they're physically
+  // logging in from. Stored dates themselves stay UTC in Postgres either
+  // way; this only affects display formatting (Intl.DateTimeFormat's
+  // `timeZone` option), never what's persisted.
+  timezone       String             @default("UTC") @map("timezone")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
   aiCustomRules     AICustomRule[]

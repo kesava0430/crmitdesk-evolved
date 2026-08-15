@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, X } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, X } from 'lucide-react';
 import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
 import { useContacts, useAccounts, usePipelines, useAddStage, useUpdateStage, useRemoveStage, useReorderStages } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
@@ -10,6 +10,7 @@ import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useLabels } from '../../../hooks/useLabels';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
+import { useFormat } from '../../../hooks/useFormat';
 
 function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading, aiPrefill }: any) {
   const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '', ...aiPrefill });
@@ -20,12 +21,16 @@ function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubm
   }, [existingValues]);
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
   const { entityLabel, fieldLabel } = useLabels();
+  const { symbol } = useFormat();
   const singular = entityLabel('deal', 'singular', 'Deal');
   // "Deal Title"/"Value ($)" aria-labels fall back to their exact original
   // text when unset, so the e2e suite's getByLabel(/deal title/i) etc. keeps
-  // matching for the seeded test org (which never sets labelOverrides).
+  // matching for the seeded test org (which never sets labelOverrides) —
+  // the ($) part still needs to reflect the org's actual currency though,
+  // not always a literal dollar sign, so that piece is built separately
+  // from the overridable fallback rather than baked into it.
   const titleLabel = fieldLabel('deal', 'title', 'Deal Title');
-  const valueLabel = fieldLabel('deal', 'value', 'Value ($)');
+  const valueLabel = `${fieldLabel('deal', 'value', 'Value')} (${symbol})`;
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, value: Number(form.value), probability: Number(form.probability), __customFieldValues: customValues }); }} className="space-y-3">
       {!initial && (
@@ -93,6 +98,7 @@ function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubm
 
 function DealCard({ deal, onDelete, onSelect }: any) {
   const [dragging, setDragging] = useState(false);
+  const { money } = useFormat();
   return (
     <div
       draggable
@@ -108,7 +114,7 @@ function DealCard({ deal, onDelete, onSelect }: any) {
       </div>
       {deal.value > 0 && (
         <div className="flex items-center gap-1 text-green-600 dark:text-green-400 font-semibold text-sm mb-2">
-          <DollarSign size={13} />{Number(deal.value).toLocaleString()}
+          {money(deal.value)}
         </div>
       )}
       <div className="flex items-center justify-between">
@@ -371,6 +377,7 @@ function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => 
 // remount (close + reopen the modal).
 function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; pageSingular: string; onEdit: (deal: any) => void }) {
   const { data: deal, isLoading } = useDeal(id);
+  const { money } = useFormat();
   if (isLoading || !deal) return <Spinner />;
   return (
     <div className="space-y-3">
@@ -381,7 +388,7 @@ function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; page
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
         <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Stage</p><p className="font-medium">{deal.stage}</p></div>
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Value</p><p className="font-medium text-green-600 dark:text-green-400">${Number(deal.value).toLocaleString()}</p></div>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Value</p><p className="font-medium text-green-600 dark:text-green-400">{money(deal.value)}</p></div>
         <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Contact</p><p className="font-medium">{deal.contact?.name || '--'}</p></div>
         <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Assigned To</p><p className="font-medium">{deal.assignee?.name || '--'}</p></div>
       </div>
@@ -418,6 +425,7 @@ export function DealsPage() {
   // so the stage manager can rename/recolor them — this form only needs the labels.
   const stages = (pipelineData?.pipeline?.stages as any[] | undefined)?.map(s => typeof s === 'string' ? s : s.label);
   const { entityLabel } = useLabels();
+  const { money } = useFormat();
   const pageSingular = entityLabel('deal', 'singular', 'Deal');
   const pagePlural = entityLabel('deal', 'plural', 'Pipeline');
   const aiPrefill = useAiPrefill<{ title?: string; value?: number; stage?: string; probability?: number; contactId?: string }>();
@@ -493,7 +501,7 @@ export function DealsPage() {
             <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-4">Pipeline Funnel</h3>
             {reports?.funnel?.map((s: any) => (
               <div key={s.stage} className="mb-3">
-                <div className="flex justify-between text-sm mb-1"><span className="text-gray-600 dark:text-gray-400">{s.stage}</span><span className="font-medium">{s.count} deals · ${s.value.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm mb-1"><span className="text-gray-600 dark:text-gray-400">{s.stage}</span><span className="font-medium">{s.count} deals · {money(s.value)}</span></div>
                 <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                   <div className="h-full bg-brand-500 rounded-full" style={{ width: `${Math.min(100, (s.count / (reports.funnel[0]?.count || 1)) * 100)}%` }} />
                 </div>
@@ -503,7 +511,7 @@ export function DealsPage() {
           <div className="space-y-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-500/20 flex items-center justify-center text-green-600 dark:text-green-400"><TrendingUp size={22} /></div>
-              <div><p className="text-2xl font-bold text-gray-900 dark:text-white">${reports?.forecast?.toLocaleString()}</p><p className="text-sm text-gray-500 dark:text-gray-400">Weighted Forecast</p></div>
+              <div><p className="text-2xl font-bold text-gray-900 dark:text-white">{money(reports?.forecast)}</p><p className="text-sm text-gray-500 dark:text-gray-400">Weighted Forecast</p></div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-green-50 dark:bg-green-500/10 rounded-xl border border-green-100 dark:border-green-500/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-400">{reports?.won}</p><p className="text-sm text-green-600 dark:text-green-400">Won</p></div>

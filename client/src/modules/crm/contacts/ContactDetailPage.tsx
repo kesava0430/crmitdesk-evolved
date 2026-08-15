@@ -13,6 +13,7 @@ import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useEffect } from 'react';
 import { formatDistanceToNow, format } from 'date-fns';
+import { useFormat } from '../../../hooks/useFormat';
 
 const DEAL_STAGE_COLOR: Record<string, string> = {
   Prospecting: 'gray', Proposal: 'blue', Negotiation: 'yellow', Won: 'green', Lost: 'red',
@@ -161,6 +162,7 @@ function ChurnRiskCard({ contactId }: { contactId: string }) {
 }
 
 export function ContactDetailPage() {
+  const { money } = useFormat();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id!);
@@ -223,7 +225,7 @@ export function ContactDetailPage() {
           <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-3">
             <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Pipeline Summary</p>
             <div>
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">${totalDealValue.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{money(totalDealValue)}</p>
               <p className="text-xs text-gray-400 dark:text-gray-500">Total pipeline value</p>
             </div>
             <div className="flex gap-4">
@@ -258,7 +260,7 @@ export function ContactDetailPage() {
                       <p className="text-xs text-gray-400 dark:text-gray-500">{deal.assignee?.name || 'Unassigned'}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      {deal.value > 0 && <span className="text-sm font-semibold text-green-600 dark:text-green-400">${Number(deal.value).toLocaleString()}</span>}
+                      {deal.value > 0 && <span className="text-sm font-semibold text-green-600 dark:text-green-400">{money(Number(deal.value))}</span>}
                       <Badge variant={DEAL_STAGE_COLOR[deal.stage] as any || 'gray'}>{deal.stage}</Badge>
                     </div>
                   </div>

@@ -65,6 +65,7 @@ const TemplatesPage      = lazy(() => import('./pages/TemplatesPage'));
 const BulkImportPage     = lazy(() => import('./pages/BulkImportPage'));
 const TeamsPage          = lazy(() => import('./pages/TeamsPage'));
 const BrandingPage       = lazy(() => import('./pages/BrandingPage'));
+const OrgSettingsPage    = lazy(() => import('./pages/OrgSettingsPage'));
 const StoragePage        = lazy(() => import('./pages/StoragePage'));
 const CustomModulesPage  = lazy(() => import('./pages/CustomModulesPage'));
 const CustomModuleViewPage = lazy(() => import('./pages/CustomModuleViewPage'));
@@ -180,6 +181,7 @@ export default function App() {
             <Route path="import" element={<BulkImportPage />} />
             <Route path="teams" element={<TeamsPage />} />
             <Route path="branding" element={<BrandingPage />} />
+            <Route path="org-settings" element={<OrgSettingsPage />} />
             <Route path="storage" element={<StoragePage />} />
             <Route path="custom-modules" element={<CustomModulesPage />} />
             {/* Individual custom modules' own nav-linked page — the sidebar

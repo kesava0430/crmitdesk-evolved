@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, FileText, CheckCircle2, ShieldCheck, Eraser } from 'lucide-react';
 import { api } from '../api/client';
+import { formatCurrency } from '../utils/format';
 
 interface QuoteLine { id: string; description: string; quantity: string; unitPrice: string; discount: string }
 interface Quote {
   id: string; title: string; status: string; notes?: string; validUntil?: string;
-  lines: QuoteLine[]; org: { name: string }; deal?: { title: string } | null;
+  lines: QuoteLine[]; org: { name: string; currency?: string }; deal?: { title: string } | null;
   signerName?: string; signedAt?: string;
 }
 
@@ -135,6 +136,7 @@ export function PublicQuotePage() {
   if (!quote) return null;
 
   const total = quote.lines.reduce((s, l) => s + lineTotal(l), 0);
+  const money = (v: number) => formatCurrency(v, quote.org.currency || 'USD');
 
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:py-14">
@@ -163,8 +165,8 @@ export function PublicQuotePage() {
                   <tr key={l.id}>
                     <td className="py-2.5 text-gray-800">{l.description}</td>
                     <td className="py-2.5 text-right text-gray-600">{l.quantity}</td>
-                    <td className="py-2.5 text-right text-gray-600">${Number(l.unitPrice).toFixed(2)}</td>
-                    <td className="py-2.5 text-right font-medium text-gray-900">${lineTotal(l).toFixed(2)}</td>
+                    <td className="py-2.5 text-right text-gray-600">{money(Number(l.unitPrice))}</td>
+                    <td className="py-2.5 text-right font-medium text-gray-900">{money(lineTotal(l))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -172,7 +174,7 @@ export function PublicQuotePage() {
             <div className="flex justify-end mt-4 pt-4 border-t border-gray-100">
               <div className="text-right">
                 <p className="text-xs text-gray-400">Total</p>
-                <p className="text-xl font-semibold text-gray-900">${total.toFixed(2)}</p>
+                <p className="text-xl font-semibold text-gray-900">{money(total)}</p>
               </div>
             </div>
             {quote.notes && <p className="text-sm text-gray-500 mt-4 whitespace-pre-wrap">{quote.notes}</p>}

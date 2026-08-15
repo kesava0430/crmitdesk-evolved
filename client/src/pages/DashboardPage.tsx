@@ -13,6 +13,7 @@ import { useNLQuery } from '../api/ai';
 import { Spinner } from '../shared/components';
 import { AiInsightsWidget } from '../shared/components/AiInsightsWidget';
 import { MeetingNotesModal } from '../shared/components/MeetingNotesModal';
+import { useFormat } from '../hooks/useFormat';
 
 const ICON_COLORS = {
   blue:    { bg: 'bg-blue-50 dark:bg-blue-500/10',       icon: 'text-blue-600 dark:text-blue-400' },
@@ -171,6 +172,7 @@ function AIQueryBar() {
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const { money } = useFormat();
   const navigate = useNavigate();
   const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
   const { data: dealReports, isLoading: dealsLoading } = useDealReports();
@@ -221,7 +223,7 @@ export function DashboardPage() {
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Open Deals" value={totalOpenDeals} icon={TrendingUp} color="blue" onClick={() => navigate('/crm/deals')} />
-            <StatCard label="Forecast Revenue" value={dealReports?.forecast != null ? `$${dealReports.forecast.toLocaleString()}` : '--'} icon={DollarSign} color="emerald" onClick={() => navigate('/crm/deals')} />
+            <StatCard label="Forecast Revenue" value={dealReports?.forecast != null ? money(dealReports.forecast) : '--'} icon={DollarSign} color="emerald" onClick={() => navigate('/crm/deals')} />
             <StatCard label="Contacts" value={contacts?.length ?? '--'} icon={Users} color="violet" onClick={() => navigate('/crm/contacts')} />
             <StatCard label="Active Leads" value={activeLeads ?? '--'} icon={Target} color="indigo" onClick={() => navigate('/crm/leads')} />
           </div>

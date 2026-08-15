@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { RowActions, EmptyState, Badge } from '../shared/components';
-import { Receipt, Plus, Pencil, Trash2, DollarSign, Link2, Check as CheckIcon, Send } from 'lucide-react';
+import { Receipt, Plus, Pencil, Trash2, Link2, Check as CheckIcon, Send } from 'lucide-react';
+import { useFormat } from '../hooks/useFormat';
 
 interface InvoiceLine { id?: string; description: string; quantity: number; unitPrice: number; discount: number }
 interface Invoice {
@@ -23,6 +24,7 @@ function lineTotal(l: InvoiceLine) {
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
+  const { money } = useFormat();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [form, setForm] = useState({ title: '', dueDate: '', notes: '', taxRate: 0, lines: [{ ...EMPTY_LINE }] });
@@ -133,8 +135,7 @@ export default function InvoicesPage() {
                   </div>
                   <div className="text-right">
                     <div className="flex items-center gap-1 text-xl font-bold text-gray-900 dark:text-white">
-                      <DollarSign size={18} className="text-green-500" />
-                      {total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {money(total)}
                     </div>
                     {inv.dueDate && <p className="text-xs text-gray-400 dark:text-gray-500">Due {new Date(inv.dueDate).toLocaleDateString()}</p>}
                     {inv.paidAt && <p className="text-xs text-green-600 dark:text-green-400">Paid {new Date(inv.paidAt).toLocaleDateString()}</p>}
@@ -147,7 +148,7 @@ export default function InvoicesPage() {
                       {inv.lines.slice(0, 3).map((l, i) => (
                         <div key={i} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                           <span>{l.description} × {Number(l.quantity)}</span>
-                          <span>${lineTotal(l).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                          <span>{money(lineTotal(l))}</span>
                         </div>
                       ))}
                       {inv.lines.length > 3 && <p className="text-xs text-gray-400 dark:text-gray-500">+{inv.lines.length - 3} more items</p>}
@@ -259,9 +260,9 @@ export default function InvoicesPage() {
 
             <div className="flex justify-end pt-4 mt-3 border-t border-gray-100 dark:border-gray-800">
               <div className="text-right text-sm space-y-0.5">
-                <p className="text-gray-500 dark:text-gray-400">Subtotal: <span className="text-gray-800 font-medium dark:text-gray-200">${subtotal.toFixed(2)}</span></p>
-                {Number(form.taxRate) > 0 && <p className="text-gray-500 dark:text-gray-400">Tax ({form.taxRate}%): <span className="text-gray-800 font-medium dark:text-gray-200">${taxAmount.toFixed(2)}</span></p>}
-                <p className="text-lg font-bold text-gray-900 dark:text-white">${grandTotal.toFixed(2)}</p>
+                <p className="text-gray-500 dark:text-gray-400">Subtotal: <span className="text-gray-800 font-medium dark:text-gray-200">{money(subtotal)}</span></p>
+                {Number(form.taxRate) > 0 && <p className="text-gray-500 dark:text-gray-400">Tax ({form.taxRate}%): <span className="text-gray-800 font-medium dark:text-gray-200">{money(taxAmount)}</span></p>}
+                <p className="text-lg font-bold text-gray-900 dark:text-white">{money(grandTotal)}</p>
               </div>
             </div>
 

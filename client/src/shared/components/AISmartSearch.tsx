@@ -3,6 +3,7 @@ import { Search, Sparkles, X, Loader2, User, Ticket, TrendingUp, Handshake, Book
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useDebounce } from '../../hooks/useDebounce';
+import { useFormat } from '../../hooks/useFormat';
 
 interface SearchResult {
   id: string;
@@ -42,6 +43,7 @@ function useSearch(query: string) {
   // regardless of whether a GROQ/OPENAI key is even configured.
   const [aiPowered, setAiPowered] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const { money } = useFormat();
 
   const search = useCallback(async (q: string) => {
     if (!q.trim() || q.length < 2) { setResults([]); return; }
@@ -63,7 +65,7 @@ function useSearch(query: string) {
         ...(data.contacts ?? []).map((c: any) => ({ id: c.id, type: 'contact', title: c.name, subtitle: c.email, url: `/crm/contacts/${c.id}` })),
         ...(data.tickets ?? []).map((t: any) => ({ id: t.id, type: 'ticket', title: t.title, subtitle: t.status, url: `/itdesk/tickets/${t.id}` })),
         ...(data.leads ?? []).map((l: any) => ({ id: l.id, type: 'lead', title: l.contact?.name ?? l.id, subtitle: l.status, url: `/crm/leads` })),
-        ...(data.deals ?? []).map((d: any) => ({ id: d.id, type: 'deal', title: d.title, subtitle: `$${Number(d.value ?? 0).toLocaleString()}`, url: `/crm/deals` })),
+        ...(data.deals ?? []).map((d: any) => ({ id: d.id, type: 'deal', title: d.title, subtitle: money(Number(d.value ?? 0)), url: `/crm/deals` })),
         ...(data.articles ?? []).map((a: any) => ({ id: a.id, type: 'article', title: a.title, subtitle: 'Knowledge base', url: `/itdesk/articles` })),
         ...(data.assets ?? []).map((a: any) => ({ id: a.id, type: 'asset', title: a.name, subtitle: a.serialNumber ?? a.type, url: `/itdesk/assets` })),
         ...(data.invoices ?? []).map((i: any) => ({ id: i.id, type: 'invoice', title: `${i.invoiceNumber} — ${i.title}`, subtitle: i.status, url: `/invoices` })),
@@ -75,7 +77,7 @@ function useSearch(query: string) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [money]);
 
   const debouncedQuery = useDebounce(query, 300);
   useState(() => { search(debouncedQuery); });

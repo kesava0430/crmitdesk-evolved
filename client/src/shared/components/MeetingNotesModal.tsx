@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Sparkles, Users, Target, TrendingUp, CheckSquare, ArrowRight } from 'lucide-react';
 import { useMeetingNotes } from '../../api/ai';
 import { Modal, Button } from './index';
+import { useFormat } from '../../hooks/useFormat';
 
 interface MeetingNotesModalProps {
   open: boolean;
@@ -11,6 +12,7 @@ interface MeetingNotesModalProps {
 
 export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
   const navigate = useNavigate();
+  const { money } = useFormat();
   const [notes, setNotes] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const parseMutation = useMeetingNotes();
@@ -120,7 +122,7 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
                   {data.deals.map((d: any, i: number) => (
                     <div key={i} className="px-4 py-2 text-sm">
                       <span className="font-medium text-gray-800 dark:text-gray-200">{d.title || d}</span>
-                      {d.value && <span className="text-green-600 dark:text-green-400 ml-2 text-xs font-semibold">${Number(d.value).toLocaleString()}</span>}
+                      {d.value && <span className="text-green-600 dark:text-green-400 ml-2 text-xs font-semibold">{money(Number(d.value))}</span>}
                     </div>
                   ))}
                 </div>

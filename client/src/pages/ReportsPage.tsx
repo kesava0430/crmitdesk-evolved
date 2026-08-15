@@ -6,6 +6,7 @@ import { api } from '../api/client';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Spinner } from '../shared/components';
 import { useCsatResponses, useCsatStats } from '../api/csat';
+import { useFormat } from '../hooks/useFormat';
 
 const PRIORITY_COLORS: Record<string, string> = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#3b82f6', LOW: '#9ca3af' };
 const STATUS_COLORS = ['#3b82f6','#f59e0b','#f97316','#22c55e','#6b7280'];
@@ -37,6 +38,7 @@ function StarRow({ rating }: { rating: number }) {
 }
 
 export function ReportsPage() {
+  const { money, symbol } = useFormat();
   const [tab, setTab] = useState<'tickets' | 'crm' | 'csat'>('tickets');
   const [csatPage, setCsatPage] = useState(1);
 
@@ -179,12 +181,12 @@ export function ReportsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Forecast by stage */}
               <Card>
-                <SectionHeader title="Weighted Forecast by Stage" subtitle="Probability-adjusted revenue ($)" />
+                <SectionHeader title="Weighted Forecast by Stage" subtitle={`Probability-adjusted revenue (${symbol})`} />
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={crmData?.forecastByStage || []} layout="vertical" margin={{ top: 4, right: 16, left: 60, bottom: 0 }}>
-                    <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `$${(v/1000).toFixed(0)}k`} />
+                    <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${symbol}${(v/1000).toFixed(0)}k`} />
                     <YAxis type="category" dataKey="stage" tick={{ fontSize: 11 }} width={60} />
-                    <Tooltip formatter={(v: any) => [`$${Number(v).toLocaleString()}`, 'Weighted']} />
+                    <Tooltip formatter={(v: any) => [money(Number(v)), 'Weighted']} />
                     <Bar dataKey="weighted" fill="#7c3aed" radius={[0,4,4,0]} name="Weighted Forecast" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -203,7 +205,7 @@ export function ReportsPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between text-sm mb-1">
                             <span className="font-medium text-gray-800 dark:text-gray-200 truncate">{c.name}</span>
-                            <span className="text-green-600 font-semibold ml-2">${c.value.toLocaleString()}</span>
+                            <span className="text-green-600 font-semibold ml-2">{money(c.value)}</span>
                           </div>
                           <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                             <div className="h-full bg-brand-400 rounded-full" style={{ width: `${(c.value / (crmData.contactsByValue[0]?.value || 1)) * 100}%` }} />

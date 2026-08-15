@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { RowActions, SearchableSelect } from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
-import { FileText, Plus, Pencil, Trash2, Send, CheckCircle, XCircle, DollarSign, LayoutTemplate, Link2, Check as CheckIcon } from 'lucide-react';
+import { FileText, Plus, Pencil, Trash2, Send, CheckCircle, XCircle, LayoutTemplate, Link2, Check as CheckIcon } from 'lucide-react';
 import { useQuoteTemplates } from '../api/templates';
+import { useFormat } from '../hooks/useFormat';
 
 interface QuoteLine { id?: string; description: string; quantity: number; unitPrice: number; }
 interface Quote {
@@ -29,6 +30,7 @@ const EMPTY_LINE: QuoteLine = { description: '', quantity: 1, unitPrice: 0 };
 
 export default function QuotesPage() {
   const qc = useQueryClient();
+  const { money } = useFormat();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Quote | null>(null);
   const [form, setForm] = useState({ title: '', validUntil: '', notes: '', lines: [{ ...EMPTY_LINE }] });
@@ -139,9 +141,7 @@ export default function QuotesPage() {
                 </div>
                 <div className="text-right">
                   <div className="flex items-center gap-1 text-xl font-bold text-gray-900 dark:text-white">
-                    <DollarSign size={18} className="text-green-500" />
-                    {(q.lines?.reduce((s, l) => s + Number(l.quantity) * Number(l.unitPrice), 0) ?? 0)
-                      .toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    {money(q.lines?.reduce((s, l) => s + Number(l.quantity) * Number(l.unitPrice), 0) ?? 0)}
                   </div>
                   {q.validUntil && (
                     <p className="text-xs text-gray-400 dark:text-gray-500">Valid until {new Date(q.validUntil).toLocaleDateString()}</p>
@@ -156,7 +156,7 @@ export default function QuotesPage() {
                     {q.lines.slice(0, 3).map((l, i) => (
                       <div key={i} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                         <span>{l.description} × {Number(l.quantity)}</span>
-                        <span>${(Number(l.quantity) * Number(l.unitPrice)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                        <span>{money(Number(l.quantity) * Number(l.unitPrice))}</span>
                       </div>
                     ))}
                     {q.lines.length > 3 && <p className="text-xs text-gray-400 dark:text-gray-500">+{q.lines.length - 3} more items</p>}
@@ -280,7 +280,7 @@ export default function QuotesPage() {
               <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
                 <div className="text-right">
                   <span className="text-sm text-gray-500 dark:text-gray-400">Total: </span>
-                  <span className="text-lg font-bold text-gray-900 dark:text-white">${lineTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  <span className="text-lg font-bold text-gray-900 dark:text-white">{money(lineTotal)}</span>
                 </div>
               </div>
 

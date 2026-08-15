@@ -6,6 +6,7 @@ import {
 import { TrendingUp, TrendingDown, Minus, Download, BarChart2, Clock, Target, DollarSign } from 'lucide-react';
 import { useAnalyticsOverview, useTicketAnalytics, useCrmAnalytics } from '../api/analytics';
 import { Spinner } from '../shared/components';
+import { useFormat } from '../hooks/useFormat';
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,6 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmt = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`;
 const shortDate = (s: string) => s.slice(5); // MM-DD from YYYY-MM-DD
 
 function downloadCsv(data: any[], filename: string) {
@@ -79,6 +79,8 @@ function Section({ title, children, onExport }: { title: string; children: React
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function AnalyticsPage() {
+  const { symbol } = useFormat();
+  const fmt = (n: number) => n >= 1000 ? `${symbol}${(n / 1000).toFixed(1)}k` : `${symbol}${n}`;
   const [days, setDays] = useState(30);
 
   const { data: overview } = useAnalyticsOverview();
@@ -255,7 +257,7 @@ export function AnalyticsPage() {
               <AreaChart data={revenueData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tickFormatter={v => `$${v}`} tick={{ fontSize: 10 }} />
+                <YAxis tickFormatter={v => `${symbol}${v}`} tick={{ fontSize: 10 }} />
                 <Tooltip formatter={(v: any) => fmt(Number(v))} />
                 <Area type="monotone" dataKey="Revenue" stroke="#10b981" fill="#d1fae5" strokeWidth={2} />
               </AreaChart>

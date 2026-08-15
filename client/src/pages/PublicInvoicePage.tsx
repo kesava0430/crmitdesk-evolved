@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, Receipt, Printer } from 'lucide-react';
 import { api } from '../api/client';
+import { formatCurrency } from '../utils/format';
 
 interface InvoiceLine { id: string; description: string; quantity: string; unitPrice: string; discount: string }
 interface Invoice {
   id: string; invoiceNumber: string; title: string; status: string;
   dueDate?: string; paidAt?: string; taxRate: string; createdAt: string;
-  lines: InvoiceLine[]; org: { name: string }; deal?: { title: string } | null;
+  lines: InvoiceLine[]; org: { name: string; currency?: string }; deal?: { title: string } | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -56,6 +57,7 @@ export function PublicInvoicePage() {
   const taxRate = Number(invoice.taxRate) || 0;
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
+  const money = (v: number) => formatCurrency(v, invoice.org.currency || 'USD');
 
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:py-14 print:bg-white print:py-0 print:px-0">
@@ -102,17 +104,17 @@ export function PublicInvoicePage() {
                   <tr key={l.id}>
                     <td className="py-2.5 text-gray-800">{l.description}</td>
                     <td className="py-2.5 text-right text-gray-600">{l.quantity}</td>
-                    <td className="py-2.5 text-right text-gray-600">${Number(l.unitPrice).toFixed(2)}</td>
-                    <td className="py-2.5 text-right font-medium text-gray-900">${lineTotal(l).toFixed(2)}</td>
+                    <td className="py-2.5 text-right text-gray-600">{money(Number(l.unitPrice))}</td>
+                    <td className="py-2.5 text-right font-medium text-gray-900">{money(lineTotal(l))}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
             <div className="flex justify-end mt-4 pt-4 border-t border-gray-100">
               <div className="text-right space-y-0.5">
-                <p className="text-xs text-gray-400">Subtotal <span className="text-gray-700 font-medium ml-2">${subtotal.toFixed(2)}</span></p>
-                {taxRate > 0 && <p className="text-xs text-gray-400">Tax ({taxRate}%) <span className="text-gray-700 font-medium ml-2">${taxAmount.toFixed(2)}</span></p>}
-                <p className="text-xl font-semibold text-gray-900 mt-1">${total.toFixed(2)}</p>
+                <p className="text-xs text-gray-400">Subtotal <span className="text-gray-700 font-medium ml-2">{money(subtotal)}</span></p>
+                {taxRate > 0 && <p className="text-xs text-gray-400">Tax ({taxRate}%) <span className="text-gray-700 font-medium ml-2">{money(taxAmount)}</span></p>}
+                <p className="text-xl font-semibold text-gray-900 mt-1">{money(total)}</p>
               </div>
             </div>
           </div>

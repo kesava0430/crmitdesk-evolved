@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader2, Wallet, Printer } from 'lucide-react';
 import { api } from '../api/client';
+import { useFormat } from '../hooks/useFormat';
 
 const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -20,14 +21,13 @@ interface PayslipTemplate {
   showSignature: boolean; signatureLabel: string;
 }
 
-const money = (v: string | number) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 // Authenticated, in-app (not the public token-shared kind — see
 // PublicInvoicePage.tsx for that pattern). Opened in a new tab from a
 // payslip's "Print / Save as PDF" button; renders full-page with no sidebar
 // chrome so the browser's native print dialog produces a clean one-pager,
 // same approach as the Invoice document (no server-side PDF library).
 export default function PayslipPrintPage() {
+  const { money } = useFormat();
   const { id } = useParams();
   const [payslip, setPayslip] = useState<Payslip | null>(null);
   const [template, setTemplate] = useState<PayslipTemplate | null>(null);

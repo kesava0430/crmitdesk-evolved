@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useUsers } from '../../api/users';
 import { PageHeader, Button, Modal, Badge, Spinner, EmptyState, RowActions, SearchableSelect } from '../../shared/components';
 import { Wallet, Plus, Pencil, Trash2, FileText, PlayCircle, CheckCircle2, Printer, Palette } from 'lucide-react';
+import { useFormat } from '../../hooks/useFormat';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -40,14 +41,13 @@ interface PayslipTemplate {
   showSignature: boolean; signatureLabel: string;
 }
 
-const money = (v: string | number) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 // ─── Salary Structures (managers) ───────────────────────────────────────────
 
 const emptyStructureForm = { userId: '', basic: '', hra: '', allowances: '', pfPercent: '12', professionalTax: '', otherDeductions: '', effectiveFrom: new Date().toISOString().slice(0, 10) };
 
 function SalaryStructuresSection() {
   const qc = useQueryClient();
+  const { money } = useFormat();
   const { data: employees } = useUsers();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SalaryStructure | null>(null);
@@ -232,6 +232,7 @@ function RunModal({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 function PayrollRunsSection() {
   const qc = useQueryClient();
+  const { money } = useFormat();
   const [runOpen, setRunOpen] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
 
@@ -328,6 +329,7 @@ function PayrollRunsSection() {
 // ─── My Payslips (everyone) ──────────────────────────────────────────────────
 
 function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => void }) {
+  const { money } = useFormat();
   return (
     <Modal open onClose={onClose} title={payslip.payslipNumber} subtitle={`${MONTH_NAMES[payslip.month]} ${payslip.year}`} icon={<FileText size={16} />}
       footer={<>
@@ -363,6 +365,7 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
 }
 
 function MyPayslips() {
+  const { money } = useFormat();
   const [viewing, setViewing] = useState<Payslip | null>(null);
   const { data, isLoading } = useQuery<Payslip[]>({
     queryKey: ['payslips', 'mine'],
