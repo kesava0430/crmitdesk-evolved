@@ -7,6 +7,14 @@
  *     npx ts-node prisma/backfill-people-platform.ts
  *     npx ts-node prisma/backfill-people-platform.ts --dry-run
  *
+ * ── You do NOT re-enter anyone ────────────────────────────────────────────
+ * This script creates an Employee for every User you already have. Going
+ * forward, utils/employeeProvisioning.ts creates one automatically whenever a
+ * user is invited, created by an admin, or provisioned by SSO/directory sync —
+ * so "add a new starter" stays one job, not two. HR → Employees is only
+ * touched directly for staff who have no login at all, which is precisely the
+ * case the old User-only model could not represent.
+ *
  * ── What it does ──────────────────────────────────────────────────────────
  *  1. Seeds the global permission catalog and the nine built-in roles.
  *  2. Creates a Department per distinct `User.department` string, per org.

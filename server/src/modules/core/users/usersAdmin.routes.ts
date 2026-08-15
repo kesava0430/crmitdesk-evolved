@@ -10,3 +10,7 @@ usersAdminRouter.post('/invite', c.invite);
 usersAdminRouter.patch('/:id', c.update);
 usersAdminRouter.delete('/:id', c.deactivate);
 usersAdminRouter.post('/:id/reset-password', c.resetUserPassword);
+// Registered before the /:id routes above would ever shadow it — 'reconcile-
+// employees' is a literal path, not an id, so ordering matters here.
+usersAdminRouter.post('/reconcile-employees', c.reconcileEmployees);
+usersAdminRouter.post('/:id/link-employee', c.linkEmployee);

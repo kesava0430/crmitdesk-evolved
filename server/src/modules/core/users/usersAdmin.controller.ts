@@ -9,6 +9,10 @@ import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { assertSeatAvailable, isMeteredRole } from '../../../utils/licensing';
 import { emailTemplates } from '../../../utils/mailer';
+// Keeps User and Employee in step so an admin never adds the same person
+// twice — see utils/employeeProvisioning.ts for why the split is invisible
+// in day-to-day use.
+import { ensureEmployeeForUser, syncUserToEmployee, reconcileOrphans, linkUserToEmployee } from '../../../utils/employeeProvisioning';
 
 // phone is preprocessed so an empty string (the form's untouched default)
 // doesn't get stored as '' — the WhatsApp "assignee" recipient resolver
@@ -22,6 +26,8 @@ const CreateSchema = z.object({
   role: z.enum(['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE']),
   department: z.string().optional(),
   phone: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** Set false for service/integration accounts that are not real people. */
+  createEmployee: z.boolean().optional(),
 });
 
 const InviteSchema = z.object({
@@ -39,6 +45,14 @@ const UpdateSchema = z.object({
 
 const select = { id: true, name: true, email: true, role: true, department: true, phone: true, isActive: true, createdAt: true, avatarUrl: true, orgId: true };
 
+// Included on the list so the admin UI can flag a user with no employee record
+// — the one state where the User/Employee split leaks into the interface.
+const selectWithEmployee = {
+  ...select,
+  employee: { select: { id: true, employeeCode: true, designation: true } },
+  roleRef: { select: { id: true, key: true, name: true } },
+};
+
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { search } = req.query as Record<string, string>;
@@ -49,7 +63,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
       { email: { contains: search, mode: 'insensitive' } },
     ];
     const [users, total] = await Promise.all([
-      prisma.user.findMany({ where, select, orderBy: { name: 'asc' }, take: pag.limit, skip: pag.skip }),
+      prisma.user.findMany({ where, select: selectWithEmployee, orderBy: { name: 'asc' }, take: pag.limit, skip: pag.skip }),
       prisma.user.count({ where }),
     ]);
     res.json(paginate(users, total, pag));
@@ -64,10 +78,17 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     await assertSeatAvailable(req.user!.orgId, data.role);
     // Destructure password out so it is not spread into the Prisma create call
     // (the User model has `passwordHash`, not `password`)
-    const { password, ...rest } = data;
+    const { password, createEmployee, ...rest } = data;
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({ data: { ...rest, passwordHash, orgId: req.user!.orgId }, select });
-    res.status(201).json(user);
+
+    // Adding someone in Administration → Users also makes them an employee, so
+    // HR isn't a second data-entry step. Non-throwing: a failure here leaves a
+    // user with no employee record, which the Users list flags and
+    // POST /admin/users/reconcile-employees can repair.
+    const employeeId = await ensureEmployeeForUser(user.id, { skip: createEmployee === false });
+
+    res.status(201).json({ ...user, employeeId });
   } catch (err) { next(err); }
 }
 
@@ -122,6 +143,17 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       await assertSeatAvailable(req.user!.orgId, data.role);
     }
     const user = await prisma.user.update({ where: { id: req.params.id }, data, select });
+
+    // Mirror the fields that exist on both records. If this user has no
+    // employee (a service account, or one created before HR was set up), the
+    // sync is a no-op rather than an error.
+    await syncUserToEmployee(user.id, {
+      name: data.name,
+      phone: data.phone as string | undefined,
+      department: data.department,
+      isActive: data.isActive,
+    });
+
     res.json(user);
   } catch (err) { next(err); }
 }
@@ -132,6 +164,9 @@ export async function deactivate(req: AuthRequest, res: Response, next: NextFunc
     const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!target) throw new AppError(404, 'User not found');
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } });
+    // Losing the login means the person has left. Reactivating deliberately
+    // does not un-exit them — rehiring has its own dates and is an HR decision.
+    await syncUserToEmployee(req.params.id, { isActive: false });
     res.json({ message: 'User deactivated' });
   } catch (err) { next(err); }
 }
@@ -167,4 +202,40 @@ export async function resetUserPassword(req: AuthRequest, res: Response, next: N
 
     res.json({ message: `Password reset link sent to ${target.email}` });
   } catch (err) { next(err); }
+}
+
+/**
+ * Reports users who have no employee record, and optionally creates them.
+ *
+ * Needed because employee provisioning is deliberately non-throwing (a failure
+ * there must never break a login), and because a database that upgraded without
+ * running the backfill would otherwise leave HR permanently blind to some
+ * staff. `POST /admin/users/reconcile-employees?fix=true` repairs them.
+ *
+ * Employees without a login are reported but never "repaired" — staff who don't
+ * sign in are a legitimate state, and the reason the two models are separate.
+ */
+export async function reconcileEmployees(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const fix = req.query.fix === 'true';
+    const report = await reconcileOrphans(req.user!.orgId, fix);
+    res.json({
+      ...report,
+      message: fix
+        ? `Created ${report.created} employee record(s).`
+        : `${report.usersWithoutEmployee} user(s) have no employee record. Re-run with ?fix=true to create them.`,
+    });
+  } catch (err) { next(err); }
+}
+
+/** Links an existing login to an existing employee, for records created separately. */
+export async function linkEmployee(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { employeeId } = z.object({ employeeId: z.string().min(1) }).parse(req.body);
+    await linkUserToEmployee(req.user!.orgId, employeeId, req.params.id);
+    res.json({ message: 'Login linked to the employee record' });
+  } catch (err: any) {
+    if (err?.message && !err.status) return next(new AppError(400, err.message));
+    next(err);
+  }
 }

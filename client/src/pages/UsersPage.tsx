@@ -143,6 +143,16 @@ export function UsersPage() {
     queryFn: () => api.get('/admin/users').then(r => Array.isArray(r.data) ? r.data : r.data.data ?? []),
   });
 
+  // Users with no employee record. Provisioning is automatic and non-throwing,
+  // so this should normally be zero — when it isn't, it's a repairable state
+  // rather than something to re-enter by hand.
+  const unlinked = (users ?? []).filter((u: any) => !u.employee);
+
+  const reconcile = useMutation({
+    mutationFn: () => api.post('/admin/users/reconcile-employees?fix=true').then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+  });
+
   const { data: invites } = useQuery({
     queryKey: ['admin-invites'],
     queryFn: () => api.get('/org/invites').then(r => r.data),
@@ -213,6 +223,28 @@ export function UsersPage() {
         </>}
       />
 
+      {/* Users with no employee record — one click to repair, never re-entry. */}
+      {unlinked.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              {unlinked.length} user{unlinked.length === 1 ? '' : 's'} without an employee record
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+              New users normally get one automatically. These predate that, or were created while HR was unavailable —
+              creating them here takes a second and needs no re-typing.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            loading={reconcile.isPending}
+            onClick={() => reconcile.mutate()}
+          >
+            Create {unlinked.length} employee record{unlinked.length === 1 ? '' : 's'}
+          </Button>
+        </div>
+      )}
+
       {/* Pending Invites */}
       {pendingInvites.length > 0 && (
         <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4">
@@ -241,6 +273,7 @@ export function UsersPage() {
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Department</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Employee</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Last Login</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Created At</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
@@ -264,6 +297,17 @@ export function UsersPage() {
                     <Badge variant={roleVariant[u.role] || 'gray'}>{u.role.replace(/_/g,' ')}</Badge>
                   </td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{u.department || '—'}</td>
+                  {/* Adding a user creates their employee record automatically, so
+                      this should read as a code for everyone. "Not linked" means
+                      provisioning was skipped or failed — use "Fix employee
+                      records" above to repair it. */}
+                  <td className="px-4 py-3">
+                    {u.employee ? (
+                      <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{u.employee.employeeCode}</span>
+                    ) : (
+                      <Badge variant="orange">Not linked</Badge>
+                    )}
+                  </td>
                   <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">—</td>
                   <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">
                     {u.createdAt ? date(u.createdAt) : '—'}

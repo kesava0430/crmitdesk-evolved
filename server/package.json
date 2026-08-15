@@ -9,7 +9,10 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:seed": "ts-node prisma/seed.ts"
+    "db:seed": "ts-node prisma/seed.ts",
+    "test:unit": "node --test --require ./tests/unit/stub-prisma.js --require ts-node/register tests/unit/*.test.ts",
+    "test:api": "ts-node tests/integration/platform-api.ts",
+    "backfill": "ts-node prisma/backfill-people-platform.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

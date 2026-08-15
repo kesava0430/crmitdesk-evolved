@@ -61,6 +61,10 @@ interface VerticalPreset {
   industry: string;
   primaryColor: string;
   supportEmail: string;
+  /** ISO 4217. Omitted = USD, which is what every pre-existing vertical uses. */
+  currency?: string;
+  /** IANA zone. Omitted = UTC, matching the pre-existing verticals. */
+  timezone?: string;
   stages: { label: string; color: string; probability: number; isWon?: boolean; isLost?: boolean }[];
   accounts: AccountSeed[];
   contacts: ContactSeed[];
@@ -113,7 +117,10 @@ export const VERTICALS: VerticalPreset[] = [
     ],
     deals: [
       { title: 'Acme ERP Implementation', value: 85000, stage: 'Negotiation', probability: 70, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 45 },
-      { title: 'Acme Cloud Migration', value: 42000, stage: 'Trial', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 20 },
+      // Stage must be one of this pipeline's own labels — 'Trial' was not, so
+      // this deal previously rendered in no kanban column at all. 45% is the
+      // configured probability for 'Demo Scheduled'.
+      { title: 'Acme Cloud Migration', value: 42000, stage: 'Demo Scheduled', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 20 },
       { title: 'Globex Platform Licence', value: 120000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -10 },
       { title: 'Globex Support Contract', value: 24000, stage: 'Demo Scheduled', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 60 },
       { title: 'Initech Analytics Suite', value: 67000, stage: 'Prospecting', probability: 20, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 90 },
@@ -619,6 +626,94 @@ export const VERTICALS: VerticalPreset[] = [
       message: 'A trade-in was appraised 2 days ago and hasn\'t closed yet — follow up before the offer goes stale.',
     },
   },
+  {
+    // Priced and dated for the Indian market — real estate is the vertical
+    // where "₹1.85 Cr" versus "$220,000" is the difference between a demo that
+    // lands and one that reads as a foreign product. Every other vertical stays
+    // USD/UTC exactly as before.
+    slug: 'zenith-realty', orgName: 'Zenith Realty Partners', industry: 'Real Estate', primaryColor: '#0F766E', supportEmail: 'support@zenithrealty.io',
+    currency: 'INR', timezone: 'Asia/Kolkata',
+    // A property pipeline is walk-in driven and site-visit gated, which is why
+    // it looks nothing like the SaaS one.
+    stages: stages(['Enquiry', 'Site Visit Scheduled', 'Negotiation', 'Booking Amount']),
+    accounts: [
+      { name: 'Aurelia Developers', industry: 'Residential Development', website: 'https://aurelia.example.in', phone: '+91-40-4455-1200', address: 'Jubilee Hills, Hyderabad, Telangana 500033' },
+      { name: 'Skyline Infra Projects', industry: 'Commercial Development', website: 'https://skylineinfra.example.in', phone: '+91-40-4455-2300', address: 'HITEC City, Madhapur, Hyderabad 500081' },
+      { name: 'Nandan Corporate Housing', industry: 'Corporate Leasing', website: 'https://nandanhousing.example.in', phone: '+91-80-2345-6700', address: 'Whitefield, Bengaluru, Karnataka 560066' },
+    ],
+    contacts: [
+      { name: 'Rohan Mehta', email: 'rohan.mehta@aurelia.example.in', phone: '+91-98490-11201', jobTitle: 'Sales Director', accountIdx: 0, source: 'Referral', dateOfBirth: birthdayOn(0, 44) },
+      { name: 'Sneha Reddy', email: 'sneha.reddy@aurelia.example.in', phone: '+91-98490-11202', jobTitle: 'Channel Partner Manager', accountIdx: 0, source: 'Property Portal', dateOfBirth: birthdayOn(120, 35) },
+      { name: 'Arjun Nair', email: 'arjun.nair@skylineinfra.example.in', phone: '+91-98490-22301', jobTitle: 'VP Leasing', accountIdx: 1, source: 'Property Expo' },
+      { name: 'Kavya Iyer', email: 'kavya.iyer@skylineinfra.example.in', phone: '+91-98490-22302', jobTitle: 'Commercial Leasing Head', accountIdx: 1, source: 'LinkedIn' },
+      { name: 'Vikram Desai', email: 'vikram.desai@nandanhousing.example.in', phone: '+91-98860-33401', jobTitle: 'Facilities Head', accountIdx: 2, source: 'Referral' },
+      { name: 'Priya Balakrishnan', email: 'priya.b@nandanhousing.example.in', phone: '+91-98860-33402', jobTitle: 'Admin Manager', accountIdx: 2, source: 'Website Enquiry' },
+    ],
+    deals: [
+      { title: 'Aurelia Heights — 3BHK Tower B, Unit 1204', value: 18_500_000, stage: 'Negotiation', probability: 70, contactIdx: 0, accountIdx: 0, status: DealStatus.OPEN, closeDays: 21 },
+      { title: 'Aurelia Heights — 2BHK Tower A, Unit 0708', value: 11_200_000, stage: 'Site Visit Scheduled', probability: 45, contactIdx: 1, accountIdx: 0, status: DealStatus.OPEN, closeDays: 35 },
+      { title: 'Skyline Tech Park — 12,000 sq ft office lease', value: 42_000_000, stage: 'Closed Won', probability: 100, contactIdx: 2, accountIdx: 1, status: DealStatus.WON, closeDays: -14 },
+      { title: 'Skyline Tech Park — 4,500 sq ft co-working floor', value: 9_800_000, stage: 'Enquiry', probability: 20, contactIdx: 3, accountIdx: 1, status: DealStatus.OPEN, closeDays: 75 },
+      { title: 'Nandan Whitefield — 24-unit corporate lease renewal', value: 27_600_000, stage: 'Booking Amount', probability: 90, contactIdx: 4, accountIdx: 2, status: DealStatus.OPEN, closeDays: 12 },
+      { title: 'Nandan Sarjapur — 4BHK villa, Plot 22', value: 32_000_000, stage: 'Closed Lost', probability: 0, contactIdx: 5, accountIdx: 2, status: DealStatus.LOST, closeDays: -8 },
+    ],
+    leads: [
+      { contactIdx: 0, source: 'Property Portal', status: LeadStatus.QUALIFIED, notes: 'Wants a 3BHK in Tower B, east-facing, above 10th floor. Home loan pre-approved with HDFC.', aiScore: 89, aiScoreReason: 'Loan pre-approved, specific unit preference, site visit already done', followUps: [
+        { type: ActivityType.MEETING, title: 'Site visit — Tower B model flat', body: 'Show 1204 and the 1104 alternative. Carry the floor plan and amenity sheet.', dueDays: -6, done: true },
+        { type: ActivityType.TASK, title: 'Share cost sheet with stamp duty breakup', body: 'Include registration, GST and corpus fund so there are no surprises at booking.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 2, source: 'Property Expo', status: LeadStatus.CONTACTED, notes: 'Met at Hyderabad Property Show. Needs 10,000–15,000 sq ft, wants a fit-out allowance.', aiScore: 76, aiScoreReason: 'Large commercial requirement, decision-maker engaged at event', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send commercial floor plates + rent card', body: 'Attach the 8th and 9th floor plates with the current rent per sq ft.', dueDays: -2, done: true },
+        { type: ActivityType.CALL, title: 'Discuss fit-out allowance', body: 'Confirm what the developer will absorb versus the tenant.', dueDays: 3, done: false },
+      ] },
+      { contactIdx: 4, source: 'Referral', status: LeadStatus.QUALIFIED, notes: 'Renewal for 24 units at Whitefield. Wants a 3-year lock-in with a 5% annual escalation.', aiScore: 93, aiScoreReason: 'Existing client, renewal due in 12 days, terms already agreed verbally', followUps: [
+        { type: ActivityType.MEETING, title: 'Renewal terms sign-off', body: 'Confirm escalation clause and maintenance responsibility before drafting.', dueDays: 2, done: false },
+      ] },
+      { contactIdx: 5, source: 'Website Enquiry', status: LeadStatus.NEW, notes: 'Enquired about Sarjapur villas. Budget unclear, first-time buyer.', aiScore: 41, aiScoreReason: 'No budget confirmed, no site visit, single web enquiry', followUps: [
+        { type: ActivityType.CALL, title: 'Qualification call', body: 'Establish budget, loan status and possession timeline.', dueDays: 1, done: false },
+      ] },
+      { contactIdx: 3, source: 'LinkedIn', status: LeadStatus.CONTACTED, notes: 'Evaluating co-working floors across three micro-markets.', aiScore: 58, aiScoreReason: 'Comparing multiple locations, timeline not yet fixed', followUps: [
+        { type: ActivityType.EMAIL, title: 'Send micro-market comparison', body: 'HITEC City vs Gachibowli vs Kondapur — rent, occupancy and commute data.', dueDays: 4, done: false },
+      ] },
+    ],
+    tickets: [
+      { title: 'Sales team cannot open cost sheets on site tablets', body: 'The iPads at the Aurelia Heights site office fail to open the PDF cost sheets since Monday. Two bookings delayed.', category: 'Hardware', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+      { title: 'Property portal listings not syncing', body: 'New Tower B inventory added on Friday still is not showing on the public listing site. Enquiries have dropped noticeably.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Biometric attendance offline at Gachibowli site office', body: 'The site office biometric device has been unreachable since the power cut. Attendance is being noted on paper.', category: 'Hardware', priority: TicketPriority.MEDIUM, status: TicketStatus.PENDING },
+      { title: 'Channel partner needs CRM access', body: 'Onboarding a new channel partner — they need read access to their own leads only, nothing else.', category: 'Access & Permissions', priority: TicketPriority.MEDIUM, status: TicketStatus.RESOLVED },
+      { title: 'Booking confirmation emails going to spam', body: 'Buyers report booking confirmations landing in spam. Two customers thought their booking had failed.', category: 'Software', priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS },
+      { title: 'Stamp duty figures wrong on generated cost sheet', body: 'The cost sheet template still uses the old Telangana stamp duty rate. Every quote generated this week is understated.', category: 'Billing & Accounts', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN },
+    ],
+    kb: [
+      { title: 'Generating a buyer cost sheet', body: 'Open the deal, choose Quote > Cost Sheet. The template applies the current Telangana stamp duty and registration rates, GST on the agreement value, and the corpus/maintenance advance. Always regenerate rather than editing an old sheet — rates change.', category: 'Billing & Accounts' },
+      { title: 'Site visit checklist for the sales team', body: 'Confirm the visit the evening before. Carry: floor plan, amenity sheet, cost sheet, RERA registration number and the possession timeline. Log the outcome in the CRM the same day — a visit not logged is a visit that never happened at review time.', category: 'Access & Permissions' },
+      { title: 'Onboarding a channel partner', body: 'Raise an access request with the partner firm name and RERA agent number. They get access to their own sourced leads only. Access is reviewed every quarter and revoked automatically if the agreement lapses.', category: 'Access & Permissions' },
+    ],
+    customModule: {
+      name: 'Property Inventory', icon: 'Building2', description: 'Live unit-level inventory across active projects, synced from the developer sheets.',
+      fields: [
+        { label: 'Unit Number', fieldKey: 'unit_number', fieldType: 'TEXT', required: true, isPrimary: true },
+        { label: 'Project', fieldKey: 'project', fieldType: 'DROPDOWN', options: ['Aurelia Heights', 'Skyline Tech Park', 'Nandan Sarjapur'], required: true },
+        { label: 'Configuration', fieldKey: 'configuration', fieldType: 'DROPDOWN', options: ['2BHK', '3BHK', '4BHK Villa', 'Commercial Floor'], required: true },
+        { label: 'Carpet Area (sq ft)', fieldKey: 'carpet_area', fieldType: 'NUMBER', required: true },
+        { label: 'Asking Price', fieldKey: 'asking_price', fieldType: 'CURRENCY', required: true },
+        { label: 'Status', fieldKey: 'status', fieldType: 'DROPDOWN', options: ['Available', 'Blocked', 'Booked', 'Registered'] },
+        { label: 'Possession Date', fieldKey: 'possession_date', fieldType: 'DATE' },
+      ],
+      records: [
+        { unit_number: 'Tower B — 1204', project: 'Aurelia Heights', configuration: '3BHK', carpet_area: 1685, asking_price: 18_500_000, status: 'Blocked', possession_date: daysFromNow(5).toISOString() },
+        { unit_number: 'Tower A — 0708', project: 'Aurelia Heights', configuration: '2BHK', carpet_area: 1140, asking_price: 11_200_000, status: 'Available', possession_date: daysFromNow(40).toISOString() },
+        { unit_number: 'Floor 8 — East Wing', project: 'Skyline Tech Park', configuration: 'Commercial Floor', carpet_area: 12_000, asking_price: 42_000_000, status: 'Registered' },
+        { unit_number: 'Plot 22 — Villa', project: 'Nandan Sarjapur', configuration: '4BHK Villa', carpet_area: 3240, asking_price: 32_000_000, status: 'Available', possession_date: daysFromNow(120).toISOString() },
+      ],
+    },
+    dateAutomation: {
+      dateField: 'possession_date', offsetDays: -7,
+      name: 'Possession Handover Reminder',
+      description: 'Notifies the sales manager 7 days before a unit\'s possession date so handover paperwork and the snag list are ready.',
+      message: 'A unit reaches possession in 7 days — confirm the snag list is closed and the handover kit is prepared.',
+    },
+  },
 ];
 
 export const DEFAULT_VERTICAL = 'techcorp';
@@ -649,15 +744,143 @@ export function loginEmailFor(slug: string): string {
 
 // ─── Generator ──────────────────────────────────────────────────────────────
 
+
+/**
+ * The HR half of a demo org: departments, a location, employee records for each
+ * seeded login, a real reporting line, and one staff member with no login at
+ * all — the case the old User-only model could not represent, and the quickest
+ * way to show why Employee is a separate entity.
+ *
+ * Extracted from buildOrg so a failure here is catchable and non-fatal: the
+ * demo's essential output is working logins and a populated pipeline.
+ */
+async function buildPeople(
+  org: { id: string },
+  preset: VerticalPreset,
+  users: { admin: { id: string; email: string }; crmMgr: { id: string; email: string }; salesRep: { id: string; email: string }; itMgr: { id: string; email: string }; itAgent: { id: string; email: string } }
+) {
+  const { admin, crmMgr, salesRep, itMgr, itAgent } = users;
+  const [deptOps, deptSales, deptIt] = await Promise.all([
+    prisma.department.create({ data: { orgId: org.id, name: 'Operations', code: 'OPS' } }),
+    prisma.department.create({ data: { orgId: org.id, name: 'Sales', code: 'SALES' } }),
+    prisma.department.create({ data: { orgId: org.id, name: 'IT', code: 'IT' } }),
+  ]);
+
+  const hq = await prisma.location.create({
+    data: { orgId: org.id, name: `${preset.orgName} HQ`, type: 'HEAD_OFFICE', city: 'Hyderabad', country: 'India' },
+  });
+
+  // Admin first — everyone else reports into them, so their id is needed below.
+  const empAdmin = await prisma.employee.create({
+    data: {
+      orgId: org.id, userId: admin.id, employeeCode: 'EMP-0001',
+      firstName: 'Alex', lastName: 'Admin', displayName: 'Alex Admin',
+      workEmail: admin.email, designation: 'Chief Operating Officer',
+      departmentId: deptOps.id, locationId: hq.id,
+      joiningDate: daysAgo(1200), employmentType: 'FULL_TIME', employmentStatus: 'ACTIVE',
+    },
+  });
+
+  const [empCrmMgr, empItMgr] = await Promise.all([
+    prisma.employee.create({
+      data: {
+        orgId: org.id, userId: crmMgr.id, employeeCode: 'EMP-0002',
+        firstName: 'Carla', lastName: 'Chen', displayName: 'Carla Chen',
+        workEmail: crmMgr.email, designation: 'Head of Sales',
+        departmentId: deptSales.id, locationId: hq.id, managerId: empAdmin.id,
+        joiningDate: daysAgo(900), employmentType: 'FULL_TIME', employmentStatus: 'ACTIVE',
+      },
+    }),
+    prisma.employee.create({
+      data: {
+        orgId: org.id, userId: itMgr.id, employeeCode: 'EMP-0003',
+        firstName: 'Ivy', lastName: 'IT', displayName: 'Ivy IT',
+        workEmail: itMgr.email, designation: 'IT Manager',
+        departmentId: deptIt.id, locationId: hq.id, managerId: empAdmin.id,
+        joiningDate: daysAgo(820), employmentType: 'FULL_TIME', employmentStatus: 'ACTIVE',
+      },
+    }),
+  ]);
+
+  await Promise.all([
+    prisma.employee.create({
+      data: {
+        orgId: org.id, userId: salesRep.id, employeeCode: 'EMP-0004',
+        firstName: 'Sam', lastName: 'Sales', displayName: 'Sam Sales',
+        workEmail: salesRep.email, designation: 'Account Executive',
+        departmentId: deptSales.id, locationId: hq.id, managerId: empCrmMgr.id,
+        joiningDate: daysAgo(400), employmentType: 'FULL_TIME', employmentStatus: 'ACTIVE',
+      },
+    }),
+    prisma.employee.create({
+      data: {
+        orgId: org.id, userId: itAgent.id, employeeCode: 'EMP-0005',
+        firstName: 'Dave', lastName: 'Desk', displayName: 'Dave Desk',
+        workEmail: itAgent.email, designation: 'Support Technician',
+        departmentId: deptIt.id, locationId: hq.id, managerId: empItMgr.id,
+        joiningDate: daysAgo(210), employmentType: 'FULL_TIME', employmentStatus: 'PROBATION',
+      },
+    }),
+    // A staff member with no login at all — the case the old User-only model
+    // could not represent, and the quickest way to show why the split exists.
+    prisma.employee.create({
+      data: {
+        orgId: org.id, employeeCode: 'EMP-0006',
+        firstName: 'Ravi', lastName: 'Kumar', displayName: 'Ravi Kumar',
+        designation: 'Facilities Coordinator',
+        departmentId: deptOps.id, locationId: hq.id, managerId: empAdmin.id,
+        joiningDate: daysAgo(150), employmentType: 'CONTRACT', employmentStatus: 'ACTIVE',
+      },
+    }),
+  ]);
+
+  await prisma.department.update({ where: { id: deptOps.id }, data: { headId: empAdmin.id } });
+  await prisma.department.update({ where: { id: deptSales.id }, data: { headId: empCrmMgr.id } });
+  await prisma.department.update({ where: { id: deptIt.id }, data: { headId: empItMgr.id } });
+}
+
+/**
+ * Confirms the people-platform tables exist before any org is torn down.
+ *
+ * buildOrg() deletes the existing org *before* rebuilding it, so anything that
+ * throws mid-rebuild leaves no org at all — which takes the demo logins with
+ * it. That is exactly what happens if the seed runs before
+ * `prisma migrate dev` has created the Employee/Department/Location tables.
+ *
+ * Checking here turns a destructive half-failure into a clear message with
+ * nothing lost.
+ */
+let peoplePlatformReady: boolean | null = null;
+
+async function checkPeoplePlatform(): Promise<boolean> {
+  if (peoplePlatformReady !== null) return peoplePlatformReady;
+  try {
+    // Cheapest possible probe: fails with P2021 if the table isn't there.
+    await prisma.employee.findFirst({ select: { id: true } });
+    peoplePlatformReady = true;
+  } catch {
+    peoplePlatformReady = false;
+    console.warn(
+      '[seed] The Employee/Department tables are missing — run `npx prisma migrate dev` first.\n' +
+      '       Seeding will continue and produce a complete CRM/IT Desk demo, but the HR\n' +
+      '       module (employees, org chart, departments) will be empty for these orgs.'
+    );
+  }
+  return peoplePlatformReady;
+}
+
 async function buildOrg(preset: VerticalPreset) {
   const seedEmails = seedEmailsFor(preset.slug);
+  // Probe BEFORE the destructive delete below, never after.
+  const hasPeoplePlatform = await checkPeoplePlatform();
+
   const existing = await prisma.organization.findUnique({ where: { slug: preset.slug } });
   if (existing) {
     await prisma.organization.delete({ where: { id: existing.id } });
     await prisma.user.deleteMany({ where: { email: { in: seedEmails } } });
   }
 
-  const org = await prisma.organization.create({ data: { name: preset.orgName, slug: preset.slug, plan: 'ENTERPRISE' } });
+  const org = await prisma.organization.create({ data: { name: preset.orgName, slug: preset.slug, plan: 'ENTERPRISE', currency: preset.currency ?? 'USD', timezone: preset.timezone ?? 'UTC' } });
 
   const [admin, crmMgr, salesRep, itMgr, itAgent] = await Promise.all([
     prisma.user.create({ data: { orgId: org.id, name: 'Alex Admin', email: seedEmails[0], passwordHash: await hash('Admin@123'), role: UserRole.SUPER_ADMIN, department: 'Operations' } }),
@@ -670,7 +893,26 @@ async function buildOrg(preset: VerticalPreset) {
     prisma.user.create({ data: { orgId: org.id, name: 'Dave Desk', email: seedEmails[4], passwordHash: await hash('Admin@123'), role: UserRole.IT_AGENT, department: 'IT' } }),
   ]);
 
+  // ── People platform ────────────────────────────────────────────────────────
+  // Every seeded login is also a person: departments, employee records and a
+  // real reporting line. Without this a demo org shows five users and an empty
+  // HR module, and the org chart — one of the more persuasive screens — has
+  // nothing to draw.
+  //
+  // Deliberately best-effort. The demo's job is working logins and a populated
+  // CRM/IT Desk; the HR layer is a bonus on top. If anything here fails the org
+  // still finishes building, rather than a missing column costing you every
+  // demo account.
+  if (hasPeoplePlatform) {
+    try {
+      await buildPeople(org, preset, { admin, crmMgr, salesRep, itMgr, itAgent });
+    } catch (err) {
+      console.error(`[seed] ${preset.slug}: HR data skipped — ${(err as Error).message}`);
+    }
+  }
+
   await prisma.orgBranding.create({ data: { orgId: org.id, primaryColor: preset.primaryColor, supportEmail: preset.supportEmail, portalTitle: `${preset.orgName} Support`, portalWelcome: 'Welcome! Submit and track your requests here.' } });
+
   await prisma.subscription.create({ data: { orgId: org.id, plan: 'ENTERPRISE', status: 'active', seats: 999, currentPeriodEnd: daysFromNow(30) } });
 
   const [tagVip, tagHot, tagEnterprise, tagUrgent] = await Promise.all([

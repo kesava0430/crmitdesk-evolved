@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
+// Directory-provisioned staff get an employee record like anyone else.
+import { ensureEmployeeForUser, syncUserToEmployee } from '../../utils/employeeProvisioning';
 import { decryptSecret } from '../../utils/crypto';
 import { getAppOnlyToken, fetchGroupMembers } from '../../utils/entraAuth';
 import { assertSeatAvailable } from '../../utils/licensing';
@@ -102,6 +104,7 @@ export async function syncOrgDirectory(orgId: string, actingUserId?: string): Pr
           data: { name: profile.displayName, email, passwordHash, role, orgId, entraObjectId: entraId, provisionedVia: 'DIRECTORY' },
         });
         usersCreated++;
+        await ensureEmployeeForUser(user.id);
         if (actingUserId) logAction(actingUserId, 'CREATE', 'User', user.id, { method: 'entra_sync', role });
       }
 
@@ -113,6 +116,8 @@ export async function syncOrgDirectory(orgId: string, actingUserId?: string): Pr
       for (const u of directoryUsers) {
         if (u.entraObjectId && !stillMemberIds.has(u.entraObjectId)) {
           await prisma.user.update({ where: { id: u.id }, data: { isActive: false } });
+          // Someone removed from every mapped directory group has left.
+          await syncUserToEmployee(u.id, { isActive: false });
           usersDeactivated++;
           if (actingUserId) logAction(actingUserId, 'UPDATE', 'User', u.id, { method: 'entra_sync', deactivated: true });
         }

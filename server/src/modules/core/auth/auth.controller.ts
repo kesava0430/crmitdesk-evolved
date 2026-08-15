@@ -10,6 +10,8 @@ import { AuthRequest } from '../../../middleware/authenticate';
 import { logAction } from '../../../utils/auditLog';
 import { verifyTotpLogin } from '../../totp/totp.controller';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
+// New logins become employees automatically — see utils/employeeProvisioning.ts.
+import { ensureEmployeeForUser } from '../../../utils/employeeProvisioning';
 import { assertSeatAvailable } from '../../../utils/licensing';
 import { DEMO_LOGIN_EMAIL, DEMO_VERTICAL_SLUGS, DEFAULT_VERTICAL, loginEmailFor } from '../../../utils/seedDemoData';
 import { verifyGoogleIdToken, isGoogleSsoConfigured } from '../../../utils/googleAuth';
@@ -237,6 +239,10 @@ export async function approveOrgSignup(req: Request, res: Response, next: NextFu
       data: { status: 'APPROVED', decidedAt: new Date() },
     });
 
+    // The founder is staff too — without this their own org has an employee
+    // list that doesn't contain them.
+    await ensureEmployeeForUser(user.id);
+
     // orgId included for consistency, though a just-created org will always
     // fall through to the platform mailer here (no EmailAccount yet).
     sendMail({ ...emailTemplates.orgSignupApproved(user.email, user.name, org.name, `${FRONTEND_URL}/login`), orgId: org.id }).catch(() => {});
@@ -347,6 +353,10 @@ export async function acceptInvite(req: Request, res: Response, next: NextFuncti
       await tx.inviteToken.update({ where: { id: invite.id }, data: { usedAt: new Date() } });
       return u;
     });
+
+    // Accepting an invite is the most common way a person joins — provisioning
+    // here is what makes HR → Employees correct without anyone re-typing them.
+    await ensureEmployeeForUser(user.id);
 
     const rawRefresh = generateRefreshToken();
     await storeRefreshToken(user.id, rawRefresh);
@@ -729,6 +739,8 @@ export async function entraCallback(req: Request, res: Response) {
         include: { org: { select: { id: true, name: true, slug: true } } },
       });
       logAction(user.id, 'CREATE', 'User', user.id, { method: 'entra_jit', role });
+      // Directory-provisioned staff are still staff.
+      await ensureEmployeeForUser(user.id);
     }
 
     if (!user) return fail('No CRMITdesk account was found for you. Ask your admin to invite you first.');
