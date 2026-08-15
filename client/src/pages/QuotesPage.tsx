@@ -30,7 +30,7 @@ const EMPTY_LINE: QuoteLine = { description: '', quantity: 1, unitPrice: 0 };
 
 export default function QuotesPage() {
   const qc = useQueryClient();
-  const { money } = useFormat();
+  const { money, date } = useFormat();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Quote | null>(null);
   const [form, setForm] = useState({ title: '', validUntil: '', notes: '', lines: [{ ...EMPTY_LINE }] });
@@ -137,14 +137,14 @@ export default function QuotesPage() {
                     </span>
                   </div>
                   {q.deal && <p className="text-xs text-gray-500 dark:text-gray-400">Deal: {q.deal.title}</p>}
-                  <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">{new Date(q.createdAt).toLocaleDateString()}</p>
+                  <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">{date(q.createdAt)}</p>
                 </div>
                 <div className="text-right">
                   <div className="flex items-center gap-1 text-xl font-bold text-gray-900 dark:text-white">
                     {money(q.lines?.reduce((s, l) => s + Number(l.quantity) * Number(l.unitPrice), 0) ?? 0)}
                   </div>
                   {q.validUntil && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500">Valid until {new Date(q.validUntil).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Valid until {date(q.validUntil)}</p>
                   )}
                 </div>
               </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../api/client';
 import { Clock, Plus, Trash2 } from 'lucide-react';
+import { useFormat } from '../../../hooks/useFormat';
 
 interface TimeEntry {
   id: string;
@@ -15,6 +16,7 @@ interface TimeEntry {
 interface Props { ticketId: string; }
 
 export function TimeTrackingPanel({ ticketId }: Props) {
+  const { dateTime: fmtLoggedAt } = useFormat();
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ minutes: '', note: '' });
@@ -124,7 +126,7 @@ export function TimeTrackingPanel({ ticketId }: Props) {
                     <span className="text-xs text-gray-400 dark:text-gray-500">by {e.user.name}</span>
                   </div>
                   {e.description && <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">{e.description}</p>}
-                  <p className="text-xs text-gray-300 mt-0.5 dark:text-gray-600">{new Date(e.loggedAt || e.createdAt).toLocaleString()}</p>
+                  <p className="text-xs text-gray-300 mt-0.5 dark:text-gray-600">{fmtLoggedAt(e.loggedAt || e.createdAt)}</p>
                 </div>
               </div>
               <button

@@ -329,7 +329,7 @@ function PayrollRunsSection() {
 // ─── My Payslips (everyone) ──────────────────────────────────────────────────
 
 function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => void }) {
-  const { money } = useFormat();
+  const { money, date } = useFormat();
   return (
     <Modal open onClose={onClose} title={payslip.payslipNumber} subtitle={`${MONTH_NAMES[payslip.month]} ${payslip.year}`} icon={<FileText size={16} />}
       footer={<>
@@ -358,7 +358,7 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
           <p className="font-semibold text-gray-900 dark:text-white border-t border-gray-200 dark:border-gray-700 pt-2">Net Pay</p>
           <p className="text-right font-semibold text-gray-900 dark:text-white border-t border-gray-200 dark:border-gray-700 pt-2">{money(payslip.netPay)}</p>
         </div>
-        {payslip.paidAt && <p className="text-xs text-gray-400 dark:text-gray-500">Paid on {new Date(payslip.paidAt).toLocaleDateString()}</p>}
+        {payslip.paidAt && <p className="text-xs text-gray-400 dark:text-gray-500">Paid on {date(payslip.paidAt)}</p>}
       </div>
     </Modal>
   );

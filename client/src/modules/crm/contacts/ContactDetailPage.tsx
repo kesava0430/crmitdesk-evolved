@@ -12,7 +12,7 @@ import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useEffect } from 'react';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { useFormat } from '../../../hooks/useFormat';
 
 const DEAL_STAGE_COLOR: Record<string, string> = {
@@ -162,7 +162,7 @@ function ChurnRiskCard({ contactId }: { contactId: string }) {
 }
 
 export function ContactDetailPage() {
-  const { money } = useFormat();
+  const { money, dateTime } = useFormat();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id!);
@@ -293,7 +293,7 @@ export function ContactDetailPage() {
                         <div className="flex flex-wrap items-center justify-between gap-1">
                           <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{a.title}</p>
                           <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
-                            {a.dueAt ? format(new Date(a.dueAt), 'MMM d, h:mm a') : formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
+                            {a.dueAt ? dateTime(a.dueAt) : formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
                           </span>
                         </div>
                         {a.body && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{a.body}</p>}

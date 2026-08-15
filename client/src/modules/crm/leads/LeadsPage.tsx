@@ -8,6 +8,7 @@ import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toV
 import { useLabels } from '../../../hooks/useLabels';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
+import { useFormat } from '../../../hooks/useFormat';
 
 const STATUSES = ['NEW','CONTACTED','QUALIFIED','UNQUALIFIED','CONVERTED'];
 const SOURCES = ['Web','Referral','Cold Outreach','Event','Social Media','Other'];
@@ -271,6 +272,7 @@ const ACTIVITY_TYPES = ['CALL', 'EMAIL', 'MEETING', 'TASK'] as const;
 const ACTIVITY_ICON: Record<string, any> = { CALL: Phone, EMAIL: Mail, MEETING: UsersIcon, TASK: ClipboardList };
 
 function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
+  const { date } = useFormat();
   const { data: fresh, isLoading } = useLead(lead.id);
   const activities = fresh?.activities ?? [];
   const createActivity = useCreateActivity();
@@ -318,7 +320,7 @@ function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
                   <p className={`text-sm font-medium ${a.done ? 'text-gray-400 line-through dark:text-gray-600' : 'text-gray-900 dark:text-white'}`}>{a.title}</p>
                   {a.body && <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">{a.body}</p>}
                   <div className="flex items-center gap-2 mt-1">
-                    {a.dueAt && <span className="text-[11px] text-gray-400 dark:text-gray-500">Due {new Date(a.dueAt).toLocaleDateString()}</span>}
+                    {a.dueAt && <span className="text-[11px] text-gray-400 dark:text-gray-500">Due {date(a.dueAt)}</span>}
                     {a.createdByUser?.name && <span className="text-[11px] text-gray-300 dark:text-gray-600">· {a.createdByUser.name}</span>}
                   </div>
                 </div>

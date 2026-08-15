@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, FileText, CheckCircle2, ShieldCheck, Eraser } from 'lucide-react';
 import { api } from '../api/client';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatDateTime } from '../utils/format';
 
 interface QuoteLine { id: string; description: string; quantity: string; unitPrice: string; discount: string }
 interface Quote {
   id: string; title: string; status: string; notes?: string; validUntil?: string;
-  lines: QuoteLine[]; org: { name: string; currency?: string }; deal?: { title: string } | null;
+  lines: QuoteLine[]; org: { name: string; currency?: string; timezone?: string }; deal?: { title: string } | null;
   signerName?: string; signedAt?: string;
 }
 
@@ -186,7 +186,7 @@ export function PublicQuotePage() {
                 <CheckCircle2 size={20} className="shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-sm">Accepted{quote.signerName ? ` by ${quote.signerName}` : ''}</p>
-                  {quote.signedAt && <p className="text-xs text-green-600 mt-0.5">{new Date(quote.signedAt).toLocaleString()}</p>}
+                  {quote.signedAt && <p className="text-xs text-green-600 mt-0.5">{formatDateTime(quote.signedAt, quote.org.timezone || 'UTC')}</p>}
                 </div>
               </div>
             ) : quote.status === 'REJECTED' ? (

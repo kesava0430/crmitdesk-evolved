@@ -158,7 +158,7 @@ export async function publicView(req: Request, res: Response, next: NextFunction
       where: { id },
       include: {
         lines: true,
-        org: { select: { name: true, currency: true } },
+        org: { select: { name: true, currency: true, timezone: true } },
         deal: { select: { id: true, title: true } },
       },
     });

@@ -24,7 +24,7 @@ function lineTotal(l: InvoiceLine) {
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
-  const { money } = useFormat();
+  const { money, date } = useFormat();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [form, setForm] = useState({ title: '', dueDate: '', notes: '', taxRate: 0, lines: [{ ...EMPTY_LINE }] });
@@ -131,14 +131,14 @@ export default function InvoicesPage() {
                     </div>
                     {inv.deal?.title && <p className="text-xs text-gray-500 dark:text-gray-400">Deal: {inv.deal.title}</p>}
                     {inv.quote?.title && <p className="text-xs text-gray-400 dark:text-gray-500">From quote: {inv.quote.title}</p>}
-                    <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">{new Date(inv.createdAt).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">{date(inv.createdAt)}</p>
                   </div>
                   <div className="text-right">
                     <div className="flex items-center gap-1 text-xl font-bold text-gray-900 dark:text-white">
                       {money(total)}
                     </div>
-                    {inv.dueDate && <p className="text-xs text-gray-400 dark:text-gray-500">Due {new Date(inv.dueDate).toLocaleDateString()}</p>}
-                    {inv.paidAt && <p className="text-xs text-green-600 dark:text-green-400">Paid {new Date(inv.paidAt).toLocaleDateString()}</p>}
+                    {inv.dueDate && <p className="text-xs text-gray-400 dark:text-gray-500">Due {date(inv.dueDate)}</p>}
+                    {inv.paidAt && <p className="text-xs text-green-600 dark:text-green-400">Paid {date(inv.paidAt)}</p>}
                   </div>
                 </div>
 

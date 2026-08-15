@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, Receipt, Printer } from 'lucide-react';
 import { api } from '../api/client';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatDate } from '../utils/format';
 
 interface InvoiceLine { id: string; description: string; quantity: string; unitPrice: string; discount: string }
 interface Invoice {
   id: string; invoiceNumber: string; title: string; status: string;
   dueDate?: string; paidAt?: string; taxRate: string; createdAt: string;
-  lines: InvoiceLine[]; org: { name: string; currency?: string }; deal?: { title: string } | null;
+  lines: InvoiceLine[]; org: { name: string; currency?: string; timezone?: string }; deal?: { title: string } | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -58,6 +58,7 @@ export function PublicInvoicePage() {
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
   const money = (v: number) => formatCurrency(v, invoice.org.currency || 'USD');
+  const date = (v?: string) => formatDate(v, invoice.org.timezone || 'UTC');
 
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:py-14 print:bg-white print:py-0 print:px-0">
@@ -84,9 +85,9 @@ export function PublicInvoicePage() {
           </div>
 
           <div className="px-5 py-3 sm:px-8 grid grid-cols-2 gap-3 text-xs text-gray-500 border-b border-gray-50">
-            <p>Issued: {new Date(invoice.createdAt).toLocaleDateString()}</p>
-            {invoice.dueDate && <p>Due: {new Date(invoice.dueDate).toLocaleDateString()}</p>}
-            {invoice.paidAt && <p className="text-green-600 col-span-2">Paid on {new Date(invoice.paidAt).toLocaleDateString()}</p>}
+            <p>Issued: {date(invoice.createdAt)}</p>
+            {invoice.dueDate && <p>Due: {date(invoice.dueDate)}</p>}
+            {invoice.paidAt && <p className="text-green-600 col-span-2">Paid on {date(invoice.paidAt)}</p>}
           </div>
 
           <div className="px-5 py-5 sm:px-8 sm:py-6 overflow-x-auto">

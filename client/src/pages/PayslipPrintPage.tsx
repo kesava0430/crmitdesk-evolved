@@ -27,7 +27,7 @@ interface PayslipTemplate {
 // chrome so the browser's native print dialog produces a clean one-pager,
 // same approach as the Invoice document (no server-side PDF library).
 export default function PayslipPrintPage() {
-  const { money } = useFormat();
+  const { money, date } = useFormat();
   const { id } = useParams();
   const [payslip, setPayslip] = useState<Payslip | null>(null);
   const [template, setTemplate] = useState<PayslipTemplate | null>(null);
@@ -87,7 +87,7 @@ export default function PayslipPrintPage() {
               <p className="text-xs text-gray-400">{payslip.user.department || payslip.user.email}</p>
             </div>
             <span className={`px-3 py-1 rounded-full text-xs font-semibold ${payslip.status === 'PAID' ? 'text-green-700 bg-green-50' : 'text-amber-700 bg-amber-50'}`}>
-              {payslip.status === 'PAID' ? `Paid${payslip.paidAt ? ' on ' + new Date(payslip.paidAt).toLocaleDateString() : ''}` : 'Generated'}
+              {payslip.status === 'PAID' ? `Paid${payslip.paidAt ? ' on ' + date(payslip.paidAt) : ''}` : 'Generated'}
             </span>
           </div>
 

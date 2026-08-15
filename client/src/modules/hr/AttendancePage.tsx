@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { PageHeader, Spinner, Badge } from '../../shared/components';
 import { LogIn, LogOut, MapPin, AlertCircle, Users, Clock } from 'lucide-react';
+import { useFormat } from '../../hooks/useFormat';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
@@ -15,11 +16,6 @@ interface AttendanceRecord {
   checkInLocationOk: boolean | null;
   checkInNetworkOk: boolean | null;
   source: string;
-}
-
-function fmtTime(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function fmtHours(minutes: number) {
@@ -59,6 +55,7 @@ function getPosition(): Promise<GeolocationPosition> {
 }
 
 function CheckInWidget() {
+  const { time: fmtTime } = useFormat();
   const qc = useQueryClient();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'in' | 'out' | null>(null);
@@ -167,6 +164,7 @@ function groupByDate(records: AttendanceRecord[]): DayGroup[] {
 }
 
 function MyHistory() {
+  const { time: fmtTime, date } = useFormat();
   const { data, isLoading } = useQuery<AttendanceRecord[]>({
     queryKey: ['attendance-me'],
     queryFn: () => api.get('/hr/attendance/me').then(r => r.data),
@@ -192,7 +190,7 @@ function MyHistory() {
               const anyManual = day.sessions.some(s => s.source === 'MANUAL');
               return (
                 <tr key={day.date}>
-                  <td className="py-2.5 align-top dark:text-gray-300">{new Date(day.date).toLocaleDateString()}</td>
+                  <td className="py-2.5 align-top dark:text-gray-300">{date(day.date)}</td>
                   <td className="py-2.5">
                     <div className="flex flex-wrap gap-1">
                       {[...day.sessions].reverse().map(s => (
@@ -230,6 +228,7 @@ interface TodayRow {
 }
 
 function TeamToday() {
+  const { time: fmtTime } = useFormat();
   const { data, isLoading } = useQuery<TodayRow[]>({
     queryKey: ['attendance-today'],
     queryFn: () => api.get('/hr/attendance/today').then(r => r.data),

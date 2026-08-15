@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { PageHeader, Button, Modal, Badge, Spinner, EmptyState, SearchableSelect } from '../../shared/components';
 import { CalendarCheck, Plus, X, Check, Clock3 } from 'lucide-react';
+import { useFormat } from '../../hooks/useFormat';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
@@ -100,6 +101,7 @@ function RequestRow({ req, showEmployee, onCancel, onApprove, onReject }: {
   req: LeaveRequest; showEmployee?: boolean;
   onCancel?: () => void; onApprove?: () => void; onReject?: () => void;
 }) {
+  const { date } = useFormat();
   return (
     <div className="flex items-center justify-between gap-3 py-3 border-b border-gray-50 last:border-0 flex-wrap">
       <div className="min-w-0">
@@ -111,7 +113,7 @@ function RequestRow({ req, showEmployee, onCancel, onApprove, onReject }: {
           <Badge variant={STATUS_VARIANT[req.status]}>{req.status}</Badge>
         </div>
         <p className="text-xs text-gray-500 mt-1">
-          {new Date(req.startDate).toLocaleDateString()} → {new Date(req.endDate).toLocaleDateString()} · {req.days} day{req.days === 1 ? '' : 's'}
+          {date(req.startDate)} → {date(req.endDate)} · {req.days} day{req.days === 1 ? '' : 's'}
         </p>
         {req.reason && <p className="text-xs text-gray-400 mt-0.5">{req.reason}</p>}
         {req.status === 'REJECTED' && req.rejectionReason && (

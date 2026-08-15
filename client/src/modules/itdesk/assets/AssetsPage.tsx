@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { SearchableSelect, RowActions } from '../../../shared/components';
 import { Attachments } from '../../../shared/components/Attachments';
+import { useFormat } from '../../../hooks/useFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,7 @@ function AssetModal({ asset, users, onClose }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AssetsPage() {
+  const { date } = useFormat();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -293,7 +295,7 @@ export default function AssetsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden sm:table-cell">
-                      {asset.purchaseDate ? new Date(asset.purchaseDate).toLocaleDateString() : '—'}
+                      {asset.purchaseDate ? date(asset.purchaseDate) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
