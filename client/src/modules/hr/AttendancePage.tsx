@@ -55,7 +55,7 @@ function getPosition(): Promise<GeolocationPosition> {
 }
 
 function CheckInWidget() {
-  const { time: fmtTime } = useFormat();
+  const { time: fmtTime, timezone } = useFormat();
   const qc = useQueryClient();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'in' | 'out' | null>(null);
@@ -89,8 +89,10 @@ function CheckInWidget() {
 
   return (
     <div className="card p-6 text-center">
-      <p className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{now.toLocaleTimeString()}</p>
-      <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+      <p className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{fmtTime(now)}</p>
+      <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+        {new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric' }).format(now)}
+      </p>
 
       <div className="flex items-center justify-center gap-6 mt-5 text-sm">
         <div>

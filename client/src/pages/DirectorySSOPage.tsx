@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { KeyRound, CheckCircle, AlertCircle, Trash2, Zap, Copy, Check, Plus, Pencil, X, RefreshCw } from 'lucide-react';
+import { useFormat } from '../hooks/useFormat';
 
 const ROLES = ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP', 'IT_MANAGER', 'IT_AGENT', 'EMPLOYEE'];
 
@@ -149,6 +150,7 @@ interface SyncLog {
 }
 
 function SyncSection({ autoProvisioningEnabled }: { autoProvisioningEnabled: boolean }) {
+  const { dateTime } = useFormat();
   const qc = useQueryClient();
 
   const { data: logs = [] } = useQuery<SyncLog[]>({
@@ -193,7 +195,7 @@ function SyncSection({ autoProvisioningEnabled }: { autoProvisioningEnabled: boo
               <span className={`shrink-0 ${log.status === 'OK' ? 'text-green-600 dark:text-green-400' : log.status === 'ERROR' ? 'text-red-600 dark:text-red-400' : 'text-gray-400'}`}>
                 {log.status === 'RUNNING' ? 'Running…' : log.status === 'OK' ? 'Succeeded' : 'Failed'}
               </span>
-              <span className="text-gray-400 dark:text-gray-500">{new Date(log.startedAt).toLocaleString()}</span>
+              <span className="text-gray-400 dark:text-gray-500">{dateTime(log.startedAt)}</span>
               {log.status === 'OK' && (
                 <span className="text-gray-500 dark:text-gray-400 ml-auto">
                   +{log.usersCreated} created, {log.usersDeactivated} deactivated

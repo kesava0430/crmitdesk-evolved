@@ -38,7 +38,7 @@ function StarRow({ rating }: { rating: number }) {
 }
 
 export function ReportsPage() {
-  const { money, symbol } = useFormat();
+  const { money, symbol, date } = useFormat();
   const [tab, setTab] = useState<'tickets' | 'crm' | 'csat'>('tickets');
   const [csatPage, setCsatPage] = useState(1);
 
@@ -282,7 +282,7 @@ export function ReportsPage() {
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-start gap-1"><MessageSquare size={12} className="mt-0.5 flex-shrink-0" />{r.comment}</p>
                         )}
                       </div>
-                      <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">{new Date(r.submittedAt).toLocaleDateString()}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">{date(r.submittedAt)}</span>
                     </div>
                   ))}
                 </div>

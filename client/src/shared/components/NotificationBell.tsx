@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useSSE, setSSEToastHandler, type SSEEventType } from '../../hooks/useSSE';
 import { usePushSubscription } from '../../hooks/usePushSubscription';
+import { useFormat } from '../../hooks/useFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,7 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
 // ─── Notification Bell ────────────────────────────────────────────────────────
 
 export function NotificationBell() {
+  const { time } = useFormat();
   // Start SSE connection for this component tree
   useSSE();
   const push = usePushSubscription();
@@ -175,7 +177,7 @@ export function NotificationBell() {
                     <div className="flex-1 min-w-0">
                       <p className={`text-xs font-medium truncate ${!n.readAt ? 'text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-400'}`}>{n.title}</p>
                       {n.body && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>}
-                      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">{new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">{time(n.createdAt)}</p>
                     </div>
                     {!n.readAt && <span className="w-1.5 h-1.5 bg-brand-500 rounded-full mt-1.5 flex-shrink-0" />}
                   </button>

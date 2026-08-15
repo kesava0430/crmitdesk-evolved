@@ -45,6 +45,29 @@ function toDate(value: string | number | Date | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** "UTC+5:30" / "UTC-8" / "UTC" for the given zone at the given instant —
+ *  computed from the zone itself so it's correct for zones with DST
+ *  (e.g. America/New_York is UTC-5 in winter, UTC-4 in summer) rather than
+ *  a fixed offset that would go stale half the year. Used to suffix every
+ *  time-of-day value so it's never ambiguous which zone a time is in,
+ *  on top of the value actually being converted into that zone below. */
+function utcOffsetLabel(timezone: string, at: Date): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'shortOffset' }).formatToParts(at);
+    const raw = parts.find(p => p.type === 'timeZoneName')?.value ?? '';
+    return raw.replace(/^GMT/, 'UTC') || 'UTC';
+  } catch {
+    return '';
+  }
+}
+
+// Every date/time below is a genuine conversion, not a label swap: passing
+// `timeZone: timezone` to Intl.DateTimeFormat computes the actual wall-clock
+// date/time in that zone from the stored UTC instant (the stored value never
+// changes — only what's rendered here does). formatDateTime/formatTime also
+// append the UTC offset so a displayed time is self-describing regardless of
+// which org's zone the viewer happens to be looking at.
+
 export function formatDate(value: string | number | Date | null | undefined, timezone = 'UTC'): string {
   const d = toDate(value);
   if (!d) return '—';
@@ -59,9 +82,11 @@ export function formatDateTime(value: string | number | Date | null | undefined,
   const d = toDate(value);
   if (!d) return '—';
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    const base = new Intl.DateTimeFormat(undefined, {
       timeZone: timezone, year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
     }).format(d);
+    const offset = utcOffsetLabel(timezone, d);
+    return offset ? `${base} (${offset})` : base;
   } catch {
     return d.toLocaleString();
   }
@@ -71,7 +96,9 @@ export function formatTime(value: string | number | Date | null | undefined, tim
   const d = toDate(value);
   if (!d) return '—';
   try {
-    return new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: 'numeric', minute: '2-digit' }).format(d);
+    const base = new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: 'numeric', minute: '2-digit' }).format(d);
+    const offset = utcOffsetLabel(timezone, d);
+    return offset ? `${base} (${offset})` : base;
   } catch {
     return d.toLocaleTimeString();
   }

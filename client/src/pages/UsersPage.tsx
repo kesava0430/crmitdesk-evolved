@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions } from '../shared/components';
 import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check, KeyRound } from 'lucide-react';
+import { useFormat } from '../hooks/useFormat';
 
 const ROLES = ['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE'];
 const roleVariant: Record<string, any> = {
@@ -131,6 +132,7 @@ type ModalState = null | 'create' | 'invite' | { type: 'edit'; user: any };
 
 export function UsersPage() {
   const { user: currentUser } = useAuth();
+  const { date } = useFormat();
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<ModalState>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
@@ -221,7 +223,7 @@ export function UsersPage() {
                 <span className="text-amber-700 dark:text-amber-300">{inv.email}</span>
                 <div className="flex items-center gap-2">
                   <Badge variant="yellow">{inv.role.replace(/_/g,' ')}</Badge>
-                  <span className="text-xs text-amber-500 dark:text-amber-400">Expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                  <span className="text-xs text-amber-500 dark:text-amber-400">Expires {date(inv.expiresAt)}</span>
                 </div>
               </div>
             ))}
@@ -264,7 +266,7 @@ export function UsersPage() {
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{u.department || '—'}</td>
                   <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">—</td>
                   <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">
-                    {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}
+                    {u.createdAt ? date(u.createdAt) : '—'}
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant={u.isActive ? 'green' : 'gray'}>{u.isActive ? 'Active' : 'Inactive'}</Badge>

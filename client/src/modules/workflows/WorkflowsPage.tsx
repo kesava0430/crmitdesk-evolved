@@ -13,6 +13,7 @@ import {
 import { useCustomModules, useCustomModule } from '../../api/customModules';
 import { useCustomFieldDefs } from '../../api/customFields';
 import { useUsers } from '../../api/users';
+import { useFormat } from '../../hooks/useFormat';
 import { Spinner } from '../../shared/components';
 import { addToast } from '../../shared/components/toastStore';
 
@@ -648,6 +649,7 @@ function RuleEditor({
 // ─── Logs drawer ──────────────────────────────────────────────────────────────
 
 function LogsDrawer({ ruleId, ruleName, onClose }: { ruleId: string; ruleName: string; onClose: () => void }) {
+  const { dateTime } = useFormat();
   const { data: logs, isLoading } = useWorkflowLogs(ruleId);
 
   const icon = (result: string) => result === 'SUCCESS' ? <CheckCircle size={13} className="text-green-500" />
@@ -684,7 +686,7 @@ function LogsDrawer({ ruleId, ruleName, onClose }: { ruleId: string; ruleName: s
                         <span className="text-xs text-gray-400 dark:text-gray-500">{log.entityType} · {log.entityId.slice(0, 8)}…</span>
                       </div>
                       {log.detail && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{log.detail}</p>}
-                      <p className="text-xs text-gray-300 dark:text-gray-600 mt-0.5">{new Date(log.createdAt).toLocaleString()}</p>
+                      <p className="text-xs text-gray-300 dark:text-gray-600 mt-0.5">{dateTime(log.createdAt)}</p>
                     </div>
                   </div>
                 ))}

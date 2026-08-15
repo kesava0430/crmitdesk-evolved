@@ -12,6 +12,7 @@ import {
   type Conversation, type Channel,
 } from '../../api/inbox';
 import { Spinner } from '../../shared/components';
+import { useFormat } from '../../hooks/useFormat';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,7 @@ function ConvItem({ conv, selected, onClick }: { conv: Conversation; selected: b
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({ msg }: { msg: { direction: string; body: string; sentAt: string; fromAddress: string } }) {
+  const { time } = useFormat();
   const isOut = msg.direction === 'OUTBOUND';
   return (
     <div className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
@@ -297,7 +299,7 @@ function MessageBubble({ msg }: { msg: { direction: string; body: string; sentAt
         <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.body}</p>
         <div className={`flex items-center gap-1 mt-1 ${isOut ? 'justify-end' : 'justify-start'}`}>
           <span className={`text-xs ${isOut ? 'text-brand-200' : 'text-gray-400 dark:text-gray-500'}`}>
-            {new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {time(msg.sentAt)}
           </span>
           {isOut && <CheckCheck size={11} className="text-brand-200" />}
         </div>

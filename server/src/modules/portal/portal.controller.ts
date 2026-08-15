@@ -93,6 +93,13 @@ export async function verifyToken(req: Request, res: Response, next: NextFunctio
       { expiresIn: '7d' }
     );
 
+    // Portal is its own bespoke, non-authenticated-app session — it can't
+    // call GET /org the way logged-in staff pages do, so the org's timezone
+    // (needed to show ticket dates in the org's zone rather than whatever
+    // zone the customer's own browser happens to be in) rides along in the
+    // login response instead, same pattern as the public quote/invoice pages.
+    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { timezone: true } });
+
     res.json({
       token: sessionJwt,
       user: {
@@ -100,6 +107,7 @@ export async function verifyToken(req: Request, res: Response, next: NextFunctio
         name: portalToken.portalUser.name,
         email: portalToken.portalUser.email,
         orgId,
+        orgTimezone: org?.timezone || 'UTC',
       }
     });
   } catch (err) { next(err); }

@@ -3,12 +3,13 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Plus, ArrowLeft, Send, LogOut, Ticket, CheckCircle, Clock, AlertCircle, MessageCircle, X } from 'lucide-react';
 import { Spinner } from '../../shared/components';
+import { formatDate, formatDateTime } from '../../utils/format';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PortalSession {
   token: string;
-  user: { id: string; name: string; email: string; orgId: string };
+  user: { id: string; name: string; email: string; orgId: string; orgTimezone?: string };
 }
 
 interface PortalTicket {
@@ -197,7 +198,7 @@ function TicketListView({ session, onNew, onSelect }: { session: PortalSession; 
               </div>
               <div className="flex items-center gap-3 mt-2">
                 {t.category && <span className="text-xs text-gray-400">{t.category.name}</span>}
-                <span className="text-xs text-gray-300">{new Date(t.createdAt).toLocaleDateString()}</span>
+                <span className="text-xs text-gray-300">{formatDate(t.createdAt, session.user.orgTimezone)}</span>
               </div>
             </button>
           ))}
@@ -264,7 +265,7 @@ function NewTicketView({ session, onBack, onCreated }: { session: PortalSession;
 
 // ─── TICKET DETAIL ────────────────────────────────────────────────────────────
 
-function TicketDetailView({ ticket, onBack }: { ticket: PortalTicket; onBack: () => void }) {
+function TicketDetailView({ ticket, onBack, timezone }: { ticket: PortalTicket; onBack: () => void; timezone?: string }) {
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6">
@@ -277,7 +278,7 @@ function TicketDetailView({ ticket, onBack }: { ticket: PortalTicket; onBack: ()
         </div>
         {ticket.category && <p className="text-xs text-gray-400 mb-3">Category: {ticket.category.name}</p>}
         <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap">{ticket.body}</div>
-        <p className="text-xs text-gray-400 mt-4">Submitted on {new Date(ticket.createdAt).toLocaleString()}</p>
+        <p className="text-xs text-gray-400 mt-4">Submitted on {formatDateTime(ticket.createdAt, timezone)}</p>
       </div>
     </div>
   );
@@ -470,7 +471,7 @@ export function CustomerPortal() {
           <NewTicketView session={session} onBack={() => setView('list')} onCreated={() => setView('list')} />
         )}
         {view === 'detail' && selectedTicket && (
-          <TicketDetailView ticket={selectedTicket} onBack={() => setView('list')} />
+          <TicketDetailView ticket={selectedTicket} onBack={() => setView('list')} timezone={session.user.orgTimezone} />
         )}
       </main>
 

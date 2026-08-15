@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { Shield, ShieldCheck, ShieldOff, Copy, CheckCircle, AlertCircle } from 'lucide-react';
+import { useFormat } from '../hooks/useFormat';
 
 interface TotpStatus { enabled: boolean; setupAt: string | null; }
 interface SetupData { secret: string; uri: string; }
 
 export default function TwoFactorPage() {
+  const { date } = useFormat();
   const qc = useQueryClient();
   const [step, setStep] = useState<'idle' | 'setup' | 'backup'>('idle');
   const [setupData, setSetupData] = useState<SetupData | null>(null);
@@ -87,7 +89,7 @@ export default function TwoFactorPage() {
             <div>
               <p className="font-semibold text-gray-900">2FA is {status?.enabled ? 'enabled' : 'disabled'}</p>
               {status?.enabled && status.setupAt && (
-                <p className="text-xs text-green-600">Enabled {new Date(status.setupAt).toLocaleDateString()}</p>
+                <p className="text-xs text-green-600">Enabled {date(status.setupAt)}</p>
               )}
               {!status?.enabled && (
                 <p className="text-sm text-gray-500">Your account is not protected with 2FA</p>

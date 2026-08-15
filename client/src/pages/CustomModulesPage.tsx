@@ -8,6 +8,7 @@ import {
 } from '../api/customModules';
 import { PageHeader, Button, Modal, Spinner, EmptyState, SearchableSelect, RowActions } from '../shared/components';
 import { CustomModuleRecordsTab } from '../shared/components/CustomModuleRecords';
+import { useFormat } from '../hooks/useFormat';
 
 const FIELD_TYPES = ['TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN', 'DROPDOWN', 'EMAIL', 'PHONE', 'URL'];
 const TYPE_LABELS: Record<string, string> = {
@@ -234,6 +235,7 @@ function FieldsTab({ module_ }: { module_: any }) {
 }
 
 function SyncTab({ module_ }: { module_: any }) {
+  const { dateTime } = useFormat();
   const { data: config, isLoading } = useSyncConfig(module_.id);
   const save = useSaveSyncConfig();
   const trigger = useTriggerSync();
@@ -278,7 +280,7 @@ function SyncTab({ module_ }: { module_: any }) {
             {config.lastStatus === 'SUCCESS' ? <CheckCircle2 size={15} className="text-green-500" /> : config.lastStatus === 'FAILED' ? <XCircle size={15} className="text-red-500" /> : <Clock size={15} className="text-gray-300 dark:text-gray-600" />}
             <span className="font-medium text-gray-700 dark:text-gray-300">{config.lastStatus ? `Last sync: ${config.lastStatus}` : 'Never synced'}</span>
           </div>
-          {config.lastSyncAt && <span className="text-xs text-gray-400 dark:text-gray-500">{new Date(config.lastSyncAt).toLocaleString()}</span>}
+          {config.lastSyncAt && <span className="text-xs text-gray-400 dark:text-gray-500">{dateTime(config.lastSyncAt)}</span>}
           {config.lastRecordCount != null && <span className="text-xs text-gray-400 dark:text-gray-500">· {config.lastRecordCount} record(s)</span>}
           {config.lastError && <span className="text-xs text-red-500 dark:text-red-400">· {config.lastError}</span>}
           <Button size="sm" variant="secondary" icon={<RefreshCw size={13} />} onClick={() => trigger.mutate(module_.id)} loading={trigger.isPending} className="ml-auto">Sync Now</Button>

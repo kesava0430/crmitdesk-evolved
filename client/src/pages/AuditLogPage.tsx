@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { Shield, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useFormat } from '../hooks/useFormat';
 
 interface AuditLog {
   id: string;
@@ -21,6 +22,7 @@ const ACTION_COLORS: Record<string, string> = {
 };
 
 export default function AuditLogPage() {
+  const { dateTime } = useFormat();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [action, setAction] = useState('');
@@ -117,7 +119,7 @@ export default function AuditLogPage() {
               {logs.map(log => (
                 <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                    {new Date(log.createdAt).toLocaleString()}
+                    {dateTime(log.createdAt)}
                   </td>
                   <td className="px-4 py-3">
                     {log.user ? (

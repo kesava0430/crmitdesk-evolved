@@ -172,7 +172,7 @@ function AIQueryBar() {
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const { money } = useFormat();
+  const { money, timezone } = useFormat();
   const navigate = useNavigate();
   const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
   const { data: dealReports, isLoading: dealsLoading } = useDealReports();
@@ -196,7 +196,7 @@ export function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white" aria-label="Dashboard">{greeting}, {firstName}!</h1>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">

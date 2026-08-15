@@ -6,6 +6,7 @@ import {
   type ScheduleEntityType, type RecipientType, type Recurrence,
 } from '../../api/schedules';
 import { SearchableSelect } from './SearchableSelect';
+import { useFormat } from '../../hooks/useFormat';
 
 interface Props {
   entityType: ScheduleEntityType;
@@ -49,6 +50,7 @@ function nowLocal() {
 }
 
 export function ScheduleReminderPanel({ entityType, entityId }: Props) {
+  const { dateTime } = useFormat();
   const { data: schedules = [], isLoading } = useSchedules(entityType, entityId);
   const create = useCreateSchedule();
   const cancel = useCancelSchedule();
@@ -183,7 +185,7 @@ export function ScheduleReminderPanel({ entityType, entityId }: Props) {
                       {status.icon} {status.label}
                     </span>
                     <span className="text-xs text-gray-400 dark:text-gray-500">
-                      {new Date(s.dueAt).toLocaleString()} · {formatDistanceToNow(new Date(s.dueAt), { addSuffix: true })}
+                      {dateTime(s.dueAt)} · {formatDistanceToNow(new Date(s.dueAt), { addSuffix: true })}
                     </span>
                     {s.recurrence !== 'NONE' && (
                       <span className="text-[11px] text-violet-500 dark:text-violet-400 bg-violet-50 dark:bg-violet-500/10 px-1.5 py-0.5 rounded-full">{s.recurrence === 'DAILY' ? 'Daily' : 'Weekly'}</span>

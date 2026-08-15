@@ -5,6 +5,7 @@ import { Mail, Plus, Send, Pencil, Trash2, X, CheckCircle, Clock, LayoutTemplate
 import { SearchableSelect , RowActions } from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
 import { useEmailTemplates } from '../api/templates';
+import { useFormat } from '../hooks/useFormat';
 
 interface Campaign {
   id: string;
@@ -110,6 +111,7 @@ function CampaignModal({ campaign, onClose }: { campaign?: Campaign; onClose: ()
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CampaignsPage() {
+  const { date } = useFormat();
   const qc = useQueryClient();
   const [modal, setModal] = useState<Campaign | null | 'new'>(null);
   const [sending, setSending] = useState<string | null>(null);
@@ -184,11 +186,11 @@ export default function CampaignsPage() {
                 <div className="flex items-center gap-4 mt-2">
                   {campaign.status === 'SENT' ? (
                     <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-                      <CheckCircle size={12} /> Sent to {campaign.sentCount} recipients · {new Date(campaign.sentAt!).toLocaleDateString()}
+                      <CheckCircle size={12} /> Sent to {campaign.sentCount} recipients · {date(campaign.sentAt!)}
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
-                      <Clock size={12} /> Created {new Date(campaign.createdAt).toLocaleDateString()}
+                      <Clock size={12} /> Created {date(campaign.createdAt)}
                     </div>
                   )}
                 </div>

@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 import { CreditCard, CheckCircle, Zap, Building2, Star, ExternalLink, AlertCircle } from 'lucide-react';
 import { useSubscription, useCreateCheckout, useCreatePortal } from '../api/billing';
 import { Spinner } from '../shared/components';
+import { useFormat } from '../hooks/useFormat';
 
 const PLAN_ICONS = { FREE: Star, PRO: Zap, ENTERPRISE: Building2 };
 const PLAN_COLORS = {
@@ -17,6 +18,8 @@ const FEATURES: Record<string, string[]> = {
 };
 
 export function BillingPage() {
+  const { date, timezone } = useFormat();
+  const monthDay = (v: string) => new Intl.DateTimeFormat(undefined, { timeZone: timezone, month: 'short', day: 'numeric' }).format(new Date(v));
   const [searchParams] = useSearchParams();
   const { data: sub, isLoading } = useSubscription();
   const checkout = useCreateCheckout();
@@ -83,7 +86,7 @@ export function BillingPage() {
             {sub.currentPeriodEnd && (
               <div className="text-right">
                 <p className="text-xs text-gray-400 dark:text-gray-500">Next billing date</p>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{new Date(sub.currentPeriodEnd).toLocaleDateString()}</p>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{date(sub.currentPeriodEnd)}</p>
               </div>
             )}
           </div>
@@ -115,7 +118,7 @@ export function BillingPage() {
       {sub && (
         <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-8 dark:bg-gray-900 dark:border-gray-800">
           <p className="text-xs text-gray-500 mb-3 dark:text-gray-400">
-            Usage this month <span className="text-gray-400 dark:text-gray-500">({new Date(sub.usage.periodStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {new Date(sub.usage.periodEnd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})</span>
+            Usage this month <span className="text-gray-400 dark:text-gray-500">({monthDay(sub.usage.periodStart)} – {monthDay(sub.usage.periodEnd)})</span>
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div>

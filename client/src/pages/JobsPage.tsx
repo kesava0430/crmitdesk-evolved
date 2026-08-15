@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { RefreshCw, AlertTriangle, CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import { useFormat } from '../hooks/useFormat';
 
 interface Job {
   id: string;
@@ -43,6 +44,7 @@ function describePayload(type: string, payload: any): string {
 }
 
 export default function JobsPage() {
+  const { time } = useFormat();
   const qc = useQueryClient();
   const [status, setStatus] = useState<typeof STATUS_TABS[number]>('FAILED');
 
@@ -133,7 +135,7 @@ export default function JobsPage() {
                       )}
                       {j.status === 'PENDING' && (
                         <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
-                          <Clock size={12} /> {new Date(j.nextAttemptAt).toLocaleTimeString()}
+                          <Clock size={12} /> {time(j.nextAttemptAt)}
                         </span>
                       )}
                     </td>

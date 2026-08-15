@@ -6,9 +6,11 @@ import {
 } from '../../api/portalAdmin';
 import { useAuth } from '../../contexts/AuthContext';
 import { Spinner, RowActions } from '../../shared/components';
+import { useFormat } from '../../hooks/useFormat';
 
 export function PortalUsersPage() {
   const { user } = useAuth();
+  const { date } = useFormat();
   const { data: portalUsers = [], isLoading } = usePortalUsers();
   const createUser = useCreatePortalUser();
   const toggleUser = useTogglePortalUser();
@@ -132,10 +134,10 @@ export function PortalUsersPage() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-xs text-gray-500 dark:text-gray-400 hidden sm:table-cell">
-                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : <span className="text-gray-300 dark:text-gray-600">Never</span>}
+                    {u.lastLoginAt ? date(u.lastLoginAt) : <span className="text-gray-300 dark:text-gray-600">Never</span>}
                   </td>
                   <td className="px-5 py-3.5 text-xs text-gray-400 dark:text-gray-500 hidden sm:table-cell">
-                    {new Date(u.createdAt).toLocaleDateString()}
+                    {date(u.createdAt)}
                   </td>
                   <td className="px-5 py-3.5">
                     <RowActions items={[

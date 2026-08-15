@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { GitBranch, Plus, CheckCircle, XCircle, ChevronDown, X, Pencil, Trash2 } from 'lucide-react';
 import { SearchableSelect , RowActions } from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
+import { useFormat } from '../hooks/useFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,7 @@ function ChangeRequestModal({ cr, users, onClose }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ChangeRequestsPage() {
+  const { date } = useFormat();
   const qc = useQueryClient();
   const [filterStatus, setFilterStatus] = useState('');
   const [modal, setModal] = useState<ChangeRequest | null | 'new'>(null);
@@ -247,8 +249,8 @@ export default function ChangeRequestsPage() {
                   <div className="flex items-center gap-4 mt-2 text-xs text-gray-400 dark:text-gray-500">
                     <span>By {cr.requester.name}</span>
                     {cr.assignee && <span>→ {cr.assignee.name}</span>}
-                    {cr.plannedStart && <span>Planned: {new Date(cr.plannedStart).toLocaleDateString()} – {cr.plannedEnd ? new Date(cr.plannedEnd).toLocaleDateString() : '?'}</span>}
-                    <span>{new Date(cr.createdAt).toLocaleDateString()}</span>
+                    {cr.plannedStart && <span>Planned: {date(cr.plannedStart)} – {cr.plannedEnd ? date(cr.plannedEnd) : '?'}</span>}
+                    <span>{date(cr.createdAt)}</span>
                   </div>
                   {cr.status === 'REJECTED' && cr.rejectionReason && (
                     <p className="text-xs text-red-600 dark:text-red-400 mt-1.5 bg-red-50 dark:bg-red-500/10 px-3 py-1.5 rounded-lg">Rejected: {cr.rejectionReason}</p>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { Key, Plus, Trash2, Copy, CheckCircle, AlertCircle } from 'lucide-react';
+import { useFormat } from '../hooks/useFormat';
 
 interface ApiKey {
   id: string;
@@ -28,6 +29,7 @@ const ALL_SCOPES = [
 ];
 
 export default function ApiKeysPage() {
+  const { date } = useFormat();
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -159,13 +161,13 @@ export default function ApiKeysPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden sm:table-cell">
-                    {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : <span className="text-gray-300 dark:text-gray-600">Never</span>}
+                    {k.lastUsedAt ? date(k.lastUsedAt) : <span className="text-gray-300 dark:text-gray-600">Never</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden sm:table-cell">
                     {k.expiresAt ? (
                       <span className={new Date(k.expiresAt) < new Date() ? 'text-red-500 dark:text-red-400 flex items-center gap-1' : ''}>
                         {new Date(k.expiresAt) < new Date() && <AlertCircle size={12} />}
-                        {new Date(k.expiresAt).toLocaleDateString()}
+                        {date(k.expiresAt)}
                       </span>
                     ) : <span className="text-gray-300 dark:text-gray-600">Never</span>}
                   </td>
