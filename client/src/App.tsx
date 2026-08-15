@@ -67,6 +67,7 @@ const TeamsPage          = lazy(() => import('./pages/TeamsPage'));
 const BrandingPage       = lazy(() => import('./pages/BrandingPage'));
 const StoragePage        = lazy(() => import('./pages/StoragePage'));
 const CustomModulesPage  = lazy(() => import('./pages/CustomModulesPage'));
+const CustomModuleViewPage = lazy(() => import('./pages/CustomModuleViewPage'));
 const QuotesPage         = lazy(() => import('./pages/QuotesPage'));
 const TwoFactorPage      = lazy(() => import('./pages/TwoFactorPage'));
 const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
@@ -181,6 +182,13 @@ export default function App() {
             <Route path="branding" element={<BrandingPage />} />
             <Route path="storage" element={<StoragePage />} />
             <Route path="custom-modules" element={<CustomModulesPage />} />
+            {/* Individual custom modules' own nav-linked page — the sidebar
+                entries for these are injected dynamically in AppLayout.tsx
+                (there's one per org-defined module, not a static list here).
+                No `roles` restriction: matches the underlying
+                /api/custom-modules/:id/records endpoints, which are
+                ALL_STAFF-gated server-side (see customModules.routes.ts). */}
+            <Route path="modules/:slug" element={<CustomModuleViewPage />} />
             <Route path="quotes" element={<QuotesPage />} />
             <Route path="invoices" element={<InvoicesPage />} />
             <Route path="hr/attendance" element={<AttendancePage />} />

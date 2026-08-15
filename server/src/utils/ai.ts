@@ -716,6 +716,8 @@ export async function planAiAction(
     leads?: Array<{ id: string; name: string }>;
     rules?: Array<{ id: string; name: string; isActive: boolean }>;
     contacts?: Array<{ id: string; name: string }>;
+    modules?: Array<{ id: string; name: string; fields: Array<{ fieldKey: string; label: string; fieldType: string }> }>;
+    assignableUsers?: Array<{ id: string; name: string }>;
   }
 ): Promise<{
   action: string | null;
@@ -731,9 +733,9 @@ export async function planAiAction(
     .join('\n');
 
   const reply = await chat(client,
-    `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact mentioned by name to its id using the context lists provided — never invent an id that isn't in the context. If you can't find a confident id match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
-    `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}`,
-    { maxTokens: 400, model: AI_MODEL_SMART }
+    `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module mentioned by name to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
+    `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}`,
+    { maxTokens: 500, model: AI_MODEL_SMART }
   );
   try {
     const parsed = JSON.parse(reply);

@@ -41,7 +41,8 @@ Do this in the Azure/Entra portal, in a tenant you control for testing (not a pr
 2. Skip the redirect URI for now — you'll get the exact value from CRMITdesk's admin page in step 2 and add it after.
 3. From the app's **Overview** page, copy the **Application (client) ID** and **Directory (tenant) ID**.
 4. **Certificates & secrets → New client secret.** Copy the secret's **Value** immediately — it's only shown once.
-5. **API permissions** — confirm `User.Read` (Microsoft Graph, delegated) is listed; it's added by default on a new registration. Grant admin consent if your tenant requires it for delegated permissions.
+5. **API permissions** — confirm `User.Read` (Microsoft Graph, delegated) is listed; it's added by default on a new registration. As of phase 2, CRMITdesk also requests `GroupMember.Read.All` (delegated) at every sign-in — add it here too if it isn't already listed (Add a permission → Microsoft Graph → Delegated permissions → search `GroupMember.Read.All`).
+6. **Grant admin consent now, before testing sign-in** — click **Grant admin consent for `<tenant>`** on this same API permissions page. Many tenants restrict user self-consent, in which case skipping this step means every sign-in attempt (even from an admin account) fails with "Need admin approval" instead of reaching the Microsoft login form. This is a one-time step per app registration/tenant.
 
 ## 2. Configure the integration in CRMITdesk
 

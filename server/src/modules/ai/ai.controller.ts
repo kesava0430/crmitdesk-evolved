@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
-import { AuthRequest } from '../../middleware/authenticate';
+import { AuthRequest, IT_STAFF } from '../../middleware/authenticate';
 import {
   scoreLead,
   generateFollowUp,
@@ -625,12 +625,25 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
     const { command } = z.object({ command: z.string().min(3).max(500) }).parse(req.body);
     const orgId = req.user!.orgId;
 
-    const [deals, tickets, leads, rules, contacts] = await Promise.all([
+    const [deals, tickets, leads, rules, contacts, modules, assignableUsers] = await Promise.all([
       prisma.deal.findMany({ where: { orgId }, select: { id: true, title: true, stage: true }, take: 25, orderBy: { updatedAt: 'desc' } }),
       prisma.ticket.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { updatedAt: 'desc' } }),
       prisma.lead.findMany({ where: { orgId }, select: { id: true, contact: { select: { name: true } } }, take: 25, orderBy: { createdAt: 'desc' } }),
       prisma.workflowRule.findMany({ where: { orgId }, select: { id: true, name: true, isActive: true }, take: 25 }),
       prisma.contact.findMany({ where: { orgId }, select: { id: true, name: true }, take: 25, orderBy: { createdAt: 'desc' } }),
+      // Active modules only, but deliberately NOT filtered to "has fields" —
+      // unlike the sidebar's nav injection (AppLayout.tsx), a fieldless
+      // module is still a valid target here: it's exactly what
+      // ADD_CUSTOM_MODULE_FIELD needs to add someone's first field to a
+      // module they just created via CREATE_CUSTOM_MODULE.
+      prisma.customModule.findMany({
+        where: { orgId, isActive: true },
+        select: { id: true, name: true, fields: { select: { fieldKey: true, label: true, fieldType: true }, orderBy: { position: 'asc' } } },
+        take: 25,
+      }),
+      // For ASSIGN_TICKET's name -> id resolution — same role set tickets
+      // are normally assigned to (IT_STAFF), not every org member.
+      prisma.user.findMany({ where: { orgId, isActive: true, role: { in: [...IT_STAFF] } }, select: { id: true, name: true }, take: 50 }),
     ]);
 
     const plan = await planAiAction(command, {
@@ -640,6 +653,8 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
       leads: leads.map(l => ({ id: l.id, name: (l as any).contact?.name || 'Unknown' })),
       rules,
       contacts,
+      modules,
+      assignableUsers,
     });
 
     // Filter to what this user's role is actually allowed to run, so the
@@ -678,7 +693,7 @@ export async function executeActionHandler(req: AuthRequest, res: Response, next
     const parsedParams = actionDef.schema.parse(params);
     const result = await actionDef.handler(parsedParams, { orgId: req.user!.orgId, userId: req.user!.id });
 
-    logAction(req.user!.id, 'UPDATE', `AI:${action}`, (parsedParams as any).dealId || (parsedParams as any).ticketId || (parsedParams as any).leadId || (parsedParams as any).ruleId || (parsedParams as any).entityId || 'n/a', {
+    logAction(req.user!.id, 'UPDATE', `AI:${action}`, (parsedParams as any).dealId || (parsedParams as any).ticketId || (parsedParams as any).leadId || (parsedParams as any).ruleId || (parsedParams as any).moduleId || (parsedParams as any).entityId || 'n/a', {
       viaAI: true,
       command,
       params: parsedParams,

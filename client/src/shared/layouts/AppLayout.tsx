@@ -8,7 +8,9 @@ import {
   Mail, GitBranch, Key, Shield, Settings2, Upload, MessageSquare, Palette,
   FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive, Layers,
   Clock, CalendarCheck, Building2, Receipt, RefreshCw, Wallet, KeyRound,
+  Package, Boxes, Wrench, Tag, Briefcase, ClipboardList,
 } from "lucide-react";
+import { useCustomModules } from "../../api/customModules";
 import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { NotificationBell } from "../components/NotificationBell";
@@ -118,6 +120,14 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+// Icon an org can pick for a custom module (CustomModule.icon, currently only
+// ever "Layers" since CustomModulesPage.tsx's create form has no picker yet —
+// this map exists so a future picker (or a hand-edited value) just works
+// without a matching code change here. Unknown/unset names fall back to Layers.
+const CUSTOM_MODULE_ICONS: Record<string, React.ElementType> = {
+  Layers, Package, Boxes, Wrench, Tag, Briefcase, ClipboardList, FileText, Building2, Monitor,
+};
+
 // Route -> page title map (for topbar)
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":         "Dashboard",
@@ -196,6 +206,23 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   const userRole: string | undefined = user?.role;
   const { entityLabel } = useLabels();
 
+  // Each org's own custom modules (see modules/custom-modules) get their own
+  // sidebar entry here, instead of only being reachable through the generic
+  // "Custom Modules" builder link under Admin — that link is still there for
+  // defining fields/sync; these are the day-to-day "go look at the records"
+  // links. Built as an extra NavSection, appended only for rendering (NOT
+  // pushed into the exported NAV_SECTIONS, since routeAccess.ts derives its
+  // role guard from that array — these dynamic /modules/:slug routes are
+  // deliberately unrestricted there instead, matching the underlying
+  // ALL_STAFF-gated records API; see App.tsx's route comment).
+  const { data: customModules } = useCustomModules();
+  const moduleItems: NavItem[] = (customModules ?? [])
+    .filter((m: any) => m.isActive && (m._count?.fields ?? 0) > 0)
+    .map((m: any) => ({ to: `/modules/${m.slug}`, label: m.name, icon: CUSTOM_MODULE_ICONS[m.icon] ?? Layers }));
+  const sections: NavSection[] = moduleItems.length
+    ? [...NAV_SECTIONS, { label: "Modules", items: moduleItems }]
+    : NAV_SECTIONS;
+
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -213,7 +240,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-3 overflow-y-auto sidebar-scroll space-y-0.5">
-        {NAV_SECTIONS.map((section) => {
+        {sections.map((section) => {
           // Hide section if user's role is not allowed
           if (section.roles && userRole && !section.roles.includes(userRole)) return null;
 
@@ -311,9 +338,17 @@ export function AppLayout() {
 
   const { entityLabel } = useLabels();
   const routeOverride = ROUTE_ENTITY[location.pathname];
+  // /modules/:slug has no static PAGE_TITLES entry (one per org-defined
+  // module, can't be hardcoded) — fall back to that module's own name if the
+  // list happens to already be cached (it always will be, since the sidebar
+  // itself just fetched it) rather than showing the generic app name.
+  const { data: customModulesForTitle } = useCustomModules();
+  const moduleTitleMatch = location.pathname.startsWith("/modules/")
+    ? customModulesForTitle?.find((m: any) => `/modules/${m.slug}` === location.pathname)?.name
+    : undefined;
   const pageTitle = routeOverride
     ? entityLabel(routeOverride.key, routeOverride.form, PAGE_TITLES[location.pathname] ?? "")
-    : (PAGE_TITLES[location.pathname] ?? "CRM & IT Desk");
+    : (PAGE_TITLES[location.pathname] ?? moduleTitleMatch ?? "CRM & IT Desk");
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">

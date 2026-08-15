@@ -16,13 +16,15 @@
  * (later, if ever wanted) a background runner can call the same way.
  */
 import { z, ZodSchema } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
 import { runWorkflows } from './workflow-engine';
 import { scoreLead as aiScoreLead } from './ai';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
-import { MANAGERS, CRM_STAFF, IT_STAFF, ALL_STAFF } from '../middleware/authenticate';
+import { MANAGERS, CRM_STAFF, IT_STAFF, ALL_STAFF, CRM_MANAGERS } from '../middleware/authenticate';
+import { FIELD_TYPES, slugify, validateRecordData } from '../modules/custom-modules/customModules.service';
 
 export interface AiActionContext {
   orgId: string;
@@ -253,6 +255,144 @@ export const AI_ACTIONS: AiActionDefinition[] = [
       const nextActive = params.isActive ?? !rule.isActive;
       const updated = await prisma.workflowRule.update({ where: { id: params.ruleId }, data: { isActive: nextActive } });
       return { summary: `${nextActive ? 'Enabled' : 'Disabled'} the "${rule.name}" workflow rule.`, data: updated };
+    },
+  },
+
+  // ── Assign a ticket to a user ────────────────────────────────────────────
+  {
+    name: 'ASSIGN_TICKET',
+    label: 'Assign a ticket',
+    description: 'Assigns a ticket to a specific agent and moves it to In Progress (e.g. "assign the VPN ticket to Priya"). Match the assignee by name from the assignableUsers context list.',
+    paramsHint: '{ ticketId: string, assigneeId: string }',
+    allowedRoles: IT_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({ ticketId: z.string().min(1), assigneeId: z.string().min(1) }),
+    handler: async (params, ctx) => {
+      const ticket = await prisma.ticket.findFirst({ where: { id: params.ticketId, orgId: ctx.orgId } });
+      if (!ticket) throw new AppError(404, 'Ticket not found');
+      const assignee = await prisma.user.findFirst({ where: { id: params.assigneeId, orgId: ctx.orgId, isActive: true } });
+      if (!assignee) throw new AppError(404, 'That user was not found in your organization');
+
+      const updated = await prisma.ticket.update({
+        where: { id: ticket.id },
+        data: { assignedTo: assignee.id, status: 'IN_PROGRESS' },
+      });
+      return { summary: `Assigned "${ticket.title}" to ${assignee.name}.`, data: updated };
+    },
+  },
+
+  // ── Change a lead's status ───────────────────────────────────────────────
+  {
+    name: 'UPDATE_LEAD_STATUS',
+    label: 'Change lead status',
+    description: 'Changes a lead\'s status (e.g. "mark the John Doe lead as qualified").',
+    paramsHint: '{ leadId: string, status: "NEW"|"CONTACTED"|"QUALIFIED"|"UNQUALIFIED"|"CONVERTED" }',
+    allowedRoles: CRM_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({
+      leadId: z.string().min(1),
+      status: z.enum(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED']),
+    }),
+    handler: async (params, ctx) => {
+      const existing = await prisma.lead.findFirst({ where: { id: params.leadId, orgId: ctx.orgId }, include: { contact: { select: { name: true } } } });
+      if (!existing) throw new AppError(404, 'Lead not found');
+      if (existing.status === 'CONVERTED') throw new AppError(400, 'This lead has already been converted — use the Convert flow to make further changes');
+      // CONVERTED is a one-way, higher-stakes transition (creates a Deal
+      // behind the scenes via the dedicated /leads/:id/convert endpoint) —
+      // deliberately not something this quick status-change action performs,
+      // to avoid a natural-language misfire accidentally converting a lead.
+      if (params.status === 'CONVERTED') throw new AppError(400, 'Converting a lead creates a deal and can\'t be done from a quick status change — use the Convert action on the lead itself');
+
+      const updated = await prisma.lead.update({ where: { id: existing.id }, data: { status: params.status } });
+      runWorkflows({
+        trigger: 'LEAD_STATUS_CHANGED', orgId: ctx.orgId, entityType: 'LEAD',
+        entityId: updated.id, entity: updated as any, previousEntity: existing as any,
+      }).catch(() => {});
+      return { summary: `Set "${existing.contact?.name || 'lead'}" to ${params.status}.`, data: updated };
+    },
+  },
+
+  // ── Create a new custom module (no-code object builder) ─────────────────
+  {
+    name: 'CREATE_CUSTOM_MODULE',
+    label: 'Create a custom module',
+    description: 'Creates a new custom module — a brand-new record type for data that doesn\'t fit CRM/IT Desk out of the box (e.g. "create a Vendor Contracts module"). Fields are added separately with ADD_CUSTOM_MODULE_FIELD — a module with no fields yet is invisible to everyone but managers.',
+    paramsHint: '{ name: string, description?: string }',
+    allowedRoles: CRM_MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({ name: z.string().min(1).max(80), description: z.string().max(500).optional() }),
+    handler: async (params, ctx) => {
+      let slug = slugify(params.name);
+      let suffix = 0;
+      while (await prisma.customModule.findFirst({ where: { orgId: ctx.orgId, slug: suffix ? `${slug}-${suffix}` : slug } })) {
+        suffix += 1;
+      }
+      if (suffix) slug = `${slug}-${suffix}`;
+      const module_ = await prisma.customModule.create({
+        data: { orgId: ctx.orgId, name: params.name, slug, icon: 'Layers', description: params.description, createdBy: ctx.userId },
+      });
+      return { summary: `Created the "${module_.name}" module. Add fields to it next — it won't show up for other users until it has at least one.`, data: module_ };
+    },
+  },
+
+  // ── Add a field to an existing custom module ─────────────────────────────
+  {
+    name: 'ADD_CUSTOM_MODULE_FIELD',
+    label: 'Add a field to a custom module',
+    description: 'Adds a field to an existing custom module\'s schema (e.g. "add a Claim Amount currency field to Warranty Claims"). Match the module by name from the modules context list.',
+    paramsHint: `{ moduleId: string, label: string, fieldType: ${FIELD_TYPES.map(t => `"${t}"`).join('|')}, options?: string[] (DROPDOWN only, the choices), required?: boolean, isPrimary?: boolean (use this field as the record's title in list views) }`,
+    allowedRoles: CRM_MANAGERS,
+    requiresConfirmation: true,
+    schema: z.object({
+      moduleId: z.string().min(1),
+      label: z.string().min(1).max(80),
+      fieldType: z.enum(FIELD_TYPES),
+      options: z.array(z.string()).optional(),
+      required: z.boolean().default(false),
+      isPrimary: z.boolean().default(false),
+    }),
+    handler: async (params, ctx) => {
+      const module_ = await prisma.customModule.findFirst({ where: { id: params.moduleId, orgId: ctx.orgId } });
+      if (!module_) throw new AppError(404, 'Custom module not found');
+
+      const fieldKey = slugify(params.label).replace(/-/g, '_');
+      const existing = await prisma.customModuleField.findUnique({ where: { moduleId_fieldKey: { moduleId: module_.id, fieldKey } } });
+      if (existing) throw new AppError(400, `A field with key "${fieldKey}" already exists on "${module_.name}"`);
+
+      if (params.isPrimary) {
+        await prisma.customModuleField.updateMany({ where: { moduleId: module_.id, isPrimary: true }, data: { isPrimary: false } });
+      }
+
+      const field = await prisma.customModuleField.create({
+        data: {
+          moduleId: module_.id, label: params.label, fieldKey, fieldType: params.fieldType,
+          options: params.options, required: params.required, isPrimary: params.isPrimary,
+        },
+      });
+      return { summary: `Added "${field.label}" (${field.fieldType}) to "${module_.name}".`, data: field };
+    },
+  },
+
+  // ── Create a record in a custom module ───────────────────────────────────
+  {
+    name: 'CREATE_CUSTOM_MODULE_RECORD',
+    label: 'Create a custom module record',
+    description: 'Creates a record in an existing custom module (e.g. "add a Vendor Contracts record for Acme Supplies worth $5,000"). Match the module by name and its fields by fieldKey from the modules context list — never invent a fieldKey that isn\'t listed for that module.',
+    paramsHint: '{ moduleId: string, data: { [fieldKey]: value } }',
+    allowedRoles: ALL_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({ moduleId: z.string().min(1), data: z.record(z.union([z.string(), z.number(), z.boolean()])) }),
+    handler: async (params, ctx) => {
+      const module_ = await prisma.customModule.findFirst({ where: { id: params.moduleId, orgId: ctx.orgId } });
+      if (!module_) throw new AppError(404, 'Custom module not found');
+      const fields = await prisma.customModuleField.findMany({ where: { moduleId: module_.id } });
+      if (!fields.length) throw new AppError(400, `"${module_.name}" has no fields defined yet`);
+
+      const data = validateRecordData(fields, params.data);
+      const record = await prisma.customModuleRecord.create({
+        data: { moduleId: module_.id, orgId: ctx.orgId, data: data as Prisma.InputJsonValue, source: 'MANUAL', createdBy: ctx.userId },
+      });
+      return { summary: `Created a new "${module_.name}" record.`, data: record };
     },
   },
 ];
