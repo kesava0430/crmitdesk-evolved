@@ -75,6 +75,15 @@ const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
 const PlatformAdminPage  = lazy(() => import('./pages/PlatformAdminPage').then(m => ({ default: m.PlatformAdminPage })));
 const InvoicesPage       = lazy(() => import('./pages/InvoicesPage'));
 const AttendancePage     = lazy(() => import('./modules/hr/AttendancePage'));
+// People / task / approval / permission / AI-governance platform. Default
+// exports, matching the newer pages above rather than the named-export style
+// of the original set.
+const MyWorkPage         = lazy(() => import('./modules/tasks/MyWorkPage'));
+const EmployeesPage      = lazy(() => import('./modules/hr/EmployeesPage'));
+const OrgStructurePage   = lazy(() => import('./modules/hr/OrgStructurePage'));
+const ApprovalsPage      = lazy(() => import('./modules/approvals/ApprovalsPage'));
+const RolesPermissionsPage = lazy(() => import('./pages/RolesPermissionsPage'));
+const AIGovernancePage   = lazy(() => import('./pages/AIGovernancePage'));
 const LeavePage          = lazy(() => import('./modules/hr/LeavePage'));
 const PayrollPage        = lazy(() => import('./modules/hr/PayrollPage'));
 const HRSettingsPage     = lazy(() => import('./modules/hr/HRSettingsPage'));
@@ -193,6 +202,12 @@ export default function App() {
             <Route path="modules/:slug" element={<CustomModuleViewPage />} />
             <Route path="quotes" element={<QuotesPage />} />
             <Route path="invoices" element={<InvoicesPage />} />
+            <Route path="my-work" element={<MyWorkPage />} />
+            <Route path="approvals" element={<ApprovalsPage />} />
+            <Route path="hr/employees" element={<EmployeesPage />} />
+            <Route path="hr/org" element={<OrgStructurePage />} />
+            <Route path="admin/roles" element={<RolesPermissionsPage />} />
+            <Route path="admin/ai-governance" element={<AIGovernancePage />} />
             <Route path="hr/attendance" element={<AttendancePage />} />
             <Route path="hr/leave" element={<LeavePage />} />
             <Route path="hr/payroll" element={<PayrollPage />} />

@@ -62,6 +62,19 @@ import { gdprRouter } from './modules/gdpr/gdpr.routes';
 import { attendanceRouter } from './modules/hr/attendance/attendance.routes';
 import { leaveRouter } from './modules/hr/leave/leave.routes';
 import { payrollRouter } from './modules/hr/payroll/payroll.routes';
+// ─── People / task / approval / permission / knowledge platform ──────────────
+// Added with the Employee-Department-Task-Approval foundation. These five
+// routers are what the cross-suite workflows (onboarding, offboarding,
+// ownership transfer, the universal request centre) are built on.
+import { employeesRouter } from './modules/hr/employees/employees.routes';
+import { orgStructureRouter } from './modules/hr/org/orgStructure.routes';
+import { tasksRouter } from './modules/tasks/tasks.routes';
+import { approvalsRouter } from './modules/approvals/approvals.routes';
+import { permissionsRouter } from './modules/permissions/permissions.routes';
+import { knowledgeRouter } from './modules/knowledge/knowledge.routes';
+import { seedPermissionCatalog } from './utils/permissions';
+import { ensureVectorIndex } from './utils/rag';
+import { expireOverdueApprovals } from './utils/approvals';
 import { invoicesRouter } from './modules/invoices/invoices.routes';
 import { jobsRouter } from './modules/jobs/jobs.routes';
 import { startSchedulePoller } from './utils/scheduler';
@@ -272,6 +285,12 @@ app.use('/api/hr/leave', leaveRouter);
 app.use('/api/hr/payroll', payrollRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/jobs', jobsRouter);
+app.use('/api/hr/employees', employeesRouter);
+app.use('/api/hr/org', orgStructureRouter);
+app.use('/api/tasks', tasksRouter);
+app.use('/api/approvals', approvalsRouter);
+app.use('/api/permissions', permissionsRouter);
+app.use('/api/knowledge', knowledgeRouter);
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -280,6 +299,28 @@ app.use(errorHandler);
 const server = app.listen(PORT, () => {
   console.log(`[server] Running on http://localhost:${PORT} (${isProd ? 'production' : 'development'})`);
 });
+
+// Seed the permission catalog and built-in roles on boot.
+//
+// Idempotent and non-narrowing (see utils/permissions.ts seedPermissionCatalog):
+// it upserts permissions by key and only *adds* missing role grants, so an
+// admin who has already tightened SALES_REP from ALL to TEAM does not get it
+// reset by the next deploy. Failing here must not stop the server — the engine
+// falls back to LEGACY_ROLE_GRANTS, which is exactly the pre-existing behavior.
+seedPermissionCatalog()
+  .then(() => console.log('[permissions] catalog and built-in roles are up to date'))
+  .catch(err => console.error('[permissions] seed failed; falling back to legacy role grants', err));
+
+// Prepare the pgvector column/index if the extension is installed. No-ops
+// cleanly on databases without it — RAG then uses the in-process cosine path.
+ensureVectorIndex().catch(err => console.error('[rag] vector index setup failed', err));
+
+// Expire approval requests that blew past their deadline, every 15 minutes.
+setInterval(() => {
+  expireOverdueApprovals()
+    .then(n => { if (n > 0) console.log(`[approvals] expired ${n} overdue request(s)`); })
+    .catch(err => console.error('[approvals] expiry sweep failed', err));
+}, 15 * 60 * 1000);
 
 // Purge expired refresh tokens once per hour
 setInterval(async () => {

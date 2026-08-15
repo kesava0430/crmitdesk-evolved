@@ -87,6 +87,24 @@ model Organization {
   directoryRoleMappings DirectoryRoleMapping[]
   directorySyncLogs     DirectorySyncLog[]
 
+  departments       Department[]
+  locations         Location[]
+  employees         Employee[]
+  employeeDocuments EmployeeDocument[]
+  skills            Skill[]
+  internalTeams     Team[]
+  tasks             Task[]
+  approvalPolicies  ApprovalPolicy[]
+  approvalRequests  ApprovalRequest[]
+  approvalDelegations ApprovalDelegation[]
+  roles             Role[]
+  knowledgeSources  KnowledgeSource[]
+  knowledgeDocuments KnowledgeDocument[]
+  knowledgeChunks   KnowledgeChunk[]
+  aiProviders       AiProvider[]
+  aiInteractionLogs AiInteractionLog[]
+  aiBudgets         AiBudget[]
+
   @@map("organizations")
 }
 
@@ -254,6 +272,17 @@ model User {
   salaryStructures       SalaryStructure[]
   payslips               Payslip[]
   payrollRunsCreated     PayrollRun[]       @relation("PayrollRunCreator")
+
+  roleId                 String?            @map("role_id")
+  roleRef                Role?              @relation("UserRoleRef", fields: [roleId], references: [id], onDelete: SetNull)
+  employee               Employee?          @relation("EmployeeUser")
+  assignedTasks          Task[]             @relation("TaskAssignee")
+  createdTasks           Task[]             @relation("TaskCreator")
+  approvalRequestsMade   ApprovalRequest[]  @relation("ApprovalRequester")
+  approvalActions        ApprovalAction[]   @relation("ApprovalApprover")
+  delegationsGiven       ApprovalDelegation[] @relation("DelegationFrom")
+  delegationsReceived    ApprovalDelegation[] @relation("DelegationTo")
+  aiInteractionLogs      AiInteractionLog[] @relation("AiLogUser")
 
   @@map("users")
 }
@@ -1454,9 +1483,13 @@ model OfficeLocation {
   // location (geofence-only).
   allowedIps    String?      @map("allowed_ips")
   isActive      Boolean      @default(true) @map("is_active")
+  /// Optional roll-up to the HR/asset Location concept. Null keeps the
+  /// pre-existing standalone geo-fence behaviour untouched.
+  locationId    String?      @map("location_id")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  location      Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
 
   @@index([orgId])
   @@map("office_locations")
@@ -1811,6 +1844,14 @@ enum EntityType {
   QUOTE
   ASSET
   CAMPAIGN
+  // Added with the people/task/approval platform. Every value here must also
+  // appear in utils/entityAccess.ts ENTITY_MODEL, or polymorphic comments and
+  // attachments will silently 404 for that type.
+  EMPLOYEE
+  TASK
+  APPROVAL_REQUEST
+  DEPARTMENT
+  INVOICE
 }
 
 enum NotificationType {
@@ -1909,4 +1950,1068 @@ model BackgroundJob {
   @@index([status, nextAttemptAt])
   @@index([orgId])
   @@map("background_jobs")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GAP 1 & 2 — PEOPLE PLATFORM: Employee, Department, Team, Location
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Why Employee is a separate model from User, rather than more columns on
+// User: they answer different questions. `User` is "who can log in and what
+// can they do" — it has a password hash, a JWT identity, an SSO link, and it
+// consumes a licensed seat. `Employee` is "who works here" — a factory with
+// 500 staff and 40 software logins needs 500 of the second and 40 of the
+// first. Merging them would either force a login row (and a seat) for every
+// shop-floor worker, or leave HR unable to represent them at all.
+//
+// The link is Employee.userId, optional and unique in both directions:
+//   - Employee with no userId  → staff member who never signs in
+//   - User with no Employee    → external consultant, service account,
+//                                PLATFORM_ADMIN, or a login created before
+//                                the HR module was configured
+// Everything HR-shaped (attendance, leave, payroll, documents, org chart)
+// hangs off Employee. Everything auth-shaped stays on User. Code that needs
+// both resolves through this one relation instead of guessing.
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+  CONSULTANT
+  TEMPORARY
+}
+
+enum EmploymentStatus {
+  PROBATION
+  ACTIVE
+  ON_LEAVE
+  NOTICE_PERIOD
+  SUSPENDED
+  EXITED
+}
+
+enum WorkMode {
+  ONSITE
+  REMOTE
+  HYBRID
+}
+
+enum LocationType {
+  HEAD_OFFICE
+  BRANCH
+  PLANT
+  WAREHOUSE
+  CLIENT_SITE
+  REMOTE
+}
+
+/// A node in the company's org structure. Self-referencing so a customer can
+/// model Sales → Inside Sales → SDR without us prescribing a depth. `headId`
+/// points at an Employee rather than a User because the person who runs a
+/// department may not have a login (see the Employee doc comment).
+model Department {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  name        String
+  code        String?
+  description String?
+  parentId    String?  @map("parent_id")
+  headId      String?  @map("head_id")
+  costCenter  String?  @map("cost_center")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  parent   Department?  @relation("DepartmentParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children Department[] @relation("DepartmentParent")
+  head     Employee?    @relation("DepartmentHead", fields: [headId], references: [id], onDelete: SetNull)
+
+  employees Employee[] @relation("EmployeeDepartment")
+  teams     Team[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([orgId, parentId])
+  @@map("departments")
+}
+
+/// A physical or logical place of work. Distinct from OfficeLocation, which
+/// stays exactly what it was — an attendance geo-fence with a radius and an
+/// IP allowlist. A Location is the HR/asset concept ("Hyderabad Office") and
+/// may have zero or many geo-fences attached to it via OfficeLocation.locationId.
+model Location {
+  id           String       @id @default(cuid())
+  orgId        String       @map("org_id")
+  name         String
+  code         String?
+  type         LocationType @default(BRANCH)
+  addressLine1 String?      @map("address_line1")
+  addressLine2 String?      @map("address_line2")
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?      @map("postal_code")
+  timezone     String?
+  isActive     Boolean      @default(true) @map("is_active")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  org             Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  employees       Employee[]
+  officeLocations OfficeLocation[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("locations")
+}
+
+/// The person. See the section header above for why this is not User.
+///
+/// Bank/tax/national-ID columns are stored encrypted via utils/crypto.ts
+/// (same helper as EmailAccount.password) and are additionally registered in
+/// the FieldPermission catalog as MASKED-by-default, so that a role which can
+/// read an employee record does not thereby read their salary account number
+/// — including through search, exports, and AI.
+model Employee {
+  id             String  @id @default(cuid())
+  orgId          String  @map("org_id")
+  /// Optional link to a login. Null = works here, cannot sign in.
+  userId         String? @unique @map("user_id")
+  /// Human-facing identifier (EMP-0001). Unique per org, not globally.
+  employeeCode   String  @map("employee_code")
+
+  firstName      String    @map("first_name")
+  lastName       String?   @map("last_name")
+  displayName    String    @map("display_name")
+  workEmail      String?   @map("work_email")
+  personalEmail  String?   @map("personal_email")
+  phone          String?
+  alternatePhone String?   @map("alternate_phone")
+  dateOfBirth    DateTime? @db.Date @map("date_of_birth")
+  gender         String?
+  maritalStatus  String?   @map("marital_status")
+  bloodGroup     String?   @map("blood_group")
+  photoUrl       String?   @map("photo_url")
+  addressLine1   String?   @map("address_line1")
+  addressLine2   String?   @map("address_line2")
+  city           String?
+  state          String?
+  country        String?
+  postalCode     String?   @map("postal_code")
+
+  designation         String?
+  departmentId        String?  @map("department_id")
+  locationId          String?  @map("location_id")
+  managerId           String?  @map("manager_id")
+  dottedLineManagerId String?  @map("dotted_line_manager_id")
+  costCenter          String?  @map("cost_center")
+  workMode            WorkMode @default(ONSITE) @map("work_mode")
+
+  employmentType   EmploymentType   @default(FULL_TIME) @map("employment_type")
+  employmentStatus EmploymentStatus @default(ACTIVE) @map("employment_status")
+  joiningDate      DateTime         @db.Date @map("joining_date")
+  probationEndDate DateTime?        @db.Date @map("probation_end_date")
+  confirmationDate DateTime?        @db.Date @map("confirmation_date")
+  resignationDate  DateTime?        @db.Date @map("resignation_date")
+  lastWorkingDate  DateTime?        @db.Date @map("last_working_date")
+  exitType         String?          @map("exit_type")
+  exitReason       String?          @map("exit_reason")
+  isRehireEligible Boolean?         @map("is_rehire_eligible")
+
+  // ── Sensitive: encrypted at rest, MASKED by default in FieldPermission ──
+  bankAccountName   String? @map("bank_account_name")
+  bankAccountNumber String? @map("bank_account_number")
+  bankName          String? @map("bank_name")
+  bankIfsc          String? @map("bank_ifsc")
+  taxId             String? @map("tax_id")
+  nationalId        String? @map("national_id")
+  socialSecurityId  String? @map("social_security_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user             User?        @relation("EmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
+  department       Department?  @relation("EmployeeDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  location         Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  manager          Employee?    @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports          Employee[]   @relation("EmployeeManager")
+  dottedLineManager Employee?   @relation("EmployeeDottedLine", fields: [dottedLineManagerId], references: [id], onDelete: SetNull)
+  dottedLineReports Employee[]  @relation("EmployeeDottedLine")
+
+  headedDepartments Department[]            @relation("DepartmentHead")
+  ledTeams          Team[]                  @relation("TeamLead")
+  teamMemberships   TeamMember[]
+  contacts          EmployeeContact[]
+  education         EmployeeEducation[]
+  experience        EmployeeExperience[]
+  skills            EmployeeSkill[]
+  certifications    EmployeeCertification[]
+  documents         EmployeeDocument[]
+  assignedTasks     Task[]                  @relation("TaskEmployeeAssignee")
+
+  @@unique([orgId, employeeCode])
+  @@index([orgId])
+  @@index([orgId, departmentId])
+  @@index([orgId, managerId])
+  @@index([orgId, employmentStatus])
+  @@map("employees")
+}
+
+model EmployeeContact {
+  id           String   @id @default(cuid())
+  employeeId   String   @map("employee_id")
+  name         String
+  relationship String
+  phone        String
+  email        String?
+  address      String?
+  isEmergency  Boolean  @default(true) @map("is_emergency")
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_contacts")
+}
+
+model EmployeeEducation {
+  id           String    @id @default(cuid())
+  employeeId   String    @map("employee_id")
+  institution  String
+  degree       String
+  fieldOfStudy String?   @map("field_of_study")
+  startDate    DateTime? @db.Date @map("start_date")
+  endDate      DateTime? @db.Date @map("end_date")
+  grade        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_education")
+}
+
+model EmployeeExperience {
+  id          String    @id @default(cuid())
+  employeeId  String    @map("employee_id")
+  company     String
+  designation String
+  startDate   DateTime  @db.Date @map("start_date")
+  endDate     DateTime? @db.Date @map("end_date")
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_experience")
+}
+
+/// Org-level skill catalog, so "React" is one skill everywhere rather than
+/// six spellings — which is what makes internal talent matching (§32) and
+/// skill-gap detection possible later.
+model Skill {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  name      String
+  category  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org       Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  employees EmployeeSkill[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("skills")
+}
+
+model EmployeeSkill {
+  id              String   @id @default(cuid())
+  employeeId      String   @map("employee_id")
+  skillId         String   @map("skill_id")
+  /// 1 = beginner … 5 = expert
+  level           Int      @default(3)
+  yearsExperience Decimal? @db.Decimal(4, 1) @map("years_experience")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  skill    Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, skillId])
+  @@index([skillId])
+  @@map("employee_skills")
+}
+
+model EmployeeCertification {
+  id           String    @id @default(cuid())
+  employeeId   String    @map("employee_id")
+  name         String
+  issuer       String?
+  credentialId String?   @map("credential_id")
+  issuedOn     DateTime? @db.Date @map("issued_on")
+  expiresOn    DateTime? @db.Date @map("expires_on")
+  documentId   String?   @map("document_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([expiresOn])
+  @@map("employee_certifications")
+}
+
+/// Employee-scoped file. Deliberately separate from the polymorphic
+/// Attachment model: these have an issue/expiry date and a verification
+/// state (an HR clerk confirms the passport is real), which Attachment has
+/// no concept of, and they need their own permission surface — an IT agent
+/// who can see a ticket attachment must not see a colleague's payslip.
+model EmployeeDocument {
+  id         String    @id @default(cuid())
+  orgId      String    @map("org_id")
+  employeeId String    @map("employee_id")
+  type       String
+  name       String
+  fileName   String    @map("file_name")
+  mimeType   String?   @map("mime_type")
+  sizeBytes  Int?      @map("size_bytes")
+  storageKey String    @map("storage_key")
+  issuedOn   DateTime? @db.Date @map("issued_on")
+  expiresOn  DateTime? @db.Date @map("expires_on")
+  isVerified Boolean   @default(false) @map("is_verified")
+  verifiedBy String?   @map("verified_by")
+  verifiedAt DateTime? @map("verified_at")
+  uploadedBy String    @map("uploaded_by")
+  notes      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  employee Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, employeeId])
+  @@index([orgId, expiresOn])
+  @@map("employee_documents")
+}
+
+/// An internal working group. Note this is NOT TeamsConfig, which is the
+/// Microsoft Teams webhook integration and keeps its name for compatibility.
+model Team {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  name         String
+  description  String?
+  departmentId String?  @map("department_id")
+  leadId       String?  @map("lead_id")
+  type         String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  lead       Employee?    @relation("TeamLead", fields: [leadId], references: [id], onDelete: SetNull)
+  members    TeamMember[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("teams_internal")
+}
+
+model TeamMember {
+  id         String   @id @default(cuid())
+  teamId     String   @map("team_id")
+  employeeId String   @map("employee_id")
+  role       String   @default("MEMBER")
+  joinedAt   DateTime @default(now()) @map("joined_at")
+
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, employeeId])
+  @@index([employeeId])
+  @@map("team_members")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GAP 3 — UNIFIED TASK & APPROVAL ENGINE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Task is deliberately NOT Activity. Activity records something that already
+// happened to a CRM record (a call was made, an email went out) and is
+// CRM-only. Task records something that has not happened yet, belongs to
+// someone, is due at a time, and can hang off any entity in the product —
+// a deal, a ticket, an employee's onboarding, an approval. Onboarding and
+// offboarding are both just a generated set of Tasks with a common
+// entityType/entityId, which is why they become possible the moment this
+// model exists.
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskSource {
+  MANUAL
+  WORKFLOW
+  AI
+  ONBOARDING
+  OFFBOARDING
+  APPROVAL
+  RECURRENCE
+  SERVICE_REQUEST
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  title       String
+  description String?
+  status      TaskStatus   @default(OPEN)
+  priority    TaskPriority @default(MEDIUM)
+
+  startAt     DateTime? @map("start_at")
+  dueAt       DateTime? @map("due_at")
+  completedAt DateTime? @map("completed_at")
+
+  /// Either or both may be set. assigneeUserId is who gets the notification
+  /// and whose "My Work" it appears in; assigneeEmployeeId lets a task be
+  /// assigned to a staff member who has no login (their manager actions it).
+  assigneeUserId     String? @map("assignee_user_id")
+  assigneeEmployeeId String? @map("assignee_employee_id")
+  createdBy          String  @map("created_by")
+
+  /// Polymorphic link to whatever this task is about. Uses the shared
+  /// EntityType enum so utils/entityAccess.ts can org-guard it like any
+  /// other polymorphic feature (comments, attachments).
+  entityType EntityType? @map("entity_type")
+  entityId   String?     @map("entity_id")
+
+  parentTaskId String? @map("parent_task_id")
+
+  /// [{ id, text, done, doneAt?, doneBy? }]
+  checklist Json?
+
+  /// iCal RRULE subset, e.g. "FREQ=WEEKLY;BYDAY=MO". Null = one-off.
+  recurrenceRule     String?   @map("recurrence_rule")
+  recurrenceParentId String?   @map("recurrence_parent_id")
+  recurrenceUntil    DateTime? @map("recurrence_until")
+
+  estimateMinutes Int?       @map("estimate_minutes")
+  spentMinutes    Int?       @map("spent_minutes")
+  source          TaskSource @default(MANUAL)
+  tags            String[]   @default([])
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org              Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  assigneeUser     User?            @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  assigneeEmployee Employee?        @relation("TaskEmployeeAssignee", fields: [assigneeEmployeeId], references: [id], onDelete: SetNull)
+  creator          User             @relation("TaskCreator", fields: [createdBy], references: [id])
+  parentTask       Task?            @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks         Task[]           @relation("TaskSubtasks")
+  dependsOn        TaskDependency[] @relation("TaskDependent")
+  blocks           TaskDependency[] @relation("TaskBlocker")
+
+  @@index([orgId, status])
+  @@index([orgId, assigneeUserId, status])
+  @@index([orgId, entityType, entityId])
+  @@index([orgId, dueAt])
+  @@map("tasks")
+}
+
+model TaskDependency {
+  id              String   @id @default(cuid())
+  taskId          String   @map("task_id")
+  dependsOnTaskId String   @map("depends_on_task_id")
+  /// FINISH_TO_START is the only one enforced today; the column exists so
+  /// adding the other three later doesn't need a migration.
+  type            String   @default("FINISH_TO_START")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  task      Task @relation("TaskDependent", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("TaskBlocker", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+// ─── Approvals ──────────────────────────────────────────────────────────────
+//
+// One engine, reused by leave, change requests, quotes, expenses, service
+// requests and anything added later. The existing hardcoded approve/reject
+// columns on LeaveRequest and ChangeRequest are intentionally left in place
+// — this engine writes back to them so nothing that reads those columns
+// today has to change (see utils/approvals.ts applyDecisionToSource).
+
+enum ApprovalMode {
+  SEQUENTIAL
+  PARALLEL
+  ANY_ONE
+  UNANIMOUS
+}
+
+enum ApproverType {
+  USER
+  ROLE
+  MANAGER
+  SKIP_LEVEL_MANAGER
+  DEPARTMENT_HEAD
+  TEAM_LEAD
+  DYNAMIC_FIELD
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  SKIPPED
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+  DELEGATED
+}
+
+/// The reusable rule: "expense claims over 50k need the department head then
+/// finance". Conditions are evaluated against a flat fact object supplied by
+/// the caller, using the same operator vocabulary as workflow-engine.ts so
+/// admins only learn one condition language.
+model ApprovalPolicy {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  name        String
+  description String?
+  /// Which kind of record this policy governs, e.g. LEAVE_REQUEST, QUOTE.
+  entityType  String       @map("entity_type")
+  mode        ApprovalMode @default(SEQUENTIAL)
+  /// [{ field, op, value }] — ALL must match for this policy to apply.
+  conditions  Json?
+  /// Higher wins when several policies match the same record.
+  priority    Int          @default(0)
+  /// Auto-expire a pending request after this many hours. Null = never.
+  expiryHours Int?         @map("expiry_hours")
+  /// Nudge/escalate to the approver's manager after this many hours.
+  escalateAfterHours Int?  @map("escalate_after_hours")
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  org      Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  steps    ApprovalPolicyStep[]
+  requests ApprovalRequest[]
+
+  @@index([orgId, entityType, isActive])
+  @@map("approval_policies")
+}
+
+model ApprovalPolicyStep {
+  id       String @id @default(cuid())
+  policyId String @map("policy_id")
+  order    Int
+  name     String
+
+  approverType     ApproverType @map("approver_type")
+  approverUserId   String?      @map("approver_user_id")
+  approverRoleKey  String?      @map("approver_role_key")
+  /// For DYNAMIC_FIELD: the fact key holding the approver's user id.
+  approverField    String?      @map("approver_field")
+  /// How many of the resolved approvers must approve for the step to pass.
+  minApprovals     Int          @default(1) @map("min_approvals")
+  isOptional       Boolean      @default(false) @map("is_optional")
+  /// Step-level conditions — lets one policy skip a step for small amounts.
+  conditions       Json?
+
+  policy ApprovalPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, order])
+  @@map("approval_policy_steps")
+}
+
+/// A live approval on one specific record.
+model ApprovalRequest {
+  id          String         @id @default(cuid())
+  orgId       String         @map("org_id")
+  policyId    String?        @map("policy_id")
+  entityType  String         @map("entity_type")
+  entityId    String         @map("entity_id")
+  title       String
+  description String?
+  /// Set for amount-based policies so the threshold is auditable after the
+  /// source record is later edited.
+  amount      Decimal?       @db.Decimal(14, 2)
+  currency    String?
+  requestedBy String         @map("requested_by")
+  status      ApprovalStatus @default(PENDING)
+  currentStep Int            @default(1) @map("current_step")
+  decidedAt   DateTime?      @map("decided_at")
+  expiresAt   DateTime?      @map("expires_at")
+  /// The fact object the conditions were evaluated against, frozen at
+  /// creation time.
+  facts       Json?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  org       Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  policy    ApprovalPolicy?       @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  requester User                  @relation("ApprovalRequester", fields: [requestedBy], references: [id])
+  steps     ApprovalRequestStep[]
+
+  @@index([orgId, status])
+  @@index([orgId, entityType, entityId])
+  @@index([orgId, requestedBy])
+  @@map("approval_requests")
+}
+
+model ApprovalRequestStep {
+  id           String         @id @default(cuid())
+  requestId    String         @map("request_id")
+  order        Int
+  name         String
+  status       ApprovalStatus @default(PENDING)
+  minApprovals Int            @default(1) @map("min_approvals")
+  /// Resolved at creation time from ApproverType — the concrete user ids who
+  /// may act on this step. Frozen so a later reorg can't silently change who
+  /// was allowed to approve something historically.
+  approverIds  String[]       @default([]) @map("approver_ids")
+  isOptional   Boolean        @default(false) @map("is_optional")
+  decidedAt    DateTime?      @map("decided_at")
+  escalatedAt  DateTime?      @map("escalated_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  request ApprovalRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actions ApprovalAction[]
+
+  @@unique([requestId, order])
+  @@map("approval_request_steps")
+}
+
+model ApprovalAction {
+  id                  String           @id @default(cuid())
+  stepId              String           @map("step_id")
+  approverId          String           @map("approver_id")
+  /// Set when the approver was acting under a delegation.
+  delegatedFromUserId String?          @map("delegated_from_user_id")
+  decision            ApprovalDecision
+  comment             String?
+  actedAt             DateTime         @default(now()) @map("acted_at")
+
+  step     ApprovalRequestStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  approver User                @relation("ApprovalApprover", fields: [approverId], references: [id])
+
+  @@index([stepId])
+  @@index([approverId])
+  @@map("approval_actions")
+}
+
+/// "I'm on leave 12–20 Aug, Priya approves for me." Consulted at approval
+/// time, so a delegation created after a request is raised still applies.
+model ApprovalDelegation {
+  id         String   @id @default(cuid())
+  orgId      String   @map("org_id")
+  fromUserId String   @map("from_user_id")
+  toUserId   String   @map("to_user_id")
+  startsAt   DateTime @map("starts_at")
+  endsAt     DateTime @map("ends_at")
+  reason     String?
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  from User         @relation("DelegationFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  to   User         @relation("DelegationTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, fromUserId, isActive])
+  @@map("approval_delegations")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GAP 4 — PERMISSION ENGINE: data-driven roles, record scope, field access
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Rollout is deliberately additive and default-open. Before this, authz was
+// `requireRole(...)` on the route plus `orgId` in the where-clause — which
+// means any SALES_REP who could list deals could list every deal in the org,
+// and salary columns were protected only by which URL you hit.
+//
+// Nothing here changes behavior on its own:
+//   - User.roleId is optional. A user with no Role row falls back to the
+//     UserRole enum exactly as before (see utils/permissions.ts resolveGrants).
+//   - The six built-in roles are seeded with scope = ALL on every permission
+//     they already effectively had, so day-one behavior is byte-identical.
+//   - Controllers opt in one at a time by calling scopedWhere()/redact().
+// Tightening a scope from ALL to TEAM is then a data change an admin makes,
+// not a deploy.
+
+enum PermissionScope {
+  NONE
+  OWN
+  TEAM
+  DEPARTMENT
+  ALL
+}
+
+enum FieldAccess {
+  HIDDEN
+  MASKED
+  READ
+  WRITE
+}
+
+/// A role a customer can actually create. System roles (isSystem) mirror the
+/// six UserRole enum values and cannot be deleted, so existing JWTs and the
+/// e2e suite keep working; everything else is customer-defined.
+model Role {
+  id          String   @id @default(cuid())
+  /// Null for the global system-role templates that every org inherits.
+  orgId       String?  @map("org_id")
+  key         String
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  /// Maps back to the UserRole enum for system roles, so JWT role strings
+  /// resolve to a Role without a second lookup table.
+  legacyRole  String?  @map("legacy_role")
+  /// Lower number = more senior. Used to stop a role escalating itself.
+  rank        Int      @default(100)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org              Organization?     @relation(fields: [orgId], references: [id], onDelete: Cascade, map: "roles_org_fk")
+  permissions      RolePermission[]
+  fieldPermissions FieldPermission[]
+  users            User[]            @relation("UserRoleRef")
+
+  @@unique([orgId, key])
+  @@index([orgId])
+  @@map("roles")
+}
+
+/// The catalog of what can be permitted. Global (no orgId) and seeded from
+/// utils/permissions.ts PERMISSION_CATALOG so code and data can't drift.
+model Permission {
+  id          String @id @default(cuid())
+  /// "crm.deal.read", "hr.employee.update", "hr.payslip.read"
+  key         String @unique
+  module      String
+  resource    String
+  action      String
+  label       String
+  description String?
+  /// Marks permissions that expose personal/financial data, so the admin UI
+  /// can flag them and AI governance can refuse them by default.
+  isSensitive Boolean @default(false) @map("is_sensitive")
+
+  roles RolePermission[]
+
+  @@index([module, resource])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id            String          @id @default(cuid())
+  roleId        String          @map("role_id")
+  permissionKey String          @map("permission_key")
+  scope         PermissionScope @default(ALL)
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@unique([roleId, permissionKey])
+  @@index([permissionKey])
+  @@map("role_permissions")
+}
+
+/// Per-field visibility. Absent row = inherit the resource-level permission,
+/// which keeps the table small: only exceptions are stored.
+model FieldPermission {
+  id        String      @id @default(cuid())
+  orgId     String?     @map("org_id")
+  roleId    String      @map("role_id")
+  /// Matches Permission.resource, e.g. "employee", "payslip", "deal".
+  resource  String
+  field     String
+  access    FieldAccess @default(READ)
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, resource, field])
+  @@index([roleId, resource])
+  @@map("field_permissions")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GAP 5 — KNOWLEDGE / RAG LAYER + AI MODEL GATEWAY
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Embeddings are stored as Float[] (Postgres double precision[]) rather than
+// a pgvector column, because Prisma cannot type `vector` natively and this
+// has to run on managed Postgres instances where the extension may not be
+// installable. utils/vectorStore.ts probes for pgvector once at boot: if
+// present it maintains a shadow `embedding_vec vector` column plus an
+// ivfflat index and does ANN in SQL; if not, it filters candidates in SQL
+// and computes cosine in Node. Same API either way, so the fallback is a
+// performance difference, never a behavioral one.
+
+enum KnowledgeSourceType {
+  KB_ARTICLE
+  TICKET
+  HR_POLICY
+  DEAL
+  ACCOUNT
+  UPLOAD
+  WEB
+  CUSTOM
+}
+
+enum KnowledgeVisibility {
+  PUBLIC
+  INTERNAL
+  RESTRICTED
+}
+
+model KnowledgeSource {
+  id           String              @id @default(cuid())
+  orgId        String              @map("org_id")
+  type         KnowledgeSourceType
+  name         String
+  config       Json?
+  isActive     Boolean             @default(true) @map("is_active")
+  lastSyncedAt DateTime?           @map("last_synced_at")
+  lastError    String?             @map("last_error")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  org       Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  documents KnowledgeDocument[]
+
+  @@index([orgId, type])
+  @@map("knowledge_sources")
+}
+
+model KnowledgeDocument {
+  id         String  @id @default(cuid())
+  orgId      String  @map("org_id")
+  sourceId   String? @map("source_id")
+  /// Where this came from in the product, so a retrieved chunk can cite a
+  /// clickable record rather than an opaque blob.
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+  externalId String? @map("external_id")
+
+  title       String
+  url         String?
+  mimeType    String? @map("mime_type")
+  /// sha256 of the source text — lets re-indexing skip unchanged documents.
+  contentHash String  @map("content_hash")
+  language    String?
+  version     Int     @default(1)
+
+  visibility           KnowledgeVisibility @default(INTERNAL)
+  /// Empty array = no role restriction beyond `visibility`.
+  allowedRoleKeys      String[]            @default([]) @map("allowed_role_keys")
+  allowedDepartmentIds String[]            @default([]) @map("allowed_department_ids")
+  /// Permission key a retriever must hold to surface this document at all.
+  requiredPermission   String?             @map("required_permission")
+
+  tokenCount Int?      @map("token_count")
+  isActive   Boolean   @default(true) @map("is_active")
+  indexedAt  DateTime? @map("indexed_at")
+  metadata   Json?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  org    Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  source KnowledgeSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  chunks KnowledgeChunk[]
+
+  @@unique([orgId, entityType, entityId])
+  @@index([orgId, isActive])
+  @@index([orgId, contentHash])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id         String @id @default(cuid())
+  orgId      String @map("org_id")
+  documentId String @map("document_id")
+  chunkIndex Int    @map("chunk_index")
+  content    String
+  tokenCount Int?   @map("token_count")
+
+  /// Source of truth for the vector. See the section note on pgvector.
+  embedding      Float[]  @default([])
+  embeddingModel String?  @map("embedding_model")
+  embeddingDim   Int?     @map("embedding_dim")
+  /// Denormalised from the parent document so retrieval can filter without
+  /// a join on the hot path.
+  visibility     KnowledgeVisibility @default(INTERNAL)
+  heading        String?
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  org      Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  document KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([orgId, visibility])
+  @@map("knowledge_chunks")
+}
+
+// ─── Model gateway ──────────────────────────────────────────────────────────
+
+enum AiCallStatus {
+  SUCCESS
+  ERROR
+  CACHED
+  BLOCKED
+  BUDGET_EXCEEDED
+}
+
+/// A configured LLM vendor. Null orgId = platform-level default available to
+/// every tenant; a row with an orgId is that customer's own key (§80's
+/// "customer-managed API keys"). apiKey is encrypted via utils/crypto.ts.
+model AiProvider {
+  id              String   @id @default(cuid())
+  orgId           String?  @map("org_id")
+  key             String
+  name            String
+  baseUrl         String?  @map("base_url")
+  apiKeyEncrypted String?  @map("api_key_encrypted")
+  isActive        Boolean  @default(true) @map("is_active")
+  /// Lower runs first; the gateway falls through on failure.
+  priority        Int      @default(100)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  org    Organization?   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  models AiModelConfig[]
+
+  @@unique([orgId, key])
+  @@map("ai_providers")
+}
+
+model AiModelConfig {
+  id         String @id @default(cuid())
+  providerId String @map("provider_id")
+  modelName  String @map("model_name")
+  /// Which logical jobs this model may serve: FAST, SMART, EMBEDDING, VISION.
+  taskTypes  String[] @default([]) @map("task_types")
+
+  contextWindow    Int?     @map("context_window")
+  maxOutputTokens  Int?     @map("max_output_tokens")
+  inputCostPer1k   Decimal? @db.Decimal(10, 6) @map("input_cost_per_1k")
+  outputCostPer1k  Decimal? @db.Decimal(10, 6) @map("output_cost_per_1k")
+  supportsJson     Boolean  @default(true) @map("supports_json")
+  supportsTools    Boolean  @default(false) @map("supports_tools")
+  embeddingDim     Int?     @map("embedding_dim")
+  priority         Int      @default(100)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  provider AiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, modelName])
+  @@map("ai_model_configs")
+}
+
+/// Every LLM round-trip, one row. This is what makes §41 governance, §78
+/// feedback, §79 observability and §81 cost control possible — and it's why
+/// an AI-performed action stops being indistinguishable from a human one in
+/// the audit log.
+model AiInteractionLog {
+  id       String @id @default(cuid())
+  orgId    String @map("org_id")
+  userId   String? @map("user_id")
+  /// Product surface that made the call, e.g. "lead.score", "ai.command".
+  feature  String
+  taskType String @map("task_type")
+
+  providerKey String @map("provider_key")
+  model       String
+
+  promptTokens     Int     @default(0) @map("prompt_tokens")
+  completionTokens Int     @default(0) @map("completion_tokens")
+  totalTokens      Int     @default(0) @map("total_tokens")
+  costUsd          Decimal @default(0) @db.Decimal(12, 6) @map("cost_usd")
+  latencyMs        Int     @default(0) @map("latency_ms")
+
+  status       AiCallStatus @default(SUCCESS)
+  errorMessage String?      @map("error_message")
+
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+  /// Set when this call resulted in an AI_ACTIONS registry execution.
+  actionName String? @map("action_name")
+  actionExecuted Boolean @default(false) @map("action_executed")
+  approvedBy String? @map("approved_by")
+
+  confidence Decimal? @db.Decimal(5, 4)
+  /// [{ documentId, chunkId, title, url }] backing the answer.
+  citations  Json?
+
+  /// Truncated for debugging; full prompts are deliberately not retained.
+  promptPreview   String? @map("prompt_preview")
+  responsePreview String? @map("response_preview")
+  /// Fields the permission layer stripped before the model saw the data.
+  redactedFields  String[] @default([]) @map("redacted_fields")
+
+  feedback       String?   @map("feedback")
+  feedbackReason String?   @map("feedback_reason")
+  feedbackBy     String?   @map("feedback_by")
+  feedbackAt     DateTime? @map("feedback_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User?        @relation("AiLogUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@index([orgId, feature])
+  @@index([orgId, status])
+  @@index([orgId, userId])
+  @@map("ai_interaction_logs")
+}
+
+/// Spend ceiling per org per period. `hardStop` decides whether hitting the
+/// limit degrades gracefully (skip AI, return the non-AI fallback) or errors.
+model AiBudget {
+  id                    String   @id @default(cuid())
+  orgId                 String   @map("org_id")
+  period                String   @default("MONTHLY")
+  limitUsd              Decimal  @db.Decimal(12, 2) @map("limit_usd")
+  alertThresholdPercent Int      @default(80) @map("alert_threshold_percent")
+  hardStop              Boolean  @default(false) @map("hard_stop")
+  currentSpendUsd       Decimal  @default(0) @db.Decimal(12, 6) @map("current_spend_usd")
+  periodStart           DateTime @map("period_start")
+  periodEnd             DateTime @map("period_end")
+  alertSentAt           DateTime? @map("alert_sent_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, period, periodStart])
+  @@index([orgId])
+  @@map("ai_budgets")
 }

@@ -9,6 +9,7 @@ import {
   FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive, Layers,
   Clock, CalendarCheck, Building2, Receipt, RefreshCw, Wallet, KeyRound,
   Package, Boxes, Wrench, Tag, Briefcase, ClipboardList,
+  CheckSquare, CheckCircle2, Network, UserSquare2,
 } from "lucide-react";
 import { useCustomModules } from "../../api/customModules";
 import { AISmartSearch } from "../components/AISmartSearch";
@@ -53,6 +54,8 @@ export const NAV_SECTIONS: NavSection[] = [
     label: null,
     items: [
       { to: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard },
+      { to: "/my-work",      label: "My Work",     icon: CheckSquare },
+      { to: "/approvals",    label: "Approvals",   icon: CheckCircle2 },
       { to: "/inbox",        label: "Inbox",       icon: Inbox },
       { to: "/workflows",    label: "Automation",  icon: Zap,   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/portal-users", label: "Portal",      icon: Globe, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
@@ -75,6 +78,8 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "HR",
     items: [
+      { to: "/hr/employees",  label: "Employees",   icon: UserSquare2 },
+      { to: "/hr/org",        label: "Org Structure", icon: Network, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/hr/attendance", label: "Attendance",  icon: Clock },
       { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck },
       { to: "/hr/payroll",    label: "Payroll",     icon: Wallet },
@@ -103,6 +108,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: "/templates",     label: "Templates",     icon: LayoutTemplate },
       { to: "/branding",      label: "Branding",      icon: Palette },
       { to: "/org-settings",  label: "Org Settings",  icon: Globe2,    roles: ['SUPER_ADMIN'] },
+      { to: "/admin/roles",   label: "Roles & Permissions", icon: Shield, roles: ['SUPER_ADMIN'] },
+      { to: "/admin/ai-governance", label: "AI Governance", icon: Brain, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/audit-logs",    label: "Audit Log",     icon: Shield,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/api-keys",      label: "API Keys",      icon: Key,       roles: ['SUPER_ADMIN'] },
       { to: "/jobs",          label: "Background Jobs", icon: RefreshCw, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },

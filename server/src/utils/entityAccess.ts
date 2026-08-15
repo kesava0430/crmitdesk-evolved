@@ -15,6 +15,13 @@ export const ENTITY_MODEL: Record<string, { findFirst: (args: any) => Promise<an
   QUOTE: prisma.quote,
   ASSET: prisma.asset,
   CAMPAIGN: prisma.campaign,
+  // Added with the people/task/approval platform. Every EntityType enum value
+  // needs an entry here or polymorphic comments/attachments 404 for that type.
+  EMPLOYEE: prisma.employee,
+  TASK: prisma.task,
+  APPROVAL_REQUEST: prisma.approvalRequest,
+  DEPARTMENT: prisma.department,
+  INVOICE: prisma.invoice,
 };
 
 /** Confirms the referenced Deal/Ticket/Contact/etc. actually belongs to the
