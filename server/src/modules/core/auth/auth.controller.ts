@@ -310,7 +310,13 @@ export async function demoLogin(req: Request, res: Response, next: NextFunction)
       include: { org: { select: { id: true, name: true, slug: true } } },
     });
     if (!user || !user.isActive) {
-      throw new AppError(503, 'Demo is temporarily unavailable — please try again shortly.');
+      // "Try again shortly" is only honest if waiting could actually help. A
+      // missing demo user means the seed has not run — waiting changes nothing,
+      // so say what does. GET /demo/status reports which verticals exist.
+      throw new AppError(
+        503,
+        `The "${vertical}" demo has not been set up on this server yet. Run \`npm run db:seed\` in the server directory to create it.`
+      );
     }
 
     const orgId = user.orgId ?? '';

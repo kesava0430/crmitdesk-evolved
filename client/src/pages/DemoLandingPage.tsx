@@ -8,7 +8,7 @@ import {
   TrendingUp, AlertTriangle, CheckCircle2, Clock, DollarSign,
 } from 'lucide-react';
 
-interface DemoVertical { slug: string; orgName: string; industry: string; primaryColor: string }
+interface DemoVertical { slug: string; orgName: string; industry: string; primaryColor: string; currency?: string; available?: boolean }
 
 const HIGHLIGHTS = [
   { icon: Users,  label: 'Full CRM',          desc: 'Contacts, leads, deals and a live sales pipeline' },
@@ -43,8 +43,14 @@ export function DemoLandingPage() {
   });
 
   useEffect(() => {
-    if (!vertical && verticals?.length) setVertical(verticals[0].slug);
+    if (vertical || !verticals?.length) return;
+    // Default to something that can actually be entered, rather than whatever
+    // happens to be first in the list.
+    setVertical((verticals.find(v => v.available !== false) ?? verticals[0]).slug);
   }, [verticals, vertical]);
+
+  const selected = verticals?.find(v => v.slug === vertical);
+  const nothingSeeded = !!verticals?.length && verticals.every(v => v.available === false);
 
   async function handleTryDemo() {
     setLoading(true);
@@ -52,8 +58,14 @@ export function DemoLandingPage() {
     try {
       await demoLogin(vertical);
       navigate('/dashboard');
-    } catch {
-      setError('The demo is warming up — please try again in a moment.');
+    } catch (err: any) {
+      // The server knows exactly why this failed — a missing demo org needs a
+      // seed run, not patience. Swallowing that behind "warming up" sent people
+      // away to wait for something that was never going to fix itself.
+      setError(
+        err?.response?.data?.error ||
+          'Could not start the demo. Check the server is running, then try again.'
+      );
       setLoading(false);
     }
   }
@@ -94,28 +106,46 @@ export function DemoLandingPage() {
             <div className="mb-6">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">See it set up for your industry</p>
               <div className="flex flex-wrap gap-2">
-                {verticals.map(v => (
-                  <button
-                    key={v.slug}
-                    type="button"
-                    onClick={() => setVertical(v.slug)}
-                    aria-pressed={vertical === v.slug}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      vertical === v.slug
-                        ? 'bg-brand-600 border-brand-600 text-white'
-                        : 'bg-white/5 border-white/10 text-slate-300 hover:border-white/25 hover:text-white'
-                    }`}
-                  >
-                    {v.industry}
-                  </button>
-                ))}
+                {verticals.map(v => {
+                  const unavailable = v.available === false;
+                  return (
+                    <button
+                      key={v.slug}
+                      type="button"
+                      onClick={() => setVertical(v.slug)}
+                      disabled={unavailable}
+                      aria-pressed={vertical === v.slug}
+                      title={unavailable ? 'This industry demo has not been seeded on this server yet' : undefined}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        unavailable
+                          ? 'bg-white/[0.02] border-white/5 text-slate-600 cursor-not-allowed line-through'
+                          : vertical === v.slug
+                            ? 'bg-brand-600 border-brand-600 text-white'
+                            : 'bg-white/5 border-white/10 text-slate-300 hover:border-white/25 hover:text-white'
+                      }`}
+                    >
+                      {v.industry}
+                    </button>
+                  );
+                })}
               </div>
+            </div>
+          )}
+
+          {nothingSeeded && (
+            <div className="mb-5 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
+              <p className="text-amber-300 text-sm font-medium">No demo workspaces have been set up yet</p>
+              <p className="text-amber-200/70 text-xs mt-1 leading-relaxed">
+                Run <code className="font-mono bg-black/30 px-1 py-0.5 rounded">npm run db:seed</code> in the server
+                directory to create them. <code className="font-mono bg-black/30 px-1 py-0.5 rounded">GET /api/demo/status</code>{' '}
+                reports the current state.
+              </p>
             </div>
           )}
 
           <button
             onClick={handleTryDemo}
-            disabled={loading}
+            disabled={loading || selected?.available === false}
             className="inline-flex items-center gap-2 px-7 py-3.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-semibold text-base shadow-lg shadow-brand-600/30 transition-colors disabled:opacity-60"
           >
             {loading ? (

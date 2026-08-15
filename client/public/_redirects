@@ -1,1 +1,30 @@
-/*    /index.html   200
+# Netlify routing rules. Order matters — the FIRST matching rule wins, so the
+# API proxy must come before the SPA catch-all or every /api/* request gets
+# answered with index.html.
+#
+# ── Why the proxy is here ────────────────────────────────────────────────────
+# The client calls the API at a relative `/api` path (VITE_API_URL defaults to
+# '/api' — see src/api/client.ts). That works on Render's static hosting because
+# render.yaml declares an /api/* rewrite to the backend service. Netlify has no
+# such rule unless it is declared here.
+#
+# Without this file's first line, every API request goes to
+# https://app.quantiqsystems.com/api/... , matches the SPA catch-all below, and
+# comes back as the index.html page with HTTP 200. Axios then chokes on HTML
+# where it expected JSON, and *every* call in the app fails at once — login
+# included. That is the failure this file exists to prevent.
+#
+# ── Why proxy rather than set VITE_API_URL to the backend origin ─────────────
+# A same-origin proxy keeps the browser talking to one domain, so there is no
+# CORS preflight to configure, no cross-site cookie behaviour to reason about,
+# and Server-Sent Events (src/hooks/useSSE.ts) keep working — EventSource cannot
+# send an Authorization header cross-origin. Pointing VITE_API_URL at
+# https://crm-itdesk-server.onrender.com/api also works, but then CORS_ORIGIN on
+# the backend must list this exact domain, and the SSE path needs its own fix.
+#
+# If the backend ever moves, change the target below and redeploy the frontend.
+
+/api/*  https://crm-itdesk-server.onrender.com/api/:splat  200!
+
+# SPA fallback — every non-asset, non-API route serves the app shell.
+/*      /index.html                                        200
