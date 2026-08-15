@@ -4,30 +4,71 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 import {
-  Users, Ticket, Zap, Bot, Sparkles, Loader2, ArrowRight,
-  TrendingUp, AlertTriangle, CheckCircle2, Clock, DollarSign,
+  Users, Ticket, Bot, Sparkles, Loader2, ArrowRight,
+  TrendingUp, AlertTriangle, CheckCircle2, Clock, Wallet,
+  UserSquare2, CheckSquare, ShieldCheck,
 } from 'lucide-react';
 
-interface DemoVertical { slug: string; orgName: string; industry: string; primaryColor: string; currency?: string; available?: boolean }
+interface DemoPreview {
+  stats: { openTickets: number; pipelineValue: number; winRate: number; employees: number };
+  deals: { title: string; value: number; stage: string }[];
+  tickets: { title: string; priority: string }[];
+}
+
+interface DemoVertical {
+  slug: string;
+  orgName: string;
+  industry: string;
+  primaryColor: string;
+  currency?: string;
+  available?: boolean;
+  preview?: DemoPreview;
+}
 
 const HIGHLIGHTS = [
-  { icon: Users,  label: 'Full CRM',          desc: 'Contacts, leads, deals and a live sales pipeline' },
-  { icon: Ticket, label: 'IT Help Desk',       desc: 'Tickets, SLAs, assets and change management' },
-  { icon: Bot,    label: 'AI built in',        desc: 'Lead scoring, ticket triage, and an AI command bar' },
-  { icon: Zap,    label: 'No-code workflows',  desc: 'Automations across CRM and IT Desk, no engineers needed' },
+  { icon: Users,       label: 'Full CRM',        desc: 'Contacts, leads, deals and a live sales pipeline' },
+  { icon: Ticket,      label: 'IT Help Desk',    desc: 'Tickets, SLAs, assets and change management' },
+  { icon: UserSquare2, label: 'HR & People',     desc: 'Employees, org chart, attendance, leave and payroll' },
+  { icon: CheckSquare, label: 'Work & Approvals', desc: 'One task queue across every module, with real approval routing' },
+  { icon: Bot,         label: 'AI built in',     desc: 'Lead scoring, ticket triage, and answers cited from your own docs' },
+  { icon: ShieldCheck, label: 'Real permissions', desc: 'Control who sees whose records — down to individual fields' },
 ];
 
-const TICKETS = [
-  { title: 'Cannot connect to company VPN', priority: 'CRITICAL', color: 'bg-red-500/15 text-red-400 border-red-500/20' },
-  { title: 'Laptop not turning on after update', priority: 'HIGH', color: 'bg-orange-500/15 text-orange-400 border-orange-500/20' },
-  { title: 'Adobe Creative Cloud licence request', priority: 'LOW', color: 'bg-slate-500/15 text-slate-400 border-slate-500/20' },
-];
+/** Money for the preview tiles. Compact, because a demo tile is not a ledger. */
+function compactMoney(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : undefined, {
+      style: 'currency',
+      currency,
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toLocaleString()}`;
+  }
+}
 
-const DEALS = [
-  { title: 'Globex Platform Licence', value: '$120,000', stage: 'Closed Won' },
-  { title: 'Acme ERP Implementation', value: '$85,000', stage: 'Proposal' },
-  { title: 'Initech Analytics Suite', value: '$67,000', stage: 'Prospecting' },
-];
+/** Rendered until the vertical list loads, and by older backends that don't send `preview`. */
+const FALLBACK_PREVIEW: DemoPreview = {
+  stats: { openTickets: 4, pipelineValue: 218_000, winRate: 50, employees: 6 },
+  deals: [
+    { title: 'Globex Platform Licence', value: 120_000, stage: 'Closed Won' },
+    { title: 'Acme ERP Implementation', value: 85_000, stage: 'Negotiation' },
+    { title: 'Initech Analytics Suite', value: 67_000, stage: 'Prospecting' },
+  ],
+  tickets: [
+    { title: 'Cannot connect to company VPN', priority: 'CRITICAL' },
+    { title: 'Laptop not turning on after update', priority: 'HIGH' },
+    { title: 'Need access to Salesforce sandbox', priority: 'MEDIUM' },
+  ],
+};
+
+const PRIORITY_STYLES: Record<string, string> = {
+  CRITICAL: 'bg-red-500/15 text-red-400 border-red-500/20',
+  HIGH: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
+  MEDIUM: 'bg-sky-500/15 text-sky-400 border-sky-500/20',
+  LOW: 'bg-slate-500/15 text-slate-400 border-slate-500/20',
+};
 
 export function DemoLandingPage() {
   const { demoLogin } = useAuth();
@@ -51,6 +92,16 @@ export function DemoLandingPage() {
 
   const selected = verticals?.find(v => v.slug === vertical);
   const nothingSeeded = !!verticals?.length && verticals.every(v => v.available === false);
+
+  // The preview panel is driven by the selected vertical's real seed data, so
+  // picking "Real Estate" shows rupee-priced property deals rather than the
+  // dollar SaaS deals that used to be hardcoded here regardless of choice.
+  //
+  // FALLBACK_PREVIEW matters more than it looks: a backend running a version
+  // older than this field still returns verticals without `preview`, and the
+  // panel must render something sensible rather than crash the landing page.
+  const currency = selected?.currency ?? 'USD';
+  const preview = selected?.preview ?? FALLBACK_PREVIEW;
 
   async function handleTryDemo() {
     setLoading(true);
@@ -94,12 +145,12 @@ export function DemoLandingPage() {
             <Sparkles size={12} /> Live Product Demo
           </span>
           <h1 className="text-4xl sm:text-5xl font-bold leading-[1.1] mb-6">
-            See CRMITdesk Evolved<br />running with real data
+            Your CRM, IT Desk and HR<br />in one workspace
           </h1>
           <p className="text-slate-400 text-base leading-relaxed max-w-md mb-9">
-            One click drops you into a fully populated workspace &mdash; real contacts, deals, support
-            tickets and dashboards &mdash; so you can explore the product the way your team actually
-            would. Nothing to set up.
+            One click drops you into a fully populated workspace &mdash; customers, deals, support
+            tickets, employees, approvals and dashboards, already wired together. Explore it the way
+            your team actually would. Nothing to set up.
           </p>
 
           {verticals && verticals.length > 0 && (
@@ -182,23 +233,30 @@ export function DemoLandingPage() {
               <span className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
               <span className="w-2.5 h-2.5 rounded-full bg-amber-500/70" />
               <span className="w-2.5 h-2.5 rounded-full bg-green-500/70" />
-              <span className="ml-3 text-xs text-slate-500">app.quantiqsystems.com/dashboard</span>
+              <span className="ml-3 text-xs text-slate-500 truncate">
+                app.quantiqsystems.com/dashboard
+                {selected ? <span className="text-slate-600"> — {selected.orgName}</span> : null}
+              </span>
             </div>
 
             <div className="p-5 space-y-5">
               {/* Stat tiles */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-2.5">
                 <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                  <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-1.5"><Ticket size={12} /> Open Tickets</div>
-                  <p className="text-xl font-bold text-white">7</p>
+                  <div className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-1.5"><Ticket size={12} /> Tickets</div>
+                  <p className="text-lg font-bold text-white">{preview.stats.openTickets}</p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                  <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-1.5"><DollarSign size={12} /> Pipeline</div>
-                  <p className="text-xl font-bold text-white">$450K</p>
+                  <div className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-1.5"><Wallet size={12} /> Pipeline</div>
+                  <p className="text-lg font-bold text-white">{compactMoney(preview.stats.pipelineValue, currency)}</p>
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                  <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-1.5"><TrendingUp size={12} /> Win Rate</div>
-                  <p className="text-xl font-bold text-white">64%</p>
+                  <div className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-1.5"><TrendingUp size={12} /> Win rate</div>
+                  <p className="text-lg font-bold text-white">{preview.stats.winRate}%</p>
+                </div>
+                <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-1.5"><UserSquare2 size={12} /> People</div>
+                  <p className="text-lg font-bold text-white">{preview.stats.employees}</p>
                 </div>
               </div>
 
@@ -209,10 +267,12 @@ export function DemoLandingPage() {
                   <span className="text-[10px] text-slate-500">Live</span>
                 </div>
                 <div className="space-y-2">
-                  {TICKETS.map(t => (
+                  {preview.tickets.map(t => (
                     <div key={t.title} className="flex items-center justify-between gap-3 text-xs">
                       <span className="text-slate-300 truncate">{t.title}</span>
-                      <span className={`shrink-0 px-2 py-0.5 rounded-md border text-[10px] font-medium ${t.color}`}>{t.priority}</span>
+                      <span className={`shrink-0 px-2 py-0.5 rounded-md border text-[10px] font-medium ${PRIORITY_STYLES[t.priority] ?? PRIORITY_STYLES.LOW}`}>
+                        {t.priority}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -225,12 +285,12 @@ export function DemoLandingPage() {
                   <span className="text-[10px] text-slate-500 flex items-center gap-1"><Clock size={10} /> Updated now</span>
                 </div>
                 <div className="space-y-2">
-                  {DEALS.map(d => (
+                  {preview.deals.map(d => (
                     <div key={d.title} className="flex items-center justify-between gap-3 text-xs">
                       <span className="text-slate-300 truncate">{d.title}</span>
                       <span className="shrink-0 flex items-center gap-2">
                         <span className="text-slate-500">{d.stage}</span>
-                        <span className="text-emerald-400 font-semibold">{d.value}</span>
+                        <span className="text-emerald-400 font-semibold">{compactMoney(d.value, currency)}</span>
                       </span>
                     </div>
                   ))}

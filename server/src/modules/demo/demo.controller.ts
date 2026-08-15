@@ -54,6 +54,39 @@ async function availability(): Promise<Map<string, boolean>> {
 }
 
 /**
+ * A small, truthful preview of what a vertical's workspace contains.
+ *
+ * Derived from the seed preset rather than hardcoded on the landing page, so
+ * the marketing preview cannot drift away from what a visitor actually sees
+ * after clicking through. Previously the landing page showed fixed TechCorp
+ * deals in dollars no matter which industry was selected — which made the
+ * industry picker decorative and, once a rupee-priced vertical existed, wrong.
+ */
+function previewFor(v: (typeof VERTICALS)[number]) {
+  const open = v.deals.filter(d => String(d.status) === 'OPEN');
+  const won = v.deals.filter(d => String(d.status) === 'WON').length;
+  const lost = v.deals.filter(d => String(d.status) === 'LOST').length;
+  const decided = won + lost;
+
+  const liveTicketStatuses = new Set(['OPEN', 'IN_PROGRESS', 'PENDING']);
+
+  return {
+    stats: {
+      openTickets: v.tickets.filter(t => liveTicketStatuses.has(String(t.status))).length,
+      pipelineValue: open.reduce((sum, d) => sum + d.value, 0),
+      // Rounded to a whole percent — a demo tile showing 66.667% reads as a bug.
+      winRate: decided ? Math.round((won / decided) * 100) : 0,
+      employees: 6,
+    },
+    deals: [...v.deals]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 3)
+      .map(d => ({ title: d.title, value: d.value, stage: d.stage })),
+    tickets: v.tickets.slice(0, 3).map(t => ({ title: t.title, priority: String(t.priority) })),
+  };
+}
+
+/**
  * GET /demo/verticals — public list for the /demo landing page's picker.
  *
  * Now reports `available` per vertical. Previously this returned the static
@@ -73,6 +106,7 @@ export async function listVerticals(_req: Request, res: Response, next: NextFunc
         primaryColor: v.primaryColor,
         currency: v.currency ?? 'USD',
         available: avail.get(v.slug) ?? false,
+        preview: previewFor(v),
       }))
     );
   } catch (err) { next(err); }

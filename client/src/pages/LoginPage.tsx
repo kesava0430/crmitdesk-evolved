@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Ticket, TrendingUp, Users, Shield, Eye, EyeOff, Loader2, Sparkles, ArrowRight } from 'lucide-react';
+import { Ticket, Users, Shield, Eye, EyeOff, Loader2, Sparkles, ArrowRight, UserSquare2, CheckSquare, Bot } from 'lucide-react';
 import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
 
 type Tab = 'login' | 'register';
@@ -18,10 +18,12 @@ function GoogleDivider() {
 }
 
 const FEATURES = [
-  { icon: Users,      label: 'CRM',          desc: 'Contacts, leads and pipeline' },
-  { icon: Ticket,     label: 'IT Desk',       desc: 'Tickets, SLA and knowledge base' },
-  { icon: TrendingUp, label: 'Analytics',     desc: 'Reports and forecasting' },
-  { icon: Shield,     label: 'Enterprise',    desc: 'Audit logs and 2FA security' },
+  { icon: Users,       label: 'CRM',          desc: 'Contacts, leads and pipeline' },
+  { icon: Ticket,      label: 'IT Desk',      desc: 'Tickets, SLA and knowledge base' },
+  { icon: UserSquare2, label: 'HR & People',  desc: 'Employees, org chart, leave and payroll' },
+  { icon: CheckSquare, label: 'Work',         desc: 'One task queue and approval routing' },
+  { icon: Bot,         label: 'AI',           desc: 'Scoring, triage and cited answers' },
+  { icon: Shield,      label: 'Enterprise',   desc: 'Field-level permissions, audit logs, 2FA' },
 ];
 
 function InputField({
@@ -163,12 +165,13 @@ export function LoginPage() {
             from one place.
           </h2>
           <p className="text-slate-400 text-sm leading-relaxed">
-            Manage customers, support tickets, analytics, and team workflows — unified in a single powerful platform.
+            Customers, support tickets, employees and approvals — sharing one set of records, one
+            permission model and one AI that can see across all of it.
           </p>
         </div>
 
         {/* Feature list */}
-        <div className="relative z-10 space-y-5">
+        <div className="relative z-10 space-y-4">
           {FEATURES.map(({ icon: Icon, label, desc }) => (
             <div key={label} className="flex items-center gap-4">
               <div className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
