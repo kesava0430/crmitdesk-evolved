@@ -57,6 +57,16 @@ export const AI_FEATURES: AiFeature[] = [
     caveat: 'Actions are checked against your role on the server before running — the AI cannot grant itself permissions.',
   },
   {
+    id: 'command.plan',
+    name: 'AI action planner',
+    does: 'Works out which single action your instruction means, from a fixed list of things the product can do, and shows it for you to confirm.',
+    sends: 'Your instruction, plus name-and-ID lists from your workspace so it can match what you typed to a real record — deals, tickets, leads, contacts, workflow rules, custom modules, quotes, invoices, campaigns, assets, leave types, users, and pending leave requests including employee names and dates.',
+    effect: 'advisory',
+    tier: 'paid',
+    fallback: 'Proposes nothing rather than guessing.',
+    caveat: 'This sends more of your workspace to the AI than any other feature. The action it picks is re-checked against your role on the server, and you confirm before anything runs.',
+  },
+  {
     id: 'search.interpret',
     name: 'Smart search',
     does: 'Reads your search box text and works out the filters you meant — for example "urgent open tickets" becomes a priority and status filter rather than a text match.',

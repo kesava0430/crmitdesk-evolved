@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { runWithAiContext } from '../utils/aiContext';
 import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler';
 
@@ -42,7 +43,10 @@ export function authenticate(req: AuthRequest, _res: Response, next: NextFunctio
   // request carrying a valid X-API-Key header — don't then demand a JWT
   // too. A request with neither header still falls through to the "no
   // token" 401 below, same as always.
-  if (req.user) return next();
+  // The API-key path already set req.user upstream; still open an AI context
+  // for it, or key-authenticated AI calls would be the one route that stays
+  // unlogged and unbudgeted.
+  if (req.user) return runWithAiContext({ orgId: req.user.orgId, userId: (req.user as any).id ?? null }, next);
 
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) throw new AppError(401, 'Authentication required');
@@ -51,7 +55,10 @@ export function authenticate(req: AuthRequest, _res: Response, next: NextFunctio
       id: string; role: string; email: string; orgId: string;
     };
     req.user = payload;
-    next();
+    /* Everything downstream of this call runs inside the store, so
+       utils/ai.ts can find the org without every AI helper taking an orgId
+       parameter. See utils/aiContext.ts for why it is done this way. */
+    runWithAiContext({ orgId: payload.orgId, userId: payload.id }, next);
   } catch {
     throw new AppError(401, 'Invalid or expired token');
   }

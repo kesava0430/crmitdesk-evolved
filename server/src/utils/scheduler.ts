@@ -13,11 +13,24 @@ async function resolveMessage(entityType: string, entityId: string, message: str
   return message.replace(/\{\{title\}\}/g, record?.title ?? '');
 }
 
-function nextOccurrence(dueAt: Date, recurrence: string): Date | null {
+/**
+ * The next occurrence strictly in the future.
+ *
+ * This used to add exactly one day/week to the OLD dueAt and stop. After any
+ * downtime that skipped occurrences, the catch-up run therefore produced a
+ * dueAt that was still in the past, so the next poll fired it again — a
+ * reminder that missed three days replayed three times in three consecutive
+ * minutes instead of resuming its schedule. Advancing until we pass `from`
+ * means a missed reminder sends once and then resumes normally.
+ */
+function nextOccurrence(dueAt: Date, recurrence: string, from: Date = new Date()): Date | null {
+  const stepDays = recurrence === 'DAILY' ? 1 : recurrence === 'WEEKLY' ? 7 : 0;
+  if (!stepDays) return null; // 'NONE'
+
   const next = new Date(dueAt);
-  if (recurrence === 'DAILY') { next.setDate(next.getDate() + 1); return next; }
-  if (recurrence === 'WEEKLY') { next.setDate(next.getDate() + 7); return next; }
-  return null; // 'NONE'
+  // Bounded so a long-dormant weekly reminder cannot spin here.
+  for (let i = 0; i < 5000 && next <= from; i++) next.setDate(next.getDate() + stepDays);
+  return next;
 }
 
 /**
@@ -42,8 +55,15 @@ export async function checkDueSchedules(): Promise<void> {
         customNumber: schedule.customNumber,
       });
       const message = await resolveMessage(schedule.entityType, schedule.entityId, schedule.message);
-      await sendWhatsApp(schedule.orgId, phone, message);
 
+      /* Advance the row BEFORE sending.
+         The send used to come first, so if sendWhatsApp succeeded but the
+         following update failed, the row stayed PENDING at its old dueAt and
+         the reminder went out again every 60 seconds, indefinitely. Moving
+         the clock first turns that failure mode into at-most-once instead of
+         unbounded — the safer direction for something that messages
+         customers. A crash between the two now costs one missed reminder,
+         recorded below, rather than an endless loop. */
       const next = nextOccurrence(schedule.dueAt, schedule.recurrence);
       await prisma.schedule.update({
         where: { id: schedule.id },
@@ -51,6 +71,8 @@ export async function checkDueSchedules(): Promise<void> {
           ? { dueAt: next, sentAt: new Date(), lastError: null } // stays PENDING for its next occurrence
           : { status: 'SENT', sentAt: new Date(), lastError: null },
       });
+
+      await sendWhatsApp(schedule.orgId, phone, message);
     } catch (err: any) {
       // Marked FAILED (not left PENDING) so a persistently broken config
       // (no WhatsApp connected, assignee has no phone, etc.) doesn't retry

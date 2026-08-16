@@ -11,20 +11,103 @@ import { sendMail, emailTemplates } from './mailer';
 // a receiver had no way to verify the payload actually came from us, and a
 // transient network blip meant the automation silently never fired at all.
 
+/**
+ * Blocks webhook targets that point back inside the network.
+ *
+ * The URL comes from a rule any manager can edit, and this runs server-side —
+ * so without a guard a rule could aim at cloud metadata (169.254.169.254),
+ * localhost, or a private-range service, and the log detail would report the
+ * outcome back to whoever configured it. That is a server-side request
+ * forgery primitive with a readable response channel.
+ *
+ * Hostname-based, so it does not catch a public DNS name resolving to a
+ * private address (a full fix needs resolve-then-pin, which fetch does not
+ * expose). It removes the trivial cases; treat outbound webhooks as
+ * privileged either way.
+ */
+function isBlockedWebhookHost(rawUrl: string): string | null {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { return 'not a valid URL'; }
+
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return `unsupported protocol ${u.protocol}`;
+  if (process.env.NODE_ENV === 'production' && u.protocol !== 'https:') return 'must use https';
+
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '0.0.0.0') return 'points at localhost';
+  if (h.endsWith('.internal') || h.endsWith('.local')) return 'points at an internal hostname';
+
+  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 127) return 'points at loopback';
+    if (a === 10) return 'points at a private network';
+    if (a === 172 && b >= 16 && b <= 31) return 'points at a private network';
+    if (a === 192 && b === 168) return 'points at a private network';
+    if (a === 169 && b === 254) return 'points at link-local / cloud metadata';
+    if (a === 100 && b >= 64 && b <= 127) return 'points at carrier-grade NAT space';
+    if (a === 0) return 'points at an unspecified address';
+  }
+  // IPv6 loopback / unique-local / link-local
+  if (h === '::' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) {
+    return 'points at a private IPv6 address';
+  }
+  return null;
+}
+
+/**
+ * A signing secret unique to one org, derived from the platform secret.
+ *
+ * Deliberately derived rather than stored: it gives every tenant a distinct
+ * key — so org A can no longer verify or forge org B's payloads — without a
+ * schema change or a secret-rotation UI. It is stable for a given
+ * (WORKFLOW_WEBHOOK_SECRET, orgId) pair, so a receiver can be told its value
+ * once and keep verifying. Rotating the platform secret rotates every org's.
+ */
+function orgWebhookSecret(orgId: string): string | undefined {
+  const root = process.env.WORKFLOW_WEBHOOK_SECRET;
+  if (!root) return undefined;
+  return crypto.createHmac('sha256', root).update(`workflow-webhook:${orgId}`).digest('hex');
+}
+
 /** POSTs a JSON payload with an HMAC signature header, retrying transient failures. */
-async function postWebhookWithRetry(url: string, payload: unknown, maxAttempts = 3): Promise<string> {
+async function postWebhookWithRetry(
+  url: string,
+  payload: unknown,
+  maxAttempts = 3,
+  signingSecret?: string,
+): Promise<string> {
+  const blocked = isBlockedWebhookHost(url);
+  if (blocked) return `Webhook skipped — target ${blocked}`;
+
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-  const secret = process.env.WORKFLOW_WEBHOOK_SECRET;
+  /* Prefer the org's own signing secret. A single global
+     WORKFLOW_WEBHOOK_SECRET meant every tenant's webhooks were signed with
+     the same key — so any org could both verify and forge another org's
+     payloads, which makes the signature worthless as proof of origin. */
+  const secret = signingSecret || process.env.WORKFLOW_WEBHOOK_SECRET;
   if (secret) {
     headers['X-Webhook-Signature'] = `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`;
   }
 
+  /* Lets a receiver discard a duplicate. The retry loop re-POSTs on a 5xx or
+     a timeout, and the payload carried only a `timestamp` that changed every
+     attempt — so a receiver that committed the work but failed to respond got
+     it again with no way to tell. */
+  const deliveryId = crypto.randomUUID();
+  headers['X-Webhook-Delivery'] = deliveryId;
+
   let lastError = '';
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const res = await fetch(url, { method: 'POST', headers, body });
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { ...headers, 'X-Webhook-Attempt': String(attempt) },
+        body,
+        signal: AbortSignal.timeout(10_000),
+      });
       if (res.ok) {
         return attempt === 1 ? `Webhook sent to ${url}` : `Webhook sent to ${url} (succeeded on attempt ${attempt})`;
       }
@@ -92,6 +175,23 @@ export interface WorkflowContext {
   entityId: string;
   entity: Record<string, any>;
   previousEntity?: Record<string, any>; // for update/change triggers
+  /**
+   * Run ONLY this rule.
+   *
+   * Event triggers leave this unset: a ticket being created should be offered
+   * to every TICKET_CREATED rule, and each decides for itself via its own
+   * conditions. Date automation is the opposite — dateAutomation.ts has
+   * already worked out which single rule matches which record, so without
+   * this every DATE_FIELD_REACHED rule in the org fired against a record only
+   * one of them matched. A birthday rule matching a contact also sent them
+   * the renewal-reminder rule's email.
+   *
+   * It compounded: runWorkflows logs a row per rule it touches, and
+   * alreadyProcessedToday() treats any row within 330 days as "done" for a
+   * yearly rule — so one cross-fire suppressed every other date rule on that
+   * record for about eleven months.
+   */
+  ruleId?: string;
 }
 
 // ─── Condition evaluator ─────────────────────────────────────────────────────
@@ -125,13 +225,27 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
 
   switch (action.type) {
     case 'ASSIGN_TO': {
-      const userId = String(action.params.userId);
+      const userId = String(action.params.userId ?? '');
+      if (!userId) return 'ASSIGN_TO skipped — no user configured';
+
+      /* The rule's params are stored as free-form JSON and the API validates
+         them as `z.record(...)`, i.e. not at all. Without this check a rule
+         carrying a foreign user id (hand-crafted, imported, or seeded)
+         assigns this org's records to somebody in another org. */
+      const assignee = await prisma.user.findFirst({ where: { id: userId, orgId }, select: { id: true } });
+      if (!assignee) return `ASSIGN_TO skipped — user ${userId} is not in this organization`;
+
       if (entityType === 'TICKET') {
         await prisma.ticket.updateMany({ where: { id: entityId, orgId }, data: { assignedTo: userId } });
       } else if (entityType === 'LEAD') {
         await prisma.lead.updateMany({ where: { id: entityId, orgId }, data: { assignedTo: userId } });
       } else if (entityType === 'DEAL') {
         await prisma.deal.updateMany({ where: { id: entityId, orgId }, data: { assignedTo: userId } });
+      } else {
+        // Contacts and custom-module records have no assignee column. This
+        // used to fall out of the if/else and still report "Assigned to user
+        // X" — a SUCCESS log for something that never happened.
+        return `ASSIGN_TO skipped — ${entityType} has no assignee field`;
       }
       return `Assigned to user ${userId}`;
     }
@@ -144,11 +258,22 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
     }
 
     case 'SET_STATUS': {
-      const status = String(action.params.status);
+      const status = String(action.params.status ?? '');
+      if (!status) return 'SET_STATUS skipped — no status configured';
       if (entityType === 'TICKET') {
         await prisma.ticket.updateMany({ where: { id: entityId, orgId }, data: { status: status as any } });
       } else if (entityType === 'LEAD') {
         await prisma.lead.updateMany({ where: { id: entityId, orgId }, data: { status: status as any } });
+      } else {
+        /* Deals were the notable miss: three of the eleven triggers are deal
+           triggers, so "when a deal is won, set status" is an obvious rule to
+           build — and it wrote nothing while logging "Status set to WON".
+           A deal's pipeline position is `stage`, and its won/lost state is
+           `status`, so SET_STATUS cannot guess which was meant; say so rather
+           than pick one. */
+        return entityType === 'DEAL'
+          ? 'SET_STATUS skipped — set a deal\'s pipeline position with a stage action, not SET_STATUS'
+          : `SET_STATUS skipped — ${entityType} has no status field`;
       }
       return `Status set to ${status}`;
     }
@@ -215,17 +340,26 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
       if (!mappedType) return `ADD_NOTE skipped — comments aren't supported on ${entityType}`;
 
       const noteBody = String(action.params.body || 'Automated workflow note');
-      const systemUser = await prisma.user.findFirst({ where: { orgId, role: 'SUPER_ADMIN' } });
-      if (systemUser) {
-        await prisma.comment.create({
-          data: {
-            authorId: systemUser.id,
-            entityType: mappedType,
-            entityId,
-            body: `[Automation] ${noteBody}`,
-          },
-        });
-      }
+      /* A comment needs an author. When the org has no SUPER_ADMIN this used
+         to skip the create and still return 'Note added' — a SUCCESS row for
+         a note nobody can find. Fall back to any admin, then report honestly. */
+      const systemUser = await prisma.user.findFirst({
+        // There is no generic ADMIN role — the org-scoped admin tiers are
+        // SUPER_ADMIN, then the two manager roles. PLATFORM_ADMIN is excluded
+        // deliberately: it is cross-org and has no orgId.
+        where: { orgId, role: { in: ['SUPER_ADMIN', 'CRM_MANAGER', 'IT_MANAGER'] }, isActive: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!systemUser) return 'ADD_NOTE skipped — no admin user in this organization to attribute the note to';
+
+      await prisma.comment.create({
+        data: {
+          authorId: systemUser.id,
+          entityType: mappedType,
+          entityId,
+          body: `[Automation] ${noteBody}`,
+        },
+      });
       return 'Note added';
     }
 
@@ -239,7 +373,7 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
         entity,
         timestamp: new Date().toISOString(),
       };
-      return postWebhookWithRetry(url, payload);
+      return postWebhookWithRetry(url, payload, 3, orgWebhookSecret(orgId));
     }
 
     case 'CREATE_TICKET': {
@@ -319,6 +453,16 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
         targetUserId = entity.assignedTo || entity.assignee?.id || entity.ownerId;
       }
       if (!targetUserId) return 'Notification skipped — no recipient resolved';
+
+      /* Notification.userId is an unconstrained FK and the bell query filters
+         by userId alone, so an out-of-org id here delivered this org's record
+         title and body into someone else's notification list AND fired a real
+         browser push at them. params are unvalidated by the API, so this is
+         the only place it can be caught. */
+      const recipient = await prisma.user.findFirst({
+        where: { id: targetUserId, orgId }, select: { id: true },
+      });
+      if (!recipient) return `Notification skipped — user ${targetUserId} is not in this organization`;
       const notifTitle = resolve(String(title || 'Workflow automation'));
       const notifBody = resolve(String(body || ''));
       await prisma.notification.create({
@@ -347,7 +491,14 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
 export async function runWorkflows(ctx: WorkflowContext): Promise<void> {
   try {
     const rules = await prisma.workflowRule.findMany({
-      where: { orgId: ctx.orgId, trigger: ctx.trigger, isActive: true },
+      where: {
+        orgId: ctx.orgId,
+        trigger: ctx.trigger,
+        isActive: true,
+        // Still org- and trigger-scoped even when targeted, so a caller
+        // cannot reach another org's rule by passing its id.
+        ...(ctx.ruleId ? { id: ctx.ruleId } : {}),
+      },
     });
 
     for (const rule of rules) {

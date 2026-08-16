@@ -92,11 +92,14 @@ export function useToggleWorkflow() {
   });
 }
 
-/** Manual "Run now" test trigger for a DATE_FIELD_REACHED rule — see workflows.controller.ts's runDateRule. */
+/** "Run now" for a DATE_FIELD_REACHED rule. Defaults to a PREVIEW — pass
+ *  `dryRun: false` to actually send. See workflows.controller.ts's runDateRule. */
 export function useRunDateRule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.post(`/workflows/${id}/run-now`).then(r => r.data as { message: string; fired: number }),
+    mutationFn: (vars: { id: string; dryRun?: boolean }) =>
+      api.post(`/workflows/${vars.id}/run-now`, { dryRun: vars.dryRun !== false })
+        .then(r => r.data as { message: string; matched: number; dryRun: boolean; fired: number }),
     onSuccess: (_data, id) => qc.invalidateQueries({ queryKey: ['workflow-logs', id] }),
   });
 }

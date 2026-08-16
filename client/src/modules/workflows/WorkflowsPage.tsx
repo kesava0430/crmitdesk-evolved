@@ -769,9 +769,24 @@ export function WorkflowsPage() {
 
                     <RowActions items={[
                       ...(rule.trigger === 'DATE_FIELD_REACHED' ? [{
-                        label: 'Run now (test)', icon: <Play size={14} />,
-                        onClick: () => runDateRule.mutate(rule.id, {
-                          onSuccess: (res: any) => addToast(res.message, res.fired > 0 ? 'success' : 'info'),
+                        label: 'Preview matches', icon: <Play size={14} />,
+                        // Two steps on purpose. This used to be one click
+                        // labelled "Run now (test)" that sent real emails and
+                        // WhatsApp messages to every matching record.
+                        onClick: () => runDateRule.mutate({ id: rule.id, dryRun: true }, {
+                          onSuccess: (res: any) => {
+                            if (!res.matched) return addToast(res.message, 'info');
+                            const go = window.confirm(
+                              `${res.matched} record(s) match "${rule.name}".\n\n` +
+                              'Running it now will send this rule\'s real emails, WhatsApp messages and notifications ' +
+                              'to those records immediately.\n\nSend them now?'
+                            );
+                            if (!go) return addToast(`${res.matched} match — nothing sent`, 'info');
+                            runDateRule.mutate({ id: rule.id, dryRun: false }, {
+                              onSuccess: (r2: any) => addToast(r2.message, 'success'),
+                              onError: (err: any) => addToast(err?.response?.data?.error || 'Failed to run rule', 'error'),
+                            });
+                          },
                           onError: (err: any) => addToast(err?.response?.data?.error || 'Failed to run rule', 'error'),
                         }),
                       }] : []),

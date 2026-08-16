@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import { runAiRules } from '../../../utils/ai-rules';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
@@ -113,6 +114,22 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       const trigger = data.status === 'WON' ? 'DEAL_WON' : data.status === 'LOST' ? 'DEAL_LOST' : null;
       if (trigger) runWorkflows({ trigger, orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal!.id, entity: deal as any, previousEntity: existing as any }).catch(() => {});
       if (data.status === 'WON' && deal) slackDealWon(req.user!.orgId, { title: deal.title, value: Number(deal.value), assignee: deal.assignee }).catch(() => {});
+    }
+
+    /* DEAL_STAGE_CHANGED only fired from moveStage(), so moving a deal from
+       the edit form instead of the pipeline board silently skipped every
+       stage automation — the same user action, two different outcomes
+       depending on which screen it was done from. */
+    if (data.stage && data.stage !== existing.stage && deal) {
+      runWorkflows({
+        trigger: 'DEAL_STAGE_CHANGED',
+        orgId: req.user!.orgId,
+        entityType: 'DEAL',
+        entityId: deal.id,
+        entity: deal as any,
+        previousEntity: existing as any,
+      }).catch(() => {});
+      runAiRules({ trigger: 'DEAL_STAGE_CHANGED', orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal.id, entity: deal as any, userId: req.user!.id });
     }
     logAction(req.user!.id, 'UPDATE', 'Deal', req.params.id, data as Record<string, unknown>);
     res.json(deal);

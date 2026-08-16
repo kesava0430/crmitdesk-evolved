@@ -1058,8 +1058,8 @@ async function buildOrg(preset: VerticalPreset) {
   ]);
 
   await Promise.all([
-    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Auto-Tag Billing Tickets', description: 'Tag any ticket mentioning invoices or billing.', trigger: 'TICKET_CREATED', action: 'TAG', customPrompt: 'If it mentions billing, invoice, payment, or charges, return tag "billing".', isActive: true, runCount: 12, lastRunAt: daysAgo(1) } }),
-    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Smart Lead Follow-up', description: 'Generate a personalised follow-up email for high-scoring leads.', trigger: 'LEAD_SCORED', action: 'EMAIL', customPrompt: 'Generate a warm professional follow-up email for {{contact_name}}. Under 150 words.', isActive: true, runCount: 5, lastRunAt: daysAgo(3) } }),
+    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Auto-Tag Billing Tickets', description: 'Tag any ticket mentioning invoices or billing.', trigger: 'TICKET_CREATED', action: 'TAG', customPrompt: 'If it mentions billing, invoice, payment, or charges, return tag "billing".', isActive: true, runCount: 0 } }),
+    prisma.aICustomRule.create({ data: { orgId: org.id, name: 'Smart Lead Follow-up', description: 'Generate a personalised follow-up email for high-scoring leads.', trigger: 'LEAD_SCORED', action: 'EMAIL', customPrompt: 'Generate a warm professional follow-up email for {{contact_name}}. Under 150 words.', isActive: true, runCount: 0 } }),
   ]);
 
   // Custom module — demonstrates the no-code object builder + shows a

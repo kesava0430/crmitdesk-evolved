@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import { runAiRules } from '../../../utils/ai-rules';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
@@ -99,6 +100,8 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     managers.forEach(m => sendMail({ ...emailTemplates.ticketCreated(ticket, ticket.requester.name, m.email), orgId }).catch(() => {}));
     // Fire workflows + SSE in background
     runWorkflows({ trigger: 'TICKET_CREATED', orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any }).catch(() => {});
+    // AI Custom Rules run alongside workflow rules on the same events.
+    runAiRules({ trigger: 'TICKET_CREATED', orgId: req.user!.orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any, userId: req.user!.id });
     sseManager.broadcastAll(orgId, SSEEvent.TICKET_CREATED, { id: ticket.id, title: ticket.title, priority: ticket.priority, status: ticket.status });
     notifyOrgAdmins({ orgId, type: 'TICKET_CREATED', title: `New ticket: ${ticket.title}`, body: `Priority: ${ticket.priority}`, entityType: 'TICKET', entityId: ticket.id }).catch(() => {});
     slackNewTicket(orgId, { id: ticket.id, title: ticket.title, priority: ticket.priority, requester: ticket.requester }).catch(() => {});
@@ -121,9 +124,33 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
-    await prisma.ticket.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
+    const orgId = req.user!.orgId;
+    const existing = await prisma.ticket.findFirst({ where: { id: req.params.id, orgId } });
+    if (!existing) throw new AppError(404, 'Ticket not found');
+
+    await prisma.ticket.updateMany({ where: { id: req.params.id, orgId }, data });
     const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id }, include });
     logAction(req.user!.id, 'UPDATE', 'Ticket', req.params.id, data as Record<string, unknown>);
+
+    /* TICKET_UPDATED was offered in the rule builder, accepted by the API and
+       shown as "Active" with a run counter — and nothing in the codebase ever
+       emitted it. A rule on it never fired and never logged, so there was
+       nothing for the user to inspect. */
+    if (ticket) {
+      runWorkflows({
+        trigger: 'TICKET_UPDATED',
+        orgId,
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        entity: ticket,
+        previousEntity: existing,
+      }).catch(() => {});
+
+      // No status branch needed here: this endpoint's schema has no `status`
+      // field, so a ticket's status can only move through changeStatus(),
+      // which already fires TICKET_STATUS_CHANGED.
+    }
+
     res.json(ticket);
   } catch (err) { next(err); }
 }
@@ -138,6 +165,9 @@ export async function changeStatus(req: AuthRequest, res: Response, next: NextFu
     if (status === 'CLOSED') data.closedAt = new Date();
     const ticket = await prisma.ticket.update({ where: { id: req.params.id }, data, include });
     await prisma.ticketHistory.create({ data: { ticketId: ticket.id, fromStatus: existing.status, toStatus: status, changedBy: req.user!.id } });
+    if (status === 'RESOLVED') {
+      runAiRules({ trigger: 'TICKET_RESOLVED', orgId: req.user!.orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any, userId: req.user!.id });
+    }
     runWorkflows({ trigger: 'TICKET_STATUS_CHANGED', orgId: req.user!.orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any, previousEntity: existing as any }).catch(() => {});
     sseManager.broadcastAll(req.user!.orgId, SSEEvent.TICKET_STATUS, { id: ticket.id, title: ticket.title, status, previousStatus: existing.status });
     notifyOrgAdmins({ orgId: req.user!.orgId, type: 'TICKET_STATUS', title: `Ticket "${ticket.title}" → ${status}`, entityType: 'TICKET', entityId: ticket.id }).catch(() => {});
@@ -158,14 +188,44 @@ export async function changeStatus(req: AuthRequest, res: Response, next: NextFu
 export async function assign(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { assignedTo } = z.object({ assignedTo: z.string() }).parse(req.body);
+    const orgId = req.user!.orgId;
+
+    /* Was `update({ where: { id } })` with no orgId — a cross-org write: any
+       authenticated user could reassign another organisation's ticket by id.
+       Every other ticket mutation in this file scopes by orgId; this one was
+       missed. */
+    const existing = await prisma.ticket.findFirst({ where: { id: req.params.id, orgId } });
+    if (!existing) throw new AppError(404, 'Ticket not found');
+
+    // The assignee must also be in this org, or the ticket ends up owned by
+    // somebody who cannot see it.
+    const assignee = await prisma.user.findFirst({ where: { id: assignedTo, orgId }, select: { id: true } });
+    if (!assignee) throw new AppError(400, 'That user is not in your organization');
+
+    const previousStatus = existing.status;
     const ticket = await prisma.ticket.update({
       where: { id: req.params.id },
       data: { assignedTo, status: 'IN_PROGRESS' },
       include
     });
     if (ticket.assignee?.email) {
-      sendMail({ ...emailTemplates.ticketAssigned(ticket, ticket.assignee.name, ticket.assignee.email), orgId: req.user!.orgId }).catch(() => {});
+      sendMail({ ...emailTemplates.ticketAssigned(ticket, ticket.assignee.name, ticket.assignee.email), orgId }).catch(() => {});
     }
+
+    /* Assigning moves the ticket to IN_PROGRESS, which IS a status change —
+       but this path never told the automation engine, so TICKET_STATUS_CHANGED
+       rules silently skipped every assignment. */
+    if (previousStatus !== ticket.status) {
+      runWorkflows({
+        trigger: 'TICKET_STATUS_CHANGED',
+        orgId,
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        entity: ticket,
+        previousEntity: existing,
+      }).catch(() => {});
+    }
+
     res.json(ticket);
   } catch (err) { next(err); }
 }

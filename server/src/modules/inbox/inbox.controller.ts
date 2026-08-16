@@ -1,4 +1,5 @@
 import { Response, NextFunction, Request } from 'express';
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import https from 'https';
 import nodemailer from 'nodemailer';
@@ -335,6 +336,39 @@ export async function triggerSync(req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
+/**
+ * Twilio's request signature: HMAC-SHA1 over the full request URL with every
+ * POST parameter appended in alphabetical order, keyed by the account's auth
+ * token, base64-encoded.
+ * https://www.twilio.com/docs/usage/security#validating-signatures
+ *
+ * Implemented here rather than pulled from the `twilio` SDK because
+ * utils/whatsapp.ts already speaks to Twilio over plain HTTPS instead of the
+ * SDK, and this keeps that consistent.
+ */
+function isValidTwilioSignature(signature: string, req: Request, authToken: string): boolean {
+  try {
+    // Behind Render/Netlify the request is proxied, so trust the forwarded
+    // headers when present — otherwise the URL we hash differs from the one
+    // Twilio signed and every request looks forged.
+    const proto = (req.header('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+    const host = (req.header('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+    const url = `${proto}://${host}${req.originalUrl}`;
+
+    const params = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+    const data = Object.keys(params).sort().reduce((acc, k) => acc + k + String(params[k] ?? ''), url);
+
+    const expected = crypto.createHmac('sha1', authToken).update(Buffer.from(data, 'utf-8')).digest('base64');
+
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signature);
+    // Length check first: timingSafeEqual throws on a length mismatch.
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
 // ─── Twilio Webhook (no JWT auth — Twilio calls this) ─────────────────────────
 
 export async function twilioWebhook(req: Request, res: Response, next: NextFunction) {
@@ -364,6 +398,33 @@ export async function twilioWebhook(req: Request, res: Response, next: NextFunct
     if (!waConfig) {
       console.warn(`[whatsapp-webhook] No org found for number: ${to}`);
       return res.status(200).send('<Response></Response>');
+    }
+
+    /* Verify this really came from Twilio.
+       This endpoint is mounted before `authenticate` (Twilio cannot present a
+       JWT), and until now it verified nothing at all — anyone who knew an
+       org's WhatsApp number could POST here and inject arbitrary inbound
+       conversations and messages into that org's inbox. Stripe's webhook was
+       the only signature check in the codebase.
+
+       The org has to be resolved first, because the signature is computed
+       with THAT org's Twilio auth token. Validation runs against the org's
+       own token when it has one, else the platform token. */
+    const signature = req.header('X-Twilio-Signature');
+    const authToken = waConfig.authToken || process.env.TWILIO_AUTH_TOKEN || '';
+
+    if (!authToken) {
+      // Nothing to verify against. Refuse in production rather than accept
+      // unauthenticated writes; in development, warn and continue so the
+      // webhook can still be exercised with a tunnel.
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[whatsapp-webhook] Rejected: no Twilio auth token configured to verify the signature');
+        return res.status(403).send('<Response></Response>');
+      }
+      console.warn('[whatsapp-webhook] No auth token configured — skipping signature check (development only)');
+    } else if (!signature || !isValidTwilioSignature(signature, req, authToken)) {
+      console.warn(`[whatsapp-webhook] Rejected message with an invalid signature for org ${waConfig.orgId}`);
+      return res.status(403).send('<Response></Response>');
     }
 
     const orgId = waConfig.orgId;

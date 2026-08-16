@@ -1,4 +1,6 @@
 import OpenAI from 'openai';
+import { getAiContext } from './aiContext';
+import { complete } from './aiGateway';
 
 // ─── Client Factory ───────────────────────────────────────────────────────────
 
@@ -61,11 +63,28 @@ function cacheKey(...parts: any[]): string {
 
 // ─── Chat with Retry + Caching ────────────────────────────────────────────────
 
+/* Every AI call in this file now goes through the gateway when a request
+   context is available, which is what puts the ~26 features here under the
+   same budget, interaction log and cost accounting that RAG already had.
+   Before this, roughly 90% of the product's AI traffic was invisible to the
+   AI Governance page and could not be budget-capped.
+
+   `feature` is the one thing the gateway needs that cannot be inferred — it
+   is the label the governance dashboard groups by. Keep the values in step
+   with the ids in client/src/shared/ai/aiFeatures.ts so the two agree. */
 async function chat(
   client: OpenAI,
   system: string,
   user: string,
-  opts: { maxTokens?: number; temperature?: number; model?: string; json?: boolean } = {}
+  opts: {
+    maxTokens?: number;
+    temperature?: number;
+    model?: string;
+    json?: boolean;
+    /** Governance label, e.g. "lead.score". Defaults to an explicit unknown
+        so an unlabelled call is visible in the log rather than silent. */
+    feature?: string;
+  } = {}
 ): Promise<string> {
   const model = opts.model ?? AI_MODEL;
   const maxTokens = opts.maxTokens ?? 800;
@@ -75,6 +94,39 @@ async function chat(
   const cached = getCached(key);
   if (cached) return cached;
 
+  const ctx = getAiContext();
+  if (ctx) {
+    const res = await complete({
+      orgId: ctx.orgId,
+      userId: ctx.userId,
+      feature: opts.feature ?? 'legacy.unlabelled',
+      // This file only ever picks between the two named models, so map back
+      // to the gateway's task tiers rather than pinning a model name — that
+      // is what lets an org's own provider config take over routing.
+      task: model === AI_MODEL_SMART ? 'SMART' : 'FAST',
+      system,
+      user,
+      maxTokens,
+      temperature,
+      json: opts.json,
+    });
+
+    if (res.blocked) {
+      // Surfaced as 402 by handleAIError, so the user is told the budget was
+      // reached instead of receiving a confidently empty answer.
+      const err: any = new Error('Monthly AI budget reached. Raise the limit in AI Governance, or wait for the next billing period.');
+      err.status = 402;
+      throw err;
+    }
+
+    setCached(key, res.text);
+    return res.text;
+  }
+
+  /* No request context — a cron job, a queue worker, or anything that escaped
+     the async chain. Fall back to calling the provider directly so background
+     work keeps running; it is simply not logged or budgeted. See
+     utils/aiContext.ts for how to attach a context to such callers. */
   let lastErr: any;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
@@ -166,7 +218,7 @@ export async function scoreLead(lead: {
     client,
     'You are a CRM lead scoring AI. Score leads from 0–100. Higher = more likely to convert. Respond ONLY with valid JSON: {"score": number, "reason": "1 sentence max 120 chars"}',
     `Score this lead: ${JSON.stringify(payload)}`,
-    { maxTokens: 300 }
+    { feature: 'lead.score', maxTokens: 300 }
   );
 
   const parsed = safeJson(reply);
@@ -202,7 +254,9 @@ export async function generateFollowUp(context: {
     client,
     'You are a professional sales email writer. Write concise, warm, personalized follow-up emails (3–5 short paragraphs). Respond ONLY with valid JSON: {"subject": "...", "body": "..."}',
     `Write a follow-up email for this ${context.type}: ${JSON.stringify(context)}`,
-    { maxTokens: 1000 }
+    // Shared by leads and deals, so the governance label follows the caller —
+    // otherwise both would collapse into one row on the cost-by-feature chart.
+    { feature: `${context.type}.followUp`, maxTokens: 1000 }
   );
 
   const parsed = safeJson(reply);
@@ -232,7 +286,7 @@ export async function analyzeTicketSentiment(ticket: {
     client,
     'You are a customer support AI. Classify the sentiment of this support ticket. Respond ONLY with one word: POSITIVE, NEUTRAL, NEGATIVE, or FRUSTRATED.',
     `Ticket: "${ticket.title}"\n\n${ticket.body}`,
-    { maxTokens: 300 }
+    { feature: 'ticket.sentiment', maxTokens: 300 }
   );
 
   const sentiment = reply.toUpperCase().trim() as Sentiment;
@@ -256,7 +310,7 @@ export async function suggestTicketReply(
     client,
     'You are a helpful, professional IT support agent. Write a clear, empathetic, solution-focused reply to the support ticket below. Keep it concise (3–5 sentences). Do not include subject lines or greetings like "Dear" — just the body.',
     `Ticket title: "${ticket.title}"\nPriority: ${ticket.priority}\nCategory: ${ticket.category || 'General'}\n\n${ticket.body}${kb}\n\nWrite a reply:`,
-    { maxTokens: 800 }
+    { feature: 'ticket.reply', maxTokens: 800 }
   );
 }
 
@@ -282,7 +336,7 @@ export async function autoRouteTicket(ticket: {
 Respond ONLY with valid JSON: {"categoryId": "...", "agentId": "...", "reason": "1 sentence"}
 Use null if no clear match. Pick from the provided lists only.`,
     `Ticket: "${ticket.title}"\nPriority: ${ticket.priority}\n\n${ticket.body}\n\nCategories: ${JSON.stringify(categories)}\n\nAgents: ${JSON.stringify(agents)}`,
-    { maxTokens: 300 }
+    { feature: 'ticket.autoRoute', maxTokens: 300 }
   );
 
   try {
@@ -326,7 +380,7 @@ export async function naturalLanguageQuery(
     client,
     'You are a CRM analytics assistant. Answer questions about the user\'s business data concisely (2–3 sentences max). Be specific and actionable. If the data doesn\'t support the question, say so briefly.',
     `CRM snapshot: ${JSON.stringify(context)}\n\nUser question: ${question}`,
-    { maxTokens: 300 }
+    { feature: 'dashboard.query', maxTokens: 300 }
   );
 }
 
@@ -341,7 +395,7 @@ export async function generateKbArticle(ticket: {
   const reply = await chat(client,
     'You are a technical writer. Given a resolved support ticket and its resolution thread, write a clear knowledge base article. Respond ONLY with valid JSON: {"title": "...", "body": "markdown content"}',
     `Ticket: "${ticket.title}"\nCategory: ${ticket.category ?? 'General'}\n\nDescription:\n${ticket.body}\n\nResolution thread:\n${thread}`,
-    { model: AI_MODEL_SMART, maxTokens: 1500 }
+    { feature: 'ticket.kbArticle', model: AI_MODEL_SMART, maxTokens: 1500 }
   );
   const parsed = safeJson(reply);
   return {
@@ -363,7 +417,7 @@ export async function detectDuplicates(newTicket: {
   const reply = await chat(client,
     'You are a duplicate detection AI. Given a new support ticket, identify semantically similar existing tickets. Respond ONLY with valid JSON: {"duplicates": [{"id": "...", "confidence": 0-100, "reason": "1 sentence"}]}. Only include tickets with confidence > 60.',
     `New ticket: "${newTicket.title}"\n${newTicket.body}\n\nExisting tickets:\n${JSON.stringify(sample.map(t => ({ id: t.id, title: t.title, status: t.status })))}`,
-    { maxTokens: 300 }
+    { feature: 'ticket.duplicate', maxTokens: 300 }
   );
   try {
     const parsed = JSON.parse(reply);
@@ -388,7 +442,7 @@ export async function summarizeThread(ticket: {
   return chat(client,
     'You are a support ticket summarizer. Summarize the thread in 3–4 sentences covering: the issue, what was tried, current status, and next steps.',
     `Ticket: "${ticket.title}"\n\n${ticket.body}\n\nThread:\n${thread}`,
-    { maxTokens: 600 }
+    { feature: 'ticket.summarize', maxTokens: 600 }
   );
 }
 
@@ -402,7 +456,7 @@ export async function estimateResolutionTime(ticket: {
   const reply = await chat(client,
     'You are an IT helpdesk AI. Estimate resolution time for this ticket. Respond ONLY with valid JSON: {"hours": number, "label": "e.g. 2–4 hours", "reason": "1 sentence"}',
     `Title: "${ticket.title}"\nPriority: ${ticket.priority}\nCategory: ${ticket.category ?? 'General'}\n\n${ticket.body}`,
-    { maxTokens: 300 }
+    { feature: 'ticket.estimate', maxTokens: 300 }
   );
   const parsed = safeJson(reply);
   const hours = parsed ? num(parsed.hours, 0.25, 2000) : null;
@@ -429,7 +483,7 @@ export async function predictSlaBreach(ticket: {
   const reply = await chat(client,
     'You are an SLA risk assessment AI. Predict breach risk. Respond ONLY with valid JSON: {"risk": "LOW"|"MEDIUM"|"HIGH", "score": 0-100, "reason": "1 sentence"}',
     `Priority: ${ticket.priority}\nAge: ${ageHours.toFixed(1)}h\nHours until SLA: ${hoursLeft?.toFixed(1) ?? 'unknown'}\nResponses: ${ticket.responseCount}\nTitle: "${ticket.title}"`,
-    { maxTokens: 300 }
+    { feature: 'ticket.slaRisk', maxTokens: 300 }
   );
   try {
     const p = JSON.parse(reply);
@@ -448,7 +502,7 @@ export async function calculateWinProbability(deal: {
   const reply = await chat(client,
     'You are a sales AI. Predict deal win probability. Respond ONLY with valid JSON: {"probability": 0-100, "factors": ["up to 3 key factors"], "recommendation": "1 actionable sentence"}',
     `Deal: "${deal.title}"\nValue: $${deal.value}\nStage: ${deal.stage}\nManual prob: ${deal.probability}%\nDays open: ${deal.daysOpen}\nOrg win rate: ${orgWinRate}%\nContact: ${deal.contactName ?? 'unknown'}\nNotes: ${deal.notes ?? 'none'}`,
-    { maxTokens: 300 }
+    { feature: 'deal.winProbability', maxTokens: 300 }
   );
   try {
     const p = JSON.parse(reply);
@@ -472,7 +526,7 @@ export async function generatePipelineHealth(data: {
   const reply = await chat(client,
     'You are a sales analytics AI. Analyze the pipeline and respond ONLY with valid JSON: {"summary": "2-3 sentence overview", "risks": ["up to 3 risks"], "opportunities": ["up to 3 opportunities"]}',
     `Pipeline snapshot: ${JSON.stringify(data)}`,
-    { model: AI_MODEL_SMART, maxTokens: 800 }
+    { feature: 'deal.pipelineHealth', model: AI_MODEL_SMART, maxTokens: 800 }
   );
   const parsed = safeJson(reply);
   return {
@@ -498,7 +552,7 @@ export async function detectChurnRisk(contact: {
   const reply = await chat(client,
     'You are a churn risk AI. Respond ONLY with valid JSON: {"risk": "LOW"|"MEDIUM"|"HIGH", "score": 0-100, "reason": "1 sentence"}',
     `Contact: ${contact.name}\nDays since last activity: ${daysSinceActivity.toFixed(0)}\nRecent tickets: ${recentTickets.length}\nNegative/frustrated tickets: ${negativeCount}\nTicket details: ${JSON.stringify(recentTickets.slice(0,5).map(t => ({ sentiment: t.sentiment, status: t.status })))}`,
-    { maxTokens: 300 }
+    { feature: 'contact.churnRisk', maxTokens: 300 }
   );
   try {
     const p = JSON.parse(reply);
@@ -517,7 +571,7 @@ export async function generateNurtureSequence(lead: {
   const reply = await chat(client,
     'You are a sales email strategist. Generate a 3-step lead nurture email sequence. Respond ONLY with valid JSON array: [{"day": number, "subject": "...", "body": "3-4 sentence email body"}]. Days should be 1, 4, and 10.',
     `Lead info: contact=${lead.contactName ?? 'Unknown'}, source=${lead.source ?? 'unknown'}, status=${lead.status}, notes=${lead.notes ?? 'none'}`,
-    { model: AI_MODEL_SMART, maxTokens: 1200 }
+    { feature: 'lead.nurture', model: AI_MODEL_SMART, maxTokens: 1200 }
   );
   try {
     const arr = JSON.parse(reply);
@@ -539,7 +593,7 @@ export async function parseMeetingNotes(notes: string): Promise<{
   const reply = await chat(client,
     'You are a CRM data extraction AI. Extract structured CRM data from meeting notes. Respond ONLY with valid JSON: {"contacts": [...], "leads": [...], "deals": [...], "nextSteps": ["..."], "summary": "2-sentence overview"}',
     `Meeting notes:\n${notes}`,
-    { model: AI_MODEL_SMART, maxTokens: 1500 }
+    { feature: 'meeting.notes', model: AI_MODEL_SMART, maxTokens: 1500 }
   );
   /* This result populates create-forms in the client, so every field is
      coerced. Previously the raw parse was returned and a malformed `contacts`
@@ -586,7 +640,7 @@ export async function generateInsights(data: {
   const reply = await chat(client,
     'You are a proactive business insights AI. Generate 3-5 actionable observations from the data. Respond ONLY with valid JSON array: [{"type": "warning"|"info"|"success", "title": "short title", "description": "1-2 sentences", "action": "optional CTA text"}]',
     `Business snapshot: ${JSON.stringify(data)}`,
-    { maxTokens: 600 }
+    { feature: 'dashboard.insights', maxTokens: 600 }
   );
   try {
     const arr = JSON.parse(reply);
@@ -607,7 +661,7 @@ export async function checkEmailTone(email: {
   const reply = await chat(client,
     'You are a professional communication coach. Analyze this business email tone. Respond ONLY with valid JSON: {"tone": "professional|friendly|aggressive|passive-aggressive|too-casual|empathetic", "score": 0-100, "issues": ["up to 3 issues"], "suggestions": ["up to 3 improvements"], "approved": boolean}',
     `Subject: ${email.subject}\nContext: ${email.context ?? 'customer support reply'}\n\nBody:\n${email.body}`,
-    { maxTokens: 300 }
+    { feature: 'deal.toneCheck', maxTokens: 300 }
   );
   const parsed = safeJson(reply);
   const score = parsed ? num(parsed.score, 0, 100) : null;
@@ -827,7 +881,7 @@ Respond with a single JSON object only: {"intent": "create"|"update", "entity": 
     // model's much better instruction-following — plus JSON mode so the
     // "respond with JSON only" instruction is enforced by the API, not just
     // requested.
-    { maxTokens: 300, model: AI_MODEL_SMART, json: true }
+    { feature: 'command.bar', maxTokens: 300, model: AI_MODEL_SMART, json: true }
   );
   let parsed: NlCommandResult;
   try {
@@ -896,7 +950,7 @@ export async function planAiAction(
     reply = await chat(client,
       `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module/quote/invoice/campaign/asset/leave-type/leave-request/user mentioned by name (or invoice number) to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. Pending leave requests are matched by the requester's name, not the manager's. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
       `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}\nQuotes: ${JSON.stringify(context.quotes ?? [])}\nInvoices: ${JSON.stringify(context.invoices ?? [])}\nCampaigns: ${JSON.stringify(context.campaigns ?? [])}\nAssets: ${JSON.stringify(context.assets ?? [])}\nLeave types: ${JSON.stringify(context.leaveTypes ?? [])}\nPending leave requests: ${JSON.stringify(context.pendingLeaveRequests ?? [])}\nOrg users (for MANUAL_ATTENDANCE_ENTRY): ${JSON.stringify(context.orgUsers ?? [])}`,
-      { maxTokens: 500, model: AI_MODEL_SMART }
+      { feature: 'command.plan', maxTokens: 500, model: AI_MODEL_SMART }
     );
   } catch (err: any) {
     console.error('[planAiAction] chat call failed:', err?.status, err?.message || err);
@@ -930,7 +984,7 @@ export async function autoTagTicket(ticket: {
   const reply = await chat(client,
     'You are an IT help desk AI. Extract 3-6 short, lowercase keyword tags from this support ticket that would help categorize and find it later. Respond ONLY with a valid JSON array of strings: ["tag1", "tag2", ...]',
     `Title: "${ticket.title}"\nCategory: ${ticket.category ?? 'General'}\n\n${ticket.body.slice(0, 600)}`,
-    { maxTokens: 150 }
+    { feature: 'ticket.autoTag', maxTokens: 150 }
   );
   try {
     const tags = JSON.parse(reply);
@@ -956,7 +1010,7 @@ export async function scoreContactHealth(contact: {
   const reply = await chat(client,
     'You are a customer health scoring AI. Rate the overall health of a customer relationship. Respond ONLY with valid JSON: {"score": 0-100, "grade": "A"|"B"|"C"|"D"|"F", "summary": "2-sentence assessment", "recommendations": ["up to 3 actionable recommendations"]}',
     `Contact: ${contact.name}\nDays since last activity: ${daysSinceActivity}\nOpen deals: ${contact.dealCount} (value: $${contact.openDealValue})\nTotal tickets: ${contact.ticketCount}\nNegative/frustrated tickets: ${contact.negativeTickets}`,
-    { maxTokens: 300 }
+    { feature: 'contact.health', maxTokens: 300 }
   );
   try {
     const p = JSON.parse(reply);
@@ -985,7 +1039,7 @@ export async function predictDealCloseDate(deal: {
   const reply = await chat(client,
     'You are a sales forecasting AI. Predict when this deal will close. Respond ONLY with valid JSON: {"predictedDays": number (days from today), "confidence": "LOW"|"MEDIUM"|"HIGH", "reasoning": "1-2 sentences"}',
     `Deal: "${deal.title}"\nStage: ${deal.stage}\nValue: $${deal.value}\nProbability: ${deal.probability}%\nDays already open: ${deal.daysOpen}\nHistorical avg close: ${historicalAvgDays} days\nExpected close: ${deal.expectedCloseDate ?? 'not set'}\nNotes: ${deal.notes ?? 'none'}`,
-    { maxTokens: 200 }
+    { feature: 'deal.closeDate', maxTokens: 200 }
   );
   try {
     const p = JSON.parse(reply);
@@ -1017,7 +1071,7 @@ export async function detectCompetitorMentions(text: string, knownCompetitors?: 
   const reply = await chat(client,
     `You are a competitive intelligence AI. Detect competitor mentions in business text. ${competitorHint}Respond ONLY with valid JSON: {"mentions": [{"competitor": "name", "context": "brief quote or context", "sentiment": "POSITIVE"|"NEGATIVE"|"NEUTRAL"}], "hasCompetitorActivity": boolean}`,
     `Text to analyze:\n${text.slice(0, 1000)}`,
-    { maxTokens: 400 }
+    { feature: 'competitors.detect', maxTokens: 400 }
   );
   try {
     const p = JSON.parse(reply);
@@ -1047,7 +1101,7 @@ export async function bulkScoreLeads(leads: Array<{
     const reply = await chat(client,
       'You are a CRM lead scoring AI. Score each lead 0-100. Respond ONLY with a valid JSON array: [{"id": "...", "score": number, "reason": "max 80 chars"}]',
       `Score these leads:\n${JSON.stringify(batch)}`,
-      { maxTokens: 600 }
+      { feature: 'lead.bulkScore', maxTokens: 600 }
     );
     /* Validate before these reach prisma.lead.updateMany. Ids are checked
        against the batch we actually sent, so a hallucinated id cannot become a
@@ -1099,7 +1153,7 @@ export async function interpretSearchQuery(query: string): Promise<SearchInterpr
 4. priority: a priority hint if mentioned (e.g. "critical", "high"), else null.
 Respond ONLY with valid JSON: {"keywords": "...", "entityTypes": [...], "status": "..."|null, "priority": "..."|null}`,
       `Search query: "${query}"`,
-      { maxTokens: 150, model: AI_MODEL_FAST },
+      { feature: 'search.interpret', maxTokens: 150, model: AI_MODEL_FAST },
     );
     const parsed = JSON.parse(reply);
     const entityTypes = Array.isArray(parsed.entityTypes)

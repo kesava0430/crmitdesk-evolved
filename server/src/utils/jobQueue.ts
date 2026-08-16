@@ -112,8 +112,62 @@ export async function retryJob(jobId: string, orgId?: string): Promise<boolean> 
   return result.count > 0;
 }
 
+/**
+ * Returns rows stranded in PROCESSING back to PENDING.
+ *
+ * processDueJobs() flips a job to PROCESSING before running its handler, and
+ * only ever polls for PENDING. So a crash, an OOM kill or a SIGTERM in the
+ * middle of a handler left that row PROCESSING forever: never retried, never
+ * marked failed, `attempts` not even incremented, and still counted as
+ * in-flight in the admin panel. Every email, Slack message, Teams card and
+ * push notification in flight at restart was silently lost, recoverable only
+ * by someone noticing and clicking "Retry".
+ *
+ * Running this at boot is safe because the app is single-process: nothing
+ * else can legitimately be mid-handler while we are starting up. It counts
+ * as an attempt, so a job that reliably crashes the process still exhausts
+ * maxAttempts instead of looping forever.
+ */
+export async function recoverStalledJobs(): Promise<number> {
+  try {
+    const stalled = await prisma.backgroundJob.findMany({
+      where: { status: 'PROCESSING' },
+      select: { id: true, attempts: true, maxAttempts: true },
+    });
+    if (!stalled.length) return 0;
+
+    await Promise.all(stalled.map(j => {
+      const attempts = j.attempts + 1;
+      const isFinal = attempts >= j.maxAttempts;
+      return prisma.backgroundJob.update({
+        where: { id: j.id },
+        data: {
+          attempts,
+          status: isFinal ? 'FAILED' : 'PENDING',
+          nextAttemptAt: new Date(),
+          lastError: isFinal
+            ? 'Interrupted by a server restart, and out of retries'
+            : 'Interrupted by a server restart — requeued',
+        },
+      }).catch(() => {});
+    }));
+
+    console.log(`[jobQueue] Recovered ${stalled.length} job(s) stranded in PROCESSING`);
+    return stalled.length;
+  } catch (err: any) {
+    console.error('[jobQueue] Stalled-job recovery failed:', err?.message || err);
+    return 0;
+  }
+}
+
 /** Check for due jobs every 15 seconds — frequent enough that a retried send doesn't sit around for long, cheap enough that it's a non-issue for a single Postgres instance. */
 export function startJobQueuePoller(): void {
+  // Sweep first, then poll. Every other poller in the app runs once at boot;
+  // this one did not, so a restart also meant up to 15s of dead time.
+  recoverStalledJobs()
+    .then(() => processDueJobs())
+    .catch(err => console.error('[jobQueue] Startup pass failed:', err));
+
   setInterval(() => {
     processDueJobs().catch(err => console.error('[jobQueue] Poll error:', err));
   }, 15 * 1000);

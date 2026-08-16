@@ -8,6 +8,7 @@
  *                     POST   /api/ai/studio/scripts/validate
  */
 import { Response, NextFunction } from 'express';
+import { complete } from '../../utils/aiGateway';
 import { z } from 'zod';
 import OpenAI from 'openai';
 import { Prisma } from '@prisma/client';
@@ -194,17 +195,25 @@ export async function runFunction(req: AuthRequest, res: Response, next: NextFun
       .join('\n');
     const userMessage = inputLines || (req.body.text ?? 'Run this function.');
 
-    const chat = await groq.chat.completions.create({
-      model: AI_MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
+    /* Through the gateway, so a custom function is budgeted, logged and
+       costed like every other AI call. It used to use a module-level client
+       directly, which meant AI Studio usage never appeared in AI Governance
+       and could not be capped. */
+    const result = await complete({
+      orgId: req.user!.orgId,
+      userId: req.user!.id,
+      feature: 'studio.function',
+      task: 'FAST',
+      system: systemPrompt,
+      user: userMessage,
       temperature: 0.4,
-      max_tokens: 1024,
+      maxTokens: 1024,
     });
+    if (result.blocked) {
+      throw new AppError(402, 'Monthly AI budget reached. Raise the limit in AI Governance, or wait for the next billing period.');
+    }
 
-    const raw = chat.choices[0]?.message?.content ?? '';
+    const raw = result.text;
 
     // Parse output based on outputType
     let output: any = raw;
@@ -431,17 +440,21 @@ Produce TWO things as a single JSON object:
 Respond with ONLY the JSON object, no markdown fences, no commentary — exactly:
 {"labels": {"entities": {...}, "fields": {...}}, "workflowRules": [...]}`;
 
-    const chat = await groq.chat.completions.create({
-      model: AI_MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: 'Generate the setup now.' },
-      ],
+    const result = await complete({
+      orgId: req.user!.orgId,
+      userId: req.user!.id,
+      feature: 'studio.generateSetup',
+      task: 'FAST',
+      system: systemPrompt,
+      user: 'Generate the setup now.',
       temperature: 0.5,
-      max_tokens: 2000,
+      maxTokens: 2000,
     });
+    if (result.blocked) {
+      throw new AppError(402, 'Monthly AI budget reached. Raise the limit in AI Governance, or wait for the next billing period.');
+    }
 
-    const raw = chat.choices[0]?.message?.content ?? '{}';
+    const raw = result.text || '{}';
     let parsed: any;
     try {
       const match = raw.match(/```json\n?([\s\S]*?)\n?```/) || raw.match(/(\{[\s\S]*\})/);

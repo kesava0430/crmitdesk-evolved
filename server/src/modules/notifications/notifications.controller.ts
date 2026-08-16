@@ -12,7 +12,11 @@ export async function listNotifications(req: AuthRequest, res: Response, next: N
     const limit = Math.min(50, parseInt(req.query.limit as string) || 30);
 
     const notifications = await prisma.notification.findMany({
-      where: { userId },
+      // Org-scoped as well as user-scoped. Notification.userId is an
+      // unconstrained FK, so a row written with a foreign userId (see the
+      // CREATE_NOTIFICATION guard in utils/workflow-engine.ts) would otherwise
+      // surface in that user's bell regardless of which org created it.
+      where: { userId, orgId: req.user!.orgId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });

@@ -1,4 +1,8 @@
 import { Response, NextFunction } from 'express';
+import { AppError } from '../../middleware/errorHandler';
+import { runAiRuleManually } from '../../utils/ai-rules';
+import { runAiRules } from '../../utils/ai-rules';
+import { complete } from '../../utils/aiGateway';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest, IT_STAFF } from '../../middleware/authenticate';
@@ -78,6 +82,7 @@ export async function scoreLeadHandler(req: AuthRequest, res: Response, next: Ne
         where: { id: req.params.id, orgId },
         data: { aiScore: result.score, aiScoreReason: result.reason },
       });
+      runAiRules({ trigger: 'LEAD_SCORED', orgId, entityType: 'LEAD', entityId: req.params.id, entity: { ...lead, aiScore: result.score }, userId: req.user!.id });
     }
 
     res.json(result);
@@ -894,37 +899,26 @@ export async function runAIRuleHandler(req: AuthRequest, res: Response, next: Ne
   try {
     const orgId = req.user!.orgId;
     const { entityType, entityId, inputText } = z.object({
-      entityType: z.enum(['ticket', 'lead', 'deal', 'contact']).optional(),
+      entityType: z.enum(['TICKET', 'LEAD', 'DEAL', 'CONTACT']).optional(),
       entityId: z.string().optional(),
-      inputText: z.string().optional(),
+      inputText: z.string().max(10000).optional(),
     }).parse(req.body);
 
-    const rule = await (prisma as any).aICustomRule.findFirst({ where: { id: req.params.id, orgId } });
-    if (!rule) return res.status(404).json({ error: 'Rule not found' });
+    /* Runs the rule for real against a real record, through the AI gateway so
+       it is budgeted and logged. The previous version built its own OpenAI
+       client and, when no inputText was supplied, sent the model the literal
+       string `Entity: <cuid>` — no record data at all — so the "test" ran
+       against nothing and told you it had worked. */
+    const { output, outcome } = await runAiRuleManually(
+      req.params.id,
+      orgId,
+      req.user!.id,
+      entityType && entityId ? { entityType, entityId } : null,
+      inputText,
+    );
 
-    // Execute the custom prompt against entity data or provided text
-    const OpenAI = (await import('openai')).default;
-    const client = process.env.GROQ_API_KEY
-      // Bounded, like utils/ai.ts's shared client — an unbounded request here
-      // could hold this handler for the SDK's 10-minute default.
-      ? new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', timeout: 30_000, maxRetries: 0 })
-      : process.env.OPENAI_API_KEY
-        ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30_000, maxRetries: 0 })
-        : null;
-    if (!client) return res.json({ result: 'AI not configured — add GROQ_API_KEY or OPENAI_API_KEY to .env' });
-
-    const context = inputText || `Entity: ${entityType} (${entityId})`;
-    const model = process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'gpt-4o';
-    const aiRes = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: rule.customPrompt || 'You are a helpful CRM AI assistant.' },
-        { role: 'user', content: context },
-      ],
-      temperature: 0.4,
-      max_tokens: 800,
-    });
-    const output = aiRes.choices[0]?.message?.content?.trim() || '';
-    res.json({ output, result: output, rule: rule.name });
-  } catch (err: any) { if (!handleAIError(err, res)) next(err); }
+    res.json({ output, result: output, outcome });
+  } catch (err: any) {
+    if (!handleAIError(err, res)) next(new AppError(400, err?.message || 'Could not run that rule'));
+  }
 }

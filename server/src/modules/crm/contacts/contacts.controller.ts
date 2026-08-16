@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import { runAiRules } from '../../../utils/ai-rules';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
@@ -82,6 +83,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     if (contact.count === 0) throw new AppError(404, 'Contact not found');
     const updated = await prisma.contact.findUnique({ where: { id: req.params.id }, include });
     logAction(req.user!.id, 'UPDATE', 'Contact', req.params.id, data as Record<string, unknown>);
+    runAiRules({ trigger: 'CONTACT_UPDATED', orgId: req.user!.orgId, entityType: 'CONTACT', entityId: req.params.id, entity: (contact ?? {}) as any, userId: req.user!.id });
     res.json(updated);
   } catch (err) { next(err); }
 }

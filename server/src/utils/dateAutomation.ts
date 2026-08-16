@@ -117,7 +117,7 @@ async function fetchStandardEntities(entityType: StandardEntityType, orgId: stri
  * covers "created time, last updated time, and any custom date field",
  * for every standard entity, not just Contact's birthday.
  */
-async function processStandardEntityRule(orgId: string, ruleId: string, entityType: StandardEntityType, config: DateConfig, skipDedupe: boolean): Promise<number> {
+async function processStandardEntityRule(orgId: string, ruleId: string, entityType: StandardEntityType, config: DateConfig, skipDedupe: boolean, dryRun = false): Promise<number> {
   const target = targetDate(config.offsetDays);
   const isBuiltin = BUILTIN_DATE_FIELDS[entityType].includes(config.dateField);
 
@@ -152,14 +152,20 @@ async function processStandardEntityRule(orgId: string, ruleId: string, entityTy
       entityType,
       entityId: record.id,
       entity: record,
+      // This record matched THIS rule; without the id, runWorkflows would run
+      // every date rule in the org against it.
+      ruleId,
     };
+    // A preview must not send anything. Counting the match and returning
+    // before runWorkflows is what makes "see what this would do" safe.
+    if (dryRun) { fired += 1; continue; }
     await runWorkflows(ctx);
     fired += 1;
   }
   return fired;
 }
 
-async function processCustomModuleRules(orgId: string, ruleId: string, config: DateConfig, skipDedupe: boolean): Promise<number> {
+async function processCustomModuleRules(orgId: string, ruleId: string, config: DateConfig, skipDedupe: boolean, dryRun = false): Promise<number> {
   if (!config.moduleId) return 0;
   const target = targetDate(config.offsetDays);
   const records = await prisma.customModuleRecord.findMany({
@@ -184,19 +190,28 @@ async function processCustomModuleRules(orgId: string, ruleId: string, config: D
       // substitution in SEND_EMAIL/SEND_WHATSAPP/CREATE_NOTIFICATION works
       // exactly like it does for every other entity type.
       entity: { id: record.id, moduleId: record.moduleId, ...(record.data as object) },
+      // Same targeting as the standard-entity path above.
+      ruleId,
     };
+    // A preview must not send anything. Counting the match and returning
+    // before runWorkflows is what makes "see what this would do" safe.
+    if (dryRun) { fired += 1; continue; }
     await runWorkflows(ctx);
     fired += 1;
   }
   return fired;
 }
 
-async function evaluateRule(rule: { id: string; orgId: string; dateConfig: unknown }, skipDedupe: boolean): Promise<number> {
+async function evaluateRule(
+  rule: { id: string; orgId: string; dateConfig: unknown },
+  skipDedupe: boolean,
+  dryRun = false,
+): Promise<number> {
   const config = rule.dateConfig as unknown as DateConfig;
   if (!config?.entityType || !config?.dateField || typeof config.offsetDays !== 'number') return 0;
 
-  if (config.entityType === 'CUSTOM_MODULE') return processCustomModuleRules(rule.orgId, rule.id, config, skipDedupe);
-  return processStandardEntityRule(rule.orgId, rule.id, config.entityType, config, skipDedupe);
+  if (config.entityType === 'CUSTOM_MODULE') return processCustomModuleRules(rule.orgId, rule.id, config, skipDedupe, dryRun);
+  return processStandardEntityRule(rule.orgId, rule.id, config.entityType, config, skipDedupe, dryRun);
 }
 
 /** Evaluates every active DATE_FIELD_REACHED rule across every org — the hourly poller. */
@@ -219,17 +234,30 @@ export async function checkDateAutomations(): Promise<void> {
 }
 
 /**
- * Manual "Run now" test trigger for a single rule, scoped to the calling
- * org (never touches other orgs' data, unlike the global poller). Bypasses
- * the dedupe guard on purpose — an admin clicking "test this rule" wants to
- * see it fire immediately, even if it already ran today.
+ * "Run now" for a single DATE_FIELD_REACHED rule, scoped to the calling org.
+ *
+ * Defaults to a PREVIEW. This was previously always a live run with the
+ * dedupe guard deliberately disabled, behind a button labelled
+ * "Run now (test)" — so clicking "test" sent real emails and real WhatsApp
+ * messages to every matching record, and (before the ruleId fix above) every
+ * other date rule's messages too. "Test" should not be a synonym for "send".
+ *
+ * Pass `dryRun: false` to actually execute. Dedupe stays off for a live
+ * manual run, which is the one part of the old behaviour worth keeping: an
+ * admin re-running a rule on purpose means it.
  */
-export async function runDateRuleNow(ruleId: string, orgId: string): Promise<number> {
+export async function runDateRuleNow(
+  ruleId: string,
+  orgId: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<{ matched: number; dryRun: boolean }> {
+  const dryRun = opts.dryRun !== false;
   const rule = await prisma.workflowRule.findFirst({
     where: { id: ruleId, orgId, trigger: 'DATE_FIELD_REACHED' },
   });
   if (!rule) throw new Error('Rule not found, not yours, or not a DATE_FIELD_REACHED rule');
-  return evaluateRule(rule, true);
+  const matched = await evaluateRule(rule, true, dryRun);
+  return { matched, dryRun };
 }
 
 export function startDateAutomationPoller() {

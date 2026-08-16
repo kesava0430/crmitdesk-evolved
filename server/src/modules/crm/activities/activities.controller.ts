@@ -74,13 +74,25 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     // Completing a lead follow-up is a meaningful automation trigger point
     // (e.g. "notify manager when a lead's first-touch call is logged done").
     if (activity?.leadId && data.done === true && existing?.done === false) {
-      runWorkflows({
-        trigger: 'LEAD_ACTIVITY_COMPLETED',
-        orgId,
-        entityType: 'LEAD',
-        entityId: activity.leadId,
-        entity: activity as any,
-      }).catch(() => {});
+      /* The entity must be the LEAD, not the activity.
+         This declared `entityType: 'LEAD'` while passing the activity as
+         `entity`, so conditions were evaluated against the activity while the
+         rule builder offered lead fields (status, source) — which resolved to
+         undefined, meaning they never matched under `eq` and always matched
+         under `neq`. Template variables like {{title}} resolved to the
+         activity's subject too. Load the lead and pass it; the activity that
+         triggered this rides along under `activity` so a rule can still read
+         its fields. */
+      const lead = await prisma.lead.findFirst({ where: { id: activity.leadId, orgId } });
+      if (lead) {
+        runWorkflows({
+          trigger: 'LEAD_ACTIVITY_COMPLETED',
+          orgId,
+          entityType: 'LEAD',
+          entityId: lead.id,
+          entity: { ...lead, activity },
+        }).catch(() => {});
+      }
     }
     res.json(activity);
   } catch (err) { next(err); }

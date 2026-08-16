@@ -138,8 +138,19 @@ export async function runDateRule(req: AuthRequest, res: Response, next: NextFun
   try {
     const { id } = req.params;
     const orgId = req.user!.orgId;
-    const fired = await runDateRuleNow(id, orgId);
-    res.json({ message: fired > 0 ? `Fired for ${fired} matching record(s)` : 'No matching records today', fired });
+    // Preview unless the caller explicitly opts into sending. The client asks
+    // for confirmation between the two.
+    const dryRun = req.body?.dryRun !== false;
+    const { matched } = await runDateRuleNow(id, orgId, { dryRun });
+
+    const message = matched === 0
+      ? 'No records match this rule today'
+      : dryRun
+        ? `${matched} record(s) match — nothing was sent`
+        : `Ran for ${matched} matching record(s)`;
+
+    // `fired` kept for older clients; it is 0 on a preview because nothing ran.
+    res.json({ message, matched, dryRun, fired: dryRun ? 0 : matched });
   } catch (err: any) {
     next(new AppError(400, err?.message || 'Failed to run rule'));
   }
