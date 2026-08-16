@@ -200,7 +200,10 @@ test('an oversized upload is a 413, not a 500', () => {
 test('the hosted-storage fallback checks a bucket is configured first', () => {
   const storage = code(path.join(SRC, 'utils/storage.ts'));
   const fallback = storage.slice(storage.indexOf('if (!config)'), storage.indexOf("if (config.provider === 'GOOGLE_DRIVE')"));
-  assert.match(fallback, /isS3Configured\(\)/, 'a self-hosted deploy with no S3_* env must get a 400, not an SDK crash');
+  // Renamed to isHostedStorageConfigured when the bucket became configurable
+  // from the platform console as well as the environment — the guard is the
+  // same, the answer just has two possible sources now.
+  assert.match(fallback, /isHostedStorageConfigured\(\)/, 'a deploy with no bucket at all must get a 400, not an SDK crash');
 });
 
 test('client and server agree on the attachable entity types', () => {

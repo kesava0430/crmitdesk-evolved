@@ -7,6 +7,13 @@ export interface PlatformSecretStatus {
 }
 
 export interface PlatformSettings {
+  s3Bucket: string | null;
+  s3Region: string | null;
+  s3Endpoint: string | null;
+  s3AccessKeyId: PlatformSecretStatus;
+  s3SecretAccessKey: PlatformSecretStatus;
+  hostedStorageReady: boolean;
+  effectiveStorage: { bucket: string | null; region: string; endpoint: string | null };
   resendFrom: string | null;
   smtpHost: string | null;
   smtpPort: number | null;
@@ -20,7 +27,20 @@ export interface PlatformSettings {
   updatedAt: string | null;
 }
 
+export interface PlatformStorageTestResult {
+  ok: boolean;
+  step?: 'write' | 'read' | 'delete';
+  error?: string;
+  bucket?: string | null;
+  endpoint?: string | null;
+}
+
 export interface PlatformSettingsUpdate {
+  s3Bucket?: string;
+  s3Region?: string;
+  s3Endpoint?: string;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
   resendApiKey?: string;
   resendFrom?: string;
   smtpHost?: string;
@@ -145,3 +165,18 @@ export const useUpdatePlatformSettings = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform-settings'] }),
   });
 };
+
+/**
+ * Round-trips a probe object against the hosted-storage bucket.
+ *
+ * Any field omitted is filled in server-side from the live config, so a test
+ * after changing only the bucket does not require re-typing the secret key
+ * (which the console never sends back to the browser in the first place).
+ */
+export const useTestPlatformStorage = () =>
+  useMutation({
+    mutationFn: (body: {
+      bucket?: string; region?: string; endpoint?: string;
+      accessKeyId?: string; secretAccessKey?: string;
+    }) => api.post('/platform/settings/storage/test', body).then(r => r.data as PlatformStorageTestResult),
+  });

@@ -197,6 +197,18 @@ export default function handle(req, res, url) {
     if (found) return send(res, 200, found);
   }
 
+  if (path === '/storage/s3/presets') {
+    return send(res, 200, { presets: [
+      { id:'AWS_S3', label:'Amazon S3', endpointTemplate:null, defaultRegion:'us-east-1', forcePathStyle:false, regionRequired:true, help:'Region must match the bucket. No endpoint needed.' },
+      { id:'CLOUDFLARE_R2', label:'Cloudflare R2', endpointTemplate:'https://{accountId}.r2.cloudflarestorage.com', defaultRegion:'auto', forcePathStyle:true, regionRequired:false, help:'Find the account ID in the R2 dashboard URL. Region is always "auto".' },
+      { id:'WASABI', label:'Wasabi', endpointTemplate:'https://s3.{region}.wasabisys.com', defaultRegion:'us-east-1', forcePathStyle:true, regionRequired:true, help:'The region appears in the endpoint, so it must be correct.' },
+      { id:'BACKBLAZE_B2', label:'Backblaze B2', endpointTemplate:'https://s3.{region}.backblazeb2.com', defaultRegion:'us-west-004', forcePathStyle:true, regionRequired:true, help:'Use an application key, not the master key.' },
+      { id:'DO_SPACES', label:'DigitalOcean Spaces', endpointTemplate:'https://{region}.digitaloceanspaces.com', defaultRegion:'nyc3', forcePathStyle:false, regionRequired:true, help:'Region is the datacentre code, e.g. nyc3.' },
+      { id:'MINIO', label:'MinIO / self-hosted', endpointTemplate:null, defaultRegion:'us-east-1', forcePathStyle:true, regionRequired:false, help:'Enter the full URL of your MinIO server.' },
+      { id:'OTHER', label:'Other S3-compatible', endpointTemplate:null, defaultRegion:'auto', forcePathStyle:true, regionRequired:false, help:'Any gateway that speaks the S3 API.' },
+    ] });
+  }
+
   if (path === '/attachments/policy') {
     return send(res, 200, { maxBytes: 25 * 1024 * 1024, allowedExtensions: ['.pdf', '.png', '.xlsx', '.zip'] });
   }

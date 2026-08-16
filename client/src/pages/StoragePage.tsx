@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { HardDrive, CheckCircle, AlertCircle, ExternalLink, Unplug, Cloud, ArrowRightLeft } from 'lucide-react';
+import { HardDrive, CheckCircle, AlertCircle, ExternalLink, Unplug, Cloud, ArrowRightLeft, Database } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useStorageStatus, useConnectGoogleDrive, useConnectHostedStorage, useDisconnectStorage } from '../api/storage';
 import { Button, Spinner } from '../shared/components';
 import { addToast } from '../shared/components/toastStore';
+import { CustomS3Form } from './storage/CustomS3Form';
 
 function formatGB(bytes: number): string {
   return (bytes / (1024 * 1024 * 1024)).toFixed(bytes > 0 && bytes < 1024 * 1024 * 1024 ? 2 : 0);
@@ -14,6 +15,7 @@ export default function StoragePage() {
   const { user } = useAuth();
   const isOwner = user?.role === 'SUPER_ADMIN';
   const [searchParams, setSearchParams] = useSearchParams();
+  const [s3Open, setS3Open] = useState(false);
   const { data: status, isLoading, error, refetch } = useStorageStatus();
   // GET /storage/status is MANAGERS-only (SUPER_ADMIN, IT_MANAGER,
   // CRM_MANAGER). Anyone else reaches this page — there is no route guard —
@@ -42,7 +44,7 @@ export default function StoragePage() {
   }, [searchParams, setSearchParams]);
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-5">
+    <div className="p-6 max-w-4xl mx-auto space-y-5">
       <div className="flex items-center gap-3">
         <HardDrive size={24} className="text-brand-600" />
         <div>
@@ -85,7 +87,28 @@ export default function StoragePage() {
         <div className="bg-surface rounded-2xl border border-line shadow-sm p-6 space-y-5">
           {status?.connected && (
             <div className="space-y-4">
-              {status.provider === 'GOOGLE_DRIVE' ? (
+              {status.provider === 'CUSTOM_S3' ? (
+                <>
+                  <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-xl">
+                    <CheckCircle size={18} className="text-green-600 dark:text-green-400 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                        {status.customS3?.label || 'Your own S3 bucket'} connected
+                      </p>
+                      <p className="text-sm text-green-700 dark:text-green-400 truncate">
+                        {status.customS3?.bucket}
+                        {status.customS3?.prefix ? `/${status.customS3.prefix.replace(/\/$/, '')}` : ''}
+                        {status.customS3?.region ? ` · ${status.customS3.region}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-fg-muted">
+                    Attachments are written to your own bucket
+                    {status.customS3?.endpoint ? <> at <code className="text-xs">{status.customS3.endpoint}</code></> : ''}.
+                    Nothing is stored on our infrastructure, and no plan quota applies.
+                  </p>
+                </>
+              ) : status.provider === 'GOOGLE_DRIVE' ? (
                 <>
                   <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-xl">
                     <CheckCircle size={18} className="text-green-600 dark:text-green-400 flex-shrink-0" />
@@ -167,6 +190,49 @@ export default function StoragePage() {
                   <Button size="sm" icon={<ExternalLink size={13} />} loading={connect.isPending} onClick={() => connect.mutate()}>
                     Connect Google Drive
                   </Button>
+                )}
+              </div>
+
+              {/* Bring-your-own S3-compatible bucket. Always offerable — it
+                  needs nothing configured on this deployment, no OAuth app and
+                  no shared bucket, which makes it the one option that works on
+                  every install. */}
+              <div className="border border-line rounded-xl p-4 sm:col-span-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-fg mb-1 flex items-center gap-1.5">
+                      <Database size={14} /> Your own S3-compatible storage
+                    </p>
+                    <p className="text-xs text-fg-muted">
+                      Amazon S3, Cloudflare R2, Wasabi, Backblaze B2, DigitalOcean Spaces or MinIO.
+                      Your bucket, your region, your bill.
+                    </p>
+                  </div>
+                  {status?.provider === 'CUSTOM_S3' && (
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium whitespace-nowrap">Currently active</span>
+                  )}
+                </div>
+
+                {!isOwner ? (
+                  <p className="text-xs text-fg-subtle mt-3">Only the org owner can connect this.</p>
+                ) : !s3Open ? (
+                  <Button size="sm" variant="secondary" className="mt-3" icon={<Database size={13} />} onClick={() => setS3Open(true)}>
+                    {status?.provider === 'CUSTOM_S3' ? 'Change bucket' : 'Connect a bucket'}
+                  </Button>
+                ) : (
+                  <div className="mt-4 pt-4 border-t border-line-subtle">
+                    <CustomS3Form
+                      switching={!!status?.connected}
+                      onConnected={(message) => { setS3Open(false); addToast(message, 'success'); }}
+                    />
+                    <button
+                      type="button"
+                      className="text-xs text-fg-subtle hover:text-fg mt-3"
+                      onClick={() => setS3Open(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 )}
               </div>
 

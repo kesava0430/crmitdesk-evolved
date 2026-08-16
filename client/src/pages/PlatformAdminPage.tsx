@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, Users as UsersIcon, CheckCircle2, XCircle, LogOut, HardDrive, Pencil, Check, Mail, MessageCircle, Settings as SettingsIcon } from 'lucide-react';
+import { Building2, Users as UsersIcon, CheckCircle2, XCircle, AlertTriangle, LogOut, HardDrive, Pencil, Check, Mail, MessageCircle, Settings as SettingsIcon } from 'lucide-react';
 import {
   usePlatformOrgs,
   usePlatformOrg,
@@ -7,6 +7,7 @@ import {
   useUpdatePlatformSubscription,
   useUpdatePlatformBranding,
   usePlatformSettings,
+  useTestPlatformStorage,
   useUpdatePlatformSettings,
   type PlatformOrgDetail,
   type PlatformOrgSummary,
@@ -319,6 +320,8 @@ interface SettingsFormState {
   resendFrom: string; smtpHost: string; smtpPort: string; smtpUser: string; smtpFrom: string;
   twilioAccountSid: string; twilioFromNumber: string;
   resendApiKey: string; smtpPass: string; twilioAuthToken: string;
+  s3Bucket: string; s3Region: string; s3Endpoint: string;
+  s3AccessKeyId: string; s3SecretAccessKey: string;
 }
 
 /**
@@ -346,6 +349,11 @@ function PlatformSettingsPanel({ onClose }: { onClose: () => void }) {
       resendApiKey: '',
       smtpPass: '',
       twilioAuthToken: '',
+      s3Bucket: settings.s3Bucket ?? '',
+      s3Region: settings.s3Region ?? '',
+      s3Endpoint: settings.s3Endpoint ?? '',
+      s3AccessKeyId: '',
+      s3SecretAccessKey: '',
     });
   }, [settings]);
 
@@ -362,16 +370,23 @@ function PlatformSettingsPanel({ onClose }: { onClose: () => void }) {
       smtpFrom: form.smtpFrom,
       twilioAccountSid: form.twilioAccountSid,
       twilioFromNumber: form.twilioFromNumber,
+      s3Bucket: form.s3Bucket,
+      s3Region: form.s3Region,
+      s3Endpoint: form.s3Endpoint,
     };
     if (form.resendApiKey) payload.resendApiKey = form.resendApiKey;
     if (form.smtpPass) payload.smtpPass = form.smtpPass;
     if (form.twilioAuthToken) payload.twilioAuthToken = form.twilioAuthToken;
+    // Secrets are write-only: an empty box means "leave whatever is stored
+    // alone", not "clear it". Clearing is the explicit button next to each.
+    if (form.s3AccessKeyId) payload.s3AccessKeyId = form.s3AccessKeyId;
+    if (form.s3SecretAccessKey) payload.s3SecretAccessKey = form.s3SecretAccessKey;
     mutation.mutate(payload, {
-      onSuccess: () => setForm(f => (f ? { ...f, resendApiKey: '', smtpPass: '', twilioAuthToken: '' } : f)),
+      onSuccess: () => setForm(f => (f ? { ...f, resendApiKey: '', smtpPass: '', twilioAuthToken: '', s3AccessKeyId: '', s3SecretAccessKey: '' } : f)),
     });
   };
 
-  const clearSecret = (field: 'resendApiKey' | 'smtpPass' | 'twilioAuthToken') => {
+  const clearSecret = (field: 'resendApiKey' | 'smtpPass' | 'twilioAuthToken' | 's3AccessKeyId' | 's3SecretAccessKey') => {
     mutation.mutate({ [field]: '' } as PlatformSettingsUpdate);
   };
 
@@ -457,9 +472,124 @@ function PlatformSettingsPanel({ onClose }: { onClose: () => void }) {
               </Field>
             </Card>
           </section>
+
+          <section>
+            <PanelHeading><HardDrive size={12} /> Hosted attachment storage</PanelHeading>
+            <Card tone="sunken" padding="sm" flat className="space-y-3">
+              <p className="text-xs text-fg-muted">
+                The shared bucket behind “Our hosted storage” — where attachments land for any
+                paying org that hasn’t connected a Google Drive or a bucket of their own. Any
+                S3-compatible service works (S3, R2, Wasabi, B2, Spaces, MinIO).
+              </p>
+
+              <div className={`flex items-start gap-2 p-2.5 rounded-lg border text-xs ${
+                settings.hostedStorageReady
+                  ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400'
+                  : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-400'
+              }`}>
+                {settings.hostedStorageReady ? <CheckCircle2 size={13} className="mt-0.5 flex-shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />}
+                <span>
+                  {settings.hostedStorageReady ? (
+                    <>Live: <strong>{settings.effectiveStorage.bucket}</strong>
+                    {settings.effectiveStorage.region ? ` · ${settings.effectiveStorage.region}` : ''}
+                    {settings.effectiveStorage.endpoint ? <> · <code>{settings.effectiveStorage.endpoint}</code></> : ' · AWS S3'}</>
+                  ) : (
+                    'Not configured. Orgs on Pro and Enterprise cannot use hosted storage until a bucket and credentials are set — they can still connect their own Google Drive or S3 bucket.'
+                  )}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Bucket">
+                  <Input value={form.s3Bucket} onChange={set('s3Bucket')} placeholder="crmitdesk-attachments" />
+                </Field>
+                <Field label="Region">
+                  <Input value={form.s3Region} onChange={set('s3Region')} placeholder="auto" />
+                </Field>
+              </div>
+              <Field label="Endpoint" hint="Leave blank for Amazon S3. Required for R2, Wasabi, B2, Spaces and MinIO.">
+                <Input value={form.s3Endpoint} onChange={set('s3Endpoint')} placeholder="https://<account>.r2.cloudflarestorage.com" />
+              </Field>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Access key ID" hint={<SecretFieldStatus status={settings.s3AccessKeyId} />}>
+                  <div className="flex gap-1.5">
+                    <Input type="password" placeholder={settings.s3AccessKeyId.configured ? '•••••••••• (leave blank to keep)' : ''} value={form.s3AccessKeyId} onChange={set('s3AccessKeyId')} />
+                    {settings.s3AccessKeyId.source === 'database' && (
+                      <Button size="sm" variant="ghost" onClick={() => clearSecret('s3AccessKeyId')}>Clear</Button>
+                    )}
+                  </div>
+                </Field>
+                <Field label="Secret access key" hint={<SecretFieldStatus status={settings.s3SecretAccessKey} />}>
+                  <div className="flex gap-1.5">
+                    <Input type="password" placeholder={settings.s3SecretAccessKey.configured ? '•••••••••• (leave blank to keep)' : ''} value={form.s3SecretAccessKey} onChange={set('s3SecretAccessKey')} />
+                    {settings.s3SecretAccessKey.source === 'database' && (
+                      <Button size="sm" variant="ghost" onClick={() => clearSecret('s3SecretAccessKey')}>Clear</Button>
+                    )}
+                  </div>
+                </Field>
+              </div>
+
+              <StorageTestButton form={form} />
+
+              <p className="text-[11px] text-fg-subtle">
+                Changing the bucket does not move attachments already stored in the old one — they
+                stay where they are and become unreachable from here. Migrate first if there are any.
+              </p>
+            </Card>
+          </section>
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * Round-trips a probe object (write → read → delete) against whatever hosted
+ * storage would use right now, with any unsaved form values layered on top.
+ *
+ * Worth a button of its own because the three failure modes — wrong bucket,
+ * wrong region, insufficient IAM permissions — are indistinguishable until
+ * someone actually tries an upload, and by then it is a customer hitting it.
+ */
+function StorageTestButton({ form }: { form: SettingsFormState }) {
+  const test = useTestPlatformStorage();
+  const result = test.data;
+
+  return (
+    <div className="space-y-2">
+      <Button
+        size="sm"
+        variant="secondary"
+        loading={test.isPending}
+        icon={<HardDrive size={13} />}
+        onClick={() => test.mutate({
+          // Only send what was typed; the server fills the rest from what is
+          // live, so testing after changing one field does not require
+          // re-entering the secret key.
+          bucket: form.s3Bucket || undefined,
+          region: form.s3Region || undefined,
+          endpoint: form.s3Endpoint || undefined,
+          accessKeyId: form.s3AccessKeyId || undefined,
+          secretAccessKey: form.s3SecretAccessKey || undefined,
+        })}
+      >
+        Test connection
+      </Button>
+      {result && (
+        <div className={`flex items-start gap-2 p-2.5 rounded-lg border text-xs ${
+          result.ok
+            ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400'
+            : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-400'
+        }`}>
+          {result.ok ? <CheckCircle2 size={13} className="mt-0.5 flex-shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />}
+          <span>
+            {result.ok
+              ? <>Wrote, read back and deleted a test object in <strong>{result.bucket}</strong>.</>
+              : <>Failed{result.step ? ` on ${result.step}` : ''}. {result.error}</>}
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 

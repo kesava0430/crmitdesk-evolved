@@ -1,19 +1,37 @@
 # Attachment storage — where to configure what
 
-There are **two separate configuration levels**, and they are often confused:
+## The three options, at a glance
+
+Each organisation picks exactly one. It can be changed later.
+
+| Option | Whose account | Whose bill | Needs setup by you first? | Plan-gated? |
+|---|---|---|---|---|
+| **Their own Google Drive** | The customer's | The customer's | Yes — one Google Cloud OAuth app | No |
+| **Their own S3-compatible bucket** | The customer's | The customer's | **No** | No |
+| **Your hosted storage** | Yours | Yours | Yes — one bucket | Yes: Free 0GB / Pro 5GB / Enterprise 50GB |
+
+**There is no single account that stores everybody's files.** Every client connects
+*their own*. Your own organisation is not special — you connect yours through the
+same screen.
+
+"S3-compatible" covers **Amazon S3, Cloudflare R2, Wasabi, Backblaze B2,
+DigitalOcean Spaces and MinIO** — they all speak the same protocol, so one option
+covers all of them. (Azure Blob does **not**; it is a different API.) This is the
+only option that needs nothing configured on your side, which makes it the one that
+works on every install, including air-gapped and self-hosted ones.
+
+## The two configuration levels
 
 | Level | Who does it | Where | How often |
 |---|---|---|---|
-| 1. Enable the integration | You, the platform operator | Environment variables on the server | Once per deployment |
+| 1. Enable Google Drive / hosted storage | You, the platform operator | Env vars, or **Platform Admin → Platform settings** | Once per deployment |
 | 2. Connect an account | Each client's own org owner | In the app: **Storage** page (`/storage`) | Once per client org |
 
-**There is no single Google account that stores everybody's files.** The design is
-deliberately per-organisation: every client connects *their own* Google Drive, and
-their attachments live in their own Drive. Your own organisation is not special —
-you connect yours through exactly the same screen.
+Level 1 is **not needed at all** if your customers use their own S3 buckets.
 
-The alternative is **hosted storage**: one S3 bucket that you own, shared by every
-org, with objects namespaced by `orgId`. That one is plan-gated.
+> **Creating the bucket itself** — AWS and Cloudflare R2 walkthroughs, the exact
+> IAM policy, and what each connection-test failure means: see
+> [`S3-BUCKET-SETUP.md`](./S3-BUCKET-SETUP.md).
 
 ---
 
@@ -78,7 +96,9 @@ JWT_SECRET=<your existing value>
 ```
 
 **Optional — hosted storage** (your own S3/R2/MinIO bucket, offered to clients
-whose plan includes a quota):
+whose plan includes a quota). You can set this **either** here **or** in the
+console at **Platform Admin → Platform settings → Hosted attachment storage**,
+which takes effect immediately with no redeploy:
 
 ```bash
 S3_BUCKET=crmitdesk-attachments
@@ -87,6 +107,15 @@ S3_SECRET_ACCESS_KEY=...
 S3_REGION=auto                       # 'auto' for Cloudflare R2
 S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com   # omit for real AWS S3
 ```
+
+The console layers over the environment **per field**: anything set there wins,
+anything left blank falls back to the env var. So you can override just the bucket
+and keep the credentials in the environment. The screen shows, for each secret,
+whether it came from the database or the environment, and has a **Test connection**
+button that round-trips a probe object against whatever is live right now.
+
+Setting the bucket in the console is the better default for a running deployment —
+a redeploy to change a bucket name is a needless outage.
 
 Restart the service. The Storage page reads
 `GET /api/storage/status`, whose `configured` and `hosted.available` flags come
@@ -118,7 +147,40 @@ see the status but not rewire it.
 Storage used is the client's own Google quota. Nothing counts against their
 CRMITdesk plan.
 
-### Option B — hosted storage (your bucket)
+### Option B — the org's own S3-compatible bucket
+
+Storage page → **Your own S3-compatible storage** → **Connect a bucket**.
+
+1. Pick the service (Amazon S3, Cloudflare R2, Wasabi, Backblaze B2, DigitalOcean
+   Spaces, MinIO, or "Other"). The endpoint URL is filled in from the choice —
+   for R2 the customer types only their account ID.
+2. Bucket name, region, access key ID, secret access key. Optionally a folder
+   prefix, so a bucket already used for other things can hold CRM files under
+   `crm/`.
+3. **Test connection** writes a small probe object, reads it back, and deletes it.
+4. **Connect bucket**.
+
+The connection is round-tripped again on connect and is **never saved untested**.
+Credentials that do not work would otherwise fail on every upload afterwards, with
+nothing linking the failure back to the day they were typed in.
+
+The key needs exactly three permissions on that bucket:
+
+```
+s3:PutObject
+s3:GetObject
+s3:DeleteObject
+```
+
+Nothing else — no listing, no bucket administration. Delete matters: without it,
+removing an attachment in CRMITdesk leaves the file behind accruing storage cost.
+
+Keys are encrypted with `ENCRYPTION_KEY` before being written to the database, the
+same as the Google refresh tokens, and are never sent back to a browser.
+
+No plan quota applies — it is the customer's bucket and their bill.
+
+### Option C — hosted storage (your bucket)
 
 Storage page → **Hosted storage** → **Connect**. No OAuth, one click. Requires
 both that you set the `S3_*` variables *and* that the org's plan includes a
@@ -144,19 +206,28 @@ week's fix that path returned a 500 from inside the AWS SDK.)
 
 ## Switching or disconnecting
 
-The app **blocks** a switch that would strand files, with a 409 explaining how
-many. Three actions trigger the guard while Google Drive attachments exist:
+The app **blocks** a switch that would strand files, with a 409 saying how many.
+The guard fires while attachments exist under either **bring-your-own** provider —
+Google Drive or a custom S3 bucket — for any of:
 
 - disconnecting storage
-- switching from Drive to hosted
-- reconnecting a **different** Google account
+- switching to a different provider
+- reconnecting a **different** Google account, or a different bucket
 
-Reconnecting the **same** account just refreshes tokens and is always allowed.
+Reconnecting the **same** Google account just refreshes tokens and is always
+allowed.
 
-The reason is that the files stay in the customer's Drive but the credentials
-needed to reach them are overwritten — so from inside CRMITdesk they become
-permanently unreachable, which is worse than an error message. To proceed you
-must delete those attachments first.
+The reason: the files stay exactly where the customer put them, but the credentials
+needed to reach them live in one row and get overwritten — so from inside CRMITdesk
+they become permanently unreachable, which is worse than an error message. To
+proceed, delete those attachments first.
+
+Hosted storage is deliberately **not** guarded: those objects are in your bucket
+under a key you control, and a provider switch leaves them reachable.
+
+⚠️ Changing the **platform-wide** bucket is the one case with no guard, because it
+affects every org at once. Attachments already in the old bucket stay there and
+become unreachable. Migrate the objects first if there are any.
 
 ---
 
@@ -166,14 +237,25 @@ For each new client organisation:
 
 1. Their SUPER_ADMIN signs in.
 2. **Integrations → Storage**.
-3. Either **Connect Google Drive** (sign in as *their* business Google account),
-   or **Connect hosted storage** if they are on Pro/Enterprise.
-4. Confirm the green "connected" banner shows the expected email address.
-5. Upload one test file to any record and download it back.
+3. Pick one:
+   - **Connect Google Drive** — sign in as *their* business Google account.
+   - **Connect a bucket** — their own S3/R2/Wasabi/B2/Spaces/MinIO bucket. Test
+     connection must pass before it saves.
+   - **Use hosted storage** — Pro/Enterprise only.
+4. Confirm the green banner names the expected account or bucket.
+5. Upload one test file to any record, download it back, then delete it.
 
-Point 3 is worth being explicit about with clients: whoever signs in at that
-step owns the Drive that holds their data. A departing employee's personal
-Google account is the failure case to avoid.
+Two things worth saying out loud to a client at step 3:
+
+- On Drive: **whoever signs in owns the Drive holding their data.** A departing
+  employee's personal Google account is the failure case to avoid — use a shared
+  business account.
+- On their own bucket: give us a key scoped to that one bucket with only the three
+  permissions above. Do not hand over a root or master key.
+
+Step 5 is not busywork — download and delete exercise permissions that upload
+alone does not, and the connect-time probe already checks all three precisely
+because a write-only key looks fine until weeks later.
 
 ---
 
@@ -187,8 +269,14 @@ Google account is the failure case to avoid.
 | "This connection link has expired" | The signed `state` lasts 10 minutes. Start from **Connect** again. |
 | Connections break roughly weekly | The OAuth consent screen is still in **Testing**. Publish it. |
 | "This organization's Google Drive connection has changed since this file was uploaded" | The org reconnected a different Google account at some point. The file is still in the old Drive, just not reachable from here. |
-| Hosted storage button does nothing / 400 | `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` not set. |
+| Hosted storage button does nothing / 400 | No bucket configured — set one in Platform Admin → Platform settings, or as `S3_*` env vars. |
 | Hosted storage 402 | The org's plan has a 0 GB quota (Free). |
+| Own-bucket test fails on **write** | The key lacks `s3:PutObject`, or the bucket name is wrong. |
+| Own-bucket test fails on **read** | The key has `s3:PutObject` but not `s3:GetObject` — files would upload and never open. |
+| Own-bucket test fails on **delete** | The key lacks `s3:DeleteObject` — deletions would leave files behind, billed to the customer. |
+| "That bucket does not exist" but it clearly does | The region is wrong. The region is part of the request signature, so a mismatch often surfaces as a missing bucket. |
+| "The secret access key does not match the key ID" | Usually a truncated paste, or the wrong region again. |
+| R2 rejects everything | Region must be `auto`, and the endpoint must use the account ID, not the bucket name. |
 
 ---
 
@@ -209,6 +297,12 @@ Google account is the failure case to avoid.
   and a daily sweep catches anything the database cascaded away behind the
   application's back (`server/src/utils/entityCleanup.ts`).
 
-Relevant source: `server/src/modules/storage/`, `server/src/utils/storage.ts`,
-`server/src/utils/googleDrive.ts`, `server/src/utils/s3Storage.ts`,
-`client/src/pages/StoragePage.tsx`.
+- A customer's own bucket is never silently swapped for ours. If their config is
+  incomplete the upload fails loudly, because the whole reason they chose their
+  own bucket is that the data must not sit with us.
+
+Relevant source: `server/src/modules/storage/`, `server/src/utils/storage.ts`
+(provider dispatch), `server/src/utils/googleDrive.ts`,
+`server/src/utils/s3Storage.ts` (both S3 paths + the connection probe),
+`server/src/utils/platformSettings.ts` (platform config, DB over env),
+`client/src/pages/StoragePage.tsx`, `client/src/pages/storage/CustomS3Form.tsx`.

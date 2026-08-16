@@ -155,6 +155,16 @@ model PlatformSettings {
   twilioAccountSid String?  @map("twilio_account_sid")
   twilioAuthToken  String?  @map("twilio_auth_token")
   twilioFromNumber String?  @map("twilio_from_number")
+  // The shared bucket behind provider 'HOSTED_S3' — the storage every org on
+  // a paid plan gets without connecting anything of their own. Previously
+  // S3_* env vars only, which meant changing bucket needed a redeploy.
+  // Same layering as the fields above: set here = used, left null = fall
+  // back to the env var. Secrets encrypted with ENCRYPTION_KEY.
+  s3Bucket         String?  @map("s3_bucket")
+  s3Region         String?  @map("s3_region")
+  s3Endpoint       String?  @map("s3_endpoint")
+  s3AccessKeyId    String?  @map("s3_access_key_id")
+  s3SecretAccessKey String? @map("s3_secret_access_key")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("platform_settings")
@@ -384,17 +394,39 @@ model Attachment {
 model StorageConfig {
   id                String       @id @default(cuid())
   orgId             String       @unique @map("org_id")
-  // 'GOOGLE_DRIVE' (bring-your-own, OAuth) or 'HOSTED_S3' (we host it,
-  // requires a paid plan with a storage quota — see PLANS.storageQuotaGB
-  // in utils/stripe.ts). The five fields below are OAuth-only and stay
-  // null for HOSTED_S3, which has no per-org connection details — just a
-  // shared bucket keyed by orgId (see utils/s3Storage.ts).
+  // One of:
+  //   'GOOGLE_DRIVE' — bring-your-own, OAuth. Uses the access/refresh/
+  //                    rootFolder/connectedEmail fields below.
+  //   'CUSTOM_S3'    — bring-your-own S3-compatible bucket (AWS S3,
+  //                    Cloudflare R2, Wasabi, Backblaze B2, DigitalOcean
+  //                    Spaces, MinIO). Uses the s3* fields below. The org
+  //                    owns the bucket and the bill; we only hold keys.
+  //   'HOSTED_S3'    — our shared bucket, plan-gated on
+  //                    PLANS.storageQuotaGB. No per-org connection details
+  //                    at all; objects are namespaced by orgId.
+  // Fields belonging to another provider stay null.
   provider          String       @default("GOOGLE_DRIVE") @map("provider")
   accessToken       String?      @map("access_token")
   refreshToken      String?      @map("refresh_token")
   tokenExpiresAt    DateTime?    @map("token_expires_at")
   rootFolderId      String?      @map("root_folder_id")
   connectedEmail    String?      @map("connected_email")
+  // ── CUSTOM_S3 ──
+  // s3AccessKeyId and s3SecretAccessKey are encrypted at rest with
+  // ENCRYPTION_KEY, same as the OAuth tokens above — these are credentials
+  // to a customer's own cloud account and a database dump must not hand
+  // them over. s3Label is cosmetic ('Cloudflare R2'), so the Storage page
+  // can say which service without re-deriving it from the endpoint.
+  s3Bucket          String?      @map("s3_bucket")
+  s3Region          String?      @map("s3_region")
+  s3Endpoint        String?      @map("s3_endpoint")
+  s3AccessKeyId     String?      @map("s3_access_key_id")
+  s3SecretAccessKey String?      @map("s3_secret_access_key")
+  s3ForcePathStyle  Boolean?     @map("s3_force_path_style")
+  // Optional key prefix, so a customer can point us at a folder inside a
+  // bucket they already use for other things.
+  s3Prefix          String?      @map("s3_prefix")
+  s3Label           String?      @map("s3_label")
   connectedByUserId String       @map("connected_by_user_id")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")

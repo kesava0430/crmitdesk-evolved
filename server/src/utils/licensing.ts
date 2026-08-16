@@ -140,7 +140,7 @@ export async function assertHostedStorageAvailable(orgId: string, additionalByte
   if (quotaBytes === 0) {
     throw new AppError(
       402,
-      `Hosted storage isn't included in your ${sub.plan} plan — connect your own Google Drive in Settings → Storage instead, or upgrade to Pro for 5GB of hosted storage.`
+      `Hosted storage isn't included in your ${sub.plan} plan — connect your own Google Drive or your own S3-compatible bucket in Settings → Storage instead, or upgrade to Pro for 5GB of hosted storage.`
     );
   }
 

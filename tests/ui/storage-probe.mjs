@@ -18,10 +18,17 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/storage/status') {
     if (scenario === 'forbidden') { res.writeHead(403, {'Content-Type':'application/json'}); return res.end(JSON.stringify({ error: 'Insufficient permissions' })); }
     if (scenario === 'server-error') { res.writeHead(500, {'Content-Type':'application/json'}); return res.end(JSON.stringify({ error: 'Internal server error' })); }
-    const configured = scenario === 'configured';
+    if (scenario === 'custom-s3-connected') {
+      res.writeHead(200, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify({ configured:true, connected:true, provider:'CUSTOM_S3', connectedEmail:null, connectedAt:'2026-08-10T09:00:00Z',
+        customS3:{ label:'Cloudflare R2', bucket:'acme-crm-attachments', region:'auto', endpoint:'https://abc123.r2.cloudflarestorage.com', prefix:'crm/' },
+        customS3Available:true, hosted:{ available:true, quotaBytes: 50*1024**3, usedBytes:0 } }));
+    }
+    const configured = scenario === 'configured' || scenario === 'byo-s3';
     res.writeHead(200, {'Content-Type':'application/json'});
     return res.end(JSON.stringify({ configured, connected:false, provider:null, connectedEmail:null, connectedAt:null,
-      hosted:{ available:false, quotaBytes: 50*1024**3, usedBytes:0 } }));
+      customS3:null, customS3Available:true,
+      hosted:{ available: scenario === 'byo-s3', quotaBytes: 50*1024**3, usedBytes:0 } }));
   }
   if (url.pathname.startsWith('/api/')) return base(req, res, url);
   let f = path.join(DIST, url.pathname);
@@ -33,7 +40,7 @@ await new Promise(r => server.listen(PORT, r));
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
 
-for (const [name, role] of [['not-configured','SUPER_ADMIN'], ['configured','SUPER_ADMIN'], ['forbidden','IT_AGENT'], ['server-error','SUPER_ADMIN']]) {
+for (const [name, role] of [['byo-s3','SUPER_ADMIN'], ['custom-s3-connected','SUPER_ADMIN'], ['not-configured','SUPER_ADMIN']]) {
   scenario = name;
   const ctx = await browser.newContext({ viewport: { width: 900, height: 720 } });
   await ctx.addInitScript((r) => {
@@ -44,7 +51,10 @@ for (const [name, role] of [['not-configured','SUPER_ADMIN'], ['configured','SUP
   }, role);
   const page = await ctx.newPage();
   await page.goto(`http://localhost:${PORT}/storage`, { waitUntil:'networkidle', timeout:20000 }).catch(()=>{});
-  await page.waitForTimeout(6000);
+  await page.waitForTimeout(1800);
+  // Open the bring-your-own-S3 form so the probe sees the real fields.
+  const open = await page.$('button:has-text("Connect a bucket"), button:has-text("Change bucket")');
+  if (open) { await open.click(); await page.waitForTimeout(900); }
   const text = await page.$eval('main', el => el.innerText).catch(()=> '(no main)');
   console.log(`\n══ ${name} (as ${role}) ══\n${text.split('\n').filter(Boolean).slice(0,12).map(l=>'  '+l).join('\n')}`);
   await page.screenshot({ path: `./shots/storage-${name}.png` });

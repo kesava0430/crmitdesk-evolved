@@ -17,4 +17,10 @@ storageRouter.use(authenticate);
 storageRouter.get('/status',           requireRole(...MANAGERS), c.getStatus);
 storageRouter.get('/google/connect',   requireRole(...ADMIN),    c.connectGoogleDrive);
 storageRouter.post('/hosted/connect',  requireRole(...ADMIN),    c.connectHosted);
+// Bring-your-own S3-compatible bucket. The preset list is harmless reference
+// data, so any manager can load the form; testing and connecting send real
+// credentials and are owner-only like every other connect above.
+storageRouter.get('/s3/presets',       requireRole(...MANAGERS), c.s3Presets);
+storageRouter.post('/s3/test',         requireRole(...ADMIN),    c.testCustomS3);
+storageRouter.post('/s3/connect',      requireRole(...ADMIN),    c.connectCustomS3);
 storageRouter.delete('/',              requireRole(...ADMIN),    c.disconnect);

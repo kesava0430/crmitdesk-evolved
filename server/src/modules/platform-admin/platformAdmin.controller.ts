@@ -1,3 +1,4 @@
+import { testConnection } from '../../utils/s3Storage';
 import { Response, NextFunction, Request } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -6,7 +7,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { AuthRequest } from '../../middleware/authenticate';
 import { getHostedStorageUsageBytes } from '../../utils/licensing';
 import { getSendCounts, getSendCountsForOrgs } from '../../utils/usageTracking';
-import { getPlatformSettingsForAdmin, upsertPlatformSettings } from '../../utils/platformSettings';
+import { getPlatformStorageConfig, getPlatformSettingsForAdmin, upsertPlatformSettings } from '../../utils/platformSettings';
 import { PLANS } from '../../utils/stripe';
 
 const GB = 1024 * 1024 * 1024;
@@ -267,6 +268,14 @@ const UpdateSettingsSchema = z.object({
   twilioAccountSid: z.string().optional(),
   twilioAuthToken: z.string().optional(),
   twilioFromNumber: z.string().optional(),
+  // The shared bucket behind provider HOSTED_S3 — every paying org that did
+  // not connect storage of their own lands here. Same per-field semantics as
+  // everything above: omitted = untouched, "" = back to the env var.
+  s3Bucket: z.string().optional(),
+  s3Region: z.string().optional(),
+  s3Endpoint: z.string().optional(),
+  s3AccessKeyId: z.string().optional(),
+  s3SecretAccessKey: z.string().optional(),
 });
 
 /**
@@ -280,5 +289,53 @@ export async function updateSettings(req: AuthRequest, res: Response, next: Next
     const data = UpdateSettingsSchema.parse(req.body);
     await upsertPlatformSettings(data);
     res.json(await getPlatformSettingsForAdmin());
+  } catch (err) { next(err); }
+}
+
+
+/**
+ * POST /platform/settings/storage/test — round-trips a probe object against
+ * the bucket HOSTED_S3 would use right now.
+ *
+ * Deliberately tests the RESOLVED config (database layered over environment)
+ * rather than whatever is in the form. The question a platform admin actually
+ * has is "does hosted storage work", and with two possible sources for every
+ * field, reading that off the form is guesswork.
+ *
+ * Optionally accepts a candidate config, so the console can test credentials
+ * before saving them — the same pattern the per-org S3 connect uses.
+ */
+const TestStorageSchema = z.object({
+  bucket: z.string().trim().optional(),
+  region: z.string().trim().optional(),
+  endpoint: z.string().trim().optional(),
+  accessKeyId: z.string().trim().optional(),
+  secretAccessKey: z.string().trim().optional(),
+}).optional();
+
+export async function testStorage(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const candidate = TestStorageSchema.parse(req.body ?? {});
+    const live = await getPlatformStorageConfig();
+
+    // Per field: use what was typed, else what is live. This makes "I only
+    // changed the bucket" testable without re-entering the secret key.
+    const target = {
+      bucket: candidate?.bucket || live.bucket || '',
+      region: candidate?.region || live.region || 'auto',
+      endpoint: candidate?.endpoint || live.endpoint || null,
+      accessKeyId: candidate?.accessKeyId || live.accessKeyId || '',
+      secretAccessKey: candidate?.secretAccessKey || live.secretAccessKey || '',
+    };
+
+    if (!target.bucket || !target.accessKeyId || !target.secretAccessKey) {
+      return res.json({
+        ok: false,
+        error: 'Hosted storage is not configured — set a bucket, access key ID and secret, here or as S3_* environment variables.',
+      });
+    }
+
+    const result = await testConnection(target);
+    res.json({ ...result, bucket: target.bucket, endpoint: target.endpoint });
   } catch (err) { next(err); }
 }
