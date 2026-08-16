@@ -26,7 +26,10 @@ const USER = {
 
 const users = Array.from({ length: 6 }, (_, i) => ({
   id: `u${i + 1}`, name: ['Alex Morgan','Priya Nair','Sam Okafor','Lena Fischer','Diego Ruiz','Mei Chen'][i],
-  email: `user${i + 1}@acme.test`, role: ['SUPER_ADMIN','ADMIN','MANAGER','AGENT','EMPLOYEE','EMPLOYEE'][i],
+  // Real UserRole enum values — ADMIN/MANAGER/AGENT were invented and do not
+  // exist in prisma/schema.prisma, so any UI that maps roles to labels or
+  // permissions was being tested against values it will never see.
+  email: `user${i + 1}@acme.test`, role: ['SUPER_ADMIN','CRM_MANAGER','IT_MANAGER','IT_AGENT','SALES_REP','EMPLOYEE'][i],
   isActive: true, department: 'Operations', createdAt: '2026-01-05T10:00:00Z',
 }));
 
@@ -114,7 +117,12 @@ const ROUTES = {
   'GET /auth/me':       () => USER,
   'POST /auth/demo-login': () => ({ user: USER, access: 'mock-access-token', refresh: 'mock-refresh-token' }),
 
-  'GET /users':      () => paged(users),
+  // A BARE ARRAY, matching server/src/modules/core/users/users.routes.ts.
+  // This used to return paged(users), and that lie hid a real bug: a caller
+  // reading `usersData?.data` looked correct against the mock and rendered an
+  // empty dropdown against the real API. A mock that is wrong about a shape is
+  // worse than no mock.
+  'GET /users':      () => users,
   'GET /tasks':      () => paged(TASKS),
   'GET /contacts':   () => paged(contacts),
   'GET /crm/contacts': () => paged(contacts),

@@ -29,6 +29,17 @@ const PRIORITY_VARIANT: Record<string, 'gray' | 'blue' | 'orange' | 'red'> = {
   LOW: 'gray', MEDIUM: 'blue', HIGH: 'orange', URGENT: 'red',
 };
 
+/** Readable role names for the assignee list. Falls back to the raw enum. */
+const ROLE_LABEL: Record<string, string> = {
+  SUPER_ADMIN: 'Admin',
+  IT_MANAGER: 'IT Manager',
+  IT_AGENT: 'Technician',
+  CRM_MANAGER: 'CRM Manager',
+  SALES_REP: 'Sales',
+  EMPLOYEE: 'Employee',
+  PLATFORM_ADMIN: 'Platform Admin',
+};
+
 /** EntityType values the server accepts. Keep in step with the Prisma enum. */
 export type TaskEntityType =
   | 'DEAL' | 'TICKET' | 'CONTACT' | 'LEAD' | 'ACCOUNT' | 'CHANGE_REQUEST'
@@ -74,7 +85,20 @@ export function RecordTasks({
   const done = tasks.filter(t => t.status === 'DONE' || t.status === 'CANCELLED');
   const visible = showDone ? [...open, ...done] : open;
 
-  const userOptions = (usersData?.data ?? []).map((u: any) => ({ value: u.id, label: u.name }));
+  /**
+   * `GET /users` returns a bare array, not a `{ data }` envelope — this read
+   * `usersData?.data`, which is `undefined` against an array, so the assignee
+   * list was silently always empty. useUsers() is now typed as OrgUser[] so
+   * the mistake is a compile error rather than an empty dropdown.
+   *
+   * The role is appended because the common case is picking a technician out
+   * of a list that also contains sales and admin staff, and two people can
+   * share a first name.
+   */
+  const userOptions = (usersData ?? []).map(u => ({
+    value: u.id,
+    label: u.role ? `${u.name} · ${ROLE_LABEL[u.role] ?? u.role.replace(/_/g, ' ').toLowerCase()}` : u.name,
+  }));
 
   function resetForm() {
     setTitle(''); setDueAt(''); setAssignee(''); setPriority('MEDIUM'); setError('');
