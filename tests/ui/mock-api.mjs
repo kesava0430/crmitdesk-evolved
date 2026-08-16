@@ -79,6 +79,21 @@ const employees = Array.from({ length: 8 }, (_, i) => ({
   managerId: null, userId: `u${i + 1}`, joinedAt: '2025-01-15T10:00:00Z', createdAt: '2025-01-15T10:00:00Z',
 }));
 
+
+const MODULE = {
+  id: 'mod1', name: 'Property Inventory', slug: 'property-inventory', icon: 'Layers',
+  fields: [
+    { id: 'f1', label: 'Property', fieldKey: 'property', fieldType: 'TEXT', required: true, position: 0 },
+    { id: 'f2', label: 'Location', fieldKey: 'location', fieldType: 'TEXT', required: false, position: 1 },
+    { id: 'f3', label: 'Listed',   fieldKey: 'listed',   fieldType: 'BOOLEAN', required: false, position: 2 },
+  ],
+};
+const MODULE_RECORDS = Array.from({ length: 4 }, (_, i) => ({
+  id: `rec${i}`, moduleId: 'mod1', source: i === 3 ? 'SYNC' : 'MANUAL',
+  data: { property: `Unit ${101 + i}`, location: 'Bengaluru', listed: i % 2 === 0 },
+  title: `Unit ${101 + i}`, createdAt: '2026-08-01T10:00:00Z',
+}));
+
 const paged = (rows) => ({ data: rows, total: rows.length, page: 1, pageSize: rows.length, totalPages: 1 });
 
 /** Exact-path handlers. Checked before the pattern table. */
@@ -120,7 +135,9 @@ const ROUTES = {
   }),
   'GET /org/labels': () => ({}),
   'GET /custom-fields': () => ([]),
-  'GET /custom-modules': () => ([]),
+  'GET /custom-modules': () => ([MODULE]),
+  'GET /custom-modules/mod1': () => MODULE,
+  'GET /custom-modules/mod1/records': () => paged(MODULE_RECORDS),
 };
 
 /** Endpoints whose natural empty value is an object, not a list. */

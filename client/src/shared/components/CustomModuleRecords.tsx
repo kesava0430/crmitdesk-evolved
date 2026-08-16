@@ -5,7 +5,7 @@ import {
 } from '../../api/customModules';
 import {
   Button, Modal, Spinner, EmptyState, SearchableSelect, RowActions,
-  Field, Input, Textarea, Checkbox, DataTable, Badge, type Column,
+  Field, Input, Textarea, Checkbox, DataTable, Badge, FormError, type Column,
 } from './index';
 
 // Extracted out of pages/CustomModulesPage.tsx (the module builder) so the
@@ -37,18 +37,29 @@ function RecordFormModal({ module_, record, onClose }: { module_: any; record: a
   const create = useCreateModuleRecord();
   const update = useUpdateModuleRecord();
   const [data, setData] = useState<Record<string, unknown>>(record?.data ?? {});
+  const [error, setError] = useState('');
   const loading = create.isPending || update.isPending;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (record) await update.mutateAsync({ moduleId: module_.id, recordId: record.id, data });
-    else await create.mutateAsync({ moduleId: module_.id, data });
-    onClose();
+    setError('');
+    try {
+      if (record) await update.mutateAsync({ moduleId: module_.id, recordId: record.id, data });
+      else await create.mutateAsync({ moduleId: module_.id, data });
+      // Close on success only. Previously both calls were awaited with no
+      // catch, so a rejected save (a required field the server rejects, a
+      // dropped connection) surfaced as an unhandled rejection: the modal
+      // just sat there, and the user had no idea the record was not created.
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not save this record. Check the required fields and try again.');
+    }
   }
 
   return (
     <Modal open onClose={onClose} title={record ? 'Edit Record' : `New ${module_.name} Record`}>
       <form onSubmit={submit} className="space-y-4">
+        <FormError>{error}</FormError>
         {(module_.fields ?? []).map((f: any) => (
           f.fieldType === 'BOOLEAN' ? (
             <RecordFieldInput key={f.id} field={f} value={data[f.fieldKey]} onChange={v => setData(p => ({ ...p, [f.fieldKey]: v }))} />
@@ -67,6 +78,17 @@ function RecordFormModal({ module_, record, onClose }: { module_: any; record: a
 /** Records table + add/edit/delete for one custom module. `module_` must include its `fields` array (from useCustomModule, not the list endpoint). */
 export function CustomModuleRecordsTab({ module_, canDelete = true }: { module_: any; canDelete?: boolean }) {
   const { data: records, isLoading } = useModuleRecords(module_.id);
+
+  /* useModuleRecords already unwraps the paginated envelope: api/customModules.ts
+     runs every response through `unwrap`, which turns the server's
+     { data: [...], pagination: {...} } into the bare array. This component then
+     asked for `records.data` — and an array has no `.data`, so it resolved to
+     undefined and fell back to [] on EVERY render. The table was permanently
+     empty, which read as "the record I just added didn't save".
+
+     Accepting both shapes so the table cannot silently blank again if the
+     endpoint or the unwrap helper changes. */
+  const rows: any[] = Array.isArray(records) ? records : ((records as any)?.data ?? []);
   const deleteRecord = useDeleteModuleRecord();
   const [recordModal, setRecordModal] = useState<null | 'new' | any>(null);
   const fields = (module_.fields ?? []).slice(0, 5); // keep the table readable — full record shown in the edit modal
@@ -102,7 +124,7 @@ export function CustomModuleRecordsTab({ module_, canDelete = true }: { module_:
       ) : isLoading ? <Spinner /> : (
         <DataTable
           columns={columns}
-          rows={records?.data ?? []}
+          rows={rows}
           rowKey={(r: any) => r.id}
           minWidth={560}
           empty={<EmptyState icon={<Layers size={22} />} title="No records yet" description="Add one manually, or connect a sync in the Sync tab" />}
