@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, ArrowRight, Loader2, ChevronRight, CheckCircle2, ShieldAlert, Zap, Info } from "lucide-react";
 import { useNlCommand, usePlanAiAction, useExecuteAiAction, useAiActionsMenu } from "../../api/ai";
+import { AiNote } from "./AiInfo";
 import { Alert } from "./Alert";
 import { Badge } from "./Badge";
 import { Button } from "./Button";
@@ -202,6 +203,13 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
       icon={<Sparkles size={16} />}
     >
       <div className="-mx-6 -my-5">
+        {/* What this does and what workspace data it sends. The "What can I
+            say?" panel below is good, but it is hidden behind a toggle and
+            says nothing about what leaves the server. */}
+        <div className="px-6 pt-4">
+          <AiNote id="command.bar" />
+        </div>
+
         {/* Help panel: every supported command syntax, straight from the
             server's action registry (ai-actions.ts) plus the fixed 5-entity
             create/update list — so this can never list something that isn't

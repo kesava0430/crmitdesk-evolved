@@ -5,6 +5,7 @@ import {
   Pencil, ToggleLeft, ToggleRight, X,
 } from 'lucide-react';
 import {
+  AiGeneratedTag, AiInfo,
   Alert, Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Input, Modal,
   PageBody, PageHeader, SectionHeader, Select, Spinner, Tabs, Textarea, Toolbar,
 } from '../shared/components';
@@ -165,7 +166,7 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
   return (
     <div className="pt-6 mt-6 border-t border-line-subtle space-y-3">
       <SectionHeader
-        title="Generate Setup"
+        title={<span className="inline-flex items-center gap-1">Generate Setup <AiInfo id="studio.generateSetup" /></span>}
         subtitle={'Uses your industry and company description above to propose relabeled terminology (e.g. "Tickets" → "Cases") and a handful of draft automation rules tailored to your business — nothing changes until you review and apply.'}
       />
 
@@ -340,8 +341,9 @@ function BusinessContextTab() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <p className="text-sm text-fg-muted">
-        Tell the AI about your business so every AI feature speaks your language and understands your domain.
+      <p className="text-sm text-fg-muted flex items-center gap-1 flex-wrap">
+        <span>Tell the AI about your business so every AI feature speaks your language and understands your domain.</span>
+        <AiInfo id="studio.context" />
       </p>
 
       {/* Industry */}
@@ -618,9 +620,12 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
               Run Test
             </Button>
             {testResult && (
-              <pre className="mt-3 rounded-btn p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-line bg-surface text-fg">
-                {testResult}
-              </pre>
+              <div className="mt-3">
+                <AiGeneratedTag className="mb-1.5" />
+                <pre className="rounded-btn p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-line bg-surface text-fg">
+                  {testResult}
+                </pre>
+              </div>
             )}
           </Card>
         )}
@@ -647,7 +652,10 @@ function FunctionsTab() {
           </Button>
         }
       >
-        <p className="text-sm text-fg-muted">Build reusable AI functions your team can call across the product.</p>
+        <p className="text-sm text-fg-muted flex items-center gap-1">
+          Build reusable AI functions your team can call across the product.
+          <AiInfo id="studio.function" />
+        </p>
       </Toolbar>
 
       {fns.length === 0 ? (

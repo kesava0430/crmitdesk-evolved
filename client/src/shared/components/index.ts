@@ -35,6 +35,8 @@ export * from './toastStore';
 
 // ── Domain widgets ────────────────────────────────────────────────────
 export * from './ThemePicker';
+export * from './useAnchoredPopover';  // portal positioning for popovers
+export * from './AiInfo';         // AiInfo, AiNote, AiGeneratedTag
 export * from './AITypewriter';
 export * from './AIConfidenceBadge';
 export * from './AISuggestionPill';

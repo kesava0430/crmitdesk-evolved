@@ -18,10 +18,12 @@ import { AppError } from '../../middleware/errorHandler';
 // Use Groq via the OpenAI-compatible endpoint (same pattern as utils/ai.ts)
 function getAiClient(): OpenAI | null {
   if (process.env.GROQ_API_KEY) {
-    return new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
+    // Bounded — see the note in utils/ai.ts. AI Studio has no retry loop of
+    // its own, so an unbounded request here just hangs the request thread.
+    return new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', timeout: 30_000, maxRetries: 1 });
   }
   if (process.env.OPENAI_API_KEY) {
-    return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    return new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30_000, maxRetries: 1 });
   }
   return null;
 }

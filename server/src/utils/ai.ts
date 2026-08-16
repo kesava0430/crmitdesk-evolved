@@ -2,15 +2,25 @@ import OpenAI from 'openai';
 
 // ─── Client Factory ───────────────────────────────────────────────────────────
 
+/* The SDK defaults to a 10-minute timeout and 2 internal retries. chat() adds
+   its own 3-attempt loop on top, so a wedged provider could hold an Express
+   handler for up to ~90 minutes across 9 HTTP attempts — long enough to
+   exhaust the connection pool while the user stares at a spinner. These calls
+   are interactive; 30s is already generous, and maxRetries:0 leaves retry
+   policy to chat(), which is the only place that should own it. */
+const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 30_000);
+
 function getClient(): OpenAI | null {
+  const opts = { timeout: AI_REQUEST_TIMEOUT_MS, maxRetries: 0 };
   if (process.env.GROQ_API_KEY) {
     return new OpenAI({
       apiKey: process.env.GROQ_API_KEY,
       baseURL: 'https://api.groq.com/openai/v1',
+      ...opts,
     });
   }
   if (process.env.OPENAI_API_KEY) {
-    return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    return new OpenAI({ apiKey: process.env.OPENAI_API_KEY, ...opts });
   }
   return null;
 }
@@ -97,15 +107,52 @@ async function chat(
 
 // ─── Lead Scoring ──────────────────────────────────────────────────────────────
 
+/* ── Response validation ──────────────────────────────────────────────
+   Several handlers used to `return JSON.parse(reply)` straight to the client.
+   A model is free to return a string where a number was asked for, omit a key,
+   or wrap an array in an object — and that shape then reached React (or, for
+   bulk scoring, Prisma) unchecked. These coerce and clamp instead. */
+
+/** Parse without throwing. Returns null on malformed JSON. */
+function safeJson(reply: string): any {
+  try { return JSON.parse(reply); } catch { return null; }
+}
+
+/** Finite number clamped to [min,max]; null if the value is not numeric.
+    `Number(undefined)` is NaN and NaN survives Math.min/Math.max, which is how
+    a NaN probability used to reach the client. */
+function num(v: unknown, min: number, max: number): number | null {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Trimmed non-empty string, capped. null if absent or blank. */
+function str(v: unknown, cap: number): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t ? t.slice(0, cap) : null;
+}
+
+/** Array of trimmed strings, capped in both length and element size. */
+function strArray(v: unknown, cap: number, elemCap = 300): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map(x => str(x, elemCap)).filter((x): x is string => !!x).slice(0, cap);
+}
+
 export async function scoreLead(lead: {
   status: string;
   source?: string | null;
   notes?: string | null;
   contact?: { name: string; email?: string | null; jobTitle?: string | null } | null;
   createdAt: Date;
-}): Promise<{ score: number; reason: string }> {
+  /* `scored` tells the caller whether this is a real assessment. Without it,
+     the "AI not configured" and "could not parse" paths both returned 50 and
+     the controller wrote that 50 to Lead.aiScore, indistinguishable from a
+     genuine mid-range score. */
+}): Promise<{ score: number; reason: string; scored: boolean }> {
   const client = getClient();
-  if (!client) return { score: 50, reason: 'AI not configured — add GROQ_API_KEY to .env (free at console.groq.com)' };
+  if (!client) return { score: 50, scored: false, reason: 'AI not configured — add GROQ_API_KEY to .env (free at console.groq.com)' };
 
   const payload = {
     status: lead.status,
@@ -122,15 +169,14 @@ export async function scoreLead(lead: {
     { maxTokens: 300 }
   );
 
-  try {
-    const parsed = JSON.parse(reply);
-    return {
-      score: Math.min(100, Math.max(0, Math.round(Number(parsed.score)))),
-      reason: String(parsed.reason || '').slice(0, 150),
-    };
-  } catch {
-    return { score: 50, reason: 'Could not parse AI response' };
-  }
+  const parsed = safeJson(reply);
+  const score = parsed ? num(parsed.score, 0, 100) : null;
+  if (score === null) return { score: 50, scored: false, reason: 'Could not parse AI response' };
+  return {
+    score: Math.round(score),
+    reason: str(parsed.reason, 150) ?? 'No reason given',
+    scored: true,
+  };
 }
 
 // ─── Follow-up Email Generator ────────────────────────────────────────────────
@@ -159,11 +205,14 @@ export async function generateFollowUp(context: {
     { maxTokens: 1000 }
   );
 
-  try {
-    return JSON.parse(reply);
-  } catch {
-    return { subject: `Follow-up: ${context.title}`, body: reply };
-  }
+  const parsed = safeJson(reply);
+  return {
+    subject: str(parsed?.subject, 200) ?? `Follow-up: ${context.title}`,
+    // Falling back to the raw reply is deliberate — a model that ignored the
+    // JSON instruction usually still wrote a usable email. But it goes through
+    // str() so a non-string can never reach the client as an email body.
+    body: str(parsed?.body, 8000) ?? str(reply, 8000) ?? '',
+  };
 }
 
 // ─── Ticket Sentiment Analysis ────────────────────────────────────────────────
@@ -294,7 +343,11 @@ export async function generateKbArticle(ticket: {
     `Ticket: "${ticket.title}"\nCategory: ${ticket.category ?? 'General'}\n\nDescription:\n${ticket.body}\n\nResolution thread:\n${thread}`,
     { model: AI_MODEL_SMART, maxTokens: 1500 }
   );
-  try { return JSON.parse(reply); } catch { return { title: ticket.title, body: reply }; }
+  const parsed = safeJson(reply);
+  return {
+    title: str(parsed?.title, 200) ?? ticket.title,
+    body: str(parsed?.body, 20000) ?? str(reply, 20000) ?? '',
+  };
 }
 
 // ─── Duplicate Ticket Detector ────────────────────────────────────────────────
@@ -351,7 +404,14 @@ export async function estimateResolutionTime(ticket: {
     `Title: "${ticket.title}"\nPriority: ${ticket.priority}\nCategory: ${ticket.category ?? 'General'}\n\n${ticket.body}`,
     { maxTokens: 300 }
   );
-  try { return JSON.parse(reply); } catch { return { hours: 8, label: '~1 day', reason: 'Could not estimate' }; }
+  const parsed = safeJson(reply);
+  const hours = parsed ? num(parsed.hours, 0.25, 2000) : null;
+  if (hours === null) return { hours: 24, label: '~1 day', reason: 'Could not estimate' };
+  return {
+    hours,
+    label: str(parsed.label, 40) ?? `~${Math.round(hours)}h`,
+    reason: str(parsed.reason, 200) ?? '',
+  };
 }
 
 // ─── SLA Breach Predictor ─────────────────────────────────────────────────────
@@ -393,7 +453,7 @@ export async function calculateWinProbability(deal: {
   try {
     const p = JSON.parse(reply);
     return {
-      probability: Math.min(100, Math.max(0, Number(p.probability))),
+      probability: num(p.probability, 0, 100) ?? deal.probability,
       factors: Array.isArray(p.factors) ? p.factors.slice(0, 3) : [],
       recommendation: String(p.recommendation || ''),
     };
@@ -414,7 +474,12 @@ export async function generatePipelineHealth(data: {
     `Pipeline snapshot: ${JSON.stringify(data)}`,
     { model: AI_MODEL_SMART, maxTokens: 800 }
   );
-  try { return JSON.parse(reply); } catch { return { summary: reply, risks: [], opportunities: [] }; }
+  const parsed = safeJson(reply);
+  return {
+    summary: str(parsed?.summary, 2000) ?? str(reply, 2000) ?? '',
+    risks: strArray(parsed?.risks, 3),
+    opportunities: strArray(parsed?.opportunities, 3),
+  };
 }
 
 // ─── Churn Risk Detector ──────────────────────────────────────────────────────
@@ -476,7 +541,35 @@ export async function parseMeetingNotes(notes: string): Promise<{
     `Meeting notes:\n${notes}`,
     { model: AI_MODEL_SMART, maxTokens: 1500 }
   );
-  try { return JSON.parse(reply); } catch { return { contacts: [], leads: [], deals: [], nextSteps: [], summary: notes.slice(0, 200) }; }
+  /* This result populates create-forms in the client, so every field is
+     coerced. Previously the raw parse was returned and a malformed `contacts`
+     (a string, say) reached React and broke the render. */
+  const parsed = safeJson(reply);
+  if (!parsed || typeof parsed !== 'object') {
+    return { contacts: [], leads: [], deals: [], nextSteps: [], summary: notes.slice(0, 200) };
+  }
+  const arr = (v: unknown) => (Array.isArray(v) ? v : []);
+  return {
+    contacts: arr(parsed.contacts).slice(0, 25).map((c: any) => ({
+      name: str(c?.name, 120) ?? '',
+      email: str(c?.email, 200) ?? undefined,
+      company: str(c?.company, 160) ?? undefined,
+      jobTitle: str(c?.jobTitle, 120) ?? undefined,
+    })).filter(c => c.name),
+    leads: arr(parsed.leads).slice(0, 25).map((l: any) => ({
+      name: str(l?.name, 120) ?? '',
+      notes: str(l?.notes, 2000) ?? '',
+      source: str(l?.source, 60) ?? 'MEETING',
+    })).filter(l => l.name),
+    deals: arr(parsed.deals).slice(0, 25).map((d: any) => ({
+      title: str(d?.title, 200) ?? '',
+      value: num(d?.value, 0, 1e12) ?? undefined,
+      stage: str(d?.stage, 60) ?? undefined,
+      notes: str(d?.notes, 2000) ?? '',
+    })).filter(d => d.title),
+    nextSteps: strArray(parsed.nextSteps, 20, 500),
+    summary: str(parsed.summary, 1000) ?? notes.slice(0, 200),
+  };
 }
 
 // ─── Proactive AI Insights ────────────────────────────────────────────────────
@@ -505,15 +598,28 @@ export async function generateInsights(data: {
 
 export async function checkEmailTone(email: {
   subject: string; body: string; context?: string;
-}): Promise<{ tone: string; score: number; issues: string[]; suggestions: string[]; approved: boolean }> {
+}): Promise<{ tone: string; score: number; issues: string[]; suggestions: string[]; approved: boolean; checked: boolean }> {
   const client = getClient();
-  if (!client) return { tone: 'neutral', score: 80, issues: [], suggestions: [], approved: true };
+  /* Fails CLOSED. This used to return approved:true whenever AI was
+     unavailable or the reply was malformed, so an unchecked email looked
+     identical to one that passed review. `checked` lets the UI say which. */
+  if (!client) return { tone: 'unknown', score: 0, issues: [], suggestions: [], approved: false, checked: false };
   const reply = await chat(client,
     'You are a professional communication coach. Analyze this business email tone. Respond ONLY with valid JSON: {"tone": "professional|friendly|aggressive|passive-aggressive|too-casual|empathetic", "score": 0-100, "issues": ["up to 3 issues"], "suggestions": ["up to 3 improvements"], "approved": boolean}',
     `Subject: ${email.subject}\nContext: ${email.context ?? 'customer support reply'}\n\nBody:\n${email.body}`,
     { maxTokens: 300 }
   );
-  try { return JSON.parse(reply); } catch { return { tone: 'neutral', score: 80, issues: [], suggestions: [], approved: true }; }
+  const parsed = safeJson(reply);
+  const score = parsed ? num(parsed.score, 0, 100) : null;
+  if (score === null) return { tone: 'unknown', score: 0, issues: [], suggestions: [], approved: false, checked: false };
+  return {
+    tone: str(parsed.tone, 40) ?? 'unknown',
+    score: Math.round(score),
+    issues: strArray(parsed.issues, 3),
+    suggestions: strArray(parsed.suggestions, 3),
+    approved: parsed.approved === true,
+    checked: true,
+  };
 }
 
 // ─── Natural Language Command Parser (AI CRUD) ────────────────────────────────
@@ -817,9 +923,10 @@ export async function autoTagTicket(ticket: {
 }): Promise<string[]> {
   const client = getClient();
   if (!client) return [];
-  const cached = getCached(cacheKey('autoTag', ticket.title, ticket.body.slice(0, 200)));
-  if (cached) return JSON.parse(cached);
-
+  /* A cache read used to sit here, JSON.parse-ing outside any try/catch. It
+     was dead code — chat() caches under its own key and nothing ever wrote
+     this one — but it would have thrown on the first hit. chat() already
+     caches this call, so nothing is lost by removing it. */
   const reply = await chat(client,
     'You are an IT help desk AI. Extract 3-6 short, lowercase keyword tags from this support ticket that would help categorize and find it later. Respond ONLY with a valid JSON array of strings: ["tag1", "tag2", ...]',
     `Title: "${ticket.title}"\nCategory: ${ticket.category ?? 'General'}\n\n${ticket.body.slice(0, 600)}`,
@@ -928,7 +1035,9 @@ export async function bulkScoreLeads(leads: Array<{
   contactName?: string; daysOld: number;
 }>): Promise<Array<{ id: string; score: number; reason: string }>> {
   const client = getClient();
-  if (!client) return leads.map(l => ({ id: l.id, score: 50, reason: 'AI not configured' }));
+  // Same reasoning as scoreLead: return nothing rather than 50s the caller
+  // would write across every lead in the org.
+  if (!client) return [];
 
   const BATCH = 10;
   const results: Array<{ id: string; score: number; reason: string }> = [];
@@ -940,11 +1049,17 @@ export async function bulkScoreLeads(leads: Array<{
       `Score these leads:\n${JSON.stringify(batch)}`,
       { maxTokens: 600 }
     );
-    try {
-      const arr = JSON.parse(reply);
-      if (Array.isArray(arr)) results.push(...arr);
-    } catch {
-      results.push(...batch.map(l => ({ id: l.id, score: 50, reason: 'Batch scoring error' })));
+    /* Validate before these reach prisma.lead.updateMany. Ids are checked
+       against the batch we actually sent, so a hallucinated id cannot become a
+       stray write, and a non-numeric score cannot reach the database. */
+    const parsed = safeJson(reply);
+    const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.leads) ? parsed.leads : [];
+    const sent = new Set(batch.map(l => l.id));
+    for (const row of arr) {
+      const id = str(row?.id, 60);
+      const score = num(row?.score, 0, 100);
+      if (!id || !sent.has(id) || score === null) continue;
+      results.push({ id, score: Math.round(score), reason: str(row?.reason, 120) ?? '' });
     }
     if (i + BATCH < leads.length) await new Promise(r => setTimeout(r, 500)); // rate limit spacing
   }

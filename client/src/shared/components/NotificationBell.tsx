@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover, popoverStyle } from './useAnchoredPopover';
 import { Bell, BellRing, BellOff, X, Ticket, MessageSquare, Target, CheckCircle } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
@@ -69,6 +71,12 @@ export function NotificationBell() {
 
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  /* Portaled: this 320px panel hangs off the top bar, which lives inside the
+     shell's `overflow-hidden` wrapper, so on a narrow screen it was clipped
+     rather than shown. */
+  const { triggerRef, panelRef: floatRef, position } = useAnchoredPopover<HTMLButtonElement>(open, {
+    width: 320, align: 'right', estimatedHeight: 420,
+  });
   const [toasts, setToasts] = useState<Toast[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -93,7 +101,10 @@ export function NotificationBell() {
   // Close panel when clicking outside
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (panelRef.current?.contains(t)) return;
+      if (floatRef.current?.contains(t)) return;
+      setOpen(false);
     }
     if (open) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -123,7 +134,7 @@ export function NotificationBell() {
   return (
     <>
       <div className="relative" ref={panelRef}>
-        <button onClick={() => setOpen(o => !o)}
+        <button ref={triggerRef} onClick={() => setOpen(o => !o)}
           className="relative p-2 text-fg-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-surface-hover rounded-lg transition-colors">
           <Bell size={18} />
           {unread > 0 && (
@@ -133,8 +144,9 @@ export function NotificationBell() {
           )}
         </button>
 
-        {open && (
-          <div className="absolute right-0 top-full mt-2 w-80 ui-popover z-50 overflow-hidden">
+        {open && position && (
+          createPortal(
+          <div ref={floatRef} style={popoverStyle(position!)} className="ui-popover z-[400] overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-line-subtle">
               <h3 className="text-sm font-semibold text-fg">Notifications</h3>
               <div className="flex items-center gap-3">
@@ -184,7 +196,9 @@ export function NotificationBell() {
                 ))
               )}
             </div>
-          </div>
+          </div>,
+          document.body,
+          )
         )}
       </div>
 

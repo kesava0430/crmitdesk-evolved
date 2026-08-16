@@ -10,6 +10,7 @@ import {
   PageHeader, Button, IconButton, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect,
   CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel,
   Card, CardSection, StatTile, Alert, Tabs, DataTable, Field, Input, Textarea, Select,
+  AiInfo, AiNote, AiGeneratedTag,
   type Column,
 } from '../../../shared/components';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
@@ -109,6 +110,7 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, lo
               labelOverrides. */}
           <Field label={fieldLabel('ticket', 'title', 'Title')} required>
             <Input aria-label={fieldLabel('ticket', 'title', 'Title')} required value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
+            <AiNote id="ticket.duplicate" className="mt-1.5" />
             {aiDupes.data?.duplicates && aiDupes.data.duplicates.length > 0 && (
               <Alert tone="warning" className="mt-2">
                 <div className="space-y-1">
@@ -205,6 +207,7 @@ function TicketDetailModal({ id, users, categories }: any) {
   const [copiedReply, setCopiedReply] = useState(false);
   const [autoRouteResult, setAutoRouteResult] = useState<{ categoryName: string | null; agentName: string | null; reason: string } | null>(null);
   const [autoRouting, setAutoRouting] = useState(false);
+  const [autoRouteError, setAutoRouteError] = useState<string | null>(null);
   const [tab, setTab] = useState<'details' | 'history'>('details');
   const [editingDetails, setEditingDetails] = useState(false);
 
@@ -219,10 +222,22 @@ function TicketDetailModal({ id, users, categories }: any) {
 
   async function handleAutoRoute() {
     setAutoRouting(true);
+    setAutoRouteError(null);
     try {
       const data = await api.post(`/ai/ticket/${ticket.id}/auto-route`, { apply: true }).then(r => r.data);
       setAutoRouteResult(data);
-    } catch { } finally { setAutoRouting(false); }
+    } catch (err: any) {
+      // Auto-routing used to fail completely silently: the button simply
+      // stopped spinning and the ticket was left untouched with no
+      // explanation, which is indistinguishable from "the AI had nothing to
+      // change". Surface whatever the server said instead.
+      setAutoRouteResult(null);
+      setAutoRouteError(
+        err?.response?.data?.error ||
+        err?.message ||
+        'Auto-routing failed. The ticket was not changed — try again.'
+      );
+    } finally { setAutoRouting(false); }
   }
 
   function copyReply() {
@@ -269,15 +284,18 @@ function TicketDetailModal({ id, users, categories }: any) {
             {sentiment ? (
               <Badge variant={sentiment.variant}>{sentiment.label}</Badge>
             ) : (
-              <Button
-                size="xs"
-                variant="subtle"
-                icon={<SmilePlus size={11} />}
-                onClick={() => aiSentiment.mutate(ticket.id)}
-                loading={aiSentiment.isPending}
-              >
-                {aiSentiment.isPending ? 'Analyzing...' : 'Detect Sentiment'}
-              </Button>
+              <>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  icon={<SmilePlus size={11} />}
+                  onClick={() => aiSentiment.mutate(ticket.id)}
+                  loading={aiSentiment.isPending}
+                >
+                  {aiSentiment.isPending ? 'Analyzing...' : 'Detect Sentiment'}
+                </Button>
+                <AiInfo id="ticket.sentiment" />
+              </>
             )}
             {!editingDetails && (
               <Button size="xs" variant="secondary" className="ml-auto" icon={<Pencil size={11} />} onClick={() => setEditingDetails(true)}>
@@ -336,6 +354,7 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         }
       >
+        <AiNote id="ticket.reply" className="mb-2.5" />
         {suggestedReply && (
           <Alert
             tone="accent"
@@ -349,6 +368,7 @@ function TicketDetailModal({ id, users, categories }: any) {
               />
             }
           >
+            <div className="mb-1.5"><AiGeneratedTag /></div>
             <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto">{suggestedReply}</pre>
           </Alert>
         )}
@@ -364,6 +384,17 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         }
       >
+        {/* Auto-routing reassigns the ticket the moment the button is
+            clicked, with no confirmation step — so the explanation is a
+            highlighted block rather than a quiet line of helper text. */}
+        <div className="rounded-card border border-warning/30 bg-warning-soft px-3 py-2.5 mb-2.5">
+          <AiNote id="ticket.autoRoute" />
+        </div>
+        {autoRouteError && (
+          <Alert tone="danger" title="Auto-routing failed" className="mb-2.5" onDismiss={() => setAutoRouteError(null)}>
+            {autoRouteError}
+          </Alert>
+        )}
         {autoRouteResult && (
           <Alert tone="info" title="Routing applied:">
             {autoRouteResult.categoryName && <p>Category -&gt; <span className="font-medium">{autoRouteResult.categoryName}</span></p>}
@@ -383,14 +414,18 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         }
       >
+        <AiNote id="ticket.summarize" className="mb-2.5" />
         {aiSummary.data?.summary && (
-          <Alert tone="info" icon={null}>{aiSummary.data.summary}</Alert>
+          <Alert tone="info" icon={null}>
+            <div className="mb-1.5"><AiGeneratedTag /></div>
+            {aiSummary.data.summary}
+          </Alert>
         )}
       </CardSection>
 
       {/* Resolution Time Estimate */}
       <CardSection
-        title="Resolution Estimate"
+        title={<>Resolution Estimate <AiInfo id="ticket.estimate" /></>}
         icon={<Clock size={14} className="text-warning" />}
         actions={
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiEstimate.mutate(ticket.id)} loading={aiEstimate.isPending}>
@@ -407,7 +442,7 @@ function TicketDetailModal({ id, users, categories }: any) {
 
       {/* SLA Risk */}
       <CardSection
-        title="SLA Risk"
+        title={<>SLA Risk <AiInfo id="ticket.slaRisk" /></>}
         icon={<AlertTriangle size={14} className="text-danger" />}
         actions={
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiSlaRisk.mutate(ticket.id)} loading={aiSlaRisk.isPending}>
@@ -436,8 +471,10 @@ function TicketDetailModal({ id, users, categories }: any) {
           </Button>
         }
       >
+        <AiNote id="ticket.kbArticle" className="mb-2.5" />
         {aiKb.data && (
           <Alert tone="success" title={aiKb.data.title}>
+            <div className="mb-1.5"><AiGeneratedTag /></div>
             <pre className="text-xs whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto my-2 opacity-90">{aiKb.data.body}</pre>
             <Button
               size="xs"

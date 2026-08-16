@@ -9,7 +9,7 @@ import { useContact, useUpdateContact, useAccounts, useCreateActivity } from '..
 import { useChurnRisk } from '../../../api/ai';
 import {
   Badge, Button, Modal, Spinner, EmptyState, CustomFieldsDisplay, CustomFieldsFormFields,
-  Card, CardHeader, Field, Input, Textarea, Label, Avatar, Alert, FormActions,
+  Card, CardHeader, Field, Input, Textarea, Label, Avatar, Alert, FormActions, AiNote,
 } from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
@@ -133,7 +133,8 @@ function ChurnRiskCard({ contactId }: { contactId: string }) {
           Assess
         </Button>
       </div>
-      {churnRisk.data ? (
+      <AiNote id="contact.churnRisk" />
+      {churnRisk.data && (
         <Alert tone={(risk && CHURN_RISK_TONE[risk]) || 'success'} icon={null}>
           <div className="flex items-center gap-2 mb-1.5">
             <Badge variant={(risk && CHURN_RISK_VARIANT[risk]) || 'green'}>
@@ -143,8 +144,6 @@ function ChurnRiskCard({ contactId }: { contactId: string }) {
           </div>
           <p className="text-xs text-fg-muted leading-relaxed">{churnRisk.data.reason}</p>
         </Alert>
-      ) : (
-        <p className="text-xs text-fg-subtle text-center py-2">Click "Assess" to analyze churn risk for this contact.</p>
       )}
     </Card>
   );

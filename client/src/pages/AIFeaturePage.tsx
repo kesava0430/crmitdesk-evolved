@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Sparkles, Plus, Play, Trash2, ToggleLeft, ToggleRight, Zap, Bell, Mail, Tag, Route, BarChart3, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
 import { useAIRules, useCreateAIRule, useUpdateAIRule, useDeleteAIRule, useRunAIRule, useBulkScoreLeads } from '../api/ai';
 import {
+  AiGeneratedTag, AiInfo,
   Alert, Badge, Button, Card, Field, IconButton, Input, Modal, PageBody, PageHeader,
   SectionHeader, Spinner, Textarea, EmptyState,
 } from '../shared/components';
@@ -130,7 +131,7 @@ function RuleCard({ rule, onEdit, onDelete, onToggle }: any) {
             </div>
           )}
 
-          <Field label="Test this rule">
+          <Field label={<span className="inline-flex items-center gap-1">Test this rule <AiInfo id="builder.rule" /></span>}>
             <Textarea
               value={testInput}
               onChange={e => setTestInput(e.target.value)}
@@ -145,6 +146,7 @@ function RuleCard({ rule, onEdit, onDelete, onToggle }: any) {
 
           {testOutput && (
             <div>
+              <AiGeneratedTag className="mb-1.5" />
               <p className="text-xs font-medium text-fg-muted mb-1.5 flex items-center gap-1">
                 <Sparkles size={11} className="text-accent" /> AI Output
               </p>
@@ -280,6 +282,7 @@ export function AIFeaturePage() {
             >
               Score All Leads
             </Button>
+            <AiInfo id="lead.bulkScore" align="left" className="-ml-1" />
             <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>
               New Rule
             </Button>

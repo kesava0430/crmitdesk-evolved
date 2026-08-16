@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover, popoverStyle } from './useAnchoredPopover';
 import { ChevronDown, Search, Check } from 'lucide-react';
 
 export interface SelectOption {
@@ -34,6 +36,21 @@ export function SearchableSelect({
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  /* Portaled. The panel itself is trigger-width so it never ran off the side,
+     but this control is used heavily inside modals whose body scrolls — an
+     absolutely-positioned list opened near the bottom was clipped by that
+     scroll container, so the options simply were not there. Measuring the
+     trigger and rendering to <body> sidesteps every ancestor. */
+  const [triggerWidth, setTriggerWidth] = useState(220);
+  const { triggerRef, panelRef: floatRef, position } = useAnchoredPopover<HTMLButtonElement>(open, {
+    width: triggerWidth, align: 'left', estimatedHeight: 300,
+  });
+
+  useEffect(() => {
+    if (open && triggerRef.current) {
+      setTriggerWidth(Math.max(180, triggerRef.current.getBoundingClientRect().width));
+    }
+  }, [open]);
 
   const selected = options.find(o => o.value === value);
 
@@ -54,7 +71,9 @@ export function SearchableSelect({
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const _t = e.target as Node;
+      if (floatRef.current?.contains(_t)) return;
+      if (containerRef.current && !containerRef.current.contains(_t)) {
         setOpen(false);
       }
     };
@@ -98,6 +117,7 @@ export function SearchableSelect({
 
       {/* Trigger */}
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen(o => !o)}
@@ -113,8 +133,8 @@ export function SearchableSelect({
       </button>
 
       {/* Dropdown panel */}
-      {open && (
-        <div className="absolute z-[200] mt-1 w-full min-w-[180px] ui-popover overflow-hidden">
+      {open && position && createPortal(
+        <div ref={floatRef} style={popoverStyle(position)} className="z-[400] ui-popover">
           {/* Search input */}
           <div className="p-2 border-b border-line-subtle">
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-surface-sunken rounded-lg border border-line-subtle focus-within:border-brand-300 focus-within:ring-2 focus-within:ring-brand-100 dark:focus-within:ring-brand-500/20 transition-all">
@@ -172,7 +192,8 @@ export function SearchableSelect({
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

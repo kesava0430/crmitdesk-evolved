@@ -5,7 +5,7 @@ import { useScoreLead, useLeadFollowUp, useNurtureSequence } from '../../../api/
 import {
   PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions,
   CustomFieldsFormFields, RecordTemplatePicker, Card, DataTable, Alert, IconButton, Field, Input,
-  Textarea, Select, Label, Avatar, FormActions,
+  Textarea, Select, Label, Avatar, FormActions, AiInfo, AiNote, AiGeneratedTag,
 } from '../../../shared/components';
 import type { Column } from '../../../shared/components';
 import { leadStatusVariant } from '../../../shared/components/Badge';
@@ -175,15 +175,17 @@ function FollowUpModal({ lead, onClose }: { lead: any; onClose: () => void }) {
         <p className="text-xs text-fg-muted">{lead.contact?.email} · {lead.source || 'Unknown source'}</p>
       </Alert>
 
+      <AiNote id="lead.followUp" />
+
       {!result ? (
         <div className="text-center py-6">
-          <p className="text-sm text-fg-muted mb-4">AI will write a personalized follow-up email based on this lead's data, source, and notes.</p>
           <Button icon={<Sparkles size={15} />} onClick={generate} loading={followUp.isPending}>
             Generate Follow-up Email
           </Button>
         </div>
       ) : (
         <div className="space-y-3">
+          <AiGeneratedTag />
           <Card padding="none" flat className="overflow-hidden">
             <div className="bg-surface-sunken px-4 py-2 flex items-center justify-between border-b border-line-subtle">
               <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Subject</span>
@@ -234,9 +236,10 @@ function NurtureSequenceModal({ lead, onClose }: { lead: any; onClose: () => voi
         <p className="text-xs text-fg-muted">{lead.source || 'Unknown source'}</p>
       </Alert>
 
+      <AiNote id="lead.nurture" />
+
       {!nurture.data ? (
         <div className="text-center py-6">
-          <p className="text-sm text-fg-muted mb-4">AI will generate a personalized 3-step nurture email sequence for this lead.</p>
           <Button icon={<Sparkles size={15} />} onClick={() => nurture.mutate(lead.id)} loading={nurture.isPending}>
             Generate Nurture Sequence
           </Button>
@@ -413,7 +416,10 @@ export function LeadsPage() {
     },
     {
       key: 'aiScore',
-      header: 'AI Score',
+      // One ⓘ on the column header rather than one per row: it explains both
+      // the "Score" button and the re-score action, and scoring writes the
+      // result straight onto the lead.
+      header: <span className="inline-flex items-center gap-1">AI Score <AiInfo id="lead.score" /></span>,
       cell: (lead: any) => lead.aiScore != null ? (
         <div className="flex items-center gap-1.5">
           <Badge variant={scoreVariant(lead.aiScore)}>{lead.aiScore}</Badge>

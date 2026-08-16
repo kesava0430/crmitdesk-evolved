@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover, popoverStyle } from './useAnchoredPopover';
 import { Palette, Check, Type, X, Moon, Sun } from 'lucide-react';
 import {
   useTheme, THEME_LABELS, FONT_LABELS, THEME_ACCENTS,
@@ -30,10 +32,20 @@ export function ThemePicker() {
   const { style, font, dark, setStyle, setFont, toggleDark } = useTheme();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  /* Measured on a 390px viewport, this 288px panel opened at x=196 and ran to
+     484 — 94px off the right edge — then got clipped by the shell's
+     `overflow-hidden`. It lives at the bottom of the sidebar, so it also needs
+     to open upward. Portaling with viewport clamping fixes both. */
+  const { triggerRef, panelRef: floatRef, position } = useAnchoredPopover<HTMLButtonElement>(open, {
+    width: 288, align: 'left', placement: 'top', estimatedHeight: 520,
+  });
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (panelRef.current?.contains(t)) return;
+      if (floatRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
@@ -51,6 +63,7 @@ export function ThemePicker() {
   return (
     <div className="relative" ref={panelRef}>
       <button
+        ref={triggerRef}
         onClick={() => setOpen(v => !v)}
         title="Appearance"
         aria-label="Appearance settings"
@@ -60,8 +73,12 @@ export function ThemePicker() {
         <Palette size={16} />
       </button>
 
-      {open && (
-        <div className="absolute bottom-10 left-0 z-[200] w-72 animate-slide-down ui-popover overflow-hidden">
+      {open && position && createPortal(
+        <div
+          ref={floatRef}
+          style={popoverStyle(position)}
+          className="z-[400] animate-slide-down ui-popover"
+        >
           <div className="flex items-center justify-between px-4 py-3.5 border-b border-line-subtle">
             <div className="flex items-center gap-2">
               <Palette size={14} className="text-accent" />
@@ -76,7 +93,7 @@ export function ThemePicker() {
             </button>
           </div>
 
-          <div className="p-4 space-y-5 max-h-[70vh] overflow-y-auto">
+          <div className="p-4 space-y-5">
             {/* ── Visual style ── */}
             <div>
               <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-widest mb-3">
@@ -195,7 +212,8 @@ export function ThemePicker() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

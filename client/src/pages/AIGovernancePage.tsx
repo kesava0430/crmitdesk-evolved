@@ -9,6 +9,7 @@ import {
   useAiFeedback,
 } from '../api/work';
 import {
+  AiInfo, AiNote,
   Alert, Badge, Button, Card, Checkbox, EmptyState, FormError, Input, PageBody, PageHeader,
   Select, Spinner, StatTile, Tabs, Toolbar,
 } from '../shared/components';
@@ -253,15 +254,18 @@ function KnowledgePanel() {
           Retrieval filters by your permissions <em>before</em> ranking, so a restricted user never learns a document
           exists.
         </p>
-        <Button
-          size="sm"
-          variant="secondary"
-          icon={<RefreshCw size={13} />}
-          loading={reindex.isPending}
-          onClick={() => reindex.mutate()}
-        >
-          Re-index knowledge base
-        </Button>
+        <span className="inline-flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<RefreshCw size={13} />}
+            loading={reindex.isPending}
+            onClick={() => reindex.mutate()}
+          >
+            Re-index knowledge base
+          </Button>
+          <AiInfo id="knowledge.index" align="left" />
+        </span>
       </div>
 
       {reindex.data && (
@@ -292,6 +296,7 @@ function KnowledgePanel() {
           <Search size={14} className="text-fg-subtle" />
           <p className="text-[13px] font-semibold text-fg">Ask the knowledge base</p>
         </div>
+        <AiNote id="knowledge.ask" className="mb-3" />
         <div className="flex items-center gap-2">
           <Input
             className="flex-1"

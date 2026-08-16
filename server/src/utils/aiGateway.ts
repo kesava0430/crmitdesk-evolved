@@ -103,11 +103,23 @@ export async function resolveModels(orgId: string, task: AiTaskType): Promise<Re
   const providers = await prisma.aiProvider.findMany({
     where: { OR: [{ orgId }, { orgId: null }], isActive: true },
     include: { models: { where: { isActive: true }, orderBy: { priority: 'asc' } } },
-    orderBy: [{ orgId: 'desc' }, { priority: 'asc' }],
+    orderBy: { priority: 'asc' },
   });
 
+  /* Org-owned providers must be tried before platform-owned ones — the
+     customer's own key should serve the customer's traffic.
+     `orderBy: { orgId: 'desc' }` did NOT achieve that: in Postgres, DESC sorts
+     NULLS FIRST, so platform rows (orgId IS NULL) sorted ahead of the org's
+     own. The platform key was billed for tenant traffic and per-org rate
+     limits went unused — the exact inverse of the intent. Sorting in JS keeps
+     it explicit and database-independent. */
+  const ordered = [
+    ...providers.filter(p => p.orgId === orgId),
+    ...providers.filter(p => p.orgId === null),
+  ];
+
   const out: ResolvedModel[] = [];
-  for (const p of providers) {
+  for (const p of ordered) {
     const key = p.apiKeyEncrypted ? decryptSecretOrPlain(p.apiKeyEncrypted) : '';
     if (!key) continue;
     for (const m of p.models) {

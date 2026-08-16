@@ -1021,10 +1021,11 @@ html.dark .skeleton {
    RESPONSIVE TABLE
    ═══════════════════════════════════════════════════════════════════ */
 
-@media (max-width: 768px) {
-  .responsive-table th:nth-child(n+4),
-  .responsive-table td:nth-child(n+4) { display: none; }
-}
+/* Removed: a .responsive-table rule that hid every column from the fourth
+   onward below 768px. It had zero usages, but as a named utility it was an
+   invitation to hide a table's action column on mobile with no way to reach
+   it. Use DataTable's per-column  instead — it is explicit about
+   which column disappears, and never the last one. */
 
 /* ═══════════════════════════════════════════════════════════════════
    THEME PICKER PANEL

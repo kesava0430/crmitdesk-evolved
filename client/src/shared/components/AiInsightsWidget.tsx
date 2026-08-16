@@ -1,5 +1,6 @@
 import { Sparkles, CheckCircle, RefreshCw } from 'lucide-react';
 import { useAiInsights } from '../../api/ai';
+import { AiNote } from './AiInfo';
 import { Alert, type AlertTone } from './Alert';
 import { Badge } from './Badge';
 import { Button } from './Button';
@@ -59,6 +60,28 @@ export function AiInsightsWidget() {
       </div>
 
       <div className="p-5 space-y-3">
+        <AiNote id="dashboard.insights" />
+
+        {/* Nothing runs on mount — this is a mutation, deliberately, so a
+            dashboard visit never spends AI budget on its own. Say so, and make
+            Refresh the call to action, rather than leaving a skeleton that
+            implies a load is already in flight. */}
+        {insights.isIdle && (
+          <div className="text-center py-6 space-y-2">
+            <p className="text-sm text-fg-muted">
+              Insights are generated on request, so they are not loaded automatically.
+            </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => insights.mutate()}
+              icon={<RefreshCw size={13} />}
+            >
+              Refresh to generate insights
+            </Button>
+          </div>
+        )}
+
         {insights.isPending && (
           <>
             <SkeletonCard />

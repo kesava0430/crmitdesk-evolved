@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Users, Target, TrendingUp, CheckSquare, ArrowRight } from 'lucide-react';
 import { useMeetingNotes } from '../../api/ai';
-import { Modal, Button, Field, Textarea } from './index';
+import { Modal, Button, Field, Textarea, Alert, AiNote, AiGeneratedTag } from './index';
 import { useFormat } from '../../hooks/useFormat';
 
 interface MeetingNotesModalProps {
@@ -48,6 +48,7 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
   const { money } = useFormat();
   const [notes, setNotes] = useState('');
   const [toastMsg, setToastMsg] = useState('');
+  const [error, setError] = useState('');
   const parseMutation = useMeetingNotes();
 
   function showToast(msg: string) {
@@ -57,10 +58,17 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
 
   async function handleParse() {
     if (notes.trim().length < 10) return;
-    await parseMutation.mutateAsync(notes);
+    setError('');
+    try {
+      await parseMutation.mutateAsync(notes);
+    } catch (e: any) {
+      // Previously uncaught: a failed parse became an unhandled rejection and
+      // the modal just sat there, looking like nothing had happened.
+      setError(e?.response?.data?.error || 'Could not parse those notes. Please try again.');
+    }
   }
 
-  function handleCreateAll() {
+  function handleDone() {
     if (!parseMutation.data) return;
     const d = parseMutation.data;
     const contactCount = d.contacts?.length ?? 0;
@@ -74,8 +82,10 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
   const data = parseMutation.data;
 
   return (
-    <Modal open={open} onClose={() => { onClose(); parseMutation.reset(); setNotes(''); }} title="Parse Meeting Notes" size="lg">
+    <Modal open={open} onClose={() => { onClose(); parseMutation.reset(); setNotes(''); setError(''); }} title="Parse Meeting Notes" size="lg">
       <div className="space-y-4">
+        <AiNote id="meeting.notes" />
+
         {/* Notes textarea */}
         <Field
           label="Paste your meeting notes"
@@ -101,10 +111,15 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
           </Button>
         </div>
 
+        {error && <Alert tone="danger">{error}</Alert>}
+
         {/* Results */}
         {data && (
           <div className="space-y-3 border-t border-line-subtle pt-4">
-            <p className="text-sm font-semibold text-fg">Parsed Results</p>
+            <div>
+              <AiGeneratedTag />
+              <p className="text-sm font-semibold text-fg mt-1.5">Parsed Results</p>
+            </div>
 
             {data.contacts?.length > 0 && (
               <ParsedGroup tone="accent" icon={<Users size={14} />} title="Contacts" count={data.contacts.length}>
@@ -157,8 +172,10 @@ export function MeetingNotesModal({ open, onClose }: MeetingNotesModalProps) {
               >
                 Go to Contacts
               </Button>
-              <Button icon={<CheckSquare size={14} />} onClick={handleCreateAll}>
-                Create All
+              {/* This never created anything — it only summarises what was
+                  parsed — so it no longer promises that it does. */}
+              <Button icon={<CheckSquare size={14} />} onClick={handleDone}>
+                Done
               </Button>
             </div>
           </div>

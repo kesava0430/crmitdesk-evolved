@@ -69,10 +69,16 @@ export async function scoreLeadHandler(req: AuthRequest, res: Response, next: Ne
 
     const result = await scoreLead(lead);
 
-    await prisma.lead.updateMany({
-      where: { id: req.params.id, orgId },
-      data: { aiScore: result.score, aiScoreReason: result.reason },
-    });
+    /* Only write a genuine assessment. When AI is unconfigured or the reply
+       was unparseable, scoreLead returns scored:false with a placeholder 50 —
+       persisting that made "no AI" indistinguishable from "scored 50/100",
+       and the lead then looked scored so bulk scoring skipped it forever. */
+    if (result.scored) {
+      await prisma.lead.updateMany({
+        where: { id: req.params.id, orgId },
+        data: { aiScore: result.score, aiScoreReason: result.reason },
+      });
+    }
 
     res.json(result);
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
@@ -408,8 +414,12 @@ export async function churnRiskHandler(req: AuthRequest, res: Response, next: Ne
     const orgId = req.user!.orgId;
     const contact = await prisma.contact.findFirst({ where: { id: req.params.id, orgId } });
     if (!contact) return res.status(404).json({ error: 'Contact not found' });
+    /* Scoped to THIS contact. It previously selected the 10 most recent
+       tickets in the whole organisation, so every contact was assessed
+       against the same unrelated ticket set and the resulting "churn risk"
+       said nothing about the customer it was attached to. */
     const recentTickets = await prisma.ticket.findMany({
-      where: { orgId },
+      where: { orgId, contactId: contact.id },
       select: { sentiment: true, status: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -535,6 +545,19 @@ export async function contactHealthHandler(req: AuthRequest, res: Response, next
     if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
     const { scoreContactHealth } = await import('../../utils/ai');
+
+    /* The prompt asks for ticket counts, but this used to pass the ACTIVITY
+       count as ticketCount and hardcode negativeTickets: 0 — so the model was
+       reasoning about support history it was never given. Query the real
+       thing. */
+    const contactTickets = await prisma.ticket.findMany({
+      where: { orgId, contactId: contact.id },
+      select: { sentiment: true },
+    });
+    const negativeTickets = contactTickets.filter(
+      t => t.sentiment === 'NEGATIVE' || t.sentiment === 'FRUSTRATED',
+    ).length;
+
     const openDealValue = (contact.deals as any[])
       .filter((d: any) => !['Won', 'Lost'].includes(d.stage))
       .reduce((sum: number, d: any) => sum + Number(d.value || 0), 0);
@@ -545,8 +568,8 @@ export async function contactHealthHandler(req: AuthRequest, res: Response, next
       lastActivityAt: (contact as any).lastActivityAt ?? null,
       dealCount: (contact.deals as any[]).length,
       openDealValue,
-      ticketCount: (contact.activities as any[]).length,
-      negativeTickets: 0,
+      ticketCount: contactTickets.length,
+      negativeTickets,
     });
     res.json(result);
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
@@ -621,7 +644,17 @@ export async function bulkScoreHandler(req: AuthRequest, res: Response, next: Ne
       daysOld: Math.floor((Date.now() - l.createdAt.getTime()) / 86400000),
     })));
 
-    // Persist scores
+    /* bulkScoreLeads now returns only validated rows whose id was in the
+       batch we sent, and returns [] rather than a page of placeholder 50s when
+       AI is unconfigured — so an empty result must not be reported as success. */
+    if (scored.length === 0) {
+      return res.json({
+        scored: 0,
+        results: [],
+        message: 'No leads were scored — check that an AI provider is configured.',
+      });
+    }
+
     await Promise.all(scored.map(s =>
       prisma.lead.updateMany({ where: { id: s.id, orgId }, data: { aiScore: s.score, aiScoreReason: s.reason } })
     ));
@@ -872,9 +905,11 @@ export async function runAIRuleHandler(req: AuthRequest, res: Response, next: Ne
     // Execute the custom prompt against entity data or provided text
     const OpenAI = (await import('openai')).default;
     const client = process.env.GROQ_API_KEY
-      ? new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' })
+      // Bounded, like utils/ai.ts's shared client — an unbounded request here
+      // could hold this handler for the SDK's 10-minute default.
+      ? new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', timeout: 30_000, maxRetries: 0 })
       : process.env.OPENAI_API_KEY
-        ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+        ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30_000, maxRetries: 0 })
         : null;
     if (!client) return res.json({ result: 'AI not configured — add GROQ_API_KEY or OPENAI_API_KEY to .env' });
 

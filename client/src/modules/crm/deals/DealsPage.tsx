@@ -7,7 +7,7 @@ import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } f
 import {
   PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay,
   RecordTemplatePicker, ScheduleReminderPanel, Card, StatTile, Tabs, Alert, IconButton, Field, Input,
-  Label, FormGrid, FormActions, Avatar,
+  Label, FormGrid, FormActions, Avatar, AiInfo, AiNote, AiGeneratedTag,
 } from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
@@ -135,6 +135,83 @@ function DealCard({ deal, onDelete, onSelect }: any) {
   );
 }
 
+/**
+ * Tone check result.
+ *
+ * The server returns { tone, score, issues[], suggestions[], approved }
+ * (see `checkEmailTone` in server/src/utils/ai.ts). This used to be dumped
+ * through JSON.stringify, so the user was shown raw braces and quotes; the
+ * fields are rendered properly now. A plain string is still handled, since an
+ * older/failed response can come back that way.
+ */
+function ToneCheckResult({ data }: { data: any }) {
+  if (typeof data === 'string') {
+    return (
+      <Alert tone="accent" title="Tone Analysis">
+        <p className="text-xs leading-relaxed">{data}</p>
+      </Alert>
+    );
+  }
+
+  /* The server now fails CLOSED: when AI is unavailable or the reply was
+     malformed it returns checked:false rather than approved:true. Surfacing
+     that distinction matters — an unchecked email must not look like one that
+     passed review. Older servers omit `checked`; treat that as checked. */
+  if (data?.checked === false) {
+    return (
+      <Alert tone="warning" title="Tone not checked">
+        <p className="text-xs leading-relaxed">
+          The tone check could not run, so this email has not been reviewed. Check that an AI
+          provider is configured, then try again.
+        </p>
+      </Alert>
+    );
+  }
+
+  const tone: string | undefined = data?.tone;
+  const score: number | undefined = typeof data?.score === 'number' ? data.score : undefined;
+  const issues: string[] = Array.isArray(data?.issues) ? data.issues : [];
+  const suggestions: string[] = Array.isArray(data?.suggestions) ? data.suggestions : [];
+  const alertTone = score == null ? 'accent' : score >= 75 ? 'success' : score >= 50 ? 'warning' : 'danger';
+
+  return (
+    <Alert tone={alertTone} title="Tone Analysis">
+      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+        {tone && <span className="text-xs font-semibold capitalize">{tone}</span>}
+        {score != null && <span className="text-xs opacity-80">{score}/100</span>}
+        {data?.approved === false && <span className="text-xs font-medium">Needs a rewrite</span>}
+      </div>
+      {issues.length > 0 && (
+        <div className="mb-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider opacity-80 mb-0.5">Issues</p>
+          <ul className="space-y-1">
+            {issues.map((issue, i) => (
+              <li key={i} className="text-xs flex items-start gap-1.5">
+                <span className="opacity-60 mt-0.5 flex-shrink-0">&#8226;</span>{issue}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {suggestions.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider opacity-80 mb-0.5">Suggestions</p>
+          <ul className="space-y-1">
+            {suggestions.map((s, i) => (
+              <li key={i} className="text-xs flex items-start gap-1.5">
+                <span className="opacity-60 mt-0.5 flex-shrink-0">&#8226;</span>{s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!tone && score == null && issues.length === 0 && suggestions.length === 0 && (
+        <p className="text-xs leading-relaxed">No tone issues were reported.</p>
+      )}
+    </Alert>
+  );
+}
+
 function DealDetailPanel({ deal }: { deal: any }) {
   const winProb = useWinProbability();
   const followUp = useDealFollowUp();
@@ -158,6 +235,7 @@ function DealDetailPanel({ deal }: { deal: any }) {
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-medium text-fg flex items-center gap-1.5">
             <Activity size={14} className="text-brand-500" /> Win Probability
+            <AiInfo id="deal.winProbability" />
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => winProb.mutate(deal.id)} loading={winProb.isPending}>
             Analyze
@@ -195,8 +273,10 @@ function DealDetailPanel({ deal }: { deal: any }) {
             {followUp.data ? 'Regenerate' : 'Generate'}
           </Button>
         </div>
+        <AiNote id="deal.followUp" className="mb-2" />
         {followUp.data && (
           <div className="space-y-2">
+            <AiGeneratedTag />
             <Card padding="none" flat className="overflow-hidden">
               <div className="bg-surface-sunken px-3 py-2 flex items-center justify-between border-b border-line-subtle">
                 <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Subject</span>
@@ -224,6 +304,7 @@ function DealDetailPanel({ deal }: { deal: any }) {
                   >
                     {toneCheck.isPending ? 'Checking...' : 'Tone Check'}
                   </Button>
+                  <AiInfo id="deal.toneCheck" align="left" />
                   <Button
                     variant="ghost"
                     size="xs"
@@ -236,11 +317,7 @@ function DealDetailPanel({ deal }: { deal: any }) {
               </div>
               <pre className="px-3 py-2 text-sm text-fg whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">{followUp.data.body}</pre>
             </Card>
-            {toneCheck.data && (
-              <Alert tone="accent" title="Tone Analysis">
-                <p className="text-xs leading-relaxed">{typeof toneCheck.data === 'string' ? toneCheck.data : JSON.stringify(toneCheck.data)}</p>
-              </Alert>
-            )}
+            {toneCheck.data && <ToneCheckResult data={toneCheck.data} />}
           </div>
         )}
       </div>
@@ -253,6 +330,7 @@ function PipelineHealthModal({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <Modal open={open} onClose={onClose} title="Pipeline Health" size="md">
       <div className="space-y-4">
+        <AiNote id="deal.pipelineHealth" />
         <div className="text-center py-2">
           <Button icon={<Sparkles size={15} />} onClick={() => health.mutate()} loading={health.isPending}>
             {health.data ? 'Refresh Analysis' : 'Analyze Pipeline'}

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useFormat } from '../../hooks/useFormat';
+import { AiInfo } from './AiInfo';
 
 interface SearchResult {
   id: string;
@@ -42,14 +43,18 @@ function useSearch(query: string) {
   // honestly rather than the "Smart search" label always claiming AI
   // regardless of whether a GROQ/OPENAI key is even configured.
   const [aiPowered, setAiPowered] = useState(false);
+  // A failed request used to be indistinguishable from "no matches" — the
+  // dropdown just came up empty. Keep the failure so the UI can say so.
+  const [failed, setFailed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const { money } = useFormat();
 
   const search = useCallback(async (q: string) => {
-    if (!q.trim() || q.length < 2) { setResults([]); return; }
+    if (!q.trim() || q.length < 2) { setResults([]); setFailed(false); return; }
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     setLoading(true);
+    setFailed(false);
     try {
       // Use the shared, pre-configured `api` client (correct baseURL, and the
       // 'accessToken' key AuthContext actually stores — this previously read
@@ -73,7 +78,7 @@ function useSearch(query: string) {
       setResults(mapped);
       setAiPowered(!!data.aiPowered);
     } catch (e: any) {
-      if (e?.code !== 'ERR_CANCELED') setResults([]);
+      if (e?.code !== 'ERR_CANCELED') { setResults([]); setFailed(true); }
     } finally {
       setLoading(false);
     }
@@ -82,7 +87,7 @@ function useSearch(query: string) {
   const debouncedQuery = useDebounce(query, 300);
   useState(() => { search(debouncedQuery); });
 
-  return { results, loading, aiPowered, search };
+  return { results, loading, aiPowered, failed, search };
 }
 
 interface AISmartSearchProps {
@@ -94,7 +99,7 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const { results, loading, aiPowered, search } = useSearch(query);
+  const { results, loading, aiPowered, failed, search } = useSearch(query);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
@@ -129,40 +134,55 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
         />
       </div>
 
-      {open && results.length > 0 && (
-        <div className="absolute top-full mt-1 w-full min-w-[320px] bg-surface rounded-xl border border-line shadow-xl z-50 animate-scale-in overflow-hidden">
-          <div className="px-3 py-2 border-b border-line-subtle flex items-center gap-1.5">
+      {/* overflow is visible so the ⓘ explanation popover isn't clipped by the
+          dropdown; the result list keeps its own scroll clipping. */}
+      {open && (results.length > 0 || failed) && (
+        <div className="absolute top-full mt-1 w-full min-w-[320px] bg-surface rounded-xl border border-line shadow-xl z-50 animate-scale-in">
+          <div
+            className="px-3 py-2 border-b border-line-subtle flex items-center gap-1.5"
+            // Keep focus in the input so opening the explanation doesn't blur
+            // the field and close the dropdown out from under the popover.
+            onMouseDown={e => e.preventDefault()}
+          >
             {aiPowered
-              ? <Sparkles size={11} className="text-indigo-400" />
-              : <Search size={11} className="text-gray-400" />}
+              ? <Sparkles size={11} className="text-accent" />
+              : <Search size={11} className="text-fg-subtle" />}
             {/* Honest label: only claims "AI search" when the request actually
                 went through interpretSearchQuery() server-side (a GROQ/OPENAI
                 key is configured) — otherwise says what it is, a keyword match. */}
-            <span className="text-xs text-gray-400">{aiPowered ? 'AI search results' : 'Search results'}</span>
+            <span className="text-xs text-fg-subtle">{aiPowered ? 'AI search results' : 'Search results'}</span>
+            <AiInfo id="search.interpret" />
           </div>
-          <ul className="py-1 max-h-72 overflow-y-auto">
-            {results.map(r => {
-              const Icon = ICONS[r.type];
-              const colorClass = TYPE_COLORS[r.type];
-              return (
-                <li key={`${r.type}-${r.id}`}>
-                  <button
-                    onMouseDown={() => handleSelect(r)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-hover transition-colors"
-                  >
-                    <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${colorClass}`}>
-                      <Icon size={13} />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-fg truncate">{r.title}</p>
-                      {r.subtitle && <p className="text-xs text-fg-muted truncate">{r.subtitle}</p>}
-                    </div>
-                    <span className="text-xs text-fg-subtle capitalize flex-shrink-0">{r.type}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+
+          {failed ? (
+            <p className="px-3 py-3 text-xs text-fg-muted">
+              Search failed — check your connection and try again.
+            </p>
+          ) : (
+            <ul className="py-1 max-h-72 overflow-y-auto">
+              {results.map(r => {
+                const Icon = ICONS[r.type];
+                const colorClass = TYPE_COLORS[r.type];
+                return (
+                  <li key={`${r.type}-${r.id}`}>
+                    <button
+                      onMouseDown={() => handleSelect(r)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-hover transition-colors"
+                    >
+                      <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${colorClass}`}>
+                        <Icon size={13} />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-fg truncate">{r.title}</p>
+                        {r.subtitle && <p className="text-xs text-fg-muted truncate">{r.subtitle}</p>}
+                      </div>
+                      <span className="text-xs text-fg-subtle capitalize flex-shrink-0">{r.type}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
     </div>

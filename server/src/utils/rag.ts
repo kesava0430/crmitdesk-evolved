@@ -117,8 +117,14 @@ export async function hasPgVector(): Promise<boolean> {
       `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS exists`
     );
     pgvectorAvailable = !!rows[0]?.exists;
-  } catch {
-    pgvectorAvailable = false;
+  } catch (err) {
+    /* Deliberately NOT cached. A transient error here (connection blip during
+       boot, a pool timeout) used to pin this process to `false` for its whole
+       lifetime, silently downgrading every subsequent search to the slow
+       in-Node path with no way to recover short of a restart. Returning false
+       without caching means the next search re-probes. */
+    console.error('[rag] pgvector probe failed, will retry on next search', err);
+    return false;
   }
   if (pgvectorAvailable) {
     console.log('[rag] pgvector detected — using ANN search');
@@ -256,26 +262,41 @@ export async function indexDocument(input: IndexInput): Promise<IndexResult> {
   // Replace wholesale rather than diff: chunk boundaries shift when content
   // changes, so index N of the old version rarely corresponds to index N of
   // the new one and a partial update would leave orphaned text retrievable.
-  await prisma.knowledgeChunk.deleteMany({ where: { documentId: doc.id } });
+  /* Delete-then-insert runs in ONE transaction.
+     Previously the new contentHash was written to the document first, then
+     chunks were deleted and recreated in a bare loop. A crash or timeout
+     partway through left a document whose hash matched its content but whose
+     chunks were missing or partial — and because indexDocument short-circuits
+     on a hash match, every future reindex skipped it. The document became
+     permanently unsearchable with no error anywhere. */
+  const createdIds = await prisma.$transaction(async tx => {
+    await tx.knowledgeChunk.deleteMany({ where: { documentId: doc.id } });
+    const ids: Array<{ id: string; vector: number[] }> = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const created = await tx.knowledgeChunk.create({
+        data: {
+          orgId: input.orgId,
+          documentId: doc.id,
+          chunkIndex: chunks[i].index,
+          content: chunks[i].content,
+          heading: chunks[i].heading ?? null,
+          tokenCount: chunks[i].tokenCount,
+          embedding: vectors[i] ?? [],
+          embeddingModel: model,
+          embeddingDim: dim,
+          visibility: input.visibility ?? 'INTERNAL',
+        },
+        select: { id: true },
+      });
+      if (vectors[i]) ids.push({ id: created.id, vector: vectors[i] });
+    }
+    return ids;
+  });
 
-  for (let i = 0; i < chunks.length; i++) {
-    const created = await prisma.knowledgeChunk.create({
-      data: {
-        orgId: input.orgId,
-        documentId: doc.id,
-        chunkIndex: chunks[i].index,
-        content: chunks[i].content,
-        heading: chunks[i].heading ?? null,
-        tokenCount: chunks[i].tokenCount,
-        embedding: vectors[i] ?? [],
-        embeddingModel: model,
-        embeddingDim: dim,
-        visibility: input.visibility ?? 'INTERNAL',
-      },
-      select: { id: true },
-    });
-    if (vectors[i]) await syncShadowVector(created.id, vectors[i]);
-  }
+  /* The shadow pgvector column is an optimisation, not the source of truth
+     (KnowledgeChunk.embedding is), so it is synced outside the transaction —
+     a failure here degrades search speed, never correctness. */
+  for (const { id, vector } of createdIds) await syncShadowVector(id, vector);
 
   return { documentId: doc.id, chunkCount: chunks.length, skipped: false, costUsd };
 }
@@ -432,9 +453,14 @@ export async function search(
   // Fallback: score in Node over the permitted candidate set. Bounded by
   // CANDIDATE_CAP so a large tenant can't turn one search into a full scan.
   const CANDIDATE_CAP = 2000;
+  /* orderBy matters: without it Postgres returns an arbitrary 2000 rows, so
+     the same query could score a different subset each time and silently lose
+     recall on a large tenant. Newest-first at least makes the truncation
+     predictable and biased toward current material. */
   const chunks = await prisma.knowledgeChunk.findMany({
     where: { orgId: ctx.orgId, documentId: { in: allowedIds } },
     select: { id: true, documentId: true, content: true, heading: true, embedding: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     take: CANDIDATE_CAP,
   });
 

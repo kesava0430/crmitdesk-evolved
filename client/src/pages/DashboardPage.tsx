@@ -11,6 +11,7 @@ import { useContacts, useLeads } from '../api/crm';
 import { useTicketReports } from '../api/itdesk';
 import { useNLQuery } from '../api/ai';
 import {
+  AiGeneratedTag, AiInfo, AiNote,
   Alert, Badge, Button, Card, CardHeader, Input, PageBody, PageHeader, Spinner, StatTile,
 } from '../shared/components';
 import { AiInsightsWidget } from '../shared/components/AiInsightsWidget';
@@ -59,12 +60,13 @@ function StatCard({ label, value, icon: Icon, trend, trendUp, onClick }: StatCar
   );
 }
 
-function SectionTitle({ color, label, action, onAction }: { color: string; label: string; action?: string; onAction?: () => void }) {
+function SectionTitle({ color, label, action, onAction, infoId }: { color: string; label: string; action?: string; onAction?: () => void; infoId?: string }) {
   return (
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-2.5">
         <span className={`w-1 h-5 rounded-full ${color}`} />
         <h2 className="text-xs font-semibold text-fg-muted uppercase tracking-widest">{label}</h2>
+        {infoId && <AiInfo id={infoId} />}
       </div>
       {action && onAction && (
         <Button variant="ghost" size="xs" onClick={onAction} iconRight={<ArrowRight size={12} />} className="!text-accent">
@@ -125,6 +127,7 @@ function AIQueryBar() {
         />
       </div>
       <div className="p-5 space-y-4">
+        <AiNote id="dashboard.query" />
         <div className="flex gap-2">
           <Input
             value={question}
@@ -166,17 +169,20 @@ function AIQueryBar() {
           </Alert>
         )}
         {nlQuery.data && (
-          <Alert tone="accent" title="AI Answer">
-            <p className="leading-relaxed">{nlQuery.data.answer}</p>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="mt-2 -ml-2.5"
-              onClick={() => { nlQuery.reset(); setQuestion(''); }}
-            >
-              Ask another
-            </Button>
-          </Alert>
+          <div className="space-y-1.5">
+            <AiGeneratedTag />
+            <Alert tone="accent" title="AI Answer">
+              <p className="leading-relaxed">{nlQuery.data.answer}</p>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="mt-2 -ml-2.5"
+                onClick={() => { nlQuery.reset(); setQuestion(''); }}
+              >
+                Ask another
+              </Button>
+            </Alert>
+          </div>
         )}
       </div>
     </Card>
@@ -211,6 +217,7 @@ export function DashboardPage() {
             <Button variant="secondary" icon={<FileText size={14} />} onClick={() => setMeetingNotesOpen(true)}>
               Parse Meeting Notes
             </Button>
+            <AiInfo id="meeting.notes" align="left" className="-ml-1" />
             <Button variant="secondary" icon={<Plus size={14} />} onClick={() => navigate('/crm/contacts')}>
               Contact
             </Button>
@@ -296,7 +303,7 @@ export function DashboardPage() {
 
         {/* AI Insights */}
         <section className="w-full">
-          <SectionTitle color="bg-accent" label="AI Insights" />
+          <SectionTitle color="bg-accent" label="AI Insights" infoId="dashboard.insights" />
           <AiInsightsWidget />
         </section>
       </PageBody>
