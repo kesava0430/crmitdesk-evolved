@@ -929,11 +929,15 @@ async function buildOrg(preset: VerticalPreset) {
   const contacts = await Promise.all(preset.contacts.map(c =>
     prisma.contact.create({ data: { orgId: org.id, ownerId: c.accountIdx % 2 === 0 ? crmMgr.id : salesRep.id, name: c.name, email: c.email, phone: c.phone, jobTitle: c.jobTitle, accountId: accounts[c.accountIdx].id, source: c.source, dateOfBirth: c.dateOfBirth ? new Date(c.dateOfBirth) : undefined } })
   ));
-  await Promise.all([
-    prisma.contactTag.create({ data: { contactId: contacts[0].id, tagId: tagVip.id } }),
-    prisma.contactTag.create({ data: { contactId: contacts[0].id, tagId: tagEnterprise.id } }),
-    prisma.contactTag.create({ data: { contactId: contacts[2].id, tagId: tagEnterprise.id } }),
-  ]);
+  // Tags are polymorphic now (record_tags), so the same call shape works for
+  // a ticket or an asset — the demo just happens to tag contacts and a deal.
+  await prisma.recordTag.createMany({
+    data: [
+      { orgId: org.id, tagId: tagVip.id,        entityType: 'CONTACT', entityId: contacts[0].id },
+      { orgId: org.id, tagId: tagEnterprise.id, entityType: 'CONTACT', entityId: contacts[0].id },
+      { orgId: org.id, tagId: tagEnterprise.id, entityType: 'CONTACT', entityId: contacts[2].id },
+    ],
+  });
 
   const pipeline = await prisma.pipeline.create({ data: { orgId: org.id, name: `${preset.industry} Pipeline`, isDefault: true, stages: preset.stages as any } });
 
@@ -943,7 +947,7 @@ async function buildOrg(preset: VerticalPreset) {
   await Promise.all(deals.slice(0, 2).map((deal, i) =>
     prisma.dealHistory.create({ data: { dealId: deal.id, toStage: deal.stage, changedBy: salesRep.id, changedAt: daysAgo(15 - i * 5) } })
   ));
-  await prisma.dealTag.create({ data: { dealId: deals[2].id, tagId: tagVip.id } });
+  await prisma.recordTag.create({ data: { orgId: org.id, tagId: tagVip.id, entityType: 'DEAL', entityId: deals[2].id } });
 
   // LEADS + follow-up activities — the "leads only convert, no follow-up"
   // gap this whole feature closes: every lead here gets 1-2 scheduled

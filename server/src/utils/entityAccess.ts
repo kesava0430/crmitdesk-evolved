@@ -5,7 +5,11 @@ import { AppError } from '../middleware/errorHandler';
 // Attachments today. Single source of truth for which Prisma model backs
 // each EntityType value, so adding a new entity type to one doesn't
 // silently leave the other out of sync.
-export const ENTITY_MODEL: Record<string, { findFirst: (args: any) => Promise<any> }> = {
+export const ENTITY_MODEL: Record<string, {
+  findFirst: (args: any) => Promise<any>;
+  /** Used by entityCleanup's orphan sweep to ask "which of these ids still exist?". */
+  findMany: (args: any) => Promise<any>;
+}> = {
   DEAL: prisma.deal,
   TICKET: prisma.ticket,
   CONTACT: prisma.contact,

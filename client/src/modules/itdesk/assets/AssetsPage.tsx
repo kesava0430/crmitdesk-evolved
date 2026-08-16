@@ -8,8 +8,7 @@ import {
 import {
   SearchableSelect, RowActions, PageHeader, Toolbar, Button, Modal, Card, StatTile,
   Field, Input, Select, SearchInput, Badge, Avatar, DataTable, EmptyState, Spinner,
-  type Column,
-} from '../../../shared/components';
+  type Column, RecordTasks, RecordTags} from '../../../shared/components';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useFormat } from '../../../hooks/useFormat';
 
@@ -133,7 +132,11 @@ function AssetModal({ asset, users, onClose }: {
             </Field>
           </div>
         </div>
-        {asset && <Attachments entityType="ASSET" entityId={asset.id} />}
+        {asset && <>
+              <RecordTags entityType="ASSET" entityId={asset.id} />
+              <Attachments entityType="ASSET" entityId={asset.id} />
+              <RecordTasks entityType="ASSET" entityId={asset.id} />
+            </>}
       </form>
     </Modal>
   );

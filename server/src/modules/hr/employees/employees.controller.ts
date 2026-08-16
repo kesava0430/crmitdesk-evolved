@@ -6,6 +6,7 @@ import { AppError } from '../../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../../utils/pagination';
 import { logAction } from '../../../utils/auditLog';
 import { encryptSecret, decryptSecretOrPlain } from '../../../utils/crypto';
+import { purgeEntityChildren } from '../../../utils/entityCleanup';
 import {
   getPermCtx,
   assertCan,
@@ -522,6 +523,7 @@ export async function remove(req: AuthRequest, res: Response, next: NextFunction
     }
 
     await prisma.employee.delete({ where: { id: existing.id } });
+    await purgeEntityChildren('EMPLOYEE', existing.id, orgId);
     logAction(req.user!.id, 'DELETE', 'EMPLOYEE', existing.id, { employeeCode: existing.employeeCode });
     if (existing.userId) invalidatePermCtx(existing.userId);
 

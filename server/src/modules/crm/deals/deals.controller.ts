@@ -10,6 +10,8 @@ import { runWorkflows } from '../../../utils/workflow-engine';
 import { slackDealWon } from '../../../utils/slack';
 import { logAction } from '../../../utils/auditLog';
 import { ensureDefaultPipeline, normalizeStages } from '../pipelines/pipelines.service';
+import { purgeEntityChildren } from '../../../utils/entityCleanup';
+import { tagIdFilter } from '../../../utils/tagFilter';
 
 const Schema = z.object({
   title: z.string().min(1),
@@ -40,12 +42,17 @@ const include = {
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { status, stage, assignedTo } = req.query as Record<string, string>;
+    const { status, stage, assignedTo, tagId } = req.query as Record<string, string>;
     const pag = parsePagination(req);
     const where: any = { orgId };
     if (status) where.status = status;
     if (stage) where.stage = stage;
     if (assignedTo) where.assignedTo = assignedTo;
+    // ?tagId=a,b narrows to records carrying every listed tag. Merged
+    // into `where` as an id set, since tags are polymorphic rather than
+    // a relation on this model — see utils/tagFilter.ts.
+    const byTag = await tagIdFilter(orgId, 'DEAL', tagId);
+    if (byTag) Object.assign(where, byTag);
     const [deals, total] = await Promise.all([
       prisma.deal.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
       prisma.deal.count({ where }),
@@ -178,7 +185,10 @@ export async function reports(req: AuthRequest, res: Response, next: NextFunctio
 
 export async function remove(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.deal.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    const { count } = await prisma.deal.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    // Comments, attachments and tasks hang off this record by a loose
+    // entityType/entityId pair, so the database cannot cascade them.
+    if (count) await purgeEntityChildren('DEAL', req.params.id, req.user!.orgId);
     logAction(req.user!.id, 'DELETE', 'Deal', req.params.id);
     res.json({ message: 'Deleted' });
   } catch (err) { next(err); }

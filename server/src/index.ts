@@ -53,6 +53,7 @@ import { quoteTemplatesRouter } from './modules/templates/quoteTemplates.routes'
 import { schedulesRouter } from './modules/schedules/schedules.routes';
 import { storageRouter } from './modules/storage/storage.routes';
 import { attachmentsRouter } from './modules/attachments/attachments.routes';
+import { tagsRouter } from './modules/tags/tags.routes';
 import { demoRouter } from './modules/demo/demo.routes';
 import { customModulesRouter } from './modules/custom-modules/customModules.routes';
 import { pushRouter } from './modules/push/push.routes';
@@ -81,6 +82,7 @@ import { expireOverdueApprovals } from './utils/approvals';
 import { invoicesRouter } from './modules/invoices/invoices.routes';
 import { jobsRouter } from './modules/jobs/jobs.routes';
 import { startSchedulePoller } from './utils/scheduler';
+import { startOrphanReaper } from './utils/entityCleanup';
 import { startCustomModuleSyncPoller } from './utils/customModuleSync';
 import { startDateAutomationPoller } from './utils/dateAutomation';
 import { startSlaMonitorPoller } from './utils/slaMonitor';
@@ -277,6 +279,7 @@ app.use('/api/templates/quotes', quoteTemplatesRouter);
 app.use('/api/schedules', schedulesRouter);
 app.use('/api/storage', storageRouter);
 app.use('/api/attachments', attachmentsRouter);
+app.use('/api/tags', tagsRouter);
 app.use('/api/demo', demoRouter);
 app.use('/api/custom-modules', customModulesRouter);
 app.use('/api/push', pushRouter);
@@ -338,6 +341,10 @@ setInterval(() => syncAllEmailAccounts().catch(() => {}), 5 * 60 * 1000);
 
 // Schedule reminders: check for due WhatsApp notifications every minute
 startSchedulePoller();
+
+// Attachments whose parent record was deleted by a database-level cascade
+// (which no controller sees) still occupy the org's storage quota. Daily sweep.
+startOrphanReaper();
 
 // Custom module external sync: check for due polling jobs every minute
 startCustomModuleSyncPoller();

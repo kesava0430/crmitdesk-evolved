@@ -299,6 +299,7 @@ export const AI_FEATURES: AiFeature[] = [
     sends: "The ticket's subject and description.",
     effect: 'advisory',
     tier: 'free',
+    caveat: 'A Custom Rule with the Tag action applies these for real. It reuses tags you already have wherever the name matches, and coins at most two new ones per run, so the tag list does not fill up with near-duplicates.',
   },
 
   // ── Knowledge base (RAG) ──────────────────────────────────────────────

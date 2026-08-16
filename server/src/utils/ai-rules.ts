@@ -1,4 +1,5 @@
 import { prisma } from './prisma';
+import { ENTITY_MODEL } from './entityAccess';
 import { complete } from './aiGateway';
 import { runWithAiContext } from './aiContext';
 import { sendPushToUser } from './webPush';
@@ -124,20 +125,50 @@ async function applyAction(
         ? parsed.map(t => String(t).toLowerCase().trim()).filter(Boolean).slice(0, 6)
         : [];
       if (!tags.length) return 'No tags produced';
-      // There is no tags column on Ticket, so tags are recorded as a note.
-      // Give them a column and this becomes a real field write.
-      const author = await prisma.user.findFirst({
-        where: { orgId, role: { in: ['SUPER_ADMIN', 'CRM_MANAGER', 'IT_MANAGER'] }, isActive: true },
-        orderBy: { createdAt: 'asc' }, select: { id: true },
+
+      // This used to write "[AI tags] a, b, c" into a comment body, because
+      // there was nowhere to put a tag. There is now: RecordTag works on any
+      // entity type, so these are real tags you can filter and count.
+      if (!ENTITY_MODEL[entityType]) return `Skipped — tagging is not supported on ${entityType}`;
+
+      // Attach to existing tags only where the name already matches (so the
+      // model cannot invent forty near-duplicates of "urgent"), and create at
+      // most two genuinely new ones per run.
+      const existing = await prisma.tag.findMany({
+        where: { orgId, name: { in: tags, mode: 'insensitive' } },
+        select: { id: true, name: true },
       });
-      if (!author) return 'Skipped — no admin user to attribute the note to';
-      if (entityType !== 'TICKET' && entityType !== 'DEAL' && entityType !== 'CONTACT') {
-        return `Skipped — tagging is not supported on ${entityType}`;
+      const known = new Map(existing.map(t => [t.name.toLowerCase(), t]));
+
+      const NEW_TAG_BUDGET = 2;
+      let coined = 0;
+      const applied: string[] = [];
+
+      for (const name of tags) {
+        let tag = known.get(name);
+        if (!tag) {
+          if (coined >= NEW_TAG_BUDGET) continue;
+          try {
+            tag = await prisma.tag.create({
+              data: { orgId, name, color: '#6B7280', module: 'ALL' },
+              select: { id: true, name: true },
+            });
+            coined++;
+          } catch {
+            continue; // raced with another rule creating the same name
+          }
+          known.set(name, tag);
+        }
+        await prisma.recordTag.upsert({
+          where: { tagId_entityType_entityId: { tagId: tag.id, entityType: entityType as any, entityId } },
+          create: { orgId, tagId: tag.id, entityType: entityType as any, entityId },
+          update: {},
+        });
+        applied.push(tag.name);
       }
-      await prisma.comment.create({
-        data: { authorId: author.id, entityType, entityId, body: `[AI tags] ${tags.join(', ')}` },
-      });
-      return `Tagged: ${tags.join(', ')}`;
+
+      if (!applied.length) return 'No tags applied';
+      return `Tagged: ${applied.join(', ')}`;
     }
 
     case 'ROUTE': {
@@ -330,7 +361,7 @@ export async function runAiRuleManually(
 
 function describeEffect(action: AiRuleAction): string {
   switch (action) {
-    case 'TAG': return 'record the tags on the entity';
+    case 'TAG': return 'apply the proposed tags to the record';
     case 'ROUTE': return 'move the ticket to the proposed category';
     case 'SCORE': return 'write the score onto the lead';
     case 'NOTIFY': return 'notify the record owner';

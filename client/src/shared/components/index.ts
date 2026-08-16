@@ -45,5 +45,7 @@ export * from './CustomFieldsFormFields';
 export * from './CustomFieldsDisplay';
 export * from './RecordTemplatePicker';
 export * from './ScheduleReminderPanel';
+export * from './RecordTasks';   // tasks attached to any record
+export * from './RecordTags';    // tags attached to any record
 export * from './AccessDenied';
 export * from './ErrorBoundary';

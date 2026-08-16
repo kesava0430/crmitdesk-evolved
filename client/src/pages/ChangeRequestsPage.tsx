@@ -5,8 +5,7 @@ import { GitBranch, Plus, CheckCircle, XCircle, Pencil, Trash2 } from 'lucide-re
 import {
   SearchableSelect, RowActions,
   PageHeader, PageBody, Card, Toolbar, Button, Modal,
-  Field, Input, Textarea, Select, Badge, EmptyState,
-} from '../shared/components';
+  Field, Input, Textarea, Select, Badge, EmptyState, RecordTasks, RecordTags} from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
 import { useFormat } from '../hooks/useFormat';
 
@@ -162,7 +161,11 @@ function ChangeRequestModal({ cr, users, onClose }: {
             </Field>
           </div>
         </div>
-        {cr && <Attachments entityType="CHANGE_REQUEST" entityId={cr.id} />}
+        {cr && <>
+              <RecordTags entityType="CHANGE_REQUEST" entityId={cr.id} />
+              <Attachments entityType="CHANGE_REQUEST" entityId={cr.id} />
+              <RecordTasks entityType="CHANGE_REQUEST" entityId={cr.id} />
+            </>}
       </form>
     </Modal>
   );

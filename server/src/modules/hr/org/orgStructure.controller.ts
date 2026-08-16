@@ -5,6 +5,7 @@ import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
 import { getPermCtx, assertCan, invalidateAllPermCtx } from '../../../utils/permissions';
+import { purgeEntityChildren } from '../../../utils/entityCleanup';
 
 /**
  * Departments, teams and locations — the org-structure primitives that
@@ -157,6 +158,7 @@ export async function deleteDepartment(req: AuthRequest, res: Response, next: Ne
     }
 
     await prisma.department.delete({ where: { id: existing.id } });
+    await purgeEntityChildren('DEPARTMENT', existing.id, orgId);
     logAction(req.user!.id, 'DELETE', 'DEPARTMENT', existing.id, { name: existing.name });
     res.json({ message: 'Department deleted' });
   } catch (err) {

@@ -4,6 +4,7 @@ import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../../utils/pagination';
+import { purgeEntityChildren } from '../../../utils/entityCleanup';
 
 const Schema = z.object({
   name:         z.string().min(1),
@@ -87,7 +88,10 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
 
 export async function remove(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.asset.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    const { count } = await prisma.asset.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    // Comments, attachments and tasks hang off this record by a loose
+    // entityType/entityId pair, so the database cannot cascade them.
+    if (count) await purgeEntityChildren('ASSET', req.params.id, req.user!.orgId);
     res.json({ message: 'Asset deleted' });
   } catch (err) { next(err); }
 }

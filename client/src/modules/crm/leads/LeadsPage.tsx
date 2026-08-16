@@ -5,8 +5,7 @@ import { useScoreLead, useLeadFollowUp, useNurtureSequence } from '../../../api/
 import {
   PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions,
   CustomFieldsFormFields, RecordTemplatePicker, Card, DataTable, Alert, IconButton, Field, Input,
-  Textarea, Select, Label, Avatar, FormActions, AiInfo, AiNote, AiGeneratedTag,
-} from '../../../shared/components';
+  Textarea, Select, Label, Avatar, FormActions, AiInfo, AiNote, AiGeneratedTag, RecordTasks, RecordTags} from '../../../shared/components';
 import type { Column } from '../../../shared/components';
 import { leadStatusVariant } from '../../../shared/components/Badge';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
@@ -81,7 +80,11 @@ function LeadForm({ initial, entityId, onSubmit, loading, aiPrefill }: any) {
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
-      {entityId && <Attachments entityType="LEAD" entityId={entityId} />}
+      {entityId && <>
+              <RecordTags entityType="LEAD" entityId={entityId} />
+              <Attachments entityType="LEAD" entityId={entityId} />
+              <RecordTasks entityType="LEAD" entityId={entityId} />
+            </>}
       <FormActions><Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button></FormActions>
     </form>
   );

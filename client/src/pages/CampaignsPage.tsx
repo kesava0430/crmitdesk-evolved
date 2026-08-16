@@ -4,8 +4,7 @@ import { api } from '../api/client';
 import { Mail, Plus, Send, Pencil, Trash2, CheckCircle, Clock, LayoutTemplate } from 'lucide-react';
 import {
   SearchableSelect, RowActions, PageHeader, Button, Modal, Card, Badge, EmptyState,
-  Field, Input, Textarea, Label, Spinner,
-} from '../shared/components';
+  Field, Input, Textarea, Label, Spinner, RecordTasks, RecordTags} from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
 import { useEmailTemplates } from '../api/templates';
 import { useFormat } from '../hooks/useFormat';
@@ -101,7 +100,11 @@ function CampaignModal({ campaign, onClose }: { campaign?: Campaign; onClose: ()
             </Field>
           </div>
         </div>
-        {campaign && <Attachments entityType="CAMPAIGN" entityId={campaign.id} />}
+        {campaign && <>
+              <RecordTags entityType="CAMPAIGN" entityId={campaign.id} />
+              <Attachments entityType="CAMPAIGN" entityId={campaign.id} />
+              <RecordTasks entityType="CAMPAIGN" entityId={campaign.id} />
+            </>}
       </form>
     </Modal>
   );

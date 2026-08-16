@@ -66,6 +66,7 @@ model Organization {
   slackConfig    SlackConfig?
   subscription   Subscription?
   tags           Tag[]
+  recordTags     RecordTag[]
   teamsConfig    TeamsConfig?
   tickets        Ticket[]
   timeEntries    TimeEntry[]
@@ -253,6 +254,7 @@ model User {
   changeRequestsAssigned ChangeRequest[]    @relation("ChangeAssignee")
   changeRequestsMade     ChangeRequest[]    @relation("ChangeRequester")
   comments               Comment[]
+  recordTags             RecordTag[]        @relation("RecordTagAuthor")
   ownedContacts          Contact[]          @relation("ContactOwner")
   assignedConversations  Conversation[]
   assignedDeals          Deal[]             @relation("DealAssignee")
@@ -422,12 +424,43 @@ model Tag {
   color       String       @default("#6B7280")
   module      String       @default("ALL")
   orgId       String       @map("org_id")
-  contactTags ContactTag[]
-  dealTags    DealTag[]
+  records     RecordTag[]
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, name])
+  @@index([orgId, module])
   @@map("tags")
+}
+
+/// Attaches a Tag to any record, the same way Comment, Attachment and Task do.
+///
+/// Tags previously existed only as `contact_tags` and `deal_tags` — two
+/// hardcoded join tables that nothing outside the demo seed ever read, and
+/// that would have needed a thirteenth table to cover the thirteenth entity
+/// type. This replaces both (the migration backfills their rows).
+///
+/// `orgId` is stored rather than derived through the Tag so a "show me
+/// everything tagged Churn Risk" query is one indexed lookup, and so the
+/// tenant boundary does not depend on a join.
+model RecordTag {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  tagId       String       @map("tag_id")
+  entityType  EntityType   @map("entity_type")
+  entityId    String       @map("entity_id")
+  createdById String?      @map("created_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  tag         Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy   User?        @relation("RecordTagAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Applying a tag twice is a no-op, not a duplicate row.
+  @@unique([tagId, entityType, entityId])
+  // "which tags are on this record" — the read every detail view does.
+  @@index([orgId, entityType, entityId])
+  // "which records carry this tag" — the filter and the tag-usage count.
+  @@index([orgId, tagId])
+  @@map("record_tags")
 }
 
 model Contact {
@@ -447,7 +480,6 @@ model Contact {
   updatedAt   DateTime     @updatedAt @map("updated_at")
   orgId       String       @map("org_id")
   activities Activity[]
-  tags       ContactTag[]
   account    Account?     @relation(fields: [accountId], references: [id])
   org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   owner      User         @relation("ContactOwner", fields: [ownerId], references: [id])
@@ -457,16 +489,6 @@ model Contact {
 
   @@index([orgId])
   @@map("contacts")
-}
-
-model ContactTag {
-  contactId String  @map("contact_id")
-  tagId     String  @map("tag_id")
-  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([contactId, tagId])
-  @@map("contact_tags")
 }
 
 model Account {
@@ -544,7 +566,6 @@ model Deal {
   orgId       String        @map("org_id")
   activities  Activity[]
   history     DealHistory[]
-  tags        DealTag[]
   account     Account?      @relation(fields: [accountId], references: [id])
   assignee    User?         @relation("DealAssignee", fields: [assignedTo], references: [id])
   contact     Contact?      @relation(fields: [contactId], references: [id])
@@ -556,16 +577,6 @@ model Deal {
 
   @@index([orgId])
   @@map("deals")
-}
-
-model DealTag {
-  dealId String @map("deal_id")
-  tagId  String @map("tag_id")
-  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([dealId, tagId])
-  @@map("deal_tags")
 }
 
 model DealHistory {

@@ -94,6 +94,17 @@ const MODULE_RECORDS = Array.from({ length: 4 }, (_, i) => ({
   title: `Unit ${101 + i}`, createdAt: '2026-08-01T10:00:00Z',
 }));
 
+
+let TASKS = [
+  { id:'t1', title:'Send revised proposal', status:'OPEN', priority:'HIGH', dueAt:'2026-08-10T00:00:00Z',
+    entityType:'DEAL', entityId:'d0', assigneeUserId:'u1', assigneeUser:{id:'u1',name:'Alex Morgan',email:'a@b.c'},
+    tags:[], source:'MANUAL', createdAt:'2026-08-01T10:00:00Z' },
+  { id:'t2', title:'Confirm budget with finance', status:'OPEN', priority:'MEDIUM', dueAt:null,
+    entityType:'DEAL', entityId:'d0', assigneeUserId:null, tags:[], source:'MANUAL', createdAt:'2026-08-02T10:00:00Z' },
+  { id:'t3', title:'Book the kickoff call', status:'DONE', priority:'LOW', dueAt:null,
+    entityType:'DEAL', entityId:'d0', tags:[], source:'MANUAL', createdAt:'2026-07-20T10:00:00Z' },
+];
+
 const paged = (rows) => ({ data: rows, total: rows.length, page: 1, pageSize: rows.length, totalPages: 1 });
 
 /** Exact-path handlers. Checked before the pattern table. */
@@ -104,7 +115,12 @@ const ROUTES = {
   'POST /auth/demo-login': () => ({ user: USER, access: 'mock-access-token', refresh: 'mock-refresh-token' }),
 
   'GET /users':      () => paged(users),
+  'GET /tasks':      () => paged(TASKS),
   'GET /contacts':   () => paged(contacts),
+  'GET /crm/contacts': () => paged(contacts),
+  'GET /crm/deals': () => paged(deals),
+  'GET /crm/leads': () => paged(leads),
+  'GET /itdesk/tickets': () => paged(tickets),
   'GET /deals':      () => paged(deals),
   'GET /leads':      () => paged(leads),
   'GET /tickets':    () => paged(tickets),
@@ -135,6 +151,9 @@ const ROUTES = {
   }),
   'GET /org/labels': () => ({}),
   'GET /custom-fields': () => ([]),
+  // Value lookups are arrays, not paged envelopes.
+  'GET /templates/replies': () => ([]),
+  'GET /crm/accounts': () => paged([]),
   'GET /custom-modules': () => ([MODULE]),
   'GET /custom-modules/mod1': () => MODULE,
   'GET /custom-modules/mod1/records': () => paged(MODULE_RECORDS),
@@ -171,11 +190,35 @@ export default function handle(req, res, url) {
   const exact = ROUTES[key];
   if (exact) return send(res, 200, exact());
 
-  const m = path.match(/^\/(deals|tickets|contacts|leads|users|hr\/employees|people)\/([\w-]+)$/);
+  const m = path.match(/^\/(?:crm\/|itdesk\/)?(deals|tickets|contacts|leads|users|hr\/employees|people)\/([\w-]+)$/);
   if (m && req.method === 'GET') {
     const pool = { deals, tickets, contacts, leads, users, 'hr/employees': employees, people: employees }[m[1]] || [];
     const found = pool.find(r => r.id === m[2]) || pool[0];
     if (found) return send(res, 200, found);
+  }
+
+  if (path === '/attachments/policy') {
+    return send(res, 200, { maxBytes: 25 * 1024 * 1024, allowedExtensions: ['.pdf', '.png', '.xlsx', '.zip'] });
+  }
+
+  // Tags: a library, plus whatever is currently on a record. Enough to
+  // exercise the chip strip and the find-or-create picker.
+  if (path === '/tags') {
+    return send(res, 200, {
+      data: [
+        { id: 't1', name: 'VIP',         color: '#F59E0B', module: 'ALL', usageCount: 4 },
+        { id: 't2', name: 'Churn Risk',  color: '#EF4444', module: 'ALL', usageCount: 2 },
+        { id: 't3', name: 'Key Account', color: '#6366F1', module: 'ALL', usageCount: 7 },
+        { id: 't4', name: 'Renewal',     color: '#10B981', module: 'ALL', usageCount: 1 },
+      ],
+      total: 4,
+    });
+  }
+  if (/^\/tags\/record\//.test(path) && req.method === 'GET') {
+    return send(res, 200, [
+      { id: 't1', name: 'VIP',        color: '#F59E0B', appliedAt: '2026-08-01T10:00:00Z' },
+      { id: 't2', name: 'Churn Risk', color: '#EF4444', appliedAt: '2026-08-02T10:00:00Z' },
+    ]);
   }
 
   if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
@@ -188,6 +231,7 @@ export default function handle(req, res, url) {
     });
   }
   if (req.method === 'DELETE') return send(res, 200, { success: true });
+  if (/^\/custom-fields\/values\//.test(path) || /^\/comments\//.test(path) || /^\/attachments\//.test(path)) return send(res, 200, []);
   if (OBJECT_ENDPOINTS.some(re => re.test(path))) return send(res, 200, {});
   return send(res, 200, { data: [], total: 0, page: 1, pageSize: 25, totalPages: 0 });
 }

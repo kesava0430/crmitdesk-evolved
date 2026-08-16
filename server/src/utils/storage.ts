@@ -96,6 +96,15 @@ export async function uploadAttachment(orgId: string, file: { buffer: Buffer; fi
   // gets a clear upgrade-or-connect-your-own-Drive message, same as before;
   // Pro/Enterprise orgs just start uploading with no connect step at all).
   if (!config) {
+    // …but only when we actually have a bucket to fall back to. On a
+    // self-hosted deployment with no S3_* environment set, this branch used
+    // to sail past the plan check and into uploadObject(), where the AWS SDK
+    // failed on an undefined bucket and surfaced as a 500 "Internal server
+    // error". The org's real problem is that nobody has connected storage
+    // yet, and that is what they should be told.
+    if (!s3Storage.isS3Configured()) {
+      throw new AppError(400, 'No storage connected for this organization. An admin needs to connect a storage provider in Settings → Storage first.');
+    }
     await assertHostedStorageAvailable(orgId, file.buffer.length);
     const key = await s3Storage.uploadObject(orgId, file);
     return { provider: 'HOSTED_S3', providerFileId: key, fileUrl: '' };

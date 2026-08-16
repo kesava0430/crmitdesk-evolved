@@ -11,6 +11,8 @@ import { sseManager, SSEEvent } from '../../../utils/sse';
 import { notifyOrgAdmins } from '../../notifications/notifications.controller';
 import { slackNewTicket } from '../../../utils/slack';
 import { logAction } from '../../../utils/auditLog';
+import { purgeEntityChildren } from '../../../utils/entityCleanup';
+import { tagIdFilter } from '../../../utils/tagFilter';
 
 const Schema = z.object({
   title: z.string().min(1),
@@ -42,13 +44,18 @@ function calcSlaDue(resolutionHours: number) {
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { status, priority, assignedTo, requesterId } = req.query as Record<string, string>;
+    const { status, priority, assignedTo, requesterId, tagId } = req.query as Record<string, string>;
     const where: any = { orgId };
     if (status) where.status = status;
     if (priority) where.priority = priority;
     if (assignedTo) where.assignedTo = assignedTo;
     if (requesterId) where.requesterId = requesterId;
     if (req.user!.role === 'EMPLOYEE') where.requesterId = req.user!.id;
+    // ?tagId=a,b narrows to records carrying every listed tag. Merged
+    // into `where` as an id set, since tags are polymorphic rather than
+    // a relation on this model — see utils/tagFilter.ts.
+    const byTag = await tagIdFilter(orgId, 'TICKET', tagId);
+    if (byTag) Object.assign(where, byTag);
     const pag = parsePagination(req);
     const [tickets, total] = await Promise.all([
       prisma.ticket.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
@@ -247,7 +254,10 @@ export async function reports(req: AuthRequest, res: Response, next: NextFunctio
 
 export async function remove(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.ticket.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    const { count } = await prisma.ticket.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    // Comments, attachments and tasks hang off this record by a loose
+    // entityType/entityId pair, so the database cannot cascade them.
+    if (count) await purgeEntityChildren('TICKET', req.params.id, req.user!.orgId);
     logAction(req.user!.id, 'DELETE', 'Ticket', req.params.id);
     res.json({ message: 'Deleted' });
   } catch (err) { next(err); }

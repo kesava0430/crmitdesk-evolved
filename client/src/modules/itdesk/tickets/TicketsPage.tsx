@@ -11,8 +11,7 @@ import {
   CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel,
   Card, CardSection, StatTile, Alert, Tabs, DataTable, Field, Input, Textarea, Select,
   AiInfo, AiNote, AiGeneratedTag,
-  type Column,
-} from '../../../shared/components';
+  type Column, RecordTasks, RecordTags} from '../../../shared/components';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
@@ -329,6 +328,7 @@ function TicketDetailModal({ id, users, categories }: any) {
         />
       </div>
 
+      <RecordTags entityType="TICKET" entityId={ticket.id} />
       <CustomFieldsDisplay entityType="TICKET" entityId={ticket.id} />
 
       <CardSection title="Update Status">
@@ -491,6 +491,7 @@ function TicketDetailModal({ id, users, categories }: any) {
       <ScheduleReminderPanel entityType="TICKET" entityId={ticket.id} />
       <Comments entityType="TICKET" entityId={ticket.id} />
       <Attachments entityType="TICKET" entityId={ticket.id} />
+            <RecordTasks entityType="TICKET" entityId={ticket.id} />
       </>
       )}
     </div>

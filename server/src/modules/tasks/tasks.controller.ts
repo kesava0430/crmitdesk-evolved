@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import { assertEntityInOrg } from '../../utils/entityAccess';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
@@ -6,6 +7,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../utils/pagination';
 import { getPermCtx, assertCan, scopedWhere, canAccessRecord } from '../../utils/permissions';
 import { createNotification } from '../notifications/notifications.controller';
+import { purgeEntityChildren } from '../../utils/entityCleanup';
 
 /**
  * Universal tasks (§47) — one task model every module shares.
@@ -264,6 +266,16 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 
     if (data.entityType && !data.entityId) throw new AppError(400, 'entityId is required when entityType is set');
 
+    /* Confirm the record being linked to is actually this org's.
+       Only the *presence* of entityId was checked, so a task could be attached
+       to another tenant's record id — and because GET /tasks filters by
+       entityType+entityId, that task would then surface on their record. Every
+       other polymorphic feature (comments, attachments) already routes through
+       this guard; tasks were missed. */
+    if (data.entityType && data.entityId) {
+      await assertEntityInOrg(data.entityType, data.entityId, orgId);
+    }
+
     const task = await prisma.task.create({
       data: {
         orgId,
@@ -343,6 +355,19 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       }
     }
 
+    /* Re-linking. UpdateSchema accepted entityType/entityId (it is
+       CreateSchema.partial()) but the update never applied them, so a task's
+       record link was fixed at creation — you could not attach an existing
+       task to a deal, or detach one filed against the wrong record.
+       Same org guard as create: pass entityType: null to detach. */
+    const relinking = data.entityType !== undefined || data.entityId !== undefined;
+    if (relinking) {
+      const nextType = data.entityType ?? null;
+      const nextId = data.entityId ?? null;
+      if (nextType && !nextId) throw new AppError(400, 'entityId is required when entityType is set');
+      if (nextType && nextId) await assertEntityInOrg(nextType, nextId, orgId);
+    }
+
     const completing = data.status === 'DONE' && existing.status !== 'DONE';
     const reopening = data.status && data.status !== 'DONE' && existing.status === 'DONE';
 
@@ -360,6 +385,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
         ...(data.checklist !== undefined ? { checklist: (data.checklist as any) ?? undefined } : {}),
         ...(data.estimateMinutes !== undefined ? { estimateMinutes: data.estimateMinutes } : {}),
         ...(data.tags !== undefined ? { tags: data.tags } : {}),
+        ...(relinking ? { entityType: (data.entityType as any) ?? null, entityId: data.entityId ?? null } : {}),
         ...(completing ? { completedAt: new Date() } : {}),
         ...(reopening ? { completedAt: null } : {}),
       },
@@ -466,6 +492,9 @@ export async function remove(req: AuthRequest, res: Response, next: NextFunction
       throw new AppError(403, 'Insufficient permissions');
     }
     await prisma.task.delete({ where: { id: existing.id } });
+    // A task is itself a comment/attachment parent — those rows would
+    // otherwise outlive it with no way to reach or delete them.
+    await purgeEntityChildren('TASK', existing.id, req.user!.orgId);
     res.json({ message: 'Task deleted' });
   } catch (err) {
     next(err);

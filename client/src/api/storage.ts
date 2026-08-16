@@ -18,6 +18,9 @@ export function useStorageStatus() {
   return useQuery<StorageStatus>({
     queryKey: ['storage-status'],
     queryFn: () => api.get('/storage/status').then(r => r.data),
+    // A 403 here is a permission answer, not a transient failure — retrying it
+    // three times just delays the message the user needs to see.
+    retry: (count, err: any) => (err?.response?.status === 403 ? false : count < 2),
   });
 }
 

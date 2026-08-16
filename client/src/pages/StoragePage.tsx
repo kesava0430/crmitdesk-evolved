@@ -14,7 +14,15 @@ export default function StoragePage() {
   const { user } = useAuth();
   const isOwner = user?.role === 'SUPER_ADMIN';
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: status, isLoading } = useStorageStatus();
+  const { data: status, isLoading, error, refetch } = useStorageStatus();
+  // GET /storage/status is MANAGERS-only (SUPER_ADMIN, IT_MANAGER,
+  // CRM_MANAGER). Anyone else reaches this page — there is no route guard —
+  // gets a 403, which left `status` undefined and made every card below fall
+  // into its `!status?.configured` branch: the page told them Google Drive was
+  // "not set up on this deployment (missing GOOGLE_CLIENT_ID/SECRET)" when the
+  // real answer was that they were not allowed to ask. Two very different
+  // problems that looked identical.
+  const forbidden = (error as any)?.response?.status === 403;
   const connect = useConnectGoogleDrive();
   const connectHosted = useConnectHostedStorage();
   const disconnect = useDisconnectStorage();
@@ -45,6 +53,34 @@ export default function StoragePage() {
 
       {isLoading ? (
         <div className="flex justify-center py-10"><Spinner label="Checking storage connection…" /></div>
+      ) : forbidden ? (
+        <div className="bg-surface rounded-2xl border border-line shadow-sm p-6">
+          <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl">
+            <AlertCircle size={18} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                Your role can’t view storage settings
+              </p>
+              <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                Storage is visible to Super Admin, IT Manager and CRM Manager, and only a Super Admin
+                can connect or change a provider. You are signed in as <strong>{user?.role?.replace(/_/g, ' ').toLowerCase()}</strong>.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="bg-surface rounded-2xl border border-line shadow-sm p-6">
+          <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-xl">
+            <AlertCircle size={18} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-red-800 dark:text-red-300">Couldn’t load storage settings</p>
+              <p className="text-sm text-red-700 dark:text-red-400 mt-1">
+                {(error as any)?.response?.data?.error || (error as any)?.message || 'The server did not respond.'}
+              </p>
+              <Button size="sm" variant="secondary" className="mt-3" onClick={() => refetch()}>Try again</Button>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="bg-surface rounded-2xl border border-line shadow-sm p-6 space-y-5">
           {status?.connected && (
@@ -121,7 +157,7 @@ export default function StoragePage() {
                 {!status?.configured ? (
                   <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg">
                     <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-700 dark:text-amber-400">Not set up on this deployment (missing GOOGLE_CLIENT_ID/SECRET).</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400">Not available on this deployment yet — whoever runs this server needs to add Google OAuth credentials (<code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code>) and restart it.</p>
                   </div>
                 ) : !isOwner ? (
                   <p className="text-xs text-fg-subtle">Only the org owner can connect this.</p>
@@ -145,7 +181,7 @@ export default function StoragePage() {
                 {!status?.hosted.available ? (
                   <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg">
                     <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-700 dark:text-amber-400">Not set up on this deployment (missing S3_BUCKET/keys).</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400">Not available on this deployment yet — whoever runs this server needs to configure a storage bucket (<code>S3_BUCKET</code> and keys) and restart it.</p>
                   </div>
                 ) : hostedQuotaBytes === 0 ? (
                   <Link to="/billing" className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">Upgrade plan →</Link>

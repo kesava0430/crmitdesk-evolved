@@ -3,8 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import {
   RowActions, SearchableSelect, PageHeader, Button, IconButton, Modal, Card, Badge,
-  EmptyState, Field, Input, Spinner,
-} from '../shared/components';
+  EmptyState, Field, Input, Spinner, RecordTasks, RecordTags} from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
 import { FileText, Plus, Pencil, Trash2, Send, CheckCircle, XCircle, LayoutTemplate, Link2, Check as CheckIcon } from 'lucide-react';
 import { useQuoteTemplates } from '../api/templates';
@@ -286,7 +285,11 @@ export default function QuotesPage() {
             </div>
           </div>
 
-          {editing && <Attachments entityType="QUOTE" entityId={editing.id} />}
+          {editing && <>
+              <RecordTags entityType="QUOTE" entityId={editing.id} />
+              <Attachments entityType="QUOTE" entityId={editing.id} />
+              <RecordTasks entityType="QUOTE" entityId={editing.id} />
+            </>}
 
           {/* Total */}
           <div className="flex justify-end pt-2 border-t border-line-subtle">

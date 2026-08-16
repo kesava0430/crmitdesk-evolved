@@ -7,8 +7,7 @@ import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } f
 import {
   PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay,
   RecordTemplatePicker, ScheduleReminderPanel, Card, StatTile, Tabs, Alert, IconButton, Field, Input,
-  Label, FormGrid, FormActions, Avatar, AiInfo, AiNote, AiGeneratedTag,
-} from '../../../shared/components';
+  Label, FormGrid, FormActions, Avatar, AiInfo, AiNote, AiGeneratedTag, RecordTasks, RecordTags} from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
@@ -503,10 +502,12 @@ function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; page
         <StatTile tone="sunken" label="Assigned To" value={deal.assignee?.name || '--'} />
       </div>
       <DealDetailPanel deal={deal} />
+      <RecordTags entityType="DEAL" entityId={deal.id} />
       <CustomFieldsDisplay entityType="DEAL" entityId={deal.id} card />
       <ScheduleReminderPanel entityType="DEAL" entityId={deal.id} />
       <Comments entityType="DEAL" entityId={deal.id} />
       <Attachments entityType="DEAL" entityId={deal.id} />
+            <RecordTasks entityType="DEAL" entityId={deal.id} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import {
   ArrowLeft, Mail, Phone, Briefcase, Building2, Globe,
   TrendingUp, Calendar, CheckCircle, Clock, Plus, Pencil, Sparkles, ShieldAlert,
 } from 'lucide-react';
-import { SearchableSelect } from '../../../shared/components';
+import { SearchableSelect, RecordTasks, RecordTags} from '../../../shared/components';
 import { useContact, useUpdateContact, useAccounts, useCreateActivity } from '../../../api/crm';
 import { useChurnRisk } from '../../../api/ai';
 import {
@@ -190,6 +190,7 @@ export function ContactDetailPage() {
                 )}
                 {contact.source && <Badge>{contact.source}</Badge>}
               </div>
+              <RecordTags entityType="CONTACT" entityId={contact.id} className="mt-2" />
             </div>
           </div>
           <Button variant="secondary" icon={<Pencil size={14} />} onClick={() => setEditModal(true)}>Edit</Button>
@@ -299,6 +300,7 @@ export function ContactDetailPage() {
           <Card>
             <Comments entityType="CONTACT" entityId={contact.id} />
             <Attachments entityType="CONTACT" entityId={contact.id} />
+            <RecordTasks entityType="CONTACT" entityId={contact.id} />
           </Card>
         </div>
       </div>

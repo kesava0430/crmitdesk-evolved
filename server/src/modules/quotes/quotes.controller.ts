@@ -5,6 +5,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { nextInvoiceNumber } from '../invoices/invoices.controller';
+import { purgeEntityChildren } from '../../utils/entityCleanup';
 
 const LineSchema = z.object({
   description: z.string().min(1),
@@ -107,7 +108,10 @@ export async function changeStatus(req: AuthRequest, res: Response, next: NextFu
 
 export async function remove(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.quote.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    const { count } = await prisma.quote.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    // Comments, attachments and tasks hang off this record by a loose
+    // entityType/entityId pair, so the database cannot cascade them.
+    if (count) await purgeEntityChildren('QUOTE', req.params.id, req.user!.orgId);
     res.json({ message: 'Quote deleted' });
   } catch (err) { next(err); }
 }

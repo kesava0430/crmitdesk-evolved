@@ -6,6 +6,8 @@ import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../../utils/pagination';
 import { logAction } from '../../../utils/auditLog';
+import { purgeEntityChildren } from '../../../utils/entityCleanup';
+import { tagIdFilter } from '../../../utils/tagFilter';
 
 const Schema = z.object({
   name: z.string().min(1),
@@ -31,11 +33,16 @@ const include = { account: { select: { id: true, name: true } }, owner: { select
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { search, accountId } = req.query as Record<string, string>;
+    const { search, accountId, tagId } = req.query as Record<string, string>;
     const pag = parsePagination(req);
     const where: any = { orgId };
     if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { email: { contains: search, mode: 'insensitive' } }];
     if (accountId) where.accountId = accountId;
+    // ?tagId=a,b narrows to records carrying every listed tag. Merged
+    // into `where` as an id set, since tags are polymorphic rather than
+    // a relation on this model — see utils/tagFilter.ts.
+    const byTag = await tagIdFilter(orgId, 'CONTACT', tagId);
+    if (byTag) Object.assign(where, byTag);
     const [contacts, total] = await Promise.all([
       prisma.contact.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
       prisma.contact.count({ where }),
@@ -90,7 +97,10 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
 
 export async function remove(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.contact.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    const { count } = await prisma.contact.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    // Comments, attachments and tasks hang off this record by a loose
+    // entityType/entityId pair, so the database cannot cascade them.
+    if (count) await purgeEntityChildren('CONTACT', req.params.id, req.user!.orgId);
     logAction(req.user!.id, 'DELETE', 'Contact', req.params.id);
     res.json({ message: 'Deleted' });
   } catch (err) { next(err); }

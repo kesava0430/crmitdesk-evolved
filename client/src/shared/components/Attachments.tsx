@@ -4,15 +4,26 @@ import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Paperclip, Download, Trash2, Upload, FileText, Image, FileArchive, File as FileIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { IconButton, Spinner, FormError } from './index';
 
+/** Must stay in step with the server's EntityType enum + entityAccess.ENTITY_MODEL. */
 export type AttachmentEntityType =
   | 'DEAL' | 'TICKET' | 'CONTACT' | 'LEAD' | 'ACCOUNT'
-  | 'CHANGE_REQUEST' | 'QUOTE' | 'ASSET' | 'CAMPAIGN';
+  | 'CHANGE_REQUEST' | 'QUOTE' | 'ASSET' | 'CAMPAIGN'
+  | 'EMPLOYEE' | 'TASK' | 'APPROVAL_REQUEST' | 'DEPARTMENT' | 'INVOICE';
 
 interface AttachmentsProps {
   entityType: AttachmentEntityType;
   entityId: string;
 }
+
+interface UploadPolicy {
+  maxBytes: number;
+  allowedExtensions: string[];
+}
+
+/** Used until GET /attachments/policy answers — matches the server's defaults. */
+const FALLBACK_POLICY: UploadPolicy = { maxBytes: 25 * 1024 * 1024, allowedExtensions: [] };
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -27,6 +38,32 @@ function iconFor(mimeType: string) {
   return FileIcon;
 }
 
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot).toLowerCase() : '';
+}
+
+/**
+ * Checks a file against the same rules the server enforces, so a 25MB video
+ * is rejected instantly instead of after a two-minute upload that ends in a
+ * 413. Returns null when the file is fine.
+ *
+ * This is a courtesy, not a control — uploadPolicy.ts on the server is the
+ * one that decides.
+ */
+function rejectionReason(file: File, policy: UploadPolicy): string | null {
+  if (file.size === 0) return `"${file.name}" is empty.`;
+  if (file.size > policy.maxBytes) {
+    return `"${file.name}" is ${formatSize(file.size)} — the limit is ${formatSize(policy.maxBytes)}.`;
+  }
+  const ext = extensionOf(file.name);
+  if (!ext) return `"${file.name}" has no file extension, so we cannot tell what it is.`;
+  if (policy.allowedExtensions.length && !policy.allowedExtensions.includes(ext)) {
+    return `${ext} files cannot be attached.`;
+  }
+  return null;
+}
+
 export function Attachments({ entityType, entityId }: AttachmentsProps) {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -34,11 +71,32 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState('');
+  // Which row is mid-download/delete, so one file's spinner is not every file's.
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const { data: attachments = [], isLoading } = useQuery({
     queryKey: key,
     queryFn: () => api.get(`/attachments/${entityType}/${entityId}`).then(r => r.data),
     enabled: !!entityId,
+  });
+
+  // Fetched rather than hardcoded so the picker's accept list and the error
+  // messages can never drift from what the server will actually take.
+  const { data: policy = FALLBACK_POLICY } = useQuery<UploadPolicy>({
+    queryKey: ['attachment-policy'],
+    // Normalised rather than trusted. A server that predates this endpoint
+    // returns the attachment list handler's `[]`, and a proxy in front of the
+    // API can return an HTML error page with a 200 — either way, reading
+    // `.allowedExtensions.length` off it takes down the whole record view.
+    queryFn: () => api.get('/attachments/policy').then(r => {
+      const d = r.data;
+      return {
+        maxBytes: typeof d?.maxBytes === 'number' && d.maxBytes > 0 ? d.maxBytes : FALLBACK_POLICY.maxBytes,
+        allowedExtensions: Array.isArray(d?.allowedExtensions) ? d.allowedExtensions : [],
+      };
+    }),
+    staleTime: 60 * 60 * 1000,
+    retry: false,
   });
 
   const upload = useMutation({
@@ -55,57 +113,105 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
 
   const remove = useMutation({
     mutationFn: (id: string) => api.delete(`/attachments/${id}`).then(r => r.data),
+    onMutate: (id: string) => { setBusyId(id); setError(''); },
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    // Deleting can fail for real reasons — the org's Drive connection changed
+    // since the file was uploaded, or someone else's file. Silence here meant
+    // the row simply stayed put with no explanation.
+    onError: (err: any) => setError(err?.response?.data?.error || 'Could not delete that file.'),
+    onSettled: () => setBusyId(null),
   });
 
   async function download(a: any) {
-    const res = await api.get(`/attachments/${a.id}/download`, { responseType: 'blob' });
-    const url = URL.createObjectURL(res.data);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = a.fileName;
-    link.click();
-    URL.revokeObjectURL(url);
+    setBusyId(a.id);
+    setError('');
+    try {
+      const res = await api.get(`/attachments/${a.id}/download`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = a.fileName;
+      // Firefox ignores click() on a detached anchor, and revoking the URL in
+      // the same tick can cancel the download before it starts.
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (err: any) {
+      // The error body arrives as a Blob because of responseType, so the usual
+      // err.response.data.error is a Blob, not a string — read it back.
+      let message = 'Could not download that file.';
+      const body = err?.response?.data;
+      if (body instanceof Blob) {
+        try { message = JSON.parse(await body.text())?.error || message; } catch { /* keep default */ }
+      } else if (body?.error) {
+        message = body.error;
+      }
+      setError(message);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    Array.from(files).forEach(f => upload.mutate(f));
+    const rejected: string[] = [];
+    const accepted: File[] = [];
+    for (const f of Array.from(files)) {
+      const reason = rejectionReason(f, policy);
+      if (reason) rejected.push(reason);
+      else accepted.push(f);
+    }
+    setError(rejected.join(' '));
+    accepted.forEach(f => upload.mutate(f));
   }
 
+  const maxLabel = formatSize(policy.maxBytes);
+
   return (
-    <div className="border-t dark:border-gray-800 pt-4 mt-4">
+    <div className="border-t border-line pt-4 mt-4">
       <h3 className="text-sm font-semibold text-fg mb-3 flex items-center gap-1.5">
         <Paperclip size={14} /> Attachments ({attachments.length})
       </h3>
 
-      {error && <div className="mb-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg px-2 py-1.5">{error}</div>}
+      <FormError>{error}</FormError>
 
       <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
         {isLoading ? (
-          <p className="text-xs text-fg-subtle text-center py-3">Loading…</p>
+          <Spinner compact />
         ) : attachments.length === 0 ? (
           <p className="text-xs text-fg-subtle text-center py-3">No files attached yet.</p>
         ) : (
           attachments.map((a: any) => {
             const Icon = iconFor(a.mimeType);
             const canDelete = a.uploader?.id === user?.id || user?.role === 'SUPER_ADMIN';
+            const busy = busyId === a.id;
             return (
-              <div key={a.id} className="flex items-center gap-2 group bg-surface-sunken rounded-xl px-3 py-2">
+              <div key={a.id} className="flex items-center gap-2 group bg-surface-sunken rounded-card px-3 py-2">
                 <Icon size={16} className="text-fg-subtle flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-fg truncate">{a.fileName}</p>
+                  <p className="text-sm text-fg truncate" title={a.fileName}>{a.fileName}</p>
                   <p className="text-xs text-fg-subtle">
                     {formatSize(a.fileSize)} · {a.uploader?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
                   </p>
                 </div>
-                <button onClick={() => download(a)} className="p-1 text-fg-subtle hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex-shrink-0" title="Download">
-                  <Download size={14} />
-                </button>
+                <IconButton
+                  label={`Download ${a.fileName}`}
+                  icon={<Download size={14} />}
+                  size="xs"
+                  disabled={busy}
+                  onClick={() => download(a)}
+                />
                 {canDelete && (
-                  <button onClick={() => remove.mutate(a.id)} className="p-1 opacity-0 group-hover:opacity-100 text-fg-subtle hover:text-red-500 dark:hover:text-red-400 transition-all flex-shrink-0" title="Delete">
-                    <Trash2 size={14} />
-                  </button>
+                  <IconButton
+                    label={`Delete ${a.fileName}`}
+                    icon={<Trash2 size={14} />}
+                    tone="danger"
+                    size="xs"
+                    revealOnRowHover
+                    disabled={busy}
+                    onClick={() => remove.mutate(a.id)}
+                  />
                 )}
               </div>
             );
@@ -118,16 +224,21 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
         onDragLeave={() => setDragOver(false)}
         onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
         onClick={() => fileInputRef.current?.click()}
-        className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-3 cursor-pointer transition-colors ${
+        className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-card py-3 cursor-pointer transition-colors ${
           dragOver ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10' : 'border-line hover:border-line-strong'
         }`}
       >
         <Upload size={14} className="text-fg-subtle" />
-        <span className="text-xs text-fg-muted">{upload.isPending ? 'Uploading…' : 'Click or drag a file to attach (max 25MB)'}</span>
+        <span className="text-xs text-fg-muted">
+          {upload.isPending ? 'Uploading…' : `Click or drag a file to attach (max ${maxLabel})`}
+        </span>
         <input
           ref={fileInputRef}
           type="file"
           className="hidden"
+          // Filters the OS picker to what the server accepts. Drag-and-drop
+          // bypasses this, which is why rejectionReason() runs on every path.
+          accept={policy.allowedExtensions.length ? policy.allowedExtensions.join(',') : undefined}
           onChange={e => { handleFiles(e.target.files); e.target.value = ''; }}
         />
       </div>
