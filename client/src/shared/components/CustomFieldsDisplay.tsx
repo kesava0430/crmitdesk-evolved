@@ -1,5 +1,6 @@
 import { useCustomFieldDefs, useCustomFieldValues, fromValueRecords } from '../../api/customFields';
 import { useContacts } from '../../api/crm';
+import { Card } from './Card';
 
 interface Props {
   entityType: string;
@@ -37,10 +38,10 @@ export function CustomFieldsDisplay({ entityType, entityId, card }: Props) {
   const grid = (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
       {defs.map(def => (
-        <div key={def.id} className="bg-gray-50 rounded-xl p-3">
-          <p className="text-gray-400 text-xs mb-1">{def.label}</p>
-          <p className="font-medium">{displayValue(def.fieldType, valueMap[def.fieldKey], contactNameById)}</p>
-        </div>
+        <Card key={def.id} padding="sm" tone="sunken" flat>
+          <p className="text-fg-subtle text-xs mb-1">{def.label}</p>
+          <p className="font-medium text-fg">{displayValue(def.fieldType, valueMap[def.fieldKey], contactNameById)}</p>
+        </Card>
       ))}
     </div>
   );
@@ -48,9 +49,9 @@ export function CustomFieldsDisplay({ entityType, entityId, card }: Props) {
   if (!card) return grid;
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
-      <p className="text-sm font-medium text-gray-700 mb-3">Custom Fields</p>
+    <Card>
+      <p className="text-sm font-medium text-fg mb-3">Custom Fields</p>
       {grid}
-    </div>
+    </Card>
   );
 }

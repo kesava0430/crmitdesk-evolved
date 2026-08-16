@@ -6,7 +6,12 @@ import { useUsers } from '../../../api/users';
 import { useContacts } from '../../../api/crm';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useTicketReply, useTicketSentiment, useSummarizeThread, useEstimateResolution, useSlaRisk, useKbArticle, useDetectDuplicates } from '../../../api/ai';
-import { PageHeader, Button, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
+import {
+  PageHeader, Button, IconButton, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect,
+  CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel,
+  Card, CardSection, StatTile, Alert, Tabs, DataTable, Field, Input, Textarea, Select,
+  type Column,
+} from '../../../shared/components';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
@@ -17,11 +22,15 @@ import { formatDistanceToNow } from 'date-fns';
 import { useLabels } from '../../../hooks/useLabels';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
 
-const sentimentConfig: Record<string, { label: string; color: string }> = {
-  POSITIVE:   { label: '😊 Positive',   color: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30' },
-  NEUTRAL:    { label: '😐 Neutral',    color: 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700' },
-  NEGATIVE:   { label: '😟 Negative',   color: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30' },
-  FRUSTRATED: { label: '😤 Frustrated', color: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30' },
+type BadgeVariant = 'gray' | 'blue' | 'green' | 'yellow' | 'red' | 'purple' | 'orange' | 'indigo' | 'teal' | 'accent';
+
+/* Sentiment now reuses Badge's palette instead of carrying its own set of
+   `bg-*-50 dark:bg-*-500/10 border-*` strings. */
+const sentimentConfig: Record<string, { label: string; variant: BadgeVariant }> = {
+  POSITIVE:   { label: '😊 Positive',   variant: 'green' },
+  NEUTRAL:    { label: '😐 Neutral',    variant: 'gray' },
+  NEGATIVE:   { label: '😟 Negative',   variant: 'orange' },
+  FRUSTRATED: { label: '😤 Frustrated', variant: 'red' },
 };
 
 const PRIORITIES = ['LOW','MEDIUM','HIGH','CRITICAL'];
@@ -29,6 +38,12 @@ const STATUSES = ['OPEN','IN_PROGRESS','PENDING','RESOLVED','CLOSED'];
 const STATUS_LABELS: Record<string, string> = {
   OPEN: 'New', IN_PROGRESS: 'In Progress', PENDING: 'Pending', RESOLVED: 'Resolved', CLOSED: 'Closed',
 };
+
+const FILING_TABS = [
+  { key: 'self' as const, label: 'Myself' },
+  { key: 'user' as const, label: 'A teammate' },
+  { key: 'contact' as const, label: 'A contact' },
+];
 
 function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, loading, initialValues }: any) {
   const [form, setForm] = useState({ title: '', body: '', categoryId: '', priority: 'MEDIUM', ...initialValues });
@@ -67,18 +82,14 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, lo
       {canFileOnBehalf && (
         <div className="form-section">
           <p className="form-section-title">Filing For</p>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {[
-              { v: 'self', label: 'Myself' },
-              { v: 'user', label: 'A teammate' },
-              { v: 'contact', label: 'A contact' },
-            ].map(o => (
-              <button key={o.v} type="button" onClick={() => setRequesterMode(o.v as any)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${requesterMode === o.v ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-400'}`}>
-                {o.label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            aria-label="Filing For"
+            variant="pill"
+            className="mb-3"
+            value={requesterMode}
+            onChange={setRequesterMode}
+            items={FILING_TABS}
+          />
           {requesterMode === 'user' && (
             <SearchableSelect ariaLabel="Teammate" value={requesterId} onChange={setRequesterId} required
               options={(users ?? []).map((u: any) => ({ value: u.id, label: u.name }))} placeholder="— select a teammate —" />
@@ -92,41 +103,39 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, onSubmit, lo
       <div className="form-section">
         <p className="form-section-title">{singular} Details</p>
         <div className="space-y-4">
-          <div>
-            <label className="form-label">{fieldLabel('ticket', 'title', 'Title')} <span className="req">*</span></label>
-            {/* aria-label stays "Title" (fieldLabel falls back to it when
-                unset) so getByLabel(/title/i) etc. across the e2e suite
-                keeps matching for the seeded test org, which never sets
-                labelOverrides. */}
-            <input aria-label={fieldLabel('ticket', 'title', 'Title')} required className="ui-input" value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
+          {/* aria-label stays "Title" (fieldLabel falls back to it when
+              unset) so getByLabel(/title/i) etc. across the e2e suite
+              keeps matching for the seeded test org, which never sets
+              labelOverrides. */}
+          <Field label={fieldLabel('ticket', 'title', 'Title')} required>
+            <Input aria-label={fieldLabel('ticket', 'title', 'Title')} required value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
             {aiDupes.data?.duplicates && aiDupes.data.duplicates.length > 0 && (
-              <div className="mt-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2.5 space-y-1">
-                {aiDupes.data.duplicates.map((d: any) => (
-                  <p key={d.id} className="text-xs text-amber-800 dark:text-amber-300">
-                    <span className="font-semibold">Possible duplicate:</span> {d.title}{' '}
-                    <span className="text-amber-600 dark:text-amber-400">({Math.round(d.confidence * 100)}% similar)</span>
-                  </p>
-                ))}
-              </div>
+              <Alert tone="warning" className="mt-2">
+                <div className="space-y-1">
+                  {aiDupes.data.duplicates.map((d: any) => (
+                    <p key={d.id}>
+                      <span className="font-semibold">Possible duplicate:</span> {d.title}{' '}
+                      <span className="opacity-80">({Math.round(d.confidence * 100)}% similar)</span>
+                    </p>
+                  ))}
+                </div>
+              </Alert>
             )}
-          </div>
-          <div>
-            <label className="form-label">{fieldLabel('ticket', 'description', 'Description')} <span className="req">*</span></label>
-            <textarea aria-label={fieldLabel('ticket', 'description', 'Description')} required rows={4} className="ui-input" value={form.body} onChange={f('body')} placeholder="Provide details about the issue, steps to reproduce, expected vs actual behaviour…" />
-          </div>
+          </Field>
+          <Field label={fieldLabel('ticket', 'description', 'Description')} required>
+            <Textarea aria-label={fieldLabel('ticket', 'description', 'Description')} required rows={4} value={form.body} onChange={f('body')} placeholder="Provide details about the issue, steps to reproduce, expected vs actual behaviour…" />
+          </Field>
         </div>
       </div>
       <div className="form-section">
         <p className="form-section-title">Classification</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Category</label>
-<SearchableSelect ariaLabel="Category" value={form.categoryId} onChange={val => setForm((p: any) => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
-          </div>
-          <div>
-            <label className="form-label">{fieldLabel('ticket', 'priority', 'Priority')}</label>
-<SearchableSelect ariaLabel={fieldLabel('ticket', 'priority', 'Priority')} value={form.priority} onChange={val => setForm((p: any) => ({ ...p, priority: val }))} required options={PRIORITIES.map(p => ({ value: p, label: p }))} />
-          </div>
+          <Field label="Category">
+            <SearchableSelect ariaLabel="Category" value={form.categoryId} onChange={val => setForm((p: any) => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
+          </Field>
+          <Field label={fieldLabel('ticket', 'priority', 'Priority')}>
+            <SearchableSelect ariaLabel={fieldLabel('ticket', 'priority', 'Priority')} value={form.priority} onChange={val => setForm((p: any) => ({ ...p, priority: val }))} required options={PRIORITIES.map(p => ({ value: p, label: p }))} />
+          </Field>
         </div>
       </div>
       <CustomFieldsFormFields
@@ -155,30 +164,26 @@ function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
   }
 
   return (
-    <div className="space-y-3 bg-gray-50 dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700">
-      <div>
-        <label className="form-label">Title</label>
-        <input aria-label="Edit title" className="ui-input" value={form.title} onChange={f('title')} />
-      </div>
-      <div>
-        <label className="form-label">Description</label>
-        <textarea aria-label="Edit description" rows={3} className="ui-input" value={form.body} onChange={f('body')} />
-      </div>
+    <Card tone="sunken" padding="sm" flat className="space-y-3">
+      <Field label="Title">
+        <Input aria-label="Edit title" value={form.title} onChange={f('title')} />
+      </Field>
+      <Field label="Description">
+        <Textarea aria-label="Edit description" rows={3} value={form.body} onChange={f('body')} />
+      </Field>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="form-label">Category</label>
+        <Field label="Category">
           <SearchableSelect ariaLabel="Edit category" value={form.categoryId} onChange={val => setForm(p => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} placeholder="— none —" />
-        </div>
-        <div>
-          <label className="form-label">Priority</label>
+        </Field>
+        <Field label="Priority">
           <SearchableSelect ariaLabel="Edit priority" value={form.priority} onChange={val => setForm(p => ({ ...p, priority: val }))} options={PRIORITIES.map(p => ({ value: p, label: p }))} />
-        </div>
+        </Field>
       </div>
       <div className="flex justify-end gap-2 pt-1">
         <Button size="sm" variant="secondary" onClick={onCancel}>Cancel</Button>
         <Button size="sm" onClick={save} loading={updateTicket.isPending}>Save Changes</Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -228,26 +233,25 @@ function TicketDetailModal({ id, users, categories }: any) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b border-gray-100 dark:border-gray-800">
-        {[
-          { v: 'details', label: 'Details' },
-          { v: 'history', label: `History${ticket.history?.length ? ` (${ticket.history.length})` : ''}` },
-        ].map(t => (
-          <button key={t.v} onClick={() => setTab(t.v as any)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.v ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        aria-label="Ticket sections"
+        variant="underline"
+        value={tab}
+        onChange={setTab}
+        items={[
+          { key: 'details', label: 'Details' },
+          { key: 'history', label: `History${ticket.history?.length ? ` (${ticket.history.length})` : ''}` },
+        ]}
+      />
 
       {tab === 'history' ? (
         !ticket.history?.length ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No status changes recorded yet.</p>
+          <p className="text-sm text-fg-subtle text-center py-8">No status changes recorded yet.</p>
         ) : (
           <div className="space-y-1">
             {ticket.history.map((h: any) => (
-              <div key={h.id} className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 py-1">
-                <CheckCircle size={12} className="text-green-400" />
+              <div key={h.id} className="flex items-center gap-2 text-xs text-fg-subtle py-1">
+                <CheckCircle size={12} className="text-success" />
                 <span>{h.fromStatus ? `${h.fromStatus} -> ` : ''}{h.toStatus}</span>
                 <span>· {formatDistanceToNow(new Date(h.changedAt), { addSuffix: true })}</span>
               </div>
@@ -263,176 +267,188 @@ function TicketDetailModal({ id, users, categories }: any) {
             <Badge variant={priorityVariant[ticket.priority]}>{ticket.priority}</Badge>
             {slaBreach && <Badge variant="red">SLA BREACHED</Badge>}
             {sentiment ? (
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${sentiment.color}`}>{sentiment.label}</span>
+              <Badge variant={sentiment.variant}>{sentiment.label}</Badge>
             ) : (
-              <button
+              <Button
+                size="xs"
+                variant="subtle"
+                icon={<SmilePlus size={11} />}
                 onClick={() => aiSentiment.mutate(ticket.id)}
-                disabled={aiSentiment.isPending}
-                className="flex items-center gap-1 text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 font-medium disabled:opacity-40 border border-violet-200 dark:border-violet-500/30 rounded-full px-2 py-0.5 bg-violet-50 dark:bg-violet-500/10"
+                loading={aiSentiment.isPending}
               >
-                <SmilePlus size={11} />
                 {aiSentiment.isPending ? 'Analyzing...' : 'Detect Sentiment'}
-              </button>
+              </Button>
             )}
             {!editingDetails && (
-              <button onClick={() => setEditingDetails(true)} className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400 font-medium border border-gray-200 dark:border-gray-700 rounded-full px-2 py-0.5 ml-auto">
-                <Pencil size={11} /> Edit
-              </button>
+              <Button size="xs" variant="secondary" className="ml-auto" icon={<Pencil size={11} />} onClick={() => setEditingDetails(true)}>
+                Edit
+              </Button>
             )}
           </div>
           {editingDetails ? (
             <TicketEditForm ticket={ticket} categories={categories} onSaved={() => setEditingDetails(false)} onCancel={() => setEditingDetails(false)} />
           ) : (
-            <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">{ticket.body}</p>
+            <p className="text-fg-muted text-sm leading-relaxed">{ticket.body}</p>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Requester</p><p className="font-medium dark:text-gray-200">{ticket.requester?.name}</p></div>
+      <div className="grid grid-cols-2 gap-3">
+        <StatTile tone="sunken" label="Requester" value={ticket.requester?.name} />
         {ticket.contact && (
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">On behalf of (Contact)</p><p className="font-medium dark:text-gray-200">{ticket.contact.name}</p></div>
+          <StatTile tone="sunken" label="On behalf of (Contact)" value={ticket.contact.name} />
         )}
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Category</p><p className="font-medium dark:text-gray-200">{ticket.category?.name || '--'}</p></div>
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Created</p><p className="font-medium dark:text-gray-200">{formatDistanceToNow(new Date(ticket.createdAt), { addSuffix: true })}</p></div>
-        <div className={`rounded-xl p-3 ${slaBreach ? 'bg-red-50 dark:bg-red-500/10' : 'bg-gray-50 dark:bg-gray-800'}`}><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">SLA Due</p><p className={`font-medium ${slaBreach ? 'text-red-600 dark:text-red-400' : 'dark:text-gray-200'}`}>{ticket.slaDueAt ? formatDistanceToNow(new Date(ticket.slaDueAt), { addSuffix: true }) : '--'}</p></div>
+        <StatTile tone="sunken" label="Category" value={ticket.category?.name || '--'} />
+        <StatTile tone="sunken" label="Created" value={formatDistanceToNow(new Date(ticket.createdAt), { addSuffix: true })} />
+        <StatTile
+          tone="sunken"
+          label="SLA Due"
+          value={
+            <span className={slaBreach ? 'text-danger' : undefined}>
+              {ticket.slaDueAt ? formatDistanceToNow(new Date(ticket.slaDueAt), { addSuffix: true }) : '--'}
+            </span>
+          }
+        />
       </div>
 
       <CustomFieldsDisplay entityType="TICKET" entityId={ticket.id} />
 
-      <div className="border-t border-gray-100 dark:border-gray-800 pt-4 space-y-3">
-        <div><label className="form-label">Update Status</label>
-          <div className="flex flex-wrap gap-2">
-            {STATUSES.map(s => (
-              <button key={s} onClick={() => changeStatus.mutate({ id: ticket.id, status: s })}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${ticket.status === s ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-400'}`}>
-                {s.replace('_',' ')}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div><label className="form-label">Assign To</label>
-          <SearchableSelect ariaLabel="Assign To" value={ticket.assignedTo || ''} onChange={val => assign.mutate({ id: ticket.id, assignedTo: val })} options={(users ?? []).filter((u: any) => ['IT_AGENT','IT_MANAGER','SUPER_ADMIN'].includes(u.role)).map((u: any) => ({ value: u.id, label: u.name }))} placeholder="— unassigned —" />
-        </div>
-      </div>
+      <CardSection title="Update Status">
+        <Tabs
+          aria-label="Update Status"
+          variant="pill"
+          value={ticket.status}
+          onChange={s => changeStatus.mutate({ id: ticket.id, status: s })}
+          items={STATUSES.map(s => ({ key: s, label: s.replace('_',' ') }))}
+        />
+      </CardSection>
+      <CardSection title="Assign To">
+        <SearchableSelect ariaLabel="Assign To" value={ticket.assignedTo || ''} onChange={val => assign.mutate({ id: ticket.id, assignedTo: val })} options={(users ?? []).filter((u: any) => ['IT_AGENT','IT_MANAGER','SUPER_ADMIN'].includes(u.role)).map((u: any) => ({ value: u.id, label: u.name }))} placeholder="— unassigned —" />
+      </CardSection>
 
       {/* AI Reply Suggestion */}
-      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-            <Sparkles size={14} className="text-violet-500" /> AI Reply Suggestion
-          </p>
+      <CardSection
+        title="AI Reply Suggestion"
+        icon={<Sparkles size={14} className="text-accent" />}
+        actions={
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={handleAIReply} loading={aiReply.isPending}>
             {suggestedReply ? 'Regenerate' : 'Suggest Reply'}
           </Button>
-        </div>
+        }
+      >
         {suggestedReply && (
-          <div className="relative bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20 rounded-xl p-3">
-            <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto pr-8">{suggestedReply}</pre>
-            <button onClick={copyReply} className="absolute top-2 right-2 p-1.5 hover:bg-violet-100 dark:hover:bg-violet-500/20 rounded-lg text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors">
-              {copiedReply ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
-            </button>
-          </div>
+          <Alert
+            tone="accent"
+            icon={null}
+            actions={
+              <IconButton
+                label="Copy reply"
+                tone="accent"
+                icon={copiedReply ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                onClick={copyReply}
+              />
+            }
+          >
+            <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto">{suggestedReply}</pre>
+          </Alert>
         )}
-      </div>
+      </CardSection>
 
       {/* AI Auto-Route */}
-      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-            <Route size={14} className="text-indigo-500" /> AI Auto-Routing
-          </p>
+      <CardSection
+        title="AI Auto-Routing"
+        icon={<Route size={14} className="text-info" />}
+        actions={
           <Button size="sm" variant="secondary" icon={<Route size={12} />} onClick={handleAutoRoute} loading={autoRouting}>
             {autoRouteResult ? 'Re-route' : 'Auto-Route'}
           </Button>
-        </div>
+        }
+      >
         {autoRouteResult && (
-          <div className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-xl p-3 text-sm">
-            <p className="text-indigo-700 dark:text-indigo-300 font-medium mb-1">Routing applied:</p>
-            {autoRouteResult.categoryName && <p className="text-gray-600 dark:text-gray-300">Category -&gt; <span className="font-medium">{autoRouteResult.categoryName}</span></p>}
-            {autoRouteResult.agentName && <p className="text-gray-600 dark:text-gray-300">Assigned -&gt; <span className="font-medium">{autoRouteResult.agentName}</span></p>}
-            <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">{autoRouteResult.reason}</p>
-          </div>
+          <Alert tone="info" title="Routing applied:">
+            {autoRouteResult.categoryName && <p>Category -&gt; <span className="font-medium">{autoRouteResult.categoryName}</span></p>}
+            {autoRouteResult.agentName && <p>Assigned -&gt; <span className="font-medium">{autoRouteResult.agentName}</span></p>}
+            <p className="text-xs mt-1 opacity-80">{autoRouteResult.reason}</p>
+          </Alert>
         )}
-      </div>
+      </CardSection>
 
       {/* AI Thread Summary */}
-      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-            <Layers size={14} className="text-blue-500" /> Thread Summary
-          </p>
+      <CardSection
+        title="Thread Summary"
+        icon={<Layers size={14} className="text-info" />}
+        actions={
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiSummary.mutate(ticket.id)} loading={aiSummary.isPending}>
             Summarize
           </Button>
-        </div>
+        }
+      >
         {aiSummary.data?.summary && (
-          <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 rounded-xl p-3 text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-            {aiSummary.data.summary}
-          </div>
+          <Alert tone="info" icon={null}>{aiSummary.data.summary}</Alert>
         )}
-      </div>
+      </CardSection>
 
       {/* Resolution Time Estimate */}
-      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-            <Clock size={14} className="text-amber-500" /> Resolution Estimate
-          </p>
+      <CardSection
+        title="Resolution Estimate"
+        icon={<Clock size={14} className="text-warning" />}
+        actions={
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiEstimate.mutate(ticket.id)} loading={aiEstimate.isPending}>
             Estimate
           </Button>
-        </div>
+        }
+      >
         {aiEstimate.data && (
-          <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl p-3 text-sm">
-            <p className="font-semibold text-amber-800 dark:text-amber-300">{aiEstimate.data.label}</p>
-            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{aiEstimate.data.reason}</p>
-          </div>
+          <Alert tone="warning" title={aiEstimate.data.label}>
+            <p className="text-xs opacity-80">{aiEstimate.data.reason}</p>
+          </Alert>
         )}
-      </div>
+      </CardSection>
 
       {/* SLA Risk */}
-      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-            <AlertTriangle size={14} className="text-red-500" /> SLA Risk
-          </p>
+      <CardSection
+        title="SLA Risk"
+        icon={<AlertTriangle size={14} className="text-danger" />}
+        actions={
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiSlaRisk.mutate(ticket.id)} loading={aiSlaRisk.isPending}>
             Assess Risk
           </Button>
-        </div>
+        }
+      >
         {aiSlaRisk.data && (
-          <div className={`border rounded-xl p-3 text-sm ${aiSlaRisk.data.risk === 'HIGH' ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30' : aiSlaRisk.data.risk === 'MEDIUM' ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' : 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'}`}>
+          <Alert tone={aiSlaRisk.data.risk === 'HIGH' ? 'danger' : aiSlaRisk.data.risk === 'MEDIUM' ? 'warning' : 'success'}>
             <div className="flex items-center gap-2 mb-0.5">
-              <span className={`font-bold text-sm ${aiSlaRisk.data.risk === 'HIGH' ? 'text-red-700 dark:text-red-400' : aiSlaRisk.data.risk === 'MEDIUM' ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
-                {aiSlaRisk.data.risk} RISK
-              </span>
-              <span className="text-gray-400 dark:text-gray-500 text-xs">({aiSlaRisk.data.score}/100)</span>
+              <span className="font-bold text-sm">{aiSlaRisk.data.risk} RISK</span>
+              <span className="text-xs opacity-70">({aiSlaRisk.data.score}/100)</span>
             </div>
-            <p className="text-gray-500 dark:text-gray-400 text-xs">{aiSlaRisk.data.reason}</p>
-          </div>
+            <p className="text-xs opacity-90">{aiSlaRisk.data.reason}</p>
+          </Alert>
         )}
-      </div>
+      </CardSection>
 
       {/* KB Article Generator */}
-      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-            <BookOpen size={14} className="text-emerald-500" /> Generate KB Article
-          </p>
+      <CardSection
+        title="Generate KB Article"
+        icon={<BookOpen size={14} className="text-success" />}
+        actions={
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiKb.mutate(ticket.id)} loading={aiKb.isPending}>
             Generate
           </Button>
-        </div>
+        }
+      >
         {aiKb.data && (
-          <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-xl p-3 text-sm space-y-2">
-            <p className="font-semibold text-emerald-800 dark:text-emerald-300">{aiKb.data.title}</p>
-            <pre className="text-gray-600 dark:text-gray-300 text-xs whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto">{aiKb.data.body}</pre>
-            <button onClick={() => navigator.clipboard.writeText(`# ${aiKb.data!.title}\n\n${aiKb.data!.body}`)}
-              className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline">Copy to clipboard</button>
-          </div>
+          <Alert tone="success" title={aiKb.data.title}>
+            <pre className="text-xs whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto my-2 opacity-90">{aiKb.data.body}</pre>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => navigator.clipboard.writeText(`# ${aiKb.data!.title}\n\n${aiKb.data!.body}`)}
+            >
+              Copy to clipboard
+            </Button>
+          </Alert>
         )}
-      </div>
+      </CardSection>
 
       <TimeTrackingPanel ticketId={ticket.id} />
       <ScheduleReminderPanel entityType="TICKET" entityId={ticket.id} />
@@ -479,24 +495,71 @@ export function TicketsPage() {
     if (aiPrefill) { setSelectedId(null); setCreateModal(true); }
   }, [aiPrefill]);
 
+  const columns: Column<any>[] = [
+    {
+      key: 'title',
+      header: fieldLabel('ticket', 'title', 'Title'),
+      cell: t => (
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold shrink-0 ${t.priority === 'CRITICAL' ? 'bg-red-500' : t.priority === 'HIGH' ? 'bg-orange-400' : t.priority === 'MEDIUM' ? 'bg-blue-400' : 'bg-gray-400'}`}>{t.priority[0]}</span>
+          <span className="font-medium text-fg max-w-[180px] sm:max-w-xs truncate">{t.title}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: fieldLabel('ticket', 'status', 'Status'),
+      cell: t => <Badge variant={ticketStatusVariant[t.status]}>{STATUS_LABELS[t.status] ?? t.status.replace('_',' ')}</Badge>,
+    },
+    {
+      key: 'priority',
+      header: fieldLabel('ticket', 'priority', 'Priority'),
+      cell: t => <Badge variant={priorityVariant[t.priority]}>{t.priority}</Badge>,
+    },
+    {
+      key: 'sentiment',
+      header: 'Sentiment',
+      cell: t => (t.sentiment && sentimentConfig[t.sentiment]
+        ? <Badge variant={sentimentConfig[t.sentiment].variant}>{sentimentConfig[t.sentiment].label}</Badge>
+        : <span className="text-fg-subtle text-xs">--</span>),
+    },
+    { key: 'category', header: 'Category', hideBelow: 'md', muted: true, cell: t => t.category?.name || '--' },
+    { key: 'requester', header: 'Requester', hideBelow: 'md', muted: true, cell: t => t.requester?.name },
+    {
+      key: 'assignee',
+      header: 'Assigned To',
+      muted: true,
+      cell: t => t.assignee?.name || <span className="text-fg-subtle">Unassigned</span>,
+    },
+    {
+      key: 'sla',
+      header: 'SLA',
+      hideBelow: 'md',
+      cell: t => {
+        const slaBreach = t.slaDueAt && new Date(t.slaDueAt) < new Date() && !['RESOLVED','CLOSED'].includes(t.status);
+        return t.slaDueAt ? (
+          <span className={`text-xs ${slaBreach ? 'text-danger font-semibold' : 'text-fg-subtle'}`}>
+            {slaBreach ? 'Breached' : formatDistanceToNow(new Date(t.slaDueAt), { addSuffix: true })}
+          </span>
+        ) : <span className="text-fg-subtle text-xs">--</span>;
+      },
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      cell: () => <Pencil size={14} className="text-fg-subtle" />,
+    },
+  ];
+
   return (
     <div className="p-4 sm:p-6 space-y-5 animate-slide-up">
       {reports && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          {[
-            { label: 'Open', value: reports.open, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', icon: <Ticket size={18} /> },
-            { label: 'In Progress', value: reports.inProgress, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-500/10', icon: <Clock size={18} /> },
-            { label: 'SLA Breached', value: reports.slaBreached, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-500/10', icon: <AlertCircle size={18} /> },
-            { label: 'Resolved', value: reports.resolved, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-500/10', icon: <CheckCircle size={18} /> },
-          ].map(({ label, value, color, bg, icon }) => (
-            <div key={label} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 flex items-center gap-3 card-hover shadow-sm">
-              <div className={`w-10 h-10 rounded-xl ${bg} ${color} flex items-center justify-center shadow-sm`}>{icon}</div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{label}</p>
-              </div>
-            </div>
-          ))}
+          <StatTile label="Open" value={reports.open} icon={<Ticket size={18} />} />
+          <StatTile label="In Progress" value={reports.inProgress} icon={<Clock size={18} />} />
+          <StatTile label="SLA Breached" value={reports.slaBreached} icon={<AlertCircle size={18} />} />
+          <StatTile label="Resolved" value={reports.resolved} icon={<CheckCircle size={18} />} />
         </div>
       )}
 
@@ -506,14 +569,14 @@ export function TicketsPage() {
         actions={<>
           <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <Select aria-label="Status filter" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">All Statuses</option>
               {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s] ?? s.replace('_',' ')}</option>)}
-            </select>
-            <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500">
+            </Select>
+            <Select aria-label="Priority filter" value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}>
               <option value="">All Priorities</option>
               {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            </Select>
             <Button icon={<Plus size={15} />} onClick={() => setCreateModal(true)}>New {singular}</Button>
           </div>
         </>}
@@ -522,58 +585,15 @@ export function TicketsPage() {
       {isLoading ? <Spinner /> : filtered?.length === 0 ? (
         <EmptyState icon={<Ticket size={24} />} title={`No ${plural.toLowerCase()} found`} description="All clear! No tickets match your filters." action={{ label: `New ${singular}`, onClick: () => setCreateModal(true) }} />
       ) : (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
-          <div className="table-container">
-            <table className="w-full text-sm min-w-[800px]">
-              <thead><tr className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{fieldLabel('ticket', 'title', 'Title')}</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{fieldLabel('ticket', 'status', 'Status')}</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{fieldLabel('ticket', 'priority', 'Priority')}</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sentiment</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">Category</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">Requester</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned To</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">SLA</th>
-                <th className="px-4 py-3"></th>
-              </tr></thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                {filtered?.map((t: any) => {
-                  const slaBreach = t.slaDueAt && new Date(t.slaDueAt) < new Date() && !['RESOLVED','CLOSED'].includes(t.status);
-                  return (
-                    <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors cursor-pointer" onClick={() => setSelectedId(t.id)}>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold flex-shrink-0 ${t.priority === 'CRITICAL' ? 'bg-red-500' : t.priority === 'HIGH' ? 'bg-orange-400' : t.priority === 'MEDIUM' ? 'bg-blue-400' : 'bg-gray-300'}`}>{t.priority[0]}</span>
-                          <span className="font-medium text-gray-900 dark:text-gray-100 max-w-[180px] sm:max-w-xs truncate">{t.title}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3"><Badge variant={ticketStatusVariant[t.status]}>{STATUS_LABELS[t.status] ?? t.status.replace('_',' ')}</Badge></td>
-                      <td className="px-4 py-3"><Badge variant={priorityVariant[t.priority]}>{t.priority}</Badge></td>
-                      <td className="px-4 py-3">
-                        {t.sentiment && sentimentConfig[t.sentiment]
-                          ? <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${sentimentConfig[t.sentiment].color}`}>{sentimentConfig[t.sentiment].label}</span>
-                          : <span className="text-gray-300 dark:text-gray-600 text-xs">--</span>}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">{t.category?.name || '--'}</td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">{t.requester?.name}</td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{t.assignee?.name || <span className="text-gray-300 dark:text-gray-600">Unassigned</span>}</td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        {t.slaDueAt ? (
-                          <span className={`text-xs ${slaBreach ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}`}>
-                            {slaBreach ? 'Breached' : formatDistanceToNow(new Date(t.slaDueAt), { addSuffix: true })}
-                          </span>
-                        ) : <span className="text-gray-300 dark:text-gray-600 text-xs">--</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Pencil size={14} className="text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300" />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Card padding="none" className="overflow-hidden">
+          <DataTable
+            columns={columns}
+            rows={filtered ?? []}
+            rowKey={(t: any) => t.id}
+            onRowClick={(t: any) => setSelectedId(t.id)}
+            minWidth={800}
+          />
+        </Card>
       )}
 
       <Modal open={createModal} onClose={() => setCreateModal(false)} title={`Submit New ${singular}`} size="lg">

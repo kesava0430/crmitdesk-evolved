@@ -1,27 +1,55 @@
 import { Button } from './Button';
 
-interface EmptyStateProps {
+export interface EmptyStateProps {
   icon: React.ReactNode;
   title: string;
-  description: string;
+  description?: string;
   action?: { label: string; onClick: () => void };
+  secondaryAction?: { label: string; onClick: () => void };
+  /** Tighter version for use inside a card or a table body. */
+  compact?: boolean;
+  className?: string;
 }
 
-export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+  secondaryAction,
+  compact = false,
+  className = '',
+}: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 px-4 gap-5 text-center">
+    <div
+      className={`flex flex-col items-center justify-center px-4 text-center ${
+        compact ? 'py-10 gap-3' : 'py-20 gap-5'
+      } ${className}`}
+    >
       <div
-        className="w-16 h-16 flex items-center justify-center text-gray-300 dark:text-gray-600 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700"
-        style={{ borderRadius: 'var(--ui-card-radius, 16px)' }}
+        className={`${
+          compact ? 'w-11 h-11' : 'w-16 h-16'
+        } flex items-center justify-center text-fg-subtle bg-surface-sunken border border-line-subtle rounded-card`}
       >
-        <span className="[&>svg]:w-7 [&>svg]:h-7">{icon}</span>
+        <span className={compact ? '[&>svg]:w-5 [&>svg]:h-5' : '[&>svg]:w-7 [&>svg]:h-7'}>{icon}</span>
       </div>
-      <div className="max-w-[260px]">
-        <p className="font-semibold text-gray-800 dark:text-gray-200 text-[14px] tracking-tight">{title}</p>
-        <p className="text-[13px] text-gray-400 dark:text-gray-500 mt-1.5 leading-relaxed">{description}</p>
+      <div className="max-w-[300px]">
+        <p className={`font-semibold text-fg tracking-tight ${compact ? 'text-[13px]' : 'text-[14px]'}`}>
+          {title}
+        </p>
+        {description && (
+          <p className="text-[13px] text-fg-muted mt-1.5 leading-relaxed">{description}</p>
+        )}
       </div>
-      {action && (
-        <Button size="sm" onClick={action.onClick}>{action.label}</Button>
+      {(action || secondaryAction) && (
+        <div className="flex items-center gap-2">
+          {action && <Button size="sm" onClick={action.onClick}>{action.label}</Button>}
+          {secondaryAction && (
+            <Button size="sm" variant="secondary" onClick={secondaryAction.onClick}>
+              {secondaryAction.label}
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

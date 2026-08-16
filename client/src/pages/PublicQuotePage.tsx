@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Loader2, FileText, CheckCircle2, ShieldCheck, Eraser } from 'lucide-react';
+import { FileText, CheckCircle2, ShieldCheck, Eraser } from 'lucide-react';
 import { api } from '../api/client';
 import { formatCurrency, formatDateTime } from '../utils/format';
+import {
+  Card, Table, Th, Td, Field, Input, Checkbox, Button, Alert, Spinner, EmptyState,
+} from '../shared/components';
 
 interface QuoteLine { id: string; description: string; quantity: string; unitPrice: string; discount: string }
 interface Quote {
@@ -10,6 +13,11 @@ interface Quote {
   lines: QuoteLine[]; org: { name: string; currency?: string; timezone?: string }; deal?: { title: string } | null;
   signerName?: string; signedAt?: string;
 }
+
+/** Ink colour for the signature pad. Not a token: this is ink drawn onto a
+ *  white signature card that is exported as a PNG and reproduced on printed
+ *  and emailed documents, so it has to stay dark in every theme. */
+const SIGNATURE_INK = '#1f2937';
 
 function lineTotal(l: QuoteLine) {
   const qty = Number(l.quantity), price = Number(l.unitPrice), disc = Number(l.discount) || 0;
@@ -44,7 +52,7 @@ function SignaturePad({ canvasRef, onChange }: { canvasRef: React.RefObject<HTML
     const p = point(e);
     const last = lastPointRef.current;
     if (last) {
-      ctx.strokeStyle = '#1f2937';
+      ctx.strokeStyle = SIGNATURE_INK;
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -69,7 +77,9 @@ function SignaturePad({ canvasRef, onChange }: { canvasRef: React.RefObject<HTML
 
   return (
     <div>
-      <div className="border border-gray-200 rounded-xl bg-white overflow-hidden touch-none">
+      {/* Deliberately white in every theme — the pad is the paper the dark ink
+          above is drawn on, and it is exported verbatim as a PNG. */}
+      <div className="border border-line rounded-input bg-white overflow-hidden touch-none">
         <canvas
           ref={canvasRef}
           width={500}
@@ -81,16 +91,17 @@ function SignaturePad({ canvasRef, onChange }: { canvasRef: React.RefObject<HTML
           onPointerLeave={end}
         />
       </div>
-      <button type="button" onClick={clear} className="mt-1.5 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
-        <Eraser size={12} /> Clear signature
-      </button>
+      <Button variant="ghost" size="xs" className="mt-1.5" icon={<Eraser size={12} />} onClick={clear}>
+        Clear signature
+      </Button>
     </div>
   );
 }
 
 // Public, token-secured — no auth. Customers land here from a link a sales
 // rep copies off the Quote detail page ("Copy customer link"). See
-// quotes.controller.ts publicView/publicAccept.
+// quotes.controller.ts publicView/publicAccept. index.css's @media print
+// block pins the tokens to the light palette, so the normal tokens are safe.
 export function PublicQuotePage() {
   const { id } = useParams();
   const [params] = useSearchParams();
@@ -128,10 +139,14 @@ export function PublicQuotePage() {
   }
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
+    return <div className="min-h-screen flex items-center justify-center"><Spinner label={null} /></div>;
   }
   if (error && !quote) {
-    return <div className="min-h-screen flex items-center justify-center p-6"><p className="text-sm text-gray-500">{error}</p></div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <EmptyState icon={<FileText />} title={error} />
+      </div>
+    );
   }
   if (!quote) return null;
 
@@ -139,93 +154,95 @@ export function PublicQuotePage() {
   const money = (v: number) => formatCurrency(v, quote.org.currency || 'USD');
 
   return (
-    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:py-14">
+    <div className="min-h-screen bg-canvas py-8 px-4 sm:py-14">
       <div className="max-w-2xl mx-auto">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-5 py-5 sm:px-8 sm:py-6 border-b border-gray-100">
-            <p className="text-xs text-gray-400">{quote.org.name}</p>
-            <h1 className="text-lg sm:text-xl font-semibold text-gray-900 mt-0.5 flex items-center gap-2">
-              <FileText size={18} className="text-brand-500 shrink-0" /> {quote.title}
+        <Card padding="none" className="overflow-hidden">
+          <div className="px-5 py-5 sm:px-8 sm:py-6 border-b border-line-subtle">
+            <p className="text-xs text-fg-subtle">{quote.org.name}</p>
+            <h1 className="text-lg sm:text-xl font-semibold text-fg mt-0.5 flex items-center gap-2">
+              <FileText size={18} className="text-accent shrink-0" /> {quote.title}
             </h1>
-            {quote.deal?.title && <p className="text-xs text-gray-400 mt-1">Re: {quote.deal.title}</p>}
+            {quote.deal?.title && <p className="text-xs text-fg-subtle mt-1">Re: {quote.deal.title}</p>}
           </div>
 
-          <div className="px-5 py-5 sm:px-8 sm:py-6 overflow-x-auto">
-            <table className="w-full text-sm min-w-[480px]">
+          <div className="px-5 py-5 sm:px-8 sm:py-6">
+            <Table minWidth={480}>
               <thead>
-                <tr className="text-left text-xs text-gray-400 uppercase tracking-wide">
-                  <th className="pb-2 font-medium">Description</th>
-                  <th className="pb-2 font-medium text-right">Qty</th>
-                  <th className="pb-2 font-medium text-right">Price</th>
-                  <th className="pb-2 font-medium text-right">Total</th>
+                <tr>
+                  <Th>Description</Th>
+                  <Th align="right">Qty</Th>
+                  <Th align="right">Price</Th>
+                  <Th align="right">Total</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody>
                 {quote.lines.map(l => (
                   <tr key={l.id}>
-                    <td className="py-2.5 text-gray-800">{l.description}</td>
-                    <td className="py-2.5 text-right text-gray-600">{l.quantity}</td>
-                    <td className="py-2.5 text-right text-gray-600">{money(Number(l.unitPrice))}</td>
-                    <td className="py-2.5 text-right font-medium text-gray-900">{money(lineTotal(l))}</td>
+                    <Td>{l.description}</Td>
+                    <Td align="right" muted>{l.quantity}</Td>
+                    <Td align="right" muted>{money(Number(l.unitPrice))}</Td>
+                    <Td align="right" className="font-medium">{money(lineTotal(l))}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-            <div className="flex justify-end mt-4 pt-4 border-t border-gray-100">
+            </Table>
+            <div className="flex justify-end mt-4 pt-4 border-t border-line-subtle">
               <div className="text-right">
-                <p className="text-xs text-gray-400">Total</p>
-                <p className="text-xl font-semibold text-gray-900">{money(total)}</p>
+                <p className="text-xs text-fg-subtle">Total</p>
+                <p className="text-xl font-semibold text-fg">{money(total)}</p>
               </div>
             </div>
-            {quote.notes && <p className="text-sm text-gray-500 mt-4 whitespace-pre-wrap">{quote.notes}</p>}
+            {quote.notes && <p className="text-sm text-fg-muted mt-4 whitespace-pre-wrap">{quote.notes}</p>}
           </div>
 
-          <div className="px-5 py-5 sm:px-8 sm:py-6 bg-gray-50 border-t border-gray-100">
+          <div className="px-5 py-5 sm:px-8 sm:py-6 bg-surface-sunken border-t border-line-subtle">
             {quote.status === 'ACCEPTED' ? (
-              <div className="flex items-start gap-3 text-green-700">
-                <CheckCircle2 size={20} className="shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-sm">Accepted{quote.signerName ? ` by ${quote.signerName}` : ''}</p>
-                  {quote.signedAt && <p className="text-xs text-green-600 mt-0.5">{formatDateTime(quote.signedAt, quote.org.timezone || 'UTC')}</p>}
-                </div>
-              </div>
+              <Alert
+                tone="success"
+                icon={<CheckCircle2 size={20} />}
+                title={`Accepted${quote.signerName ? ` by ${quote.signerName}` : ''}`}
+              >
+                {quote.signedAt && formatDateTime(quote.signedAt, quote.org.timezone || 'UTC')}
+              </Alert>
             ) : quote.status === 'REJECTED' ? (
-              <p className="text-sm text-gray-500">This quote is no longer available for acceptance.</p>
+              <p className="text-sm text-fg-muted">This quote is no longer available for acceptance.</p>
             ) : (
               <form onSubmit={handleAccept} className="space-y-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-fg-muted uppercase tracking-wide flex items-center gap-1.5">
                   <ShieldCheck size={13} /> Accept this quote
                 </p>
-                {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
+                {error && <Alert tone="danger">{error}</Alert>}
                 <div className="grid sm:grid-cols-2 gap-3">
-                  <input
+                  <Input
                     required value={signerName} onChange={e => setSignerName(e.target.value)}
-                    placeholder="Your full name" className="px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    aria-label="Your full name" placeholder="Your full name"
                   />
-                  <input
+                  <Input
                     required type="email" value={signerEmail} onChange={e => setSignerEmail(e.target.value)}
-                    placeholder="you@company.com" className="px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    aria-label="Your email" placeholder="you@company.com"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Draw your signature</label>
+                <Field label="Draw your signature">
                   <SignaturePad canvasRef={signatureCanvasRef} onChange={setHasSignature} />
-                </div>
-                <label className="flex items-start gap-2 text-xs text-gray-500">
-                  <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} className="mt-0.5" />
-                  Signing above and checking this box constitutes my electronic signature and acceptance of this quote.
-                </label>
-                <button
-                  type="submit" disabled={!agreed || submitting}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-medium px-6 py-2.5 rounded-xl text-sm transition-colors"
+                </Field>
+                <Checkbox
+                  checked={agreed}
+                  onChange={e => setAgreed(e.target.checked)}
+                  label="Signing above and checking this box constitutes my electronic signature and acceptance of this quote."
+                />
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full sm:w-auto"
+                  disabled={!agreed}
+                  loading={submitting}
                 >
-                  {submitting && <Loader2 size={14} className="animate-spin" />}
                   {submitting ? 'Submitting…' : 'Accept & Sign'}
-                </button>
+                </Button>
               </form>
             )}
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

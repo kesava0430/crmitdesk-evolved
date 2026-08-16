@@ -193,14 +193,14 @@ function SideNavItem({ to, label, icon: Icon, onClick }: {
       className={({ isActive }) =>
         `group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
           isActive
-            ? "bg-indigo-600/20 dark:bg-indigo-900/30 text-indigo-300 dark:text-indigo-400 font-semibold"
-            : "text-slate-400 hover:text-slate-200 hover:bg-white/5 dark:hover:bg-gray-800"
+            ? "bg-sidebar-active text-sidebar-active-fg font-semibold shadow-ui-sm"
+            : "text-sidebar-muted hover:text-sidebar-fg hover:bg-white/5"
         }`
       }
     >
       {({ isActive }) => (
         <>
-          <Icon size={15} className={isActive ? "text-white" : "text-slate-500 group-hover:text-slate-300"} />
+          <Icon size={15} className={isActive ? "text-sidebar-active-fg" : "text-sidebar-heading group-hover:text-sidebar-fg"} />
           <span className="truncate flex-1">{label}</span>
         </>
       )}
@@ -248,13 +248,13 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-slate-800">
+      <div className="px-4 py-5 border-b border-sidebar-line">
         <div className="flex items-center gap-3">
           <img src="/logo.svg" alt="Logo" className="w-8 h-8 shrink-0" />
           <div className="min-w-0">
             <p className="text-white font-semibold text-sm leading-tight truncate">CRM &amp; IT Desk</p>
             {user?.org?.name && (
-              <p className="text-slate-400 text-xs truncate mt-0.5">{user.org.name}</p>
+              <p className="text-sidebar-muted text-xs truncate mt-0.5">{user.org.name}</p>
             )}
           </div>
         </div>
@@ -275,7 +275,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
           return (
             <div key={section.label ?? "__top"} className={section.label ? "mt-5" : ""}>
               {section.label && (
-                <p className="px-3 mb-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                <p className="px-3 mb-1.5 text-[10px] font-semibold text-sidebar-heading uppercase tracking-widest">
                   {section.label}
                 </p>
               )}
@@ -290,7 +290,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
       </nav>
 
       {/* User footer */}
-      <div className="border-t border-slate-800 p-3">
+      <div className="border-t border-sidebar-line p-3">
         <Link
           to="/profile"
           className="flex items-center gap-3 px-2 py-2 mb-1 rounded-lg hover:bg-white/5 transition-colors group"
@@ -301,13 +301,13 @@ function SidebarContent({ user, onLogout, onNavClick }: {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-white text-xs font-medium truncate">{user?.name}</p>
-            <p className="text-slate-500 text-[11px] truncate group-hover:text-slate-400">{user?.role ?? 'Edit profile'}</p>
+            <p className="text-sidebar-heading text-[11px] truncate group-hover:text-sidebar-muted">{user?.role ?? 'Edit profile'}</p>
           </div>
         </Link>
         <div className="flex items-center gap-1.5">
           <button
             onClick={onLogout}
-            className="flex-1 flex items-center gap-2 px-3 py-2 text-[13px] text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+            className="flex-1 flex items-center gap-2 px-3 py-2 text-[13px] text-sidebar-muted hover:text-red-400 hover:bg-red-400/10 rounded-btn transition-colors"
           >
             <LogOut size={14} /> Sign out
           </button>
@@ -373,7 +373,7 @@ export function AppLayout() {
     : (PAGE_TITLES[location.pathname] ?? moduleTitleMatch ?? "CRM & IT Desk");
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
+    <div className="flex h-screen bg-canvas overflow-hidden">
 
       {/* Mobile backdrop */}
       {sidebarOpen && (
@@ -386,7 +386,7 @@ export function AppLayout() {
       {/* Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-slate-950 shadow-2xl
+          fixed inset-y-0 left-0 z-50 w-sidebar flex flex-col bg-sidebar shadow-2xl
           transition-transform duration-200 ease-out
           lg:relative lg:translate-x-0 lg:shadow-none lg:z-auto lg:pointer-events-auto
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"}
@@ -399,7 +399,7 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Top bar */}
-        <header className="flex-shrink-0 flex items-center gap-3 px-4 h-14 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-700/50 shadow-topbar z-30">
+        <header className="flex-shrink-0 flex items-center gap-3 px-4 h-topbar bg-surface/85 backdrop-blur-md border-b border-line-subtle z-30">
           {/* Hamburger — mobile only */}
           <button
             className="lg:hidden p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"

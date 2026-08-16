@@ -1,7 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, ArrowRight, X, Loader2, ChevronRight, CheckCircle2, ShieldAlert, Zap, Info } from "lucide-react";
+import { Sparkles, ArrowRight, Loader2, ChevronRight, CheckCircle2, ShieldAlert, Zap, Info } from "lucide-react";
 import { useNlCommand, usePlanAiAction, useExecuteAiAction, useAiActionsMenu } from "../../api/ai";
+import { Alert } from "./Alert";
+import { Badge } from "./Badge";
+import { Button } from "./Button";
+import { IconButton } from "./IconButton";
+import { Input } from "./Field";
+import { Modal } from "./Modal";
 
 // Route mapping
 const ENTITY_ROUTES: Record<string, string> = {
@@ -27,10 +33,13 @@ const SUGGESTIONS = [
   "New lead from LinkedIn named John Doe",
 ];
 
-function confidenceColor(score: number): string {
-  if (score >= 80) return "text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-800/50";
-  if (score >= 50) return "text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-500/10 dark:border-amber-800/50";
-  return "text-red-600 bg-red-50 border-red-200 dark:text-red-300 dark:bg-red-500/10 dark:border-red-800/50";
+/* Confidence is a judgement about quality, so it stays on the reserved status
+   hues rather than the accent — "80% confident" should read the same shade of
+   good in every theme. */
+function confidenceVariant(score: number) {
+  if (score >= 80) return "green" as const;
+  if (score >= 50) return "yellow" as const;
+  return "red" as const;
 }
 
 interface AiCommandBarProps {
@@ -45,6 +54,30 @@ interface AiCommandBarProps {
 //    reminder, add a note, toggle a rule, etc.) with no dedicated create form
 //    — this is the new propose -> confirm -> execute flow.
 type ResultMode = "legacy" | "action" | "none";
+
+/** A clickable example command. Was five copies of the same hover-tinted row. */
+function ExampleRow({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-start gap-2 px-3 py-1.5 rounded-btn text-sm text-fg-muted hover:bg-accent-soft hover:text-accent-soft-fg transition-colors text-left group w-full"
+    >
+      <ChevronRight size={13} className="mt-0.5 text-fg-subtle group-hover:text-accent flex-shrink-0" />
+      <span className="min-w-0">{children}</span>
+    </button>
+  );
+}
+
+/** A parsed key/value chip. */
+function ParamChip({ name, value }: { name: string; value: unknown }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-surface-sunken text-xs text-fg">
+      <span className="font-semibold text-fg-muted">{name}:</span>
+      <span>{String(value)}</span>
+    </span>
+  );
+}
 
 export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
   const navigate = useNavigate();
@@ -81,14 +114,9 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  // Escape-to-close and body scroll locking now come from Modal, which is the
+  // whole point of routing through it — this was the app's most prominent
+  // dialog and the only one that reimplemented both.
 
   if (!open) return null;
 
@@ -165,90 +193,51 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
   const planConfidencePct = plan ? Math.round(plan.confidence) : 0;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="AI Command"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="AI Command"
+      subtitle="Type a natural language command"
+      icon={<Sparkles size={16} />}
     >
-      <div className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden">
-
-        {/* Header */}
-        <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-violet-600 flex-shrink-0">
-            <Sparkles size={16} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">AI Command</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Type a natural language command</p>
-          </div>
-          <button
-            onClick={() => setShowHelp(s => !s)}
-            className={`p-1.5 rounded-lg transition-colors ${showHelp ? "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/10" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-500 dark:hover:text-gray-300 dark:hover:bg-gray-800"}`}
-            aria-label="Show supported command syntax"
-            aria-pressed={showHelp}
-            title="What can I say?"
-          >
-            <Info size={16} />
-          </button>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-500 dark:hover:text-gray-300 dark:hover:bg-gray-800 transition-colors"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
+      <div className="-mx-6 -my-5">
         {/* Help panel: every supported command syntax, straight from the
             server's action registry (ai-actions.ts) plus the fixed 5-entity
             create/update list — so this can never list something that isn't
             actually wired up. Click any example to run it immediately. */}
         {showHelp && (
-          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 max-h-80 overflow-y-auto">
+          <div className="px-6 py-4 border-b border-line-subtle max-h-80 overflow-y-auto">
             {actionsMenu.isLoading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-2 text-sm text-fg-muted">
                 <Loader2 size={14} className="animate-spin" /> Loading supported commands...
               </div>
             ) : (
               <div className="space-y-4">
                 <div>
-                  <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Create or update a record</p>
+                  <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Create or update a record</p>
                   <div className="flex flex-col gap-1">
                     {(actionsMenu.data?.legacy ?? []).map(l => (
-                      <button
-                        key={l.entity}
-                        onClick={() => handleSuggestion(l.example)}
-                        className="flex items-start gap-2 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-violet-50 hover:text-violet-700 dark:text-gray-300 dark:hover:bg-violet-500/10 dark:hover:text-violet-300 transition-colors text-left group"
-                      >
-                        <ChevronRight size={13} className="mt-0.5 text-gray-300 group-hover:text-violet-400 dark:text-gray-600 dark:group-hover:text-violet-400 flex-shrink-0" />
-                        <span>"{l.example}"</span>
-                      </button>
+                      <ExampleRow key={l.entity} onClick={() => handleSuggestion(l.example)}>
+                        "{l.example}"
+                      </ExampleRow>
                     ))}
                   </div>
                 </div>
                 {(actionsMenu.data?.actions?.length ?? 0) > 0 && (
                   <div>
-                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Actions</p>
+                    <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Actions</p>
                     <div className="flex flex-col gap-1">
                       {(actionsMenu.data?.actions ?? []).map(a => (
-                        <button
-                          key={a.name}
-                          onClick={() => handleSuggestion(a.example)}
-                          className="flex items-start gap-2 px-3 py-1.5 rounded-lg text-sm text-left group hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors"
-                        >
-                          <ChevronRight size={13} className="mt-0.5 text-gray-300 group-hover:text-violet-400 dark:text-gray-600 dark:group-hover:text-violet-400 flex-shrink-0" />
-                          <span>
-                            <span className="text-gray-600 group-hover:text-violet-700 dark:text-gray-300 dark:group-hover:text-violet-300">"{a.example}"</span>
-                            <span className="block text-[11px] text-gray-400 dark:text-gray-500">{a.label}</span>
-                          </span>
-                        </button>
+                        <ExampleRow key={a.name} onClick={() => handleSuggestion(a.example)}>
+                          <span className="block">"{a.example}"</span>
+                          <span className="block text-[11px] text-fg-subtle">{a.label}</span>
+                        </ExampleRow>
                       ))}
                     </div>
                   </div>
                 )}
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+                <p className="text-[11px] text-fg-subtle leading-relaxed">
                   Actions beyond the four free ones (lead scoring, ticket sentiment, auto-routing, auto-tagging) need a Pro or Enterprise plan.
                 </p>
               </div>
@@ -257,47 +246,48 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
         )}
 
         {/* Input area */}
-        <div className="px-5 pt-4 pb-3">
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">What would you like to do?</p>
+        <div className="px-6 pt-4 pb-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-medium text-fg-muted">What would you like to do?</p>
+            <IconButton
+              label="What can I say?"
+              icon={<Info size={16} />}
+              tone="accent"
+              onClick={() => setShowHelp(s => !s)}
+              aria-pressed={showHelp}
+              className={showHelp ? "text-accent bg-accent-soft" : ""}
+            />
+          </div>
           <div className="flex gap-2">
-            <input
+            <Input
               ref={inputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search or ask AI — what would you like to do? e.g. Move the Acme deal to Proposal..."
-              className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent bg-gray-50 transition-all dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+              aria-label="What would you like to do?"
+              className="flex-1"
               disabled={isLoading}
             />
-            <button
+            <Button
               onClick={handleSubmit}
-              disabled={isLoading || query.trim().length < 3}
-              className="flex items-center gap-1.5 px-4 py-3 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white text-sm font-semibold rounded-xl transition-colors"
+              disabled={query.trim().length < 3}
+              loading={isLoading}
+              icon={<Sparkles size={15} />}
             >
-              {isLoading ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : (
-                <><Sparkles size={15} /> Ask AI</>
-              )}
-            </button>
+              Ask AI
+            </Button>
           </div>
         </div>
 
         {/* Suggestions */}
         {mode === "none" && !isLoading && !isError && (
-          <div className="px-5 pb-4">
-            <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Try asking</p>
+          <div className="px-6 pb-4">
+            <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Try asking</p>
             <div className="flex flex-col gap-1.5">
               {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleSuggestion(s)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-violet-50 hover:text-violet-700 dark:text-gray-300 dark:hover:bg-violet-500/10 dark:hover:text-violet-300 transition-colors text-left group"
-                >
-                  <ChevronRight size={13} className="text-gray-300 group-hover:text-violet-400 dark:text-gray-600 dark:group-hover:text-violet-400 flex-shrink-0" />
-                  {s}
-                </button>
+                <ExampleRow key={s} onClick={() => handleSuggestion(s)}>{s}</ExampleRow>
               ))}
             </div>
           </div>
@@ -305,75 +295,54 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
         {/* Loading state */}
         {isLoading && (
-          <div className="px-5 pb-6 flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
-            <Loader2 size={16} className="animate-spin text-violet-600" />
+          <div className="px-6 pb-6 flex items-center gap-3 text-sm text-fg-muted">
+            <Loader2 size={16} className="animate-spin text-accent" />
             Parsing your command with AI...
           </div>
         )}
 
         {/* Error state */}
         {isError && (
-          <div className="mx-5 mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 dark:bg-red-500/10 dark:border-red-800/50 dark:text-red-300">
-            Something went wrong. Please try again.
+          <div className="mx-6 mb-5">
+            <Alert tone="danger">Something went wrong. Please try again.</Alert>
           </div>
         )}
 
         {/* Legacy result: create/update one of the 5 entity types */}
         {mode === "legacy" && result && (
-          <div className="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
+          <div className="px-6 pb-5 space-y-4 border-t border-line-subtle pt-4">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 border border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-800/50">
-                {result.intent}
-              </span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-500/10 dark:text-blue-300 dark:border-blue-800/50">
-                {ENTITY_LABELS[result.entity] ?? result.entity}
-              </span>
-              <span className={"inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border " + confidenceColor(confidencePct)}>
-                {confidencePct}% confidence
-              </span>
+              <Badge variant="accent">{result.intent}</Badge>
+              <Badge variant="blue">{ENTITY_LABELS[result.entity] ?? result.entity}</Badge>
+              <Badge variant={confidenceVariant(confidencePct)}>{confidencePct}% confidence</Badge>
             </div>
 
             {lowConfidence ? (
-              <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 dark:bg-red-500/10 dark:border-red-800/50 dark:text-red-300">
-                I couldn&apos;t understand that command. Try rephrasing.
-              </div>
+              <Alert tone="danger">I couldn&apos;t understand that command. Try rephrasing.</Alert>
             ) : (
               <>
                 {result.explanation && (
-                  <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{result.explanation}</p>
+                  <p className="text-sm text-fg-muted leading-relaxed">{result.explanation}</p>
                 )}
 
                 {Object.keys(result.fields).length > 0 && (
                   <div>
-                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Parsed fields</p>
+                    <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Parsed fields</p>
                     <div className="flex flex-wrap gap-2">
                       {Object.entries(result.fields).map(([k, v]) => (
-                        <span
-                          key={k}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                        >
-                          <span className="font-semibold text-gray-500 dark:text-gray-400">{k}:</span>
-                          <span>{String(v)}</span>
-                        </span>
+                        <ParamChip key={k} name={k} value={v} />
                       ))}
                     </div>
                   </div>
                 )}
 
                 <div className="flex items-center gap-2 pt-1">
-                  <button
-                    onClick={() => navigateToEntity(false)}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl transition-colors"
-                  >
+                  <Button onClick={() => navigateToEntity(false)} iconRight={<ArrowRight size={14} />}>
                     Go Create {ENTITY_LABELS[result.entity] ?? result.entity}
-                    <ArrowRight size={14} />
-                  </button>
-                  <button
-                    onClick={() => navigateToEntity(true)}
-                    className="flex items-center gap-1.5 px-4 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 dark:border-gray-700 dark:hover:bg-gray-800 dark:text-gray-300 text-sm font-semibold rounded-xl transition-colors"
-                  >
+                  </Button>
+                  <Button variant="secondary" onClick={() => navigateToEntity(true)}>
                     Edit before creating
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
@@ -382,71 +351,57 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
         {/* Registry action: propose -> confirm -> execute */}
         {mode === "action" && plan && (
-          <div className="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
+          <div className="px-6 pb-5 space-y-4 border-t border-line-subtle pt-4">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300 dark:border-indigo-800/50">
-                <Zap size={11} /> {plan.label ?? plan.action}
-              </span>
-              <span className={"inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border " + confidenceColor(planConfidencePct)}>
-                {planConfidencePct}% confidence
-              </span>
+              <Badge variant="indigo"><Zap size={11} /> {plan.label ?? plan.action}</Badge>
+              <Badge variant={confidenceVariant(planConfidencePct)}>{planConfidencePct}% confidence</Badge>
             </div>
 
-            <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{plan.explanation}</p>
+            <p className="text-sm text-fg-muted leading-relaxed">{plan.explanation}</p>
 
             {Object.keys(plan.params).length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">This will run with</p>
+                <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">This will run with</p>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(plan.params).map(([k, v]) => (
-                    <span key={k} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                      <span className="font-semibold text-gray-500 dark:text-gray-400">{k}:</span>
-                      <span>{String(v)}</span>
-                    </span>
+                    <ParamChip key={k} name={k} value={v} />
                   ))}
                 </div>
               </div>
             )}
 
             {!plan.allowed ? (
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-700 dark:bg-amber-500/10 dark:border-amber-800/50 dark:text-amber-300">
-                <ShieldAlert size={15} className="flex-shrink-0" />
+              <Alert tone="warning" icon={<ShieldAlert size={15} />}>
                 Your role isn&apos;t permitted to run this action.
-              </div>
+              </Alert>
             ) : execAction.isSuccess ? (
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-800/50 dark:text-emerald-300">
-                <CheckCircle2 size={15} className="flex-shrink-0" />
+              <Alert tone="success">
                 {execAction.data?.summary || "Done."}
-              </div>
+              </Alert>
             ) : (
               <>
                 {execAction.isError && (
-                  <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 dark:bg-red-500/10 dark:border-red-800/50 dark:text-red-300">
+                  <Alert tone="danger">
                     {(execAction.error as any)?.response?.data?.error || "Couldn't run that action."}
-                  </div>
+                  </Alert>
                 )}
                 <div className="flex items-center gap-2 pt-1">
-                  <button
+                  <Button
                     onClick={handleConfirmAction}
-                    disabled={execAction.isPending}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white text-sm font-semibold rounded-xl transition-colors"
+                    loading={execAction.isPending}
+                    icon={<CheckCircle2 size={14} />}
                   >
-                    {execAction.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                     Confirm &amp; Run
-                  </button>
-                  <button
-                    onClick={handleCancelAction}
-                    disabled={execAction.isPending}
-                    className="flex items-center gap-1.5 px-4 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 dark:border-gray-700 dark:hover:bg-gray-800 dark:text-gray-300 text-sm font-semibold rounded-xl transition-colors"
-                  >
+                  </Button>
+                  <Button variant="secondary" onClick={handleCancelAction} disabled={execAction.isPending}>
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

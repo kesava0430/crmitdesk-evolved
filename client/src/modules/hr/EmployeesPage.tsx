@@ -11,7 +11,10 @@ import {
   type Employee,
   type OrgChartNode,
 } from '../../api/people';
-import { PageHeader, Button, Modal, Badge, Spinner, EmptyState, SearchInput } from '../../shared/components';
+import {
+  PageHeader, PageBody, Toolbar, Card, StatTile, Tabs, Button, IconButton, Modal, Badge, Spinner,
+  EmptyState, SearchInput, Avatar, Field, Input, Select, Textarea, FormGrid, FormError,
+} from '../../shared/components';
 import { Users, Plus, Network, LogOut, Building2, Mail, Phone, Shield } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 
@@ -34,13 +37,6 @@ const STATUS_VARIANT: Record<string, any> = {
   EXITED: 'gray',
 };
 
-const field =
-  'w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white';
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">{children}</label>;
-}
-
 // ─── Detail ───────────────────────────────────────────────────────────────────
 
 function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => void }) {
@@ -61,8 +57,8 @@ function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => voi
         size="xl"
         footer={
           employee && employee.employmentStatus !== 'EXITED' ? (
-            <Button variant="secondary" onClick={() => setExitOpen(true)}>
-              <LogOut size={13} /> Record exit
+            <Button variant="secondary" icon={<LogOut size={13} />} onClick={() => setExitOpen(true)}>
+              Record exit
             </Button>
           ) : undefined
         }
@@ -92,8 +88,8 @@ function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => voi
                 ['Last working day', employee.lastWorkingDate ? fmt.date(employee.lastWorkingDate) : null],
               ].map(([label, value]) => (
                 <div key={label as string}>
-                  <p className="text-gray-400 dark:text-gray-500">{label}</p>
-                  <p className="text-gray-900 dark:text-white truncate">{(value as string) || '—'}</p>
+                  <p className="text-fg-subtle">{label}</p>
+                  <p className="text-fg truncate">{(value as string) || '—'}</p>
                 </div>
               ))}
             </div>
@@ -102,10 +98,10 @@ function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => voi
                 them; masked values mean it masked them. Both are correct to
                 render as-is. */}
             {(employee.bankAccountNumber || employee.taxId || employee.nationalId) && (
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+              <Card tone="sunken" padding="sm" flat>
                 <div className="flex items-center gap-1.5 mb-2">
-                  <Shield size={12} className="text-gray-400" />
-                  <p className="text-[12px] font-semibold text-gray-500 dark:text-gray-400">Sensitive details</p>
+                  <Shield size={12} className="text-fg-subtle" />
+                  <p className="text-[12px] font-semibold text-fg-muted">Sensitive details</p>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[12.5px]">
                   {[
@@ -115,20 +111,20 @@ function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => voi
                     ['National ID', employee.nationalId],
                   ].map(([label, value]) => (
                     <div key={label as string}>
-                      <p className="text-gray-400 dark:text-gray-500">{label}</p>
-                      <p className="text-gray-900 dark:text-white font-mono truncate">{(value as string) || '—'}</p>
+                      <p className="text-fg-subtle">{label}</p>
+                      <p className="text-fg font-mono truncate">{(value as string) || '—'}</p>
                     </div>
                   ))}
                 </div>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+                <p className="text-[11px] text-fg-subtle mt-2">
                   Values shown as •••• are masked by your role's field permissions.
                 </p>
-              </div>
+              </Card>
             )}
 
             {!!employee.reports?.length && (
               <div>
-                <p className="text-[12px] font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-[12px] font-semibold text-fg-muted mb-2">
                   Direct reports ({employee.reports.length})
                 </p>
                 <div className="flex flex-wrap gap-1.5">
@@ -143,7 +139,7 @@ function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => voi
 
             {!!employee.skills?.length && (
               <div>
-                <p className="text-[12px] font-semibold text-gray-500 dark:text-gray-400 mb-2">Skills</p>
+                <p className="text-[12px] font-semibold text-fg-muted mb-2">Skills</p>
                 <div className="flex flex-wrap gap-1.5">
                   {employee.skills.map(s => (
                     <Badge key={s.id} variant="teal">
@@ -156,13 +152,13 @@ function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => voi
 
             {!!employee.certifications?.length && (
               <div>
-                <p className="text-[12px] font-semibold text-gray-500 dark:text-gray-400 mb-2">Certifications</p>
+                <p className="text-[12px] font-semibold text-fg-muted mb-2">Certifications</p>
                 <div className="space-y-1">
                   {employee.certifications.map(c => (
                     <div key={c.id} className="flex items-center gap-2 text-[12.5px]">
-                      <span className="text-gray-900 dark:text-white">{c.name}</span>
+                      <span className="text-fg">{c.name}</span>
                       {c.expiresOn && (
-                        <span className="text-[11px] text-gray-400">expires {fmt.date(c.expiresOn)}</span>
+                        <span className="text-[11px] text-fg-subtle">expires {fmt.date(c.expiresOn)}</span>
                       )}
                     </div>
                   ))}
@@ -216,39 +212,34 @@ function ExitModal({ employee, open, onClose }: { employee: Employee | null; ope
       }
     >
       <div className="space-y-3">
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400">
+        <p className="text-[12.5px] text-fg-muted">
           This records the exit and sets the employment status. It does not revoke access, recover assets or reassign
           their open records — run the offboarding checklist for that.
         </p>
-        <div>
-          <Label>Last working day</Label>
-          <input
+        <Field label="Last working day">
+          <Input
             type="date"
-            className={field}
             value={form.lastWorkingDate}
             onChange={e => setForm({ ...form, lastWorkingDate: e.target.value })}
           />
-        </div>
-        <div>
-          <Label>Exit type</Label>
-          <select className={field} value={form.exitType} onChange={e => setForm({ ...form, exitType: e.target.value })}>
+        </Field>
+        <Field label="Exit type">
+          <Select value={form.exitType} onChange={e => setForm({ ...form, exitType: e.target.value })}>
             {['RESIGNATION', 'TERMINATION', 'RETIREMENT', 'END_OF_CONTRACT', 'ABSCONDED'].map(t => (
               <option key={t} value={t}>
                 {t.replace(/_/g, ' ')}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <Label>Reason (optional)</Label>
-          <textarea
-            className={field}
+          </Select>
+        </Field>
+        <Field label="Reason (optional)">
+          <Textarea
             rows={2}
             value={form.exitReason}
             onChange={e => setForm({ ...form, exitReason: e.target.value })}
           />
-        </div>
-        {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+        </Field>
+        <FormError>{error}</FormError>
       </div>
     </Modal>
   );
@@ -325,93 +316,70 @@ function NewEmployeeModal({ open, onClose }: { open: boolean; onClose: () => voi
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>First name</Label>
-          <input className={field} value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
-        </div>
-        <div>
-          <Label>Last name</Label>
-          <input className={field} value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} />
-        </div>
-        <div>
-          <Label>Work email</Label>
-          <input className={field} value={form.workEmail} onChange={e => setForm({ ...form, workEmail: e.target.value })} />
-        </div>
-        <div>
-          <Label>Phone</Label>
-          <input className={field} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
-        </div>
-        <div>
-          <Label>Designation</Label>
-          <input
-            className={field}
-            value={form.designation}
-            onChange={e => setForm({ ...form, designation: e.target.value })}
-          />
-        </div>
-        <div>
-          <Label>Joining date</Label>
-          <input
+      <FormGrid cols={2}>
+        <Field label="First name">
+          <Input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
+        </Field>
+        <Field label="Last name">
+          <Input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} />
+        </Field>
+        <Field label="Work email">
+          <Input value={form.workEmail} onChange={e => setForm({ ...form, workEmail: e.target.value })} />
+        </Field>
+        <Field label="Phone">
+          <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+        </Field>
+        <Field label="Designation">
+          <Input value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} />
+        </Field>
+        <Field label="Joining date">
+          <Input
             type="date"
-            className={field}
             value={form.joiningDate}
             onChange={e => setForm({ ...form, joiningDate: e.target.value })}
           />
-        </div>
-        <div>
-          <Label>Department</Label>
-          <select
-            className={field}
-            value={form.departmentId}
-            onChange={e => setForm({ ...form, departmentId: e.target.value })}
-          >
+        </Field>
+        <Field label="Department">
+          <Select value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })}>
             <option value="">—</option>
             {(departments?.data ?? []).map(d => (
               <option key={d.id} value={d.id}>
                 {d.name}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <Label>Location</Label>
-          <select className={field} value={form.locationId} onChange={e => setForm({ ...form, locationId: e.target.value })}>
+          </Select>
+        </Field>
+        <Field label="Location">
+          <Select value={form.locationId} onChange={e => setForm({ ...form, locationId: e.target.value })}>
             <option value="">—</option>
             {(locations?.data ?? []).map(l => (
               <option key={l.id} value={l.id}>
                 {l.name}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <Label>Reports to</Label>
-          <select className={field} value={form.managerId} onChange={e => setForm({ ...form, managerId: e.target.value })}>
+          </Select>
+        </Field>
+        <Field label="Reports to">
+          <Select value={form.managerId} onChange={e => setForm({ ...form, managerId: e.target.value })}>
             <option value="">—</option>
             {(employees?.data ?? []).map(e2 => (
               <option key={e2.id} value={e2.id}>
                 {e2.displayName}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <Label>Employment type</Label>
-          <select
-            className={field}
-            value={form.employmentType}
-            onChange={e => setForm({ ...form, employmentType: e.target.value })}
-          >
+          </Select>
+        </Field>
+        <Field label="Employment type">
+          <Select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })}>
             {['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'CONSULTANT', 'TEMPORARY'].map(t => (
               <option key={t} value={t}>
                 {t.replace(/_/g, ' ')}
               </option>
             ))}
-          </select>
-        </div>
-        {error && <p className="col-span-2 text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
-      </div>
+          </Select>
+        </Field>
+        {error && <FormError className="sm:col-span-2">{error}</FormError>}
+      </FormGrid>
     </Modal>
   );
 }
@@ -421,21 +389,21 @@ function NewEmployeeModal({ open, onClose }: { open: boolean; onClose: () => voi
 function ChartNode({ node, depth = 0 }: { node: OrgChartNode; depth?: number }) {
   const [open, setOpen] = useState(depth < 2);
   return (
-    <div className={depth > 0 ? 'ml-5 border-l border-gray-200 dark:border-gray-700 pl-4' : ''}>
+    <div className={depth > 0 ? 'ml-5 border-l border-line pl-4' : ''}>
       <div className="flex items-center gap-2 py-1.5">
         {node.reports.length > 0 ? (
-          <button
+          <IconButton
+            size="xs"
+            label={open ? 'Collapse reports' : 'Expand reports'}
+            icon={<span className="text-[10px]">{open ? '▾' : '▸'}</span>}
             onClick={() => setOpen(v => !v)}
-            className="w-4 h-4 text-[10px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-          >
-            {open ? '▾' : '▸'}
-          </button>
+          />
         ) : (
           <span className="w-4" />
         )}
         <div className="min-w-0">
-          <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{node.displayName}</p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+          <p className="text-[13px] font-medium text-fg truncate">{node.displayName}</p>
+          <p className="text-[11px] text-fg-subtle truncate">
             {node.designation || node.employeeCode}
             {node.department ? ` · ${node.department.name}` : ''}
             {node.reports.length ? ` · ${node.reports.length} report${node.reports.length > 1 ? 's' : ''}` : ''}
@@ -460,14 +428,14 @@ function OrgChartPanel() {
     );
   }
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-      <p className="text-[12px] text-gray-400 dark:text-gray-500 mb-3">
+    <Card padding="sm">
+      <p className="text-[12px] text-fg-subtle mb-3">
         {data.total} people · employees with no manager set appear as roots
       </p>
       {data.data.map(n => (
         <ChartNode key={n.id} node={n} />
       ))}
-    </div>
+    </Card>
   );
 }
 
@@ -496,129 +464,130 @@ export default function EmployeesPage() {
         title="Employees"
         subtitle="The people who work here — separate from logins, so staff without system access are still tracked."
         actions={
-          <Button size="sm" onClick={() => setNewOpen(true)}>
-            <Plus size={14} /> Add employee
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => setNewOpen(true)}>
+            Add employee
           </Button>
         }
       />
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
-        {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: 'Total', value: stats.total },
-              { label: 'Joined (30d)', value: stats.recentJoiners },
-              { label: 'On notice', value: stats.exiting },
-              { label: 'Departments', value: stats.byDepartment.length },
-            ].map(s => (
-              <div
-                key={s.label}
-                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3.5"
-              >
-                <p className="text-xs text-gray-500 dark:text-gray-400">{s.label}</p>
-                <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">{s.value}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            {(['list', 'chart'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`px-3 py-1.5 text-[12.5px] font-medium ${
-                  tab === t
-                    ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                    : 'text-gray-600 dark:text-gray-300'
-                }`}
-              >
-                {t === 'list' ? 'Directory' : 'Org chart'}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'list' && (
-            <>
-              <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, email…" />
-              <select className={`${field} w-auto`} value={departmentId} onChange={e => setDepartmentId(e.target.value)}>
-                <option value="">All departments</option>
-                {(departments?.data ?? []).map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-              <select className={`${field} w-auto`} value={status} onChange={e => setStatus(e.target.value)}>
-                <option value="">All statuses</option>
-                {['ACTIVE', 'PROBATION', 'ON_LEAVE', 'NOTICE_PERIOD', 'EXITED'].map(s => (
-                  <option key={s} value={s}>
-                    {s.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
-            </>
+      <div className="flex-1 overflow-auto">
+        <PageBody width="full">
+          {stats && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total', value: stats.total },
+                { label: 'Joined (30d)', value: stats.recentJoiners },
+                { label: 'On notice', value: stats.exiting },
+                { label: 'Departments', value: stats.byDepartment.length },
+              ].map(s => (
+                <StatTile key={s.label} label={s.label} value={s.value} />
+              ))}
+            </div>
           )}
-        </div>
 
-        {tab === 'chart' ? (
-          <OrgChartPanel />
-        ) : isLoading ? (
-          <Spinner />
-        ) : !data?.data.length ? (
-          <EmptyState
-            icon={<Users />}
-            title="No employees yet"
-            description="Add your first employee, or run the backfill script to create records from your existing users."
-            action={{ label: 'Add employee', onClick: () => setNewOpen(true) }}
-          />
-        ) : (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-            {data.data.map(e => (
-              <button
-                key={e.id}
-                onClick={() => setDetailId(e.id)}
-                className="w-full flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50/70 dark:hover:bg-gray-800/40 text-left transition-colors"
-              >
-                <div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-[12px] font-semibold shrink-0">
-                  {e.displayName.slice(0, 2).toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-medium text-gray-900 dark:text-white truncate">{e.displayName}</p>
-                  <div className="flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500 flex-wrap">
-                    <span>{e.employeeCode}</span>
-                    {e.designation && <span>· {e.designation}</span>}
-                    {e.department && (
-                      <span className="inline-flex items-center gap-1">
-                        · <Building2 size={10} /> {e.department.name}
-                      </span>
-                    )}
-                    {e.workEmail && (
-                      <span className="inline-flex items-center gap-1">
-                        · <Mail size={10} /> {e.workEmail}
-                      </span>
-                    )}
-                    {e.phone && (
-                      <span className="inline-flex items-center gap-1">
-                        · <Phone size={10} /> {e.phone}
-                      </span>
-                    )}
+          <Toolbar>
+            <Tabs<'list' | 'chart'>
+              aria-label="Employee views"
+              variant="segmented"
+              value={tab}
+              onChange={setTab}
+              items={[
+                { key: 'list', label: 'Directory' },
+                { key: 'chart', label: 'Org chart' },
+              ]}
+            />
+
+            {tab === 'list' && (
+              <>
+                <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, email…" />
+                <Select
+                  selectSize="sm"
+                  aria-label="Filter by department"
+                  className="w-auto"
+                  value={departmentId}
+                  onChange={e => setDepartmentId(e.target.value)}
+                >
+                  <option value="">All departments</option>
+                  {(departments?.data ?? []).map(d => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  selectSize="sm"
+                  aria-label="Filter by status"
+                  className="w-auto"
+                  value={status}
+                  onChange={e => setStatus(e.target.value)}
+                >
+                  <option value="">All statuses</option>
+                  {['ACTIVE', 'PROBATION', 'ON_LEAVE', 'NOTICE_PERIOD', 'EXITED'].map(s => (
+                    <option key={s} value={s}>
+                      {s.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </Select>
+              </>
+            )}
+          </Toolbar>
+
+          {tab === 'chart' ? (
+            <OrgChartPanel />
+          ) : isLoading ? (
+            <Spinner />
+          ) : !data?.data.length ? (
+            <EmptyState
+              icon={<Users />}
+              title="No employees yet"
+              description="Add your first employee, or run the backfill script to create records from your existing users."
+              action={{ label: 'Add employee', onClick: () => setNewOpen(true) }}
+            />
+          ) : (
+            <Card padding="none" className="overflow-hidden">
+              {data.data.map(e => (
+                <button
+                  key={e.id}
+                  onClick={() => setDetailId(e.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3 border-b border-line-subtle last:border-0 hover:bg-surface-hover text-left transition-colors"
+                >
+                  <Avatar name={e.displayName} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-medium text-fg truncate">{e.displayName}</p>
+                    <div className="flex items-center gap-2 text-[11px] text-fg-subtle flex-wrap">
+                      <span>{e.employeeCode}</span>
+                      {e.designation && <span>· {e.designation}</span>}
+                      {e.department && (
+                        <span className="inline-flex items-center gap-1">
+                          · <Building2 size={10} /> {e.department.name}
+                        </span>
+                      )}
+                      {e.workEmail && (
+                        <span className="inline-flex items-center gap-1">
+                          · <Mail size={10} /> {e.workEmail}
+                        </span>
+                      )}
+                      {e.phone && (
+                        <span className="inline-flex items-center gap-1">
+                          · <Phone size={10} /> {e.phone}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {!e.user && <Badge variant="orange">No login</Badge>}
-                  <Badge variant={STATUS_VARIANT[e.employmentStatus]}>
-                    {e.employmentStatus.replace(/_/g, ' ')}
-                  </Badge>
-                  <span className="text-[11px] text-gray-400 dark:text-gray-500 hidden sm:block">
-                    {fmt.date(e.joiningDate)}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!e.user && <Badge variant="orange">No login</Badge>}
+                    <Badge variant={STATUS_VARIANT[e.employmentStatus]}>
+                      {e.employmentStatus.replace(/_/g, ' ')}
+                    </Badge>
+                    <span className="text-[11px] text-fg-subtle hidden sm:block">
+                      {fmt.date(e.joiningDate)}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </Card>
+          )}
+        </PageBody>
       </div>
 
       <NewEmployeeModal open={newOpen} onClose={() => setNewOpen(false)} />

@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
-import { PageHeader, Spinner, Badge } from '../../shared/components';
-import { LogIn, LogOut, MapPin, AlertCircle, Users, Clock } from 'lucide-react';
+import {
+  PageHeader, PageBody, Card, CardHeader, Tabs, Button, Spinner, Badge, Alert, Avatar,
+  DataTable, EmptyState,
+} from '../../shared/components';
+import { LogIn, LogOut, MapPin, Users, Clock } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
@@ -54,6 +57,20 @@ function getPosition(): Promise<GeolocationPosition> {
   });
 }
 
+/** One check-in → check-out window, e.g. "09:02 – 13:30". */
+function SessionChip({ session, compact = false }: { session: AttendanceRecord; compact?: boolean }) {
+  const { time: fmtTime } = useFormat();
+  return (
+    <span
+      className={`text-xs bg-surface-sunken border border-line-subtle rounded-badge text-fg-muted whitespace-nowrap ${
+        compact ? 'px-1.5 py-0.5' : 'px-2 py-1'
+      }`}
+    >
+      {fmtTime(session.checkInAt)}{compact ? '–' : ' – '}{session.checkOutAt ? fmtTime(session.checkOutAt) : 'now'}
+    </span>
+  );
+}
+
 function CheckInWidget() {
   const { time: fmtTime, timezone } = useFormat();
   const qc = useQueryClient();
@@ -88,67 +105,66 @@ function CheckInWidget() {
   }
 
   return (
-    <div className="card p-6 text-center">
-      <p className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{fmtTime(now)}</p>
-      <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+    <Card padding="lg" className="text-center">
+      <p className="text-3xl font-bold text-fg tabular-nums">{fmtTime(now)}</p>
+      <p className="text-sm text-fg-subtle mt-1">
         {new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric' }).format(now)}
       </p>
 
       <div className="flex items-center justify-center gap-6 mt-5 text-sm">
         <div>
-          <p className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide">Status</p>
-          <p className={`font-semibold mt-0.5 ${isCheckedInNow ? 'text-green-600 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'}`}>
+          <p className="text-fg-subtle text-xs uppercase tracking-wide">Status</p>
+          <p className={`font-semibold mt-0.5 ${isCheckedInNow ? 'text-success' : 'text-fg'}`}>
             {isCheckedInNow ? 'Checked in' : 'Checked out'}
           </p>
         </div>
-        <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
+        <div className="w-px h-8 bg-line" />
         <div>
-          <p className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide">Today's total</p>
-          <p className="font-semibold text-gray-800 dark:text-gray-200 mt-0.5">{fmtHours(totalMinutesToday)}</p>
+          <p className="text-fg-subtle text-xs uppercase tracking-wide">Today's total</p>
+          <p className="font-semibold text-fg mt-0.5">{fmtHours(totalMinutesToday)}</p>
         </div>
-        <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
+        <div className="w-px h-8 bg-line" />
         <div>
-          <p className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide">Sessions</p>
-          <p className="font-semibold text-gray-800 dark:text-gray-200 mt-0.5">{todaysSessions.length}</p>
+          <p className="text-fg-subtle text-xs uppercase tracking-wide">Sessions</p>
+          <p className="font-semibold text-fg mt-0.5">{todaysSessions.length}</p>
         </div>
       </div>
 
       {todaysSessions.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
           {[...todaysSessions].reverse().map(s => (
-            <span key={s.id} className="text-xs px-2 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-300">
-              {fmtTime(s.checkInAt)} – {s.checkOutAt ? fmtTime(s.checkOutAt) : 'now'}
-            </span>
+            <SessionChip key={s.id} session={s} />
           ))}
         </div>
       )}
 
-      {error && (
-        <div className="mt-4 flex items-start gap-2 text-left bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 text-red-700 dark:text-red-400 text-xs px-3 py-2.5 rounded-xl">
-          <AlertCircle size={14} className="shrink-0 mt-0.5" /> {error}
-        </div>
-      )}
+      {error && <Alert tone="danger" className="mt-4 text-left">{error}</Alert>}
 
       <div className="flex gap-3 mt-5 justify-center flex-wrap">
-        <button
+        <Button
+          size="lg"
+          icon={<LogIn size={15} />}
+          loading={busy === 'in'}
           onClick={() => handle('in')}
           disabled={isCheckedInNow || busy !== null}
-          className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
         >
-          {busy === 'in' ? <Spinner /> : <LogIn size={15} />} Check In
-        </button>
-        <button
+          Check In
+        </Button>
+        <Button
+          size="lg"
+          variant="secondary"
+          icon={<LogOut size={15} />}
+          loading={busy === 'out'}
           onClick={() => handle('out')}
           disabled={!isCheckedInNow || busy !== null}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
         >
-          {busy === 'out' ? <Spinner /> : <LogOut size={15} />} Check Out
-        </button>
+          Check Out
+        </Button>
       </div>
-      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-4 flex items-center justify-center gap-1.5">
+      <p className="text-[11px] text-fg-subtle mt-4 flex items-center justify-center gap-1.5">
         <MapPin size={11} /> Requires location access and being on-site · check in/out as many times as you need in a day
       </p>
-    </div>
+    </Card>
   );
 }
 
@@ -166,7 +182,7 @@ function groupByDate(records: AttendanceRecord[]): DayGroup[] {
 }
 
 function MyHistory() {
-  const { time: fmtTime, date } = useFormat();
+  const { date } = useFormat();
   const { data, isLoading } = useQuery<AttendanceRecord[]>({
     queryKey: ['attendance-me'],
     queryFn: () => api.get('/hr/attendance/me').then(r => r.data),
@@ -176,48 +192,45 @@ function MyHistory() {
   const days = groupByDate(data || []);
 
   return (
-    <div className="card p-5">
-      <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">This month</p>
-      <div className="table-container">
-        <table className="w-full text-sm min-w-[560px]">
-          <thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
-            <th className="pb-2 font-medium">Date</th>
-            <th className="pb-2 font-medium">Sessions</th>
-            <th className="pb-2 font-medium">Total</th>
-            <th className="pb-2 font-medium">Verified</th>
-          </tr></thead>
-          <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-            {days.map(day => {
-              const allVerified = day.sessions.every(s => s.source === 'SELF' && s.checkInLocationOk && s.checkInNetworkOk);
-              const anyManual = day.sessions.some(s => s.source === 'MANUAL');
-              return (
-                <tr key={day.date}>
-                  <td className="py-2.5 align-top dark:text-gray-300">{date(day.date)}</td>
-                  <td className="py-2.5">
-                    <div className="flex flex-wrap gap-1">
-                      {[...day.sessions].reverse().map(s => (
-                        <span key={s.id} className="text-xs px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                          {fmtTime(s.checkInAt)}–{s.checkOutAt ? fmtTime(s.checkOutAt) : 'now'}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="py-2.5 align-top font-medium text-gray-700 dark:text-gray-300">{fmtHours(sumWorkedMinutes(day.sessions))}</td>
-                  <td className="py-2.5 align-top">
-                    {anyManual ? <Badge variant="gray">Manual entry</Badge>
-                      : allVerified ? <Badge variant="green">Verified</Badge>
-                      : <Badge variant="yellow">Partial</Badge>}
-                  </td>
-                </tr>
-              );
-            })}
-            {days.length === 0 && (
-              <tr><td colSpan={4} className="py-6 text-center text-gray-400 dark:text-gray-500">No records yet this month</td></tr>
-            )}
-          </tbody>
-        </table>
+    <Card padding="none">
+      <div className="p-card pb-0">
+        <CardHeader title="This month" />
       </div>
-    </div>
+      <DataTable<DayGroup>
+        minWidth={560}
+        rows={days}
+        rowKey={d => d.date}
+        empty={<EmptyState compact icon={<Clock />} title="No records yet this month" />}
+        columns={[
+          { key: 'date', header: 'Date', cell: d => date(d.date) },
+          {
+            key: 'sessions',
+            header: 'Sessions',
+            cell: d => (
+              <div className="flex flex-wrap gap-1">
+                {[...d.sessions].reverse().map(s => <SessionChip key={s.id} session={s} compact />)}
+              </div>
+            ),
+          },
+          {
+            key: 'total',
+            header: 'Total',
+            cell: d => <span className="font-medium text-fg">{fmtHours(sumWorkedMinutes(d.sessions))}</span>,
+          },
+          {
+            key: 'verified',
+            header: 'Verified',
+            cell: d => {
+              const allVerified = d.sessions.every(s => s.source === 'SELF' && s.checkInLocationOk && s.checkInNetworkOk);
+              const anyManual = d.sessions.some(s => s.source === 'MANUAL');
+              return anyManual ? <Badge variant="gray">Manual entry</Badge>
+                : allVerified ? <Badge variant="green">Verified</Badge>
+                : <Badge variant="yellow">Partial</Badge>;
+            },
+          },
+        ]}
+      />
+    </Card>
   );
 }
 
@@ -230,7 +243,6 @@ interface TodayRow {
 }
 
 function TeamToday() {
-  const { time: fmtTime } = useFormat();
   const { data, isLoading } = useQuery<TodayRow[]>({
     queryKey: ['attendance-today'],
     queryFn: () => api.get('/hr/attendance/today').then(r => r.data),
@@ -241,53 +253,58 @@ function TeamToday() {
   const present = rows.filter(r => r.sessions.length > 0).length;
 
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Users size={14} /> Team — Today</p>
-        <span className="text-xs text-gray-400 dark:text-gray-500">{present} / {rows.length} checked in at some point</span>
+    <Card padding="none">
+      <div className="p-card pb-0">
+        <CardHeader
+          title="Team — Today"
+          icon={<Users size={14} />}
+          actions={<span className="text-xs text-fg-subtle">{present} / {rows.length} checked in at some point</span>}
+        />
       </div>
-      <div className="table-container">
-        <table className="w-full text-sm min-w-[560px]">
-          <thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
-            <th className="pb-2 font-medium">Employee</th>
-            <th className="pb-2 font-medium">Sessions</th>
-            <th className="pb-2 font-medium">Total today</th>
-            <th className="pb-2 font-medium">Status</th>
-          </tr></thead>
-          <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-            {rows.map(({ user, sessions, isCheckedInNow, totalMinutes }) => (
-              <tr key={user.id}>
-                <td className="py-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center justify-center text-xs font-bold shrink-0">
-                      {user.name[0]?.toUpperCase()}
-                    </div>
-                    <span className="text-gray-800 dark:text-gray-200">{user.name}</span>
-                  </div>
-                </td>
-                <td className="py-2.5">
-                  {sessions.length === 0 ? <span className="text-gray-300 dark:text-gray-600">—</span> : (
-                    <div className="flex flex-wrap gap-1">
-                      {sessions.map(s => (
-                        <span key={s.id} className="text-xs px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                          {fmtTime(s.checkInAt)}–{s.checkOutAt ? fmtTime(s.checkOutAt) : 'now'}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </td>
-                <td className="py-2.5 text-gray-600 dark:text-gray-400 flex items-center gap-1"><Clock size={12} className="text-gray-300 dark:text-gray-600" /> {fmtHours(totalMinutes)}</td>
-                <td className="py-2.5">
-                  {sessions.length === 0 ? <Badge variant="red">Absent</Badge>
-                    : isCheckedInNow ? <Badge variant="green">On-site now</Badge>
-                    : <Badge variant="yellow">Checked out</Badge>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+      <DataTable<TodayRow>
+        minWidth={560}
+        rows={rows}
+        rowKey={r => r.user.id}
+        columns={[
+          {
+            key: 'employee',
+            header: 'Employee',
+            cell: r => (
+              <div className="flex items-center gap-2">
+                <Avatar name={r.user.name} src={r.user.avatarUrl} size="sm" />
+                <span className="text-fg">{r.user.name}</span>
+              </div>
+            ),
+          },
+          {
+            key: 'sessions',
+            header: 'Sessions',
+            cell: r => r.sessions.length === 0 ? <span className="text-fg-subtle">—</span> : (
+              <div className="flex flex-wrap gap-1">
+                {r.sessions.map(s => <SessionChip key={s.id} session={s} compact />)}
+              </div>
+            ),
+          },
+          {
+            key: 'total',
+            header: 'Total today',
+            muted: true,
+            cell: r => (
+              <span className="inline-flex items-center gap-1">
+                <Clock size={12} className="text-fg-subtle" /> {fmtHours(r.totalMinutes)}
+              </span>
+            ),
+          },
+          {
+            key: 'status',
+            header: 'Status',
+            cell: r => r.sessions.length === 0 ? <Badge variant="red">Absent</Badge>
+              : r.isCheckedInNow ? <Badge variant="green">On-site now</Badge>
+              : <Badge variant="yellow">Checked out</Badge>,
+          },
+        ]}
+      />
+    </Card>
   );
 }
 
@@ -297,28 +314,34 @@ export default function AttendancePage() {
   const [tab, setTab] = useState<'me' | 'team'>('me');
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-4xl mx-auto">
-      <PageHeader title="Attendance" subtitle="Mark and track daily attendance" />
+    <div>
+      <PageHeader
+        title="Attendance"
+        subtitle="Mark and track daily attendance"
+        below={isManager ? (
+          <Tabs<'me' | 'team'>
+            aria-label="Attendance views"
+            variant="segmented"
+            value={tab}
+            onChange={setTab}
+            items={[
+              { key: 'me', label: 'My Attendance' },
+              { key: 'team', label: 'Team' },
+            ]}
+          />
+        ) : undefined}
+      />
 
-      {isManager && (
-        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
-          {(['me', 'team'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-1.5 text-[13px] font-semibold rounded-lg transition-all ${tab === t ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}>
-              {t === 'me' ? 'My Attendance' : 'Team'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {tab === 'me' ? (
-        <div className="space-y-5">
-          <CheckInWidget />
-          <MyHistory />
-        </div>
-      ) : (
-        <TeamToday />
-      )}
+      <PageBody width="full" className="max-w-4xl mx-auto">
+        {tab === 'me' ? (
+          <div className="space-y-5">
+            <CheckInWidget />
+            <MyHistory />
+          </div>
+        ) : (
+          <TeamToday />
+        )}
+      </PageBody>
     </div>
   );
 }

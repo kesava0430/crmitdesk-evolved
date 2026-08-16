@@ -8,8 +8,11 @@ import {
   useKnowledgeAsk,
   useAiFeedback,
 } from '../api/work';
-import { PageHeader, Button, Badge, Spinner, EmptyState } from '../shared/components';
-import { Brain, Database, RefreshCw, DollarSign, AlertTriangle, ThumbsUp, ThumbsDown, Search } from 'lucide-react';
+import {
+  Alert, Badge, Button, Card, Checkbox, EmptyState, FormError, Input, PageBody, PageHeader,
+  Select, Spinner, StatTile, Tabs, Toolbar,
+} from '../shared/components';
+import { Brain, Database, RefreshCw, DollarSign, ThumbsUp, ThumbsDown, Search } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
 
 /**
@@ -21,9 +24,6 @@ import { useFormat } from '../hooks/useFormat';
  * that action" — and no CFO renews spend they can't measure.
  */
 
-const field =
-  'w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white';
-
 const STATUS_VARIANT: Record<string, any> = {
   SUCCESS: 'green',
   ERROR: 'red',
@@ -32,13 +32,27 @@ const STATUS_VARIANT: Record<string, any> = {
   BUDGET_EXCEEDED: 'red',
 };
 
-function Stat({ label, value, sub, tone }: { label: string; value: string | number; sub?: string; tone?: string }) {
+/** A titled list panel — "By feature" and "By model" are the same shape. */
+function ListPanel({ title, rows, empty }: {
+  title: string;
+  rows: { key: string; label: string; calls: number; costUsd: number }[];
+  empty: string;
+}) {
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3.5">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`text-xl font-bold mt-0.5 ${tone ?? 'text-gray-900 dark:text-white'}`}>{value}</p>
-      {sub && <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</p>}
-    </div>
+    <Card padding="none" className="overflow-hidden">
+      <p className="px-4 py-2.5 text-[13px] font-semibold text-fg border-b border-line-subtle">{title}</p>
+      {rows.length ? (
+        rows.map(r => (
+          <div key={r.key} className="flex items-center gap-3 px-4 py-2 border-b border-line-subtle last:border-0">
+            <span className="text-[12.5px] font-mono text-fg flex-1 truncate">{r.label}</span>
+            <span className="text-[12px] text-fg-muted">{r.calls}</span>
+            <span className="text-[12px] text-fg-subtle w-16 text-right">${r.costUsd.toFixed(3)}</span>
+          </div>
+        ))
+      ) : (
+        <p className="px-4 py-6 text-[12.5px] text-fg-subtle text-center">{empty}</p>
+      )}
+    </Card>
   );
 }
 
@@ -57,120 +71,90 @@ function ObservabilityPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <select className={`${field} w-auto`} value={days} onChange={e => setDays(Number(e.target.value))}>
+      <Toolbar>
+        <Select
+          className="w-auto"
+          aria-label="Date range"
+          value={days}
+          onChange={e => setDays(Number(e.target.value))}
+        >
           {[7, 30, 90, 365].map(d => (
             <option key={d} value={d}>
               Last {d} days
             </option>
           ))}
-        </select>
-      </div>
+        </Select>
+      </Toolbar>
 
       {(overBudget || nearBudget) && (
-        <div
-          className={`flex items-start gap-2 rounded-xl p-3.5 border ${
-            overBudget
-              ? 'bg-red-50 dark:bg-red-950/40 border-red-100 dark:border-red-900'
-              : 'bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900'
-          }`}
-        >
-          <AlertTriangle size={15} className={overBudget ? 'text-red-500 mt-0.5' : 'text-amber-500 mt-0.5'} />
-          <p className={`text-[12.5px] ${overBudget ? 'text-red-900 dark:text-red-200' : 'text-amber-900 dark:text-amber-200'}`}>
-            {overBudget ? 'Monthly AI budget exhausted' : 'Approaching your monthly AI budget'} — $
-            {data.budget.spendUsd.toFixed(2)} of ${data.budget.limitUsd.toFixed(2)} ({data.budget.percentUsed}%).
-            {data.budget.hardStop
-              ? ' Hard stop is on, so further AI calls are being blocked.'
-              : ' Hard stop is off, so calls continue.'}
-          </p>
-        </div>
+        <Alert tone={overBudget ? 'danger' : 'warning'}>
+          {overBudget ? 'Monthly AI budget exhausted' : 'Approaching your monthly AI budget'} — $
+          {data.budget.spendUsd.toFixed(2)} of ${data.budget.limitUsd.toFixed(2)} ({data.budget.percentUsed}%).
+          {data.budget.hardStop
+            ? ' Hard stop is on, so further AI calls are being blocked.'
+            : ' Hard stop is off, so calls continue.'}
+        </Alert>
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Stat label="AI calls" value={data.totalCalls.toLocaleString()} />
-        <Stat
+        <StatTile label="AI calls" value={data.totalCalls.toLocaleString()} />
+        <StatTile
           label="Success rate"
-          value={`${data.successRate}%`}
-          sub={`${data.errorCount} error${data.errorCount === 1 ? '' : 's'}`}
-          tone={data.successRate >= 95 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}
+          value={
+            <span className={data.successRate >= 95 ? 'text-success' : 'text-warning'}>{data.successRate}%</span>
+          }
+          hint={`${data.errorCount} error${data.errorCount === 1 ? '' : 's'}`}
         />
-        <Stat label="Total cost" value={`$${data.totalCostUsd.toFixed(2)}`} sub={`${data.totalTokens.toLocaleString()} tokens`} />
-        <Stat label="Avg latency" value={`${data.avgLatencyMs} ms`} />
+        <StatTile label="Total cost" value={`$${data.totalCostUsd.toFixed(2)}`} hint={`${data.totalTokens.toLocaleString()} tokens`} />
+        <StatTile label="Avg latency" value={`${data.avgLatencyMs} ms`} />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Stat label="Actions executed" value={data.actionsExecuted} sub="AI wrote to a record" />
-        <Stat label="Rated helpful" value={data.feedbackUp} tone="text-emerald-600 dark:text-emerald-400" />
-        <Stat label="Rated unhelpful" value={data.feedbackDown} tone="text-red-600 dark:text-red-400" />
-        <Stat
+        <StatTile label="Actions executed" value={data.actionsExecuted} hint="AI wrote to a record" />
+        <StatTile label="Rated helpful" value={<span className="text-success">{data.feedbackUp}</span>} />
+        <StatTile label="Rated unhelpful" value={<span className="text-danger">{data.feedbackDown}</span>} />
+        <StatTile
           label="Budget used"
           value={data.budget.limitUsd > 0 ? `${data.budget.percentUsed}%` : 'No limit'}
-          sub={data.budget.limitUsd > 0 ? `of $${data.budget.limitUsd.toFixed(2)}` : 'Set one below'}
+          hint={data.budget.limitUsd > 0 ? `of $${data.budget.limitUsd.toFixed(2)}` : 'Set one below'}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-          <p className="px-4 py-2.5 text-[13px] font-semibold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800">
-            By feature
-          </p>
-          {data.byFeature.length ? (
-            data.byFeature.slice(0, 12).map(f => (
-              <div
-                key={f.feature}
-                className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 dark:border-gray-800 last:border-0"
-              >
-                <span className="text-[12.5px] font-mono text-gray-700 dark:text-gray-200 flex-1 truncate">{f.feature}</span>
-                <span className="text-[12px] text-gray-500">{f.calls}</span>
-                <span className="text-[12px] text-gray-400 w-16 text-right">${f.costUsd.toFixed(3)}</span>
-              </div>
-            ))
-          ) : (
-            <p className="px-4 py-6 text-[12.5px] text-gray-400 text-center">No AI calls in this period</p>
-          )}
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-          <p className="px-4 py-2.5 text-[13px] font-semibold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800">
-            By model
-          </p>
-          {data.byModel.length ? (
-            data.byModel.map(m => (
-              <div
-                key={m.model}
-                className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 dark:border-gray-800 last:border-0"
-              >
-                <span className="text-[12.5px] font-mono text-gray-700 dark:text-gray-200 flex-1 truncate">{m.model}</span>
-                <span className="text-[12px] text-gray-500">{m.calls}</span>
-                <span className="text-[12px] text-gray-400 w-16 text-right">${m.costUsd.toFixed(3)}</span>
-              </div>
-            ))
-          ) : (
-            <p className="px-4 py-6 text-[12.5px] text-gray-400 text-center">No models used yet</p>
-          )}
-        </div>
+        <ListPanel
+          title="By feature"
+          empty="No AI calls in this period"
+          rows={data.byFeature.slice(0, 12).map(f => ({ key: f.feature, label: f.feature, calls: f.calls, costUsd: f.costUsd }))}
+        />
+        <ListPanel
+          title="By model"
+          empty="No models used yet"
+          rows={data.byModel.map(m => ({ key: m.model, label: m.model, calls: m.calls, costUsd: m.costUsd }))}
+        />
       </div>
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <Card>
         <div className="flex items-center gap-1.5 mb-1">
-          <DollarSign size={14} className="text-gray-400" />
-          <p className="text-[13px] font-semibold text-gray-900 dark:text-white">Monthly budget</p>
+          <DollarSign size={14} className="text-fg-subtle" />
+          <p className="text-[13px] font-semibold text-fg">Monthly budget</p>
         </div>
-        <p className="text-[12px] text-gray-500 dark:text-gray-400 mb-3">
+        <p className="text-[12px] text-fg-muted mb-3">
           With hard stop off, hitting the limit only raises an alert — calls keep working. Turn it on to block AI once
           the limit is reached.
         </p>
         <div className="flex items-center gap-2 flex-wrap">
-          <input
-            className={`${field} w-40`}
+          <Input
+            className="w-40"
+            aria-label="Limit in USD"
             placeholder="Limit in USD"
             value={limit}
             onChange={e => setLimit(e.target.value)}
           />
-          <label className="flex items-center gap-1.5 text-[12.5px] text-gray-600 dark:text-gray-300">
-            <input type="checkbox" checked={hardStop} onChange={e => setHardStop(e.target.checked)} />
-            Hard stop at limit
-          </label>
+          <Checkbox
+            label="Hard stop at limit"
+            checked={hardStop}
+            onChange={e => setHardStop(e.target.checked)}
+          />
           <Button
             size="sm"
             disabled={!limit || Number.isNaN(Number(limit))}
@@ -180,7 +164,7 @@ function ObservabilityPanel() {
             Save budget
           </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
@@ -192,14 +176,16 @@ function LogsPanel() {
 
   return (
     <>
-      <select className={`${field} w-auto mb-3`} value={status} onChange={e => setStatus(e.target.value)}>
-        <option value="">All statuses</option>
-        {['SUCCESS', 'ERROR', 'CACHED', 'BUDGET_EXCEEDED'].map(s => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
+      <Toolbar className="mb-3">
+        <Select className="w-auto" aria-label="Status filter" value={status} onChange={e => setStatus(e.target.value)}>
+          <option value="">All statuses</option>
+          {['SUCCESS', 'ERROR', 'CACHED', 'BUDGET_EXCEEDED'].map(s => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+      </Toolbar>
 
       {isLoading ? (
         <Spinner />
@@ -210,35 +196,33 @@ function LogsPanel() {
           description="Every AI call will be recorded here with its tokens, cost, latency and what it was allowed to see."
         />
       ) : (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <Card padding="none" className="overflow-hidden">
           {data.data.map(l => (
-            <div key={l.id} className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
+            <div key={l.id} className="px-4 py-2.5 border-b border-line-subtle last:border-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant={STATUS_VARIANT[l.status] ?? 'gray'}>{l.status}</Badge>
-                <span className="text-[12.5px] font-mono text-gray-700 dark:text-gray-200">{l.feature}</span>
-                <span className="text-[11.5px] text-gray-400">{l.model}</span>
+                <span className="text-[12.5px] font-mono text-fg">{l.feature}</span>
+                <span className="text-[11.5px] text-fg-subtle">{l.model}</span>
                 {l.actionExecuted && <Badge variant="purple">action: {l.actionName}</Badge>}
-                {l.feedback === 'UP' && <ThumbsUp size={11} className="text-emerald-500" />}
-                {l.feedback === 'DOWN' && <ThumbsDown size={11} className="text-red-500" />}
-                <span className="ml-auto text-[11px] text-gray-400">{fmt.dateTime(l.createdAt)}</span>
+                {l.feedback === 'UP' && <ThumbsUp size={11} className="text-success" />}
+                {l.feedback === 'DOWN' && <ThumbsDown size={11} className="text-danger" />}
+                <span className="ml-auto text-[11px] text-fg-subtle">{fmt.dateTime(l.createdAt)}</span>
               </div>
-              <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-400 dark:text-gray-500 flex-wrap">
+              <div className="flex items-center gap-3 mt-1 text-[11px] text-fg-subtle flex-wrap">
                 <span>{l.totalTokens.toLocaleString()} tokens</span>
                 <span>${Number(l.costUsd).toFixed(5)}</span>
                 <span>{l.latencyMs} ms</span>
                 {l.user && <span>· {l.user.name}</span>}
                 {!!l.redactedFields.length && (
-                  <span className="text-amber-600 dark:text-amber-400">
+                  <span className="text-warning">
                     · {l.redactedFields.length} field(s) withheld: {l.redactedFields.slice(0, 3).join(', ')}
                   </span>
                 )}
               </div>
-              {l.errorMessage && (
-                <p className="text-[11.5px] text-red-600 dark:text-red-400 mt-1">{l.errorMessage}</p>
-              )}
+              {l.errorMessage && <FormError className="mt-1">{l.errorMessage}</FormError>}
             </div>
           ))}
-        </div>
+        </Card>
       )}
     </>
   );
@@ -254,99 +238,93 @@ function KnowledgePanel() {
   const [result, setResult] = useState<Awaited<ReturnType<typeof ask.mutateAsync>> | null>(null);
   const [error, setError] = useState('');
 
+  function runAsk() {
+    setError('');
+    ask.mutate(question, {
+      onSuccess: setResult,
+      onError: (err: any) => setError(err?.response?.data?.error || 'Could not answer that.'),
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400">
+        <p className="text-[12.5px] text-fg-muted">
           Retrieval filters by your permissions <em>before</em> ranking, so a restricted user never learns a document
           exists.
         </p>
         <Button
           size="sm"
           variant="secondary"
+          icon={<RefreshCw size={13} />}
           loading={reindex.isPending}
           onClick={() => reindex.mutate()}
         >
-          <RefreshCw size={13} /> Re-index knowledge base
+          Re-index knowledge base
         </Button>
       </div>
 
       {reindex.data && (
-        <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900 rounded-xl p-3">
-          <p className="text-[12.5px] text-emerald-900 dark:text-emerald-200">
-            {reindex.data.message} Vector backend: <strong>{reindex.data.vectorBackend}</strong>. Embedding cost: $
-            {reindex.data.costUsd.toFixed(4)}.
-          </p>
-        </div>
+        <Alert tone="success">
+          {reindex.data.message} Vector backend: <strong>{reindex.data.vectorBackend}</strong>. Embedding cost: $
+          {reindex.data.costUsd.toFixed(4)}.
+        </Alert>
       )}
       {reindex.isError && (
-        <div className="bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 rounded-xl p-3">
-          <p className="text-[12.5px] text-red-900 dark:text-red-200">
-            {(reindex.error as any)?.response?.data?.error || 'Re-indexing failed.'}
-          </p>
-        </div>
+        <Alert tone="danger">
+          {(reindex.error as any)?.response?.data?.error || 'Re-indexing failed.'}
+        </Alert>
       )}
 
       {isLoading ? (
         <Spinner />
       ) : data ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Stat label="Documents" value={data.documents} />
-          <Stat label="Chunks" value={data.chunks} />
-          <Stat label="Vector backend" value={data.vectorBackend} sub={data.vectorBackend === 'pgvector' ? 'ANN search' : 'in-process cosine'} />
-          <Stat label="Last indexed" value={data.lastIndexedAt ? fmt.date(data.lastIndexedAt) : 'Never'} />
+          <StatTile label="Documents" value={data.documents} />
+          <StatTile label="Chunks" value={data.chunks} />
+          <StatTile label="Vector backend" value={data.vectorBackend} hint={data.vectorBackend === 'pgvector' ? 'ANN search' : 'in-process cosine'} />
+          <StatTile label="Last indexed" value={data.lastIndexedAt ? fmt.date(data.lastIndexedAt) : 'Never'} />
         </div>
       ) : null}
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <Card>
         <div className="flex items-center gap-1.5 mb-2">
-          <Search size={14} className="text-gray-400" />
-          <p className="text-[13px] font-semibold text-gray-900 dark:text-white">Ask the knowledge base</p>
+          <Search size={14} className="text-fg-subtle" />
+          <p className="text-[13px] font-semibold text-fg">Ask the knowledge base</p>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            className={field}
+          <Input
+            className="flex-1"
+            aria-label="Ask the knowledge base"
             value={question}
             onChange={e => setQuestion(e.target.value)}
             placeholder="e.g. How many days of annual leave do employees get?"
             onKeyDown={e => {
-              if (e.key === 'Enter' && question.trim()) {
-                setError('');
-                ask.mutate(question, {
-                  onSuccess: setResult,
-                  onError: (err: any) => setError(err?.response?.data?.error || 'Could not answer that.'),
-                });
-              }
+              if (e.key === 'Enter' && question.trim()) runAsk();
             }}
           />
           <Button
             size="sm"
             loading={ask.isPending}
             disabled={!question.trim()}
-            onClick={() => {
-              setError('');
-              ask.mutate(question, {
-                onSuccess: setResult,
-                onError: (err: any) => setError(err?.response?.data?.error || 'Could not answer that.'),
-              });
-            }}
+            onClick={runAsk}
           >
             Ask
           </Button>
         </div>
 
-        {error && <p className="text-[12.5px] text-red-600 dark:text-red-400 mt-2">{error}</p>}
+        {error && <FormError className="mt-2">{error}</FormError>}
 
         {result && (
-          <div className="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
-            <p className="text-[13px] text-gray-800 dark:text-gray-100 whitespace-pre-wrap">{result.answer}</p>
+          <div className="mt-3 border-t border-line-subtle pt-3">
+            <p className="text-[13px] text-fg whitespace-pre-wrap">{result.answer}</p>
 
             {!!result.citations.length && (
               <div className="mt-3">
-                <p className="text-[11.5px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Sources</p>
+                <p className="text-[11.5px] font-semibold text-fg-muted mb-1">Sources</p>
                 <div className="space-y-1">
                   {result.citations.map((c, i) => (
-                    <p key={c.documentId + i} className="text-[11.5px] text-gray-500 dark:text-gray-400">
+                    <p key={c.documentId + i} className="text-[11.5px] text-fg-muted">
                       [{i + 1}] {c.title}
                       {c.heading ? ` → ${c.heading}` : ''} · relevance {(c.score * 100).toFixed(0)}%
                     </p>
@@ -356,7 +334,7 @@ function KnowledgePanel() {
             )}
 
             <div className="flex items-center gap-2 mt-3">
-              <span className="text-[11.5px] text-gray-400">
+              <span className="text-[11.5px] text-fg-subtle">
                 Confidence {(result.confidence * 100).toFixed(0)}%
                 {result.confidence < 0.4 && ' — human review recommended'}
               </span>
@@ -365,63 +343,52 @@ function KnowledgePanel() {
                   <Button
                     size="xs"
                     variant="secondary"
+                    icon={<ThumbsUp size={11} />}
                     onClick={() => feedback.mutate({ logId: result.logId!, feedback: 'UP' })}
                   >
-                    <ThumbsUp size={11} /> Helpful
+                    Helpful
                   </Button>
                   <Button
                     size="xs"
                     variant="secondary"
+                    icon={<ThumbsDown size={11} />}
                     onClick={() => feedback.mutate({ logId: result.logId!, feedback: 'DOWN' })}
                   >
-                    <ThumbsDown size={11} /> Not helpful
+                    Not helpful
                   </Button>
                 </>
               )}
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
 
 const TABS = [
-  { key: 'observability', label: 'Observability', icon: Brain },
-  { key: 'knowledge', label: 'Knowledge base', icon: Database },
-  { key: 'logs', label: 'Interaction log', icon: Search },
-] as const;
+  { key: 'observability' as const, label: 'Observability', icon: <Brain size={12} /> },
+  { key: 'knowledge'     as const, label: 'Knowledge base', icon: <Database size={12} /> },
+  { key: 'logs'          as const, label: 'Interaction log', icon: <Search size={12} /> },
+];
 
 export default function AIGovernancePage() {
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('observability');
+  const [tab, setTab] = useState<'observability' | 'knowledge' | 'logs'>('observability');
 
   return (
     <div className="flex flex-col h-full">
       <PageHeader
         title="AI Governance"
         subtitle="What AI cost, whether it worked, what it was allowed to see, and what it did about it."
+        below={<Tabs items={TABS} value={tab} onChange={setTab} variant="segmented" aria-label="Governance section" />}
       />
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden w-fit mb-4">
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium ${
-                tab === t.key
-                  ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                  : 'text-gray-600 dark:text-gray-300'
-              }`}
-            >
-              <t.icon size={12} /> {t.label}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'observability' && <ObservabilityPanel />}
-        {tab === 'knowledge' && <KnowledgePanel />}
-        {tab === 'logs' && <LogsPanel />}
+      <div className="flex-1 overflow-auto">
+        <PageBody>
+          {tab === 'observability' && <ObservabilityPanel />}
+          {tab === 'knowledge' && <KnowledgePanel />}
+          {tab === 'logs' && <LogsPanel />}
+        </PageBody>
       </div>
     </div>
   );

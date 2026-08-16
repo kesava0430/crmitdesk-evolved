@@ -75,7 +75,7 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
 
   return (
     <div className="border-t dark:border-gray-800 pt-4 mt-4">
-      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-1.5">
+      <h3 className="text-sm font-semibold text-fg mb-3 flex items-center gap-1.5">
         <Paperclip size={14} /> Attachments ({attachments.length})
       </h3>
 
@@ -83,27 +83,27 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
 
       <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
         {isLoading ? (
-          <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-3">Loading…</p>
+          <p className="text-xs text-fg-subtle text-center py-3">Loading…</p>
         ) : attachments.length === 0 ? (
-          <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-3">No files attached yet.</p>
+          <p className="text-xs text-fg-subtle text-center py-3">No files attached yet.</p>
         ) : (
           attachments.map((a: any) => {
             const Icon = iconFor(a.mimeType);
             const canDelete = a.uploader?.id === user?.id || user?.role === 'SUPER_ADMIN';
             return (
-              <div key={a.id} className="flex items-center gap-2 group bg-gray-50 dark:bg-gray-800 rounded-xl px-3 py-2">
-                <Icon size={16} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+              <div key={a.id} className="flex items-center gap-2 group bg-surface-sunken rounded-xl px-3 py-2">
+                <Icon size={16} className="text-fg-subtle flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{a.fileName}</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                  <p className="text-sm text-fg truncate">{a.fileName}</p>
+                  <p className="text-xs text-fg-subtle">
                     {formatSize(a.fileSize)} · {a.uploader?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
                   </p>
                 </div>
-                <button onClick={() => download(a)} className="p-1 text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex-shrink-0" title="Download">
+                <button onClick={() => download(a)} className="p-1 text-fg-subtle hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex-shrink-0" title="Download">
                   <Download size={14} />
                 </button>
                 {canDelete && (
-                  <button onClick={() => remove.mutate(a.id)} className="p-1 opacity-0 group-hover:opacity-100 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 transition-all flex-shrink-0" title="Delete">
+                  <button onClick={() => remove.mutate(a.id)} className="p-1 opacity-0 group-hover:opacity-100 text-fg-subtle hover:text-red-500 dark:hover:text-red-400 transition-all flex-shrink-0" title="Delete">
                     <Trash2 size={14} />
                   </button>
                 )}
@@ -119,11 +119,11 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
         onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
         onClick={() => fileInputRef.current?.click()}
         className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-3 cursor-pointer transition-colors ${
-          dragOver ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+          dragOver ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10' : 'border-line hover:border-line-strong'
         }`}
       >
-        <Upload size={14} className="text-gray-400 dark:text-gray-500" />
-        <span className="text-xs text-gray-500 dark:text-gray-400">{upload.isPending ? 'Uploading…' : 'Click or drag a file to attach (max 25MB)'}</span>
+        <Upload size={14} className="text-fg-subtle" />
+        <span className="text-xs text-fg-muted">{upload.isPending ? 'Uploading…' : 'Click or drag a file to attach (max 25MB)'}</span>
         <input
           ref={fileInputRef}
           type="file"

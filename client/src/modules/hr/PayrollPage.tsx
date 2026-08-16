@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { useUsers } from '../../api/users';
-import { PageHeader, Button, Modal, Badge, Spinner, EmptyState, RowActions, SearchableSelect } from '../../shared/components';
+import {
+  PageHeader, PageBody, Card, CardHeader, Tabs, Button, Modal, Badge, Spinner, EmptyState,
+  RowActions, SearchableSelect, Field, Label, Input, Textarea, Select, Checkbox, Alert, Avatar,
+  IconButton, DataTable,
+} from '../../shared/components';
 import { Wallet, Plus, Pencil, Trash2, FileText, PlayCircle, CheckCircle2, Printer, Palette } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 
@@ -96,12 +100,14 @@ function SalaryStructuresSection() {
     (employees || []).map((u: EmployeeRef) => ({ value: u.id, label: u.name }));
 
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Wallet size={14} /> Salary Structures</p>
-        <Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Set Salary</Button>
-      </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Each employee's current pay components. Saving a revision keeps the old one on record for past payslips.</p>
+    <Card>
+      <CardHeader
+        title="Salary Structures"
+        icon={<Wallet size={14} />}
+        className="mb-3"
+        actions={<Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Set Salary</Button>}
+      />
+      <p className="text-xs text-fg-subtle mb-4">Each employee's current pay components. Saving a revision keeps the old one on record for past payslips.</p>
 
       {isLoading ? <Spinner /> : (data || []).length === 0 ? (
         <EmptyState icon={<Wallet size={20} />} title="No salary structures yet" description="Set one up before running payroll" />
@@ -110,14 +116,12 @@ function SalaryStructuresSection() {
           {(data || []).map(s => {
             const gross = Number(s.basic) + Number(s.hra) + Number(s.allowances);
             return (
-              <div key={s.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl flex-wrap">
+              <div key={s.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
                 <div className="min-w-0 flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center justify-center text-xs font-bold shrink-0">
-                    {s.user.name[0]?.toUpperCase()}
-                  </div>
+                  <Avatar name={s.user.name} src={s.user.avatarUrl} size="sm" />
                   <div>
-                    <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{s.user.name}</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                    <p className="font-medium text-fg text-sm">{s.user.name}</p>
+                    <p className="text-xs text-fg-subtle">
                       Basic {money(s.basic)} + HRA {money(s.hra)} + Allowances {money(s.allowances)} · Gross {money(gross)}/mo
                     </p>
                   </div>
@@ -140,9 +144,8 @@ function SalaryStructuresSection() {
           </Button>
         </>}>
         <div className="space-y-4">
-          {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
-          <div>
-            <label className="form-label">Employee</label>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <Field label="Employee">
             <SearchableSelect
               value={form.userId}
               onChange={val => setForm(f => ({ ...f, userId: val }))}
@@ -150,42 +153,35 @@ function SalaryStructuresSection() {
               disabled={!!editing}
               required
             />
-          </div>
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Basic</label>
-              <input className="ui-input" type="number" min={0} value={form.basic} onChange={e => setForm(f => ({ ...f, basic: e.target.value }))} placeholder="0.00" />
-            </div>
-            <div>
-              <label className="form-label">HRA</label>
-              <input className="ui-input" type="number" min={0} value={form.hra} onChange={e => setForm(f => ({ ...f, hra: e.target.value }))} placeholder="0.00" />
-            </div>
+            <Field label="Basic">
+              <Input type="number" min={0} value={form.basic} onChange={e => setForm(f => ({ ...f, basic: e.target.value }))} placeholder="0.00" />
+            </Field>
+            <Field label="HRA">
+              <Input type="number" min={0} value={form.hra} onChange={e => setForm(f => ({ ...f, hra: e.target.value }))} placeholder="0.00" />
+            </Field>
           </div>
-          <div>
-            <label className="form-label">Other allowances</label>
-            <input className="ui-input" type="number" min={0} value={form.allowances} onChange={e => setForm(f => ({ ...f, allowances: e.target.value }))} placeholder="0.00" />
-          </div>
+          <Field label="Other allowances">
+            <Input type="number" min={0} value={form.allowances} onChange={e => setForm(f => ({ ...f, allowances: e.target.value }))} placeholder="0.00" />
+          </Field>
           <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="form-label">PF %</label>
-              <input className="ui-input" type="number" min={0} max={100} value={form.pfPercent} onChange={e => setForm(f => ({ ...f, pfPercent: e.target.value }))} />
-            </div>
-            <div>
-              <label className="form-label">Professional tax</label>
-              <input className="ui-input" type="number" min={0} value={form.professionalTax} onChange={e => setForm(f => ({ ...f, professionalTax: e.target.value }))} placeholder="0.00" />
-            </div>
-            <div>
-              <label className="form-label">Other deductions</label>
-              <input className="ui-input" type="number" min={0} value={form.otherDeductions} onChange={e => setForm(f => ({ ...f, otherDeductions: e.target.value }))} placeholder="0.00" />
-            </div>
+            <Field label="PF %">
+              <Input type="number" min={0} max={100} value={form.pfPercent} onChange={e => setForm(f => ({ ...f, pfPercent: e.target.value }))} />
+            </Field>
+            <Field label="Professional tax">
+              <Input type="number" min={0} value={form.professionalTax} onChange={e => setForm(f => ({ ...f, professionalTax: e.target.value }))} placeholder="0.00" />
+            </Field>
+            <Field label="Other deductions">
+              <Input type="number" min={0} value={form.otherDeductions} onChange={e => setForm(f => ({ ...f, otherDeductions: e.target.value }))} placeholder="0.00" />
+            </Field>
           </div>
-          <div>
-            <label className="form-label">Effective from</label>
-            <input type="date" className="ui-input" value={form.effectiveFrom} onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
-          </div>
+          <Field label="Effective from">
+            <Input type="date" value={form.effectiveFrom} onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
+          </Field>
         </div>
       </Modal>
-    </div>
+    </Card>
   );
 }
 
@@ -211,19 +207,17 @@ function RunModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         <Button onClick={() => { setError(''); run.mutate(); }} loading={run.isPending}>Run Payroll</Button>
       </>}>
       <div className="space-y-4">
-        {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
-        <p className="text-xs text-gray-400 dark:text-gray-500">Generates a payslip for every employee with a salary structure, using their current pay components.</p>
+        {error && <Alert tone="danger">{error}</Alert>}
+        <p className="text-xs text-fg-subtle">Generates a payslip for every employee with a salary structure, using their current pay components.</p>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="form-label">Month</label>
-            <select className="ui-input" value={month} onChange={e => setMonth(e.target.value)}>
+          <Field label="Month">
+            <Select value={month} onChange={e => setMonth(e.target.value)}>
               {MONTH_NAMES.slice(1).map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Year</label>
-            <input className="ui-input" type="number" value={year} onChange={e => setYear(e.target.value)} />
-          </div>
+            </Select>
+          </Field>
+          <Field label="Year">
+            <Input type="number" value={year} onChange={e => setYear(e.target.value)} />
+          </Field>
         </div>
       </div>
     </Modal>
@@ -253,33 +247,35 @@ function PayrollRunsSection() {
   });
 
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><FileText size={14} /> Payroll Runs</p>
-        <Button size="sm" icon={<PlayCircle size={13} />} onClick={() => setRunOpen(true)}>Run Payroll</Button>
-      </div>
+    <Card>
+      <CardHeader
+        title="Payroll Runs"
+        icon={<FileText size={14} />}
+        className="mb-3"
+        actions={<Button size="sm" icon={<PlayCircle size={13} />} onClick={() => setRunOpen(true)}>Run Payroll</Button>}
+      />
 
       {isLoading ? <Spinner /> : (data || []).length === 0 ? (
         <EmptyState icon={<FileText size={20} />} title="No payroll runs yet" description="Run payroll once salary structures are set up" />
       ) : (
         <div className="space-y-2">
           {(data || []).map(r => (
-            <div key={r.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl flex-wrap">
+            <div key={r.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-gray-800 dark:text-gray-200 text-sm">{MONTH_NAMES[r.month]} {r.year}</span>
+                  <span className="font-medium text-fg text-sm">{MONTH_NAMES[r.month]} {r.year}</span>
                   <Badge variant={r.status === 'PAID' ? 'green' : 'yellow'}>{r.status}</Badge>
                 </div>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                <p className="text-xs text-fg-subtle mt-0.5">
                   {r._count?.payslips ?? 0} payslip{(r._count?.payslips ?? 0) === 1 ? '' : 's'} · run by {r.runByUser?.name}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <button onClick={() => setViewing(r.id)} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300">View</button>
+                <Button size="xs" variant="ghost" onClick={() => setViewing(r.id)}>View</Button>
                 {r.status !== 'PAID' && (
-                  <button onClick={() => markPaid.mutate(r.id)} className="flex items-center gap-1 px-2.5 py-1 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 rounded-lg text-xs font-medium hover:bg-green-100 dark:hover:bg-green-500/20">
-                    <CheckCircle2 size={12} /> Mark All Paid
-                  </button>
+                  <Button size="xs" variant="subtle" icon={<CheckCircle2 size={12} />} onClick={() => markPaid.mutate(r.id)}>
+                    Mark All Paid
+                  </Button>
                 )}
               </div>
             </div>
@@ -291,38 +287,34 @@ function PayrollRunsSection() {
 
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={run ? `${MONTH_NAMES[run.month]} ${run.year} payroll` : 'Payroll run'} icon={<FileText size={16} />} size="lg">
         {!run ? <Spinner /> : (
-          <div className="table-container">
-            <table className="w-full text-sm min-w-[480px]">
-              <thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
-                <th className="pb-2 font-medium">Employee</th>
-                <th className="pb-2 font-medium">Gross</th>
-                <th className="pb-2 font-medium">Deductions</th>
-                <th className="pb-2 font-medium">Net Pay</th>
-                <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium"></th>
-              </tr></thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                {(run.payslips || []).map(p => (
-                  <tr key={p.id}>
-                    <td className="py-2.5 dark:text-gray-300">{p.user.name}</td>
-                    <td className="py-2.5 dark:text-gray-300">{money(p.grossPay)}</td>
-                    <td className="py-2.5 text-gray-500 dark:text-gray-400">{money(p.totalDeductions)}</td>
-                    <td className="py-2.5 font-medium dark:text-gray-200">{money(p.netPay)}</td>
-                    <td className="py-2.5"><Badge variant={p.status === 'PAID' ? 'green' : 'yellow'}>{p.status}</Badge></td>
-                    <td className="py-2.5 text-right">
-                      <button onClick={() => window.open(`/hr/payroll/payslips/${p.id}/print`, '_blank')} title="Print / Save as PDF"
-                        className="text-gray-400 hover:text-brand-600 dark:hover:text-brand-400">
-                        <Printer size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<Payslip>
+            minWidth={480}
+            rows={run.payslips || []}
+            rowKey={p => p.id}
+            columns={[
+              { key: 'employee', header: 'Employee', cell: p => p.user.name },
+              { key: 'gross', header: 'Gross', cell: p => money(p.grossPay) },
+              { key: 'deductions', header: 'Deductions', muted: true, cell: p => money(p.totalDeductions) },
+              { key: 'net', header: 'Net Pay', cell: p => <span className="font-medium">{money(p.netPay)}</span> },
+              { key: 'status', header: 'Status', cell: p => <Badge variant={p.status === 'PAID' ? 'green' : 'yellow'}>{p.status}</Badge> },
+              {
+                key: 'actions',
+                header: '',
+                align: 'right',
+                cell: p => (
+                  <IconButton
+                    label="Print / Save as PDF"
+                    tone="accent"
+                    icon={<Printer size={14} />}
+                    onClick={() => window.open(`/hr/payroll/payslips/${p.id}/print`, '_blank')}
+                  />
+                ),
+              },
+            ]}
+          />
         )}
       </Modal>
-    </div>
+    </Card>
   );
 }
 
@@ -341,24 +333,24 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium text-gray-800 dark:text-gray-200">{payslip.user.name}</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{payslip.user.department || payslip.user.email}</p>
+            <p className="font-medium text-fg">{payslip.user.name}</p>
+            <p className="text-xs text-fg-subtle">{payslip.user.department || payslip.user.email}</p>
           </div>
           <Badge variant={payslip.status === 'PAID' ? 'green' : 'yellow'}>{payslip.status}</Badge>
         </div>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm border-t border-gray-100 dark:border-gray-800 pt-3">
-          <p className="text-gray-500 dark:text-gray-400">Basic</p><p className="text-right dark:text-gray-200">{money(payslip.basic)}</p>
-          <p className="text-gray-500 dark:text-gray-400">HRA</p><p className="text-right dark:text-gray-200">{money(payslip.hra)}</p>
-          <p className="text-gray-500 dark:text-gray-400">Allowances</p><p className="text-right dark:text-gray-200">{money(payslip.allowances)}</p>
-          <p className="font-medium text-gray-800 dark:text-gray-200 border-t border-gray-100 dark:border-gray-800 pt-2">Gross Pay</p>
-          <p className="text-right font-medium text-gray-800 dark:text-gray-200 border-t border-gray-100 dark:border-gray-800 pt-2">{money(payslip.grossPay)}</p>
-          <p className="text-gray-500 dark:text-gray-400">Provident Fund</p><p className="text-right text-red-500 dark:text-red-400">-{money(payslip.pf)}</p>
-          <p className="text-gray-500 dark:text-gray-400">Professional Tax</p><p className="text-right text-red-500 dark:text-red-400">-{money(payslip.professionalTax)}</p>
-          <p className="text-gray-500 dark:text-gray-400">Other Deductions</p><p className="text-right text-red-500 dark:text-red-400">-{money(payslip.otherDeductions)}</p>
-          <p className="font-semibold text-gray-900 dark:text-white border-t border-gray-200 dark:border-gray-700 pt-2">Net Pay</p>
-          <p className="text-right font-semibold text-gray-900 dark:text-white border-t border-gray-200 dark:border-gray-700 pt-2">{money(payslip.netPay)}</p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm border-t border-line-subtle pt-3">
+          <p className="text-fg-muted">Basic</p><p className="text-right text-fg">{money(payslip.basic)}</p>
+          <p className="text-fg-muted">HRA</p><p className="text-right text-fg">{money(payslip.hra)}</p>
+          <p className="text-fg-muted">Allowances</p><p className="text-right text-fg">{money(payslip.allowances)}</p>
+          <p className="font-medium text-fg border-t border-line-subtle pt-2">Gross Pay</p>
+          <p className="text-right font-medium text-fg border-t border-line-subtle pt-2">{money(payslip.grossPay)}</p>
+          <p className="text-fg-muted">Provident Fund</p><p className="text-right text-danger">-{money(payslip.pf)}</p>
+          <p className="text-fg-muted">Professional Tax</p><p className="text-right text-danger">-{money(payslip.professionalTax)}</p>
+          <p className="text-fg-muted">Other Deductions</p><p className="text-right text-danger">-{money(payslip.otherDeductions)}</p>
+          <p className="font-semibold text-fg border-t border-line pt-2">Net Pay</p>
+          <p className="text-right font-semibold text-fg border-t border-line pt-2">{money(payslip.netPay)}</p>
         </div>
-        {payslip.paidAt && <p className="text-xs text-gray-400 dark:text-gray-500">Paid on {date(payslip.paidAt)}</p>}
+        {payslip.paidAt && <p className="text-xs text-fg-subtle">Paid on {date(payslip.paidAt)}</p>}
       </div>
     </Modal>
   );
@@ -373,21 +365,21 @@ function MyPayslips() {
   });
 
   return (
-    <div className="card p-5">
-      <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">My Payslips</p>
+    <Card>
+      <CardHeader title="My Payslips" className="mb-3" />
       {isLoading ? <Spinner /> : (data || []).length === 0 ? (
         <EmptyState icon={<Wallet size={22} />} title="No payslips yet" description="They'll show up here once payroll is run" />
       ) : (
         <div className="space-y-2">
           {(data || []).map(p => (
             <button key={p.id} onClick={() => setViewing(p)}
-              className="w-full flex items-center justify-between gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl hover:border-gray-200 dark:hover:border-gray-700 text-left">
+              className="w-full flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card hover:border-line-strong hover:bg-surface-hover transition-colors text-left">
               <div>
-                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{MONTH_NAMES[p.month]} {p.year}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">{p.payslipNumber}</p>
+                <p className="font-medium text-fg text-sm">{MONTH_NAMES[p.month]} {p.year}</p>
+                <p className="text-xs text-fg-subtle">{p.payslipNumber}</p>
               </div>
               <div className="flex items-center gap-3">
-                <span className="font-semibold text-gray-800 dark:text-gray-200 text-sm">{money(p.netPay)}</span>
+                <span className="font-semibold text-fg text-sm">{money(p.netPay)}</span>
                 <Badge variant={p.status === 'PAID' ? 'green' : 'yellow'}>{p.status}</Badge>
               </div>
             </button>
@@ -395,7 +387,7 @@ function MyPayslips() {
         </div>
       )}
       {viewing && <PayslipDetail payslip={viewing} onClose={() => setViewing(null)} />}
-    </div>
+    </Card>
   );
 }
 
@@ -411,16 +403,27 @@ function PayslipTemplateSection() {
 
   const { data, isLoading } = useQuery<PayslipTemplate>({
     queryKey: ['payslip-template'],
-    queryFn: () => api.get('/hr/payroll/template').then(r => {
-      const t = r.data;
-      setForm({
-        companyName: t.companyName || '', companyAddress: t.companyAddress || '', logoUrl: t.logoUrl || '',
-        primaryColor: t.primaryColor || '#2563eb', footerNote: t.footerNote || '',
-        showSignature: t.showSignature ?? true, signatureLabel: t.signatureLabel || 'Authorized Signatory',
-      });
-      return t;
-    }),
+    queryFn: () => api.get('/hr/payroll/template').then(r => r.data),
   });
+
+  // Seeding the form happens here, not inside queryFn. A queryFn is not a
+  // render-safe place to call setState: React Query re-runs it on refetch —
+  // window refocus, cache invalidation, the save mutation's own
+  // invalidateQueries — and each run overwrote whatever the user had typed but
+  // not yet saved. Keying off the loaded row and filling only once keeps
+  // in-progress edits intact.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    const key = (data as any).id ?? 'template';
+    if (seededFor.current === key) return;
+    seededFor.current = key;
+    setForm({
+      companyName: data.companyName || '', companyAddress: data.companyAddress || '', logoUrl: data.logoUrl || '',
+      primaryColor: data.primaryColor || '#2563eb', footerNote: data.footerNote || '',
+      showSignature: data.showSignature ?? true, signatureLabel: data.signatureLabel || 'Authorized Signatory',
+    });
+  }, [data]);
 
   const save = useMutation({
     mutationFn: () => api.put('/hr/payroll/template', form).then(r => r.data),
@@ -428,72 +431,69 @@ function PayslipTemplateSection() {
     onError: (err: any) => setError(err?.response?.data?.error || 'Could not save template.'),
   });
 
-  if (isLoading || !data) return <div className="card p-5"><Spinner /></div>;
+  if (isLoading || !data) return <Card><Spinner /></Card>;
 
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Palette size={14} /> Payslip Template</p>
-        <Button size="sm" onClick={() => { setError(''); save.mutate(); }} loading={save.isPending}>{saved ? 'Saved!' : 'Save'}</Button>
-      </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">This letterhead is applied to every employee's downloadable payslip.</p>
+    <Card>
+      <CardHeader
+        title="Payslip Template"
+        icon={<Palette size={14} />}
+        className="mb-3"
+        actions={<Button size="sm" onClick={() => { setError(''); save.mutate(); }} loading={save.isPending}>{saved ? 'Saved!' : 'Save'}</Button>}
+      />
+      <p className="text-xs text-fg-subtle mb-4">This letterhead is applied to every employee's downloadable payslip.</p>
 
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="space-y-4">
-          {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
-          <div>
-            <label className="form-label">Company name</label>
-            <input className="ui-input" value={form.companyName} onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))} placeholder="Defaults to your org name" />
-          </div>
-          <div>
-            <label className="form-label">Company address</label>
-            <textarea className="ui-input" rows={2} value={form.companyAddress} onChange={e => setForm(f => ({ ...f, companyAddress: e.target.value }))} placeholder="123 Main St, Springfield" />
-          </div>
-          <div>
-            <label className="form-label">Logo URL</label>
-            <input className="ui-input" value={form.logoUrl} onChange={e => setForm(f => ({ ...f, logoUrl: e.target.value }))} placeholder="https://..." />
-          </div>
-          <div>
-            <label className="form-label">Accent color</label>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <Field label="Company name">
+            <Input value={form.companyName} onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))} placeholder="Defaults to your org name" />
+          </Field>
+          <Field label="Company address">
+            <Textarea rows={2} value={form.companyAddress} onChange={e => setForm(f => ({ ...f, companyAddress: e.target.value }))} placeholder="123 Main St, Springfield" />
+          </Field>
+          <Field label="Logo URL">
+            <Input value={form.logoUrl} onChange={e => setForm(f => ({ ...f, logoUrl: e.target.value }))} placeholder="https://..." />
+          </Field>
+          <Field label="Accent color">
             <div className="flex items-center gap-2">
-              <input type="color" value={form.primaryColor} onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))} className="w-9 h-9 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer" />
-              <input className="ui-input" value={form.primaryColor} onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))} />
+              <input type="color" value={form.primaryColor} onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))} className="w-9 h-9 rounded-input border border-line cursor-pointer shrink-0" />
+              <Input value={form.primaryColor} onChange={e => setForm(f => ({ ...f, primaryColor: e.target.value }))} />
             </div>
-          </div>
-          <div>
-            <label className="form-label">Footer note</label>
-            <textarea className="ui-input" rows={2} value={form.footerNote} onChange={e => setForm(f => ({ ...f, footerNote: e.target.value }))} placeholder="This is a system-generated payslip and does not require a signature." />
-          </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input type="checkbox" checked={form.showSignature} onChange={e => setForm(f => ({ ...f, showSignature: e.target.checked }))} />
-            Show a signature line
-          </label>
+          </Field>
+          <Field label="Footer note">
+            <Textarea rows={2} value={form.footerNote} onChange={e => setForm(f => ({ ...f, footerNote: e.target.value }))} placeholder="This is a system-generated payslip and does not require a signature." />
+          </Field>
+          <Checkbox
+            label="Show a signature line"
+            checked={form.showSignature}
+            onChange={e => setForm(f => ({ ...f, showSignature: e.target.checked }))}
+          />
           {form.showSignature && (
-            <div>
-              <label className="form-label">Signature label</label>
-              <input className="ui-input" value={form.signatureLabel} onChange={e => setForm(f => ({ ...f, signatureLabel: e.target.value }))} placeholder="Authorized Signatory" />
-            </div>
+            <Field label="Signature label">
+              <Input value={form.signatureLabel} onChange={e => setForm(f => ({ ...f, signatureLabel: e.target.value }))} placeholder="Authorized Signatory" />
+            </Field>
           )}
         </div>
 
         <div>
-          <p className="form-label mb-2">Preview</p>
-          <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 bg-white dark:bg-gray-900">
+          <Label className="mb-2">Preview</Label>
+          <Card tone="sunken" padding="sm" flat>
             <div className="flex items-center gap-2 pb-3 mb-3 border-b" style={{ borderColor: form.primaryColor }}>
               {form.logoUrl && <img src={form.logoUrl} alt="" className="w-8 h-8 rounded object-contain" onError={e => (e.currentTarget.style.display = 'none')} />}
               <div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">{form.companyName || 'Your Company'}</p>
-                {form.companyAddress && <p className="text-[11px] text-gray-400 whitespace-pre-line">{form.companyAddress}</p>}
+                <p className="text-sm font-semibold text-fg">{form.companyName || 'Your Company'}</p>
+                {form.companyAddress && <p className="text-[11px] text-fg-subtle whitespace-pre-line">{form.companyAddress}</p>}
               </div>
             </div>
             <p className="text-xs font-semibold" style={{ color: form.primaryColor }}>PAYSLIP — August 2026</p>
-            <p className="text-[11px] text-gray-400 mt-1">Jane Doe · PAY-2026-08-0001</p>
-            {form.showSignature && <p className="text-[11px] text-gray-400 mt-4 pt-2 border-t border-dashed border-gray-200 dark:border-gray-700">{form.signatureLabel}</p>}
-            {form.footerNote && <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-2">{form.footerNote}</p>}
-          </div>
+            <p className="text-[11px] text-fg-subtle mt-1">Jane Doe · PAY-2026-08-0001</p>
+            {form.showSignature && <p className="text-[11px] text-fg-subtle mt-4 pt-2 border-t border-dashed border-line">{form.signatureLabel}</p>}
+            {form.footerNote && <p className="text-[10px] text-fg-subtle mt-2">{form.footerNote}</p>}
+          </Card>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -505,24 +505,32 @@ export default function PayrollPage() {
   const [tab, setTab] = useState<'me' | 'structures' | 'runs' | 'template'>('me');
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-4xl mx-auto">
-      <PageHeader title="Payroll" subtitle="Salary structures, payroll runs, and payslips" />
+    <div>
+      <PageHeader
+        title="Payroll"
+        subtitle="Salary structures, payroll runs, and payslips"
+        below={isManager ? (
+          <Tabs<'me' | 'structures' | 'runs' | 'template'>
+            aria-label="Payroll views"
+            variant="segmented"
+            value={tab}
+            onChange={setTab}
+            items={[
+              { key: 'me', label: 'My Payslips' },
+              { key: 'structures', label: 'Salary Structures' },
+              { key: 'runs', label: 'Payroll Runs' },
+              { key: 'template', label: 'Template' },
+            ]}
+          />
+        ) : undefined}
+      />
 
-      {isManager && (
-        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit flex-wrap">
-          {(['me', 'structures', 'runs', 'template'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-1.5 text-[13px] font-semibold rounded-lg transition-all ${tab === t ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}>
-              {t === 'me' ? 'My Payslips' : t === 'structures' ? 'Salary Structures' : t === 'runs' ? 'Payroll Runs' : 'Template'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {tab === 'me' && <MyPayslips />}
-      {tab === 'structures' && isManager && <SalaryStructuresSection />}
-      {tab === 'runs' && isManager && <PayrollRunsSection />}
-      {tab === 'template' && isManager && <PayslipTemplateSection />}
+      <PageBody width="full" className="max-w-4xl mx-auto">
+        {tab === 'me' && <MyPayslips />}
+        {tab === 'structures' && isManager && <SalaryStructuresSection />}
+        {tab === 'runs' && isManager && <PayrollRunsSection />}
+        {tab === 'template' && isManager && <PayslipTemplateSection />}
+      </PageBody>
     </div>
   );
 }

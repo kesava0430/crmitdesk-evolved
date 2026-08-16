@@ -7,7 +7,10 @@ import {
 import { SearchableSelect } from '../../../shared/components';
 import { useContact, useUpdateContact, useAccounts, useCreateActivity } from '../../../api/crm';
 import { useChurnRisk } from '../../../api/ai';
-import { Badge, Button, Modal, Spinner, EmptyState, CustomFieldsDisplay, CustomFieldsFormFields } from '../../../shared/components';
+import {
+  Badge, Button, Modal, Spinner, EmptyState, CustomFieldsDisplay, CustomFieldsFormFields,
+  Card, CardHeader, Field, Input, Textarea, Label, Avatar, Alert, FormActions,
+} from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
@@ -31,10 +34,10 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   if (!value) return null;
   return (
     <div className="flex items-center gap-3 text-sm">
-      <div className="text-gray-400 dark:text-gray-500 flex-shrink-0">{icon}</div>
+      <div className="text-fg-subtle flex-shrink-0">{icon}</div>
       <div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">{label}</p>
-        <p className="text-gray-800 dark:text-gray-100 font-medium">{value}</p>
+        <p className="text-xs text-fg-subtle">{label}</p>
+        <p className="text-fg font-medium">{value}</p>
       </div>
     </div>
   );
@@ -48,31 +51,26 @@ function ActivityForm({ contactId, onSubmit, loading }: any) {
   // translated before being POSTed.
   const [form, setForm] = useState({ type: 'CALL', title: '', body: '', dueAt: '' });
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
-  const inp = 'ui-input';
-  const lbl = 'form-label';
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, contactId }); }} className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className={lbl}>Type</label>
-<SearchableSelect ariaLabel="Type" value={form.type} onChange={val => setForm(p => ({ ...p, type: val }))} required options={['CALL','EMAIL','MEETING','TASK','NOTE'].map(t => ({ value: t, label: t }))} />
+          <Label>Type</Label>
+          <SearchableSelect ariaLabel="Type" value={form.type} onChange={val => setForm(p => ({ ...p, type: val }))} required options={['CALL','EMAIL','MEETING','TASK','NOTE'].map(t => ({ value: t, label: t }))} />
         </div>
-        <div>
-          <label className={lbl}>Due Date</label>
-          <input type="datetime-local" className={inp} value={form.dueAt} onChange={f('dueAt')} />
-        </div>
+        <Field label="Due Date">
+          <Input type="datetime-local" value={form.dueAt} onChange={f('dueAt')} />
+        </Field>
       </div>
-      <div>
-        <label className={lbl}>Subject *</label>
-        <input aria-label="Subject" required className={inp} value={form.title} onChange={f('title')} placeholder="Call to discuss renewal..." />
-      </div>
-      <div>
-        <label className={lbl}>Notes</label>
-        <textarea rows={3} className={inp} value={form.body} onChange={f('body')} placeholder="Details..." />
-      </div>
-      <div className="flex justify-end pt-1">
+      <Field label="Subject *">
+        <Input aria-label="Subject" required value={form.title} onChange={f('title')} placeholder="Call to discuss renewal..." />
+      </Field>
+      <Field label="Notes">
+        <Textarea rows={3} value={form.body} onChange={f('body')} placeholder="Details..." />
+      </Field>
+      <FormActions>
         <Button type="submit" loading={loading}>Log Activity</Button>
-      </div>
+      </FormActions>
     </form>
   );
 }
@@ -92,22 +90,20 @@ function EditContactForm({ contact, accounts, onSubmit, loading }: any) {
     if (existingValues) setCustomValues(fromValueRecords(existingValues));
   }, [existingValues]);
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
-  const inp = 'ui-input';
-  const lbl = 'form-label';
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, __customFieldValues: customValues }); }} className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div><label className={lbl}>Name *</label><input aria-label="Name" required className={inp} value={form.name} onChange={f('name')} /></div>
-        <div><label className={lbl}>Email</label><input type="email" className={inp} value={form.email} onChange={f('email')} /></div>
-        <div><label className={lbl}>Phone</label><input className={inp} value={form.phone} onChange={f('phone')} /></div>
-        <div><label className={lbl}>Job Title</label><input className={inp} value={form.jobTitle} onChange={f('jobTitle')} /></div>
+        <Field label="Name *"><Input aria-label="Name" required value={form.name} onChange={f('name')} /></Field>
+        <Field label="Email"><Input type="email" value={form.email} onChange={f('email')} /></Field>
+        <Field label="Phone"><Input value={form.phone} onChange={f('phone')} /></Field>
+        <Field label="Job Title"><Input value={form.jobTitle} onChange={f('jobTitle')} /></Field>
         <div>
-          <label className={lbl}>Source</label>
-<SearchableSelect ariaLabel="Source" value={form.source} onChange={val => setForm(p => ({ ...p, source: val }))} options={['Web','Referral','Cold Outreach','Event','Social Media','Other'].map(s => ({ value: s, label: s }))} />
+          <Label>Source</Label>
+          <SearchableSelect ariaLabel="Source" value={form.source} onChange={val => setForm(p => ({ ...p, source: val }))} options={['Web','Referral','Cold Outreach','Event','Social Media','Other'].map(s => ({ value: s, label: s }))} />
         </div>
         <div>
-          <label className={lbl}>Account</label>
-<SearchableSelect ariaLabel="Account" value={form.accountId} onChange={val => setForm(p => ({ ...p, accountId: val }))} options={(accounts ?? []).map((a: any) => ({ value: a.id, label: a.name }))} placeholder="— none —" />
+          <Label>Account</Label>
+          <SearchableSelect ariaLabel="Account" value={form.accountId} onChange={val => setForm(p => ({ ...p, accountId: val }))} options={(accounts ?? []).map((a: any) => ({ value: a.id, label: a.name }))} placeholder="— none —" />
         </div>
       </div>
       <CustomFieldsFormFields
@@ -115,29 +111,22 @@ function EditContactForm({ contact, accounts, onSubmit, loading }: any) {
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
-      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>Save Changes</Button></div>
+      <FormActions><Button type="submit" loading={loading}>Save Changes</Button></FormActions>
     </form>
   );
 }
 
+const CHURN_RISK_TONE = { HIGH: 'danger', MEDIUM: 'warning' } as const;
+const CHURN_RISK_VARIANT = { HIGH: 'red', MEDIUM: 'yellow' } as const;
+
 function ChurnRiskCard({ contactId }: { contactId: string }) {
   const churnRisk = useChurnRisk();
-
-  const riskBorder = churnRisk.data
-    ? churnRisk.data.risk === 'HIGH' ? 'bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/30'
-    : churnRisk.data.risk === 'MEDIUM' ? 'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30'
-    : 'bg-green-50 border-green-200 dark:bg-green-500/10 dark:border-green-500/30'
-    : '';
-  const badgeColor = churnRisk.data
-    ? churnRisk.data.risk === 'HIGH' ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30'
-    : churnRisk.data.risk === 'MEDIUM' ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30'
-    : 'bg-green-100 text-green-800 border-green-300 dark:bg-green-500/10 dark:text-green-300 dark:border-green-500/30'
-    : '';
+  const risk = churnRisk.data?.risk as keyof typeof CHURN_RISK_TONE | undefined;
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-3">
+    <Card className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+        <p className="text-xs font-semibold text-fg-subtle uppercase tracking-wider flex items-center gap-1.5">
           <ShieldAlert size={13} /> Churn Risk
         </p>
         <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => churnRisk.mutate(contactId)} loading={churnRisk.isPending}>
@@ -145,19 +134,19 @@ function ChurnRiskCard({ contactId }: { contactId: string }) {
         </Button>
       </div>
       {churnRisk.data ? (
-        <div className={`border rounded-xl p-3 ${riskBorder}`}>
+        <Alert tone={(risk && CHURN_RISK_TONE[risk]) || 'success'} icon={null}>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${badgeColor}`}>
+            <Badge variant={(risk && CHURN_RISK_VARIANT[risk]) || 'green'}>
               {churnRisk.data.risk} RISK
-            </span>
-            <span className="text-gray-400 dark:text-gray-500 text-xs">({churnRisk.data.score}/100)</span>
+            </Badge>
+            <span className="text-fg-subtle text-xs">({churnRisk.data.score}/100)</span>
           </div>
-          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">{churnRisk.data.reason}</p>
-        </div>
+          <p className="text-xs text-fg-muted leading-relaxed">{churnRisk.data.reason}</p>
+        </Alert>
       ) : (
-        <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-2">Click "Assess" to analyze churn risk for this contact.</p>
+        <p className="text-xs text-fg-subtle text-center py-2">Click "Assess" to analyze churn risk for this contact.</p>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -175,7 +164,7 @@ export function ContactDetailPage() {
   const [editModal, setEditModal] = useState(false);
 
   if (isLoading) return <div className="p-10 flex justify-center"><Spinner /></div>;
-  if (!contact) return <div className="p-10 text-center text-gray-400 dark:text-gray-500">Contact not found</div>;
+  if (!contact) return <div className="p-10 text-center text-fg-subtle">Contact not found</div>;
 
   const totalDealValue = contact.deals?.reduce((s: number, d: any) => s + Number(d.value || 0), 0) ?? 0;
   const openDeals = contact.deals?.filter((d: any) => !['Won','Lost'].includes(d.stage)) ?? [];
@@ -183,22 +172,20 @@ export function ContactDetailPage() {
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6 animate-slide-up">
       <div>
-        <button onClick={() => navigate('/crm/contacts')} className="flex items-center gap-1 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-4">
-          <ArrowLeft size={15} /> Back to Contacts
-        </button>
+        <Button variant="ghost" size="sm" icon={<ArrowLeft size={15} />} onClick={() => navigate('/crm/contacts')} className="mb-4 -ml-3">
+          Back to Contacts
+        </Button>
 
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-brand-100 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 flex items-center justify-center text-2xl font-bold flex-shrink-0">
-              {contact.name[0]?.toUpperCase()}
-            </div>
+            <Avatar name={contact.name} size="lg" tone="accent" />
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{contact.name}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-fg">{contact.name}</h1>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                {contact.jobTitle && <span className="text-sm text-gray-500 dark:text-gray-400">{contact.jobTitle}</span>}
+                {contact.jobTitle && <span className="text-sm text-fg-muted">{contact.jobTitle}</span>}
                 {contact.account && (
                   <>
-                    {contact.jobTitle && <span className="text-gray-300 dark:text-gray-600">&#183;</span>}
+                    {contact.jobTitle && <span className="text-fg-subtle">&#183;</span>}
                     <Badge variant="blue">{contact.account.name}</Badge>
                   </>
                 )}
@@ -212,106 +199,108 @@ export function ContactDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-4">
-            <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Contact Info</p>
+          <Card className="space-y-4">
+            <p className="text-xs font-semibold text-fg-subtle uppercase tracking-wider">Contact Info</p>
             <InfoRow icon={<Mail size={14} />} label="Email" value={contact.email} />
             <InfoRow icon={<Phone size={14} />} label="Phone" value={contact.phone} />
             <InfoRow icon={<Briefcase size={14} />} label="Job Title" value={contact.jobTitle} />
             <InfoRow icon={<Building2 size={14} />} label="Account" value={contact.account?.name} />
             <InfoRow icon={<Globe size={14} />} label="Source" value={contact.source} />
             <InfoRow icon={<Clock size={14} />} label="Added" value={formatDistanceToNow(new Date(contact.createdAt), { addSuffix: true })} />
-          </div>
+          </Card>
 
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-3">
-            <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Pipeline Summary</p>
+          <Card className="space-y-3">
+            <p className="text-xs font-semibold text-fg-subtle uppercase tracking-wider">Pipeline Summary</p>
             <div>
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{money(totalDealValue)}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">Total pipeline value</p>
+              <p className="text-2xl font-bold text-success">{money(totalDealValue)}</p>
+              <p className="text-xs text-fg-subtle">Total pipeline value</p>
             </div>
             <div className="flex gap-4">
               <div>
-                <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{contact.deals?.length ?? 0}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">Total deals</p>
+                <p className="text-lg font-bold text-fg">{contact.deals?.length ?? 0}</p>
+                <p className="text-xs text-fg-subtle">Total deals</p>
               </div>
               <div>
-                <p className="text-lg font-bold text-brand-600 dark:text-brand-400">{openDeals.length}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">Open deals</p>
+                <p className="text-lg font-bold text-accent">{openDeals.length}</p>
+                <p className="text-xs text-fg-subtle">Open deals</p>
               </div>
             </div>
-          </div>
+          </Card>
 
           <ChurnRiskCard contactId={contact.id} />
         </div>
 
         <div className="lg:col-span-2 space-y-5">
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2"><TrendingUp size={15} /> Deals</p>
-              <Link to="/crm/deals" className="text-xs text-brand-600 dark:text-brand-400 hover:underline">View pipeline</Link>
-            </div>
+          <Card>
+            <CardHeader
+              title={<span className="flex items-center gap-2"><TrendingUp size={15} /> Deals</span>}
+              actions={<Link to="/crm/deals" className="text-xs text-accent hover:underline">View pipeline</Link>}
+              className="mb-4"
+            />
             {!contact.deals?.length ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No deals linked to this contact</p>
+              <p className="text-sm text-fg-subtle text-center py-4">No deals linked to this contact</p>
             ) : (
               <div className="space-y-2">
                 {contact.deals.map((deal: any) => (
-                  <div key={deal.id} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                  <div key={deal.id} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-card bg-surface-sunken hover:bg-surface-hover transition-colors">
                     <div>
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{deal.title}</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500">{deal.assignee?.name || 'Unassigned'}</p>
+                      <p className="text-sm font-medium text-fg">{deal.title}</p>
+                      <p className="text-xs text-fg-subtle">{deal.assignee?.name || 'Unassigned'}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      {deal.value > 0 && <span className="text-sm font-semibold text-green-600 dark:text-green-400">{money(Number(deal.value))}</span>}
+                      {deal.value > 0 && <span className="text-sm font-semibold text-success">{money(Number(deal.value))}</span>}
                       <Badge variant={DEAL_STAGE_COLOR[deal.stage] as any || 'gray'}>{deal.stage}</Badge>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Card>
 
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2"><Calendar size={15} /> Activity Timeline</p>
-              <Button size="sm" variant="secondary" icon={<Plus size={13} />} onClick={() => setActivityModal(true)}>Log Activity</Button>
-            </div>
+          <Card>
+            <CardHeader
+              title={<span className="flex items-center gap-2"><Calendar size={15} /> Activity Timeline</span>}
+              actions={<Button size="sm" variant="secondary" icon={<Plus size={13} />} onClick={() => setActivityModal(true)}>Log Activity</Button>}
+              className="mb-4"
+            />
             {!contact.activities?.length ? (
               <EmptyState icon={<Calendar size={20} />} title="No activities yet"
                 description="Log a call, email, or meeting to start tracking"
                 action={{ label: 'Add Activity', onClick: () => setActivityModal(true) }} />
             ) : (
               <div className="relative max-h-96 overflow-y-auto">
-                <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-100 dark:bg-gray-800" />
+                <div className="absolute left-4 top-0 bottom-0 w-px bg-surface-sunken" />
                 <div className="space-y-4">
                   {contact.activities.map((a: any) => (
                     <div key={a.id} className="flex gap-4 relative">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${
-                        a.status === 'DONE' ? 'bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400' : 'bg-brand-100 text-brand-600 dark:bg-brand-500/10 dark:text-brand-400'
+                        a.status === 'DONE' ? 'bg-success-soft text-success-fg' : 'bg-accent-soft text-accent-soft-fg'
                       }`}>
                         {ACTIVITY_ICON[a.type] || <Briefcase size={14} />}
                       </div>
                       <div className="flex-1 min-w-0 pb-2">
                         <div className="flex flex-wrap items-center justify-between gap-1">
-                          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{a.title}</p>
-                          <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                          <p className="text-sm font-medium text-fg">{a.title}</p>
+                          <span className="text-xs text-fg-subtle flex-shrink-0">
                             {a.dueAt ? dateTime(a.dueAt) : formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
                           </span>
                         </div>
-                        {a.body && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{a.body}</p>}
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{a.createdByUser?.name} · <span className="uppercase">{a.type}</span></p>
+                        {a.body && <p className="text-xs text-fg-muted mt-0.5 line-clamp-2">{a.body}</p>}
+                        <p className="text-xs text-fg-subtle mt-0.5">{a.createdByUser?.name} · <span className="uppercase">{a.type}</span></p>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-          </div>
+          </Card>
 
           <CustomFieldsDisplay entityType="CONTACT" entityId={contact.id} card />
 
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
+          <Card>
             <Comments entityType="CONTACT" entityId={contact.id} />
             <Attachments entityType="CONTACT" entityId={contact.id} />
-          </div>
+          </Card>
         </div>
       </div>
 

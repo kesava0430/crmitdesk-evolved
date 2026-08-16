@@ -1,19 +1,47 @@
-export * from './Badge';
-export * from './Button';
+/**
+ * Shared component barrel.
+ *
+ * Import from here (`import { Button, Card } from '../shared/components'`)
+ * rather than reaching into individual files — two pages previously imported
+ * via deep paths and so never saw the barrel's other exports.
+ */
+
+// ── Layout & page chrome ──────────────────────────────────────────────
+export * from './PageHeader';       // PageHeader, PageBody, Toolbar, SectionHeader
+export * from './Card';             // Card, CardHeader, CardSection, StatTile
 export * from './Modal';
-export * from './Spinner';
-export * from './EmptyState';
-export * from './PageHeader';
+export * from './Tabs';
+
+// ── Controls ──────────────────────────────────────────────────────────
+export * from './Button';
+export * from './IconButton';
+export * from './Field';            // Field, Label, Input, Textarea, Select, Checkbox, Toggle, FormGrid, FormActions
 export * from './SearchInput';
-export * from './SkeletonCard';
+export * from './SearchableSelect';
+export * from './RowActions';
+
+// ── Data display ──────────────────────────────────────────────────────
+export * from './DataTable';        // DataTable, Table, Th, Td, Column
+export * from './Badge';            // Badge, StatusBadge, humanise, *Variant maps
+export * from './Avatar';
+export * from './EmptyState';
+export * from './Alert';            // Alert, FormError
+
+// ── Feedback ──────────────────────────────────────────────────────────
+export * from './Spinner';          // Spinner, InlineSpinner
+export * from './SkeletonCard';     // SkeletonCard, SkeletonTable, SkeletonStats
+export * from './ToastContainer';
+export * from './toastStore';
+
+// ── Domain widgets ────────────────────────────────────────────────────
+export * from './ThemePicker';
 export * from './AITypewriter';
 export * from './AIConfidenceBadge';
 export * from './AISuggestionPill';
 export * from './AISmartSearch';
-export * from './ThemePicker';
-export * from './SearchableSelect';
-export * from './RowActions';
 export * from './CustomFieldsFormFields';
 export * from './CustomFieldsDisplay';
 export * from './RecordTemplatePicker';
 export * from './ScheduleReminderPanel';
+export * from './AccessDenied';
+export * from './ErrorBoundary';

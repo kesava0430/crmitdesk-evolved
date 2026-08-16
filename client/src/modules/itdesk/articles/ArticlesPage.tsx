@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { BookOpen, Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import { useArticles, useCreateArticle, useUpdateArticle, useDeleteArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
-import { PageHeader, Button, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect, RowActions } from '../../../shared/components';
+import { PageHeader, Button, Modal, Badge, EmptyState, Spinner, SearchInput, SearchableSelect, RowActions, Card, Field, Input, Textarea, Select } from '../../../shared/components';
 import { articleStatusVariant } from '../../../shared/components/Badge';
 import { formatDistanceToNow } from 'date-fns';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
@@ -15,26 +15,24 @@ function ArticleForm({ initial, categories, onSubmit, loading, aiPrefill }: any)
       <div className="form-section">
         <p className="form-section-title">Article Details</p>
         <div className="space-y-4">
-          <div>
-            <label className="form-label">Title <span className="req">*</span></label>
-            <input required className="ui-input" aria-label="Title" value={form.title} onChange={f('title')} placeholder="e.g. How to reset your password" />
-          </div>
+          <Field label="Title" required htmlFor="article-title">
+            <Input id="article-title" required aria-label="Title" value={form.title} onChange={f('title')} placeholder="e.g. How to reset your password" />
+          </Field>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="form-label">Category</label>
-<SearchableSelect ariaLabel="Category" value={form.categoryId} onChange={val => setForm((p: any) => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
-            </div>
-            <div>
-              <label className="form-label">Status</label>
-<SearchableSelect ariaLabel="Status" value={form.status} onChange={val => setForm((p: any) => ({ ...p, status: val }))} required options={['DRAFT','PUBLISHED','ARCHIVED'].map(s => ({ value: s, label: s }))} />
-            </div>
+            <Field label="Category">
+              <SearchableSelect ariaLabel="Category" value={form.categoryId} onChange={val => setForm((p: any) => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
+            </Field>
+            <Field label="Status">
+              <SearchableSelect ariaLabel="Status" value={form.status} onChange={val => setForm((p: any) => ({ ...p, status: val }))} required options={['DRAFT','PUBLISHED','ARCHIVED'].map(s => ({ value: s, label: s }))} />
+            </Field>
           </div>
         </div>
       </div>
       <div className="form-section">
         <p className="form-section-title">Content <span className="req">*</span></p>
-        <textarea required rows={10} className="ui-input font-mono text-xs" aria-label="Body" value={form.body} onChange={f('body')} placeholder="Write your article content here… (Markdown supported)" />
-        <p className="form-hint">Markdown formatting is supported</p>
+        <Field hint="Markdown formatting is supported">
+          <Textarea required rows={10} className="font-mono text-xs" aria-label="Body" value={form.body} onChange={f('body')} placeholder="Write your article content here… (Markdown supported)" />
+        </Field>
       </div>
       <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : 'Create Article'}</Button></div>
     </form>
@@ -47,9 +45,9 @@ function ArticleView({ article }: any) {
       <div className="flex items-center gap-2 flex-wrap">
         <Badge variant={articleStatusVariant[article.status]}>{article.status}</Badge>
         {article.category && <Badge variant="blue">{article.category.name}</Badge>}
-        <span className="text-xs text-gray-400 dark:text-gray-500">by {article.author?.name} · {formatDistanceToNow(new Date(article.createdAt), { addSuffix: true })}</span>
+        <span className="text-xs text-fg-subtle">by {article.author?.name} · {formatDistanceToNow(new Date(article.createdAt), { addSuffix: true })}</span>
       </div>
-      <div className="prose prose-sm dark:prose-invert max-w-none bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono text-xs leading-relaxed">
+      <div className="prose prose-sm dark:prose-invert max-w-none bg-surface-sunken border border-line-subtle rounded-card p-4 text-fg whitespace-pre-wrap font-mono text-xs leading-relaxed">
         {article.body}
       </div>
     </div>
@@ -90,10 +88,10 @@ export function ArticlesPage() {
         subtitle={`${filtered?.length ?? 0} articles`}
         actions={<>
           <SearchInput value={search} onChange={setSearch} placeholder="Search articles..." />
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ui-input focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <Select aria-label="Status filter" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="">All Statuses</option>
             {['DRAFT','PUBLISHED','ARCHIVED'].map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          </Select>
           <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>New Article</Button>
         </>}
       />
@@ -103,21 +101,21 @@ export function ArticlesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-3">
           {filtered?.map((a: any) => (
-            <div key={a.id} data-testid="article-card" className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 flex items-start justify-between hover:border-brand-200 dark:hover:border-brand-700 hover:shadow-sm transition-all">
+            <Card key={a.id} data-testid="article-card" padding="sm" className="flex items-start justify-between gap-3 hover:border-accent/40 transition-colors">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <Badge variant={articleStatusVariant[a.status]}>{a.status}</Badge>
                   {a.category && <Badge variant="blue">{a.category.name}</Badge>}
                 </div>
-                <h3 className="font-semibold text-gray-900 dark:text-white mb-0.5 truncate">{a.title}</h3>
-                <p className="text-xs text-gray-400 dark:text-gray-500">by {a.author?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}</p>
+                <h3 className="font-semibold text-fg mb-0.5 truncate">{a.title}</h3>
+                <p className="text-xs text-fg-subtle">by {a.author?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}</p>
               </div>
               <RowActions items={[
                 { label: 'View article', icon: <Eye size={14} />, onClick: () => setModal({ type: 'view', article: a }) },
                 { label: 'Edit article', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', article: a }) },
                 { label: 'Delete article', icon: <Trash2 size={14} />, onClick: () => del.mutate(a.id), variant: 'danger' },
               ]} />
-            </div>
+            </Card>
           ))}
         </div>
       )}

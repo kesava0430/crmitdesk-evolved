@@ -41,7 +41,7 @@ export function AITypewriter({ text, speed = 18, className = '', showIcon = true
           <span>AI Generated</span>
         </div>
       )}
-      <div className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+      <div className="whitespace-pre-wrap text-sm text-fg">
         {displayed}
         {!done && <span className="inline-block w-0.5 h-4 bg-indigo-500 animate-pulse ml-0.5 align-text-bottom" />}
       </div>

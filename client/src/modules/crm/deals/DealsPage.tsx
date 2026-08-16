@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, X } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
 import { useContacts, useAccounts, usePipelines, useAddStage, useUpdateStage, useRemoveStage, useReorderStages } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
 import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } from '../../../api/ai';
-import { PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel } from '../../../shared/components';
+import {
+  PageHeader, Button, Modal, Spinner, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay,
+  RecordTemplatePicker, ScheduleReminderPanel, Card, StatTile, Tabs, Alert, IconButton, Field, Input,
+  Label, FormGrid, FormActions, Avatar,
+} from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
@@ -45,53 +49,49 @@ function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubm
       <div className="form-section">
         <p className="form-section-title">{singular} Information</p>
         <div className="space-y-4">
-          <div>
-            <label className="form-label">{titleLabel} <span className="req">*</span></label>
-            <input aria-label={titleLabel} required className="ui-input" value={form.title} onChange={f('title')} placeholder="e.g. Enterprise License Q3" />
-          </div>
+          <Field label={titleLabel} required>
+            <Input aria-label={titleLabel} required value={form.title} onChange={f('title')} placeholder="e.g. Enterprise License Q3" />
+          </Field>
           <div className="grid grid-cols-2 gap-4">
+            <Field label={valueLabel}>
+              <Input aria-label={valueLabel} type="number" min="0" value={form.value} onChange={f('value')} placeholder="0" />
+            </Field>
+            <Field label="Probability (%)">
+              <Input type="number" min="0" max="100" value={form.probability} onChange={f('probability')} />
+            </Field>
             <div>
-              <label className="form-label">{valueLabel}</label>
-              <input aria-label={valueLabel} type="number" min="0" className="ui-input" value={form.value} onChange={f('value')} placeholder="0" />
-            </div>
-            <div>
-              <label className="form-label">Probability (%)</label>
-              <input type="number" min="0" max="100" className="ui-input" value={form.probability} onChange={f('probability')} />
-            </div>
-            <div>
-              <label className="form-label">{fieldLabel('deal', 'stage', 'Stage')}</label>
+              <Label>{fieldLabel('deal', 'stage', 'Stage')}</Label>
               <SearchableSelect ariaLabel={fieldLabel('deal', 'stage', 'Stage')} value={form.stage} onChange={val => setForm((p: any) => ({ ...p, stage: val }))} required options={(stages ?? []).map((s: string) => ({ value: s, label: s }))} />
             </div>
-            <div>
-              <label className="form-label">Expected Close</label>
-              <input type="date" className="ui-input" value={form.closeDate} onChange={f('closeDate')} />
-            </div>
+            <Field label="Expected Close">
+              <Input type="date" value={form.closeDate} onChange={f('closeDate')} />
+            </Field>
           </div>
         </div>
       </div>
       <div className="form-section">
         <p className="form-section-title">Assignment</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <FormGrid cols={2}>
           <div>
-            <label className="form-label">Contact</label>
+            <Label>Contact</Label>
             <SearchableSelect ariaLabel="Contact" value={form.contactId} onChange={val => setForm((p: any) => ({ ...p, contactId: val }))} options={(contacts ?? []).map((c: any) => ({ value: c.id, label: c.name }))} placeholder="— none —" />
           </div>
           <div>
-            <label className="form-label">Account</label>
+            <Label>Account</Label>
             <SearchableSelect ariaLabel="Account" value={form.accountId} onChange={val => setForm((p: any) => ({ ...p, accountId: val }))} options={(accounts ?? []).map((a: any) => ({ value: a.id, label: a.name }))} placeholder="— none —" />
           </div>
           <div className="sm:col-span-2">
-            <label className="form-label">Assigned To</label>
+            <Label>Assigned To</Label>
             <SearchableSelect ariaLabel="Assigned To" value={form.assignedTo} onChange={val => setForm((p: any) => ({ ...p, assignedTo: val }))} options={(users ?? []).map((u: any) => ({ value: u.id, label: u.name }))} placeholder="— select team member —" />
           </div>
-        </div>
+        </FormGrid>
       </div>
       <CustomFieldsFormFields
         entityType="DEAL"
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
-      <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button></div>
+      <FormActions><Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button></FormActions>
     </form>
   );
 }
@@ -100,32 +100,38 @@ function DealCard({ deal, onDelete, onSelect }: any) {
   const [dragging, setDragging] = useState(false);
   const { money } = useFormat();
   return (
-    <div
+    <Card
+      padding="sm"
       draggable
       onDragStart={e => { setDragging(true); e.dataTransfer.setData('dealId', deal.id); e.dataTransfer.setData('fromStage', deal.stage); }}
       onDragEnd={() => setDragging(false)}
-      className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-all group w-full ${dragging ? 'opacity-50' : ''}`}
+      className={`cursor-grab active:cursor-grabbing hover:shadow-ui-md transition-all group w-full ${dragging ? 'opacity-50' : ''}`}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p onClick={() => onSelect(deal)} className="font-medium text-gray-900 dark:text-white text-sm leading-snug hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer">{deal.title}</p>
-        <button onClick={() => onDelete(deal.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 transition-all flex-shrink-0">
-          <Trash2 size={12} />
-        </button>
+        <p onClick={() => onSelect(deal)} className="font-medium text-fg text-sm leading-snug hover:text-accent cursor-pointer">{deal.title}</p>
+        <IconButton
+          label="Delete deal"
+          size="xs"
+          tone="danger"
+          revealOnRowHover
+          icon={<Trash2 size={12} />}
+          onClick={() => onDelete(deal.id)}
+        />
       </div>
       {deal.value > 0 && (
-        <div className="flex items-center gap-1 text-green-600 dark:text-green-400 font-semibold text-sm mb-2">
+        <div className="flex items-center gap-1 text-success font-semibold text-sm mb-2">
           {money(deal.value)}
         </div>
       )}
       <div className="flex items-center justify-between">
-        {deal.contact && <span className="text-xs text-gray-400 dark:text-gray-500">{deal.contact.name}</span>}
-        <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{deal.probability}%</span>
+        {deal.contact && <span className="text-xs text-fg-subtle">{deal.contact.name}</span>}
+        <span className="text-xs text-fg-subtle ml-auto">{deal.probability}%</span>
       </div>
       {deal.assignee && <div className="mt-2 flex items-center gap-1">
-        <div className="w-5 h-5 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center justify-center text-xs font-bold">{deal.assignee.name[0]}</div>
-        <span className="text-xs text-gray-400 dark:text-gray-500">{deal.assignee.name}</span>
+        <Avatar name={deal.assignee.name} size="xs" tone="accent" />
+        <span className="text-xs text-fg-subtle">{deal.assignee.name}</span>
       </div>}
-    </div>
+    </Card>
   );
 }
 
@@ -141,19 +147,16 @@ function DealDetailPanel({ deal }: { deal: any }) {
     setTimeout(() => setCopied(null), 2000);
   }
 
-  const probColor = winProb.data
-    ? winProb.data.probability >= 70 ? 'text-green-600 dark:text-green-400' : winProb.data.probability >= 40 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
-    : '';
-  const probBg = winProb.data
-    ? winProb.data.probability >= 70 ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30' : winProb.data.probability >= 40 ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
-    : '';
+  const probTone = winProb.data
+    ? winProb.data.probability >= 70 ? 'success' : winProb.data.probability >= 40 ? 'warning' : 'danger'
+    : 'success';
 
   return (
     <div className="space-y-4">
       {/* Win Probability */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+      <div className="border-t border-line pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-fg flex items-center gap-1.5">
             <Activity size={14} className="text-brand-500" /> Win Probability
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => winProb.mutate(deal.id)} loading={winProb.isPending}>
@@ -161,31 +164,31 @@ function DealDetailPanel({ deal }: { deal: any }) {
           </Button>
         </div>
         {winProb.data && (
-          <div className={`border rounded-xl p-4 ${probBg}`}>
-            <p className={`text-4xl font-bold mb-3 ${probColor}`}>{winProb.data.probability}%</p>
+          <Alert tone={probTone} icon={null}>
+            <p className="text-4xl font-bold mb-3">{winProb.data.probability}%</p>
             {winProb.data.factors?.length > 0 && (
               <ul className="space-y-1 mb-3">
                 {winProb.data.factors.map((factor: string, i: number) => (
-                  <li key={i} className="text-xs text-gray-600 dark:text-gray-400 flex items-start gap-1.5">
-                    <span className="text-gray-400 dark:text-gray-500 mt-0.5">&#8226;</span>{factor}
+                  <li key={i} className="text-xs flex items-start gap-1.5">
+                    <span className="opacity-60 mt-0.5">&#8226;</span>{factor}
                   </li>
                 ))}
               </ul>
             )}
             {winProb.data.recommendation && (
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Recommendation</p>
-                <p className="text-xs text-gray-700 dark:text-gray-300">{winProb.data.recommendation}</p>
+              <div className="border-t border-line pt-2 mt-2">
+                <p className="text-xs font-semibold mb-1">Recommendation</p>
+                <p className="text-xs">{winProb.data.recommendation}</p>
               </div>
             )}
-          </div>
+          </Alert>
         )}
       </div>
 
       {/* Follow-up Email */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+      <div className="border-t border-line pt-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+          <p className="text-sm font-medium text-fg flex items-center gap-1.5">
             <Mail size={14} className="text-violet-500" /> Follow-up Email
           </p>
           <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => followUp.mutate(deal.id)} loading={followUp.isPending}>
@@ -194,39 +197,49 @@ function DealDetailPanel({ deal }: { deal: any }) {
         </div>
         {followUp.data && (
           <div className="space-y-2">
-            <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-              <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subject</span>
-                <button onClick={() => copy(followUp.data!.subject, 'subject')} className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                  {copied === 'subject' ? <><Check size={12} className="text-green-500" /> Copied</> : <><Copy size={12} /> Copy</>}
-                </button>
+            <Card padding="none" flat className="overflow-hidden">
+              <div className="bg-surface-sunken px-3 py-2 flex items-center justify-between border-b border-line-subtle">
+                <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Subject</span>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => copy(followUp.data!.subject, 'subject')}
+                  icon={copied === 'subject' ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+                >
+                  {copied === 'subject' ? 'Copied' : 'Copy'}
+                </Button>
               </div>
-              <p className="px-3 py-2 text-sm font-medium text-gray-800 dark:text-gray-200">{followUp.data.subject}</p>
-            </div>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-              <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email Body</span>
+              <p className="px-3 py-2 text-sm font-medium text-fg">{followUp.data.subject}</p>
+            </Card>
+            <Card padding="none" flat className="overflow-hidden">
+              <div className="bg-surface-sunken px-3 py-2 flex items-center justify-between border-b border-line-subtle">
+                <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Email Body</span>
                 <div className="flex items-center gap-2">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="xs"
                     onClick={() => toneCheck.mutate({ subject: followUp.data!.subject, body: followUp.data!.body })}
                     disabled={toneCheck.isPending}
-                    className="flex items-center gap-1 text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 disabled:opacity-40"
+                    icon={<Sparkles size={11} />}
                   >
-                    <Sparkles size={11} />
                     {toneCheck.isPending ? 'Checking...' : 'Tone Check'}
-                  </button>
-                  <button onClick={() => copy(followUp.data!.body, 'body')} className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                    {copied === 'body' ? <><Check size={12} className="text-green-500" /> Copied</> : <><Copy size={12} /> Copy</>}
-                  </button>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => copy(followUp.data!.body, 'body')}
+                    icon={copied === 'body' ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+                  >
+                    {copied === 'body' ? 'Copied' : 'Copy'}
+                  </Button>
                 </div>
               </div>
-              <pre className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">{followUp.data.body}</pre>
-            </div>
+              <pre className="px-3 py-2 text-sm text-fg whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">{followUp.data.body}</pre>
+            </Card>
             {toneCheck.data && (
-              <div className="bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/30 rounded-xl p-3 text-sm">
-                <p className="text-xs font-semibold text-violet-600 dark:text-violet-400 mb-1">Tone Analysis</p>
-                <p className="text-gray-700 dark:text-gray-300 text-xs leading-relaxed">{typeof toneCheck.data === 'string' ? toneCheck.data : JSON.stringify(toneCheck.data)}</p>
-              </div>
+              <Alert tone="accent" title="Tone Analysis">
+                <p className="text-xs leading-relaxed">{typeof toneCheck.data === 'string' ? toneCheck.data : JSON.stringify(toneCheck.data)}</p>
+              </Alert>
             )}
           </div>
         )}
@@ -247,33 +260,30 @@ function PipelineHealthModal({ open, onClose }: { open: boolean; onClose: () => 
         </div>
         {health.data && (
           <div className="space-y-4">
-            <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 rounded-xl p-4">
-              <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Summary</p>
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{health.data.summary}</p>
-            </div>
+            <Alert tone="info" title="Summary">
+              <p className="text-sm leading-relaxed">{health.data.summary}</p>
+            </Alert>
             {health.data.risks?.length > 0 && (
-              <div className="bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-xl p-4">
-                <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider mb-2">Risks</p>
+              <Alert tone="danger" title="Risks">
                 <ul className="space-y-1.5">
                   {health.data.risks.map((r: string, i: number) => (
-                    <li key={i} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-1.5">
-                      <span className="text-red-400 dark:text-red-500 mt-0.5 flex-shrink-0">&#8226;</span>{r}
+                    <li key={i} className="text-xs flex items-start gap-1.5">
+                      <span className="opacity-60 mt-0.5 flex-shrink-0">&#8226;</span>{r}
                     </li>
                   ))}
                 </ul>
-              </div>
+              </Alert>
             )}
             {health.data.opportunities?.length > 0 && (
-              <div className="bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/30 rounded-xl p-4">
-                <p className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider mb-2">Opportunities</p>
+              <Alert tone="success" title="Opportunities">
                 <ul className="space-y-1.5">
                   {health.data.opportunities.map((o: string, i: number) => (
-                    <li key={i} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-1.5">
-                      <span className="text-green-500 dark:text-green-400 mt-0.5 flex-shrink-0">&#8226;</span>{o}
+                    <li key={i} className="text-xs flex items-start gap-1.5">
+                      <span className="opacity-60 mt-0.5 flex-shrink-0">&#8226;</span>{o}
                     </li>
                   ))}
                 </ul>
-              </div>
+              </Alert>
             )}
           </div>
         )}
@@ -314,29 +324,51 @@ function StageRow({ pipelineId, stage, index, total, allLabels, onMoved }: any) 
   }
 
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-3">
+    <Card padding="sm" flat>
       <div className="flex items-center gap-2">
-        <div className="flex flex-col text-gray-300 dark:text-gray-600">
-          <button type="button" disabled={index === 0} onClick={() => move(-1)} className="hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20 leading-none text-xs">▲</button>
-          <button type="button" disabled={index === total - 1} onClick={() => move(1)} className="hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20 leading-none text-xs">▼</button>
+        <div className="flex flex-col">
+          <IconButton
+            label="Move stage up"
+            size="xs"
+            className="!h-4 !w-5"
+            icon={<ChevronUp size={12} />}
+            disabled={index === 0}
+            onClick={() => move(-1)}
+          />
+          <IconButton
+            label="Move stage down"
+            size="xs"
+            className="!h-4 !w-5"
+            icon={<ChevronDown size={12} />}
+            disabled={index === total - 1}
+            onClick={() => move(1)}
+          />
         </div>
-        <GripVertical size={14} className="text-gray-300 dark:text-gray-600" />
-        <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-7 h-7 rounded cursor-pointer border border-gray-200 dark:border-gray-700" />
-        <input className="ui-input flex-1" value={label} onChange={e => setLabel(e.target.value)} aria-label={`Stage name ${index + 1}`} />
-        <input type="number" min={0} max={100} className="ui-input w-20" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
-        <span className="text-xs text-gray-400 dark:text-gray-500">%</span>
+        <GripVertical size={14} className="text-fg-subtle" />
+        <Input type="color" aria-label={`Stage colour ${index + 1}`} value={color} onChange={e => setColor(e.target.value)} className="w-7 h-7 shrink-0 !p-0.5 cursor-pointer" />
+        <Input className="flex-1" value={label} onChange={e => setLabel(e.target.value)} aria-label={`Stage name ${index + 1}`} />
+        <Input type="number" min={0} max={100} className="w-20" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
+        <span className="text-xs text-fg-subtle">%</span>
         {dirty && <Button size="sm" onClick={save} loading={updateStage.isPending}>Save</Button>}
-        <button type="button" onClick={remove} className="p-1.5 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400"><Trash2 size={14} /></button>
+        <IconButton label="Remove stage" tone="danger" icon={<Trash2 size={14} />} onClick={remove} />
       </div>
       {blockedCount && (
-        <div className="mt-2 flex items-center gap-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+        <Alert
+          tone="warning"
+          icon={null}
+          className="mt-2 items-center"
+          onDismiss={() => setBlockedCount(null)}
+          actions={
+            <>
+              <SearchableSelect ariaLabel="Reassign deals to" value={reassignTo} onChange={setReassignTo} options={allLabels.filter((l: string) => l !== stage.label).map((l: string) => ({ value: l, label: l }))} placeholder="Move deals to…" />
+              <Button size="sm" variant="secondary" onClick={remove} disabled={!reassignTo}>Move &amp; Delete</Button>
+            </>
+          }
+        >
           <span className="flex-1">{blockedCount}</span>
-          <SearchableSelect ariaLabel="Reassign deals to" value={reassignTo} onChange={setReassignTo} options={allLabels.filter((l: string) => l !== stage.label).map((l: string) => ({ value: l, label: l }))} placeholder="Move deals to…" />
-          <Button size="sm" variant="secondary" onClick={remove} disabled={!reassignTo}>Move &amp; Delete</Button>
-          <button type="button" onClick={() => setBlockedCount(null)}><X size={14} className="text-amber-400 dark:text-amber-500" /></button>
-        </div>
+        </Alert>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -350,7 +382,7 @@ function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <Modal open={open} onClose={onClose} title="Manage Pipeline Stages" size="lg">
       <div className="space-y-3">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-fg-muted">
           Rename, recolor, reorder, or remove stages on <strong>{pipeline?.name}</strong>. Renaming moves every deal
           currently in that stage along with it. Combine with a workflow automation (trigger: "Deal Stage Changed")
           to notify someone or send an email whenever a deal enters a specific stage.
@@ -362,7 +394,7 @@ function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => 
           onSubmit={e => { e.preventDefault(); if (!newLabel.trim()) return; addStage.mutate({ pipelineId: pipeline.id, label: newLabel.trim() }, { onSuccess: () => setNewLabel('') }); }}
           className="flex items-center gap-2 pt-1"
         >
-          <input className="ui-input flex-1" placeholder="New stage name…" value={newLabel} onChange={e => setNewLabel(e.target.value)} aria-label="New stage name" />
+          <Input className="flex-1" placeholder="New stage name…" value={newLabel} onChange={e => setNewLabel(e.target.value)} aria-label="New stage name" />
           <Button type="submit" size="sm" icon={<Plus size={13} />} loading={addStage.isPending}>Add Stage</Button>
         </form>
       </div>
@@ -387,10 +419,10 @@ function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; page
         </Button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Stage</p><p className="font-medium">{deal.stage}</p></div>
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Value</p><p className="font-medium text-green-600 dark:text-green-400">{money(deal.value)}</p></div>
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Contact</p><p className="font-medium">{deal.contact?.name || '--'}</p></div>
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3"><p className="text-gray-400 dark:text-gray-500 text-xs mb-1">Assigned To</p><p className="font-medium">{deal.assignee?.name || '--'}</p></div>
+        <StatTile tone="sunken" label="Stage" value={deal.stage} />
+        <StatTile tone="sunken" label="Value" value={<span className="text-success">{money(deal.value)}</span>} />
+        <StatTile tone="sunken" label="Contact" value={deal.contact?.name || '--'} />
+        <StatTile tone="sunken" label="Assigned To" value={deal.assignee?.name || '--'} />
       </div>
       <DealDetailPanel deal={deal} />
       <CustomFieldsDisplay entityType="DEAL" entityId={deal.id} card />
@@ -454,10 +486,13 @@ export function DealsPage() {
         subtitle={pipelineData?.pipeline?.name}
         actions={
           <div className="flex flex-wrap gap-2">
-            <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <button onClick={() => setView('kanban')} className={`px-3 py-1.5 text-sm ${view === 'kanban' ? 'bg-brand-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Board</button>
-              <button onClick={() => setView('reports')} className={`px-3 py-1.5 text-sm ${view === 'reports' ? 'bg-brand-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>Reports</button>
-            </div>
+            <Tabs
+              aria-label="Pipeline view"
+              variant="segmented"
+              value={view}
+              onChange={setView}
+              items={[{ key: 'kanban', label: 'Board' }, { key: 'reports', label: 'Reports' }]}
+            />
             <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setPipelineHealthOpen(true)}>Pipeline Health</Button>
             <Button variant="secondary" icon={<Settings size={14} />} onClick={() => setStagesOpen(true)}>Manage Stages</Button>
             <Button icon={<Plus size={15} />} onClick={() => setModal(true)}>New {pageSingular}</Button>
@@ -479,14 +514,14 @@ export function DealsPage() {
                 onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bg-brand-50', 'dark:bg-brand-500/10'); }}
                 onDragLeave={e => e.currentTarget.classList.remove('bg-brand-50', 'dark:bg-brand-500/10')}
                 onDrop={e => handleDrop(e, stage)}>
-                <div className="rounded-t-xl px-3 py-2" style={{ backgroundColor: headerColor }}>
+                <div className="rounded-t-card px-3 py-2" style={{ backgroundColor: headerColor }}>
                   <div className="flex items-center justify-between flex-wrap gap-1">
                     <span className="text-white font-semibold text-sm">{stage}</span>
                     <span className="bg-white/20 text-white text-xs px-2 py-0.5 rounded-full">{deals.length}</span>
                   </div>
                 </div>
-                <div className="flex-1 rounded-b-xl border-2 border-t-0 p-2 space-y-2 min-h-32 transition-colors bg-gray-50 dark:bg-gray-800" style={{ borderColor: `${headerColor}33` }}>
-                  {deals.length === 0 && <p className="text-xs text-gray-300 dark:text-gray-600 text-center py-4">Drop deals here</p>}
+                <div className="flex-1 rounded-b-card border-2 border-t-0 p-2 space-y-2 min-h-32 transition-colors bg-surface-sunken" style={{ borderColor: `${headerColor}33` }}>
+                  {deals.length === 0 && <p className="text-xs text-fg-subtle text-center py-4">Drop deals here</p>}
                   {deals.map((deal: any) => (
                     <DealCard key={deal.id} deal={deal} onDelete={(id: string) => del.mutate(id)} onSelect={(d: any) => { setSelectedDealId(d.id); setSelectedDealTitle(d.title); }} />
                   ))}
@@ -497,25 +532,26 @@ export function DealsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
-            <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-4">Pipeline Funnel</h3>
+          <Card>
+            <h3 className="font-semibold text-fg mb-4">Pipeline Funnel</h3>
             {reports?.funnel?.map((s: any) => (
               <div key={s.stage} className="mb-3">
-                <div className="flex justify-between text-sm mb-1"><span className="text-gray-600 dark:text-gray-400">{s.stage}</span><span className="font-medium">{s.count} deals · {money(s.value)}</span></div>
-                <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-brand-500 rounded-full" style={{ width: `${Math.min(100, (s.count / (reports.funnel[0]?.count || 1)) * 100)}%` }} />
+                <div className="flex justify-between text-sm mb-1"><span className="text-fg-muted">{s.stage}</span><span className="font-medium">{s.count} deals · {money(s.value)}</span></div>
+                <div className="h-2 bg-surface-sunken rounded-full overflow-hidden">
+                  <div className="h-full bg-accent rounded-full" style={{ width: `${Math.min(100, (s.count / (reports.funnel[0]?.count || 1)) * 100)}%` }} />
                 </div>
               </div>
             ))}
-          </div>
+          </Card>
           <div className="space-y-4">
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-500/20 flex items-center justify-center text-green-600 dark:text-green-400"><TrendingUp size={22} /></div>
-              <div><p className="text-2xl font-bold text-gray-900 dark:text-white">{money(reports?.forecast)}</p><p className="text-sm text-gray-500 dark:text-gray-400">Weighted Forecast</p></div>
-            </div>
+            <StatTile
+              label="Weighted Forecast"
+              value={money(reports?.forecast)}
+              icon={<TrendingUp size={22} />}
+            />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-green-50 dark:bg-green-500/10 rounded-xl border border-green-100 dark:border-green-500/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-400">{reports?.won}</p><p className="text-sm text-green-600 dark:text-green-400">Won</p></div>
-              <div className="bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-100 dark:border-red-500/30 p-4 text-center"><p className="text-2xl font-bold text-red-700 dark:text-red-400">{reports?.lost}</p><p className="text-sm text-red-600 dark:text-red-400">Lost</p></div>
+              <StatTile label="Won" value={<span className="text-success">{reports?.won}</span>} />
+              <StatTile label="Lost" value={<span className="text-danger">{reports?.lost}</span>} />
             </div>
           </div>
         </div>

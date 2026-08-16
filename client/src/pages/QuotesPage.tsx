@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { RowActions, SearchableSelect } from '../shared/components';
+import {
+  RowActions, SearchableSelect, PageHeader, Button, IconButton, Modal, Card, Badge,
+  EmptyState, Field, Input, Spinner,
+} from '../shared/components';
 import { Attachments } from '../shared/components/Attachments';
 import { FileText, Plus, Pencil, Trash2, Send, CheckCircle, XCircle, LayoutTemplate, Link2, Check as CheckIcon } from 'lucide-react';
 import { useQuoteTemplates } from '../api/templates';
@@ -9,6 +12,9 @@ import { useFormat } from '../hooks/useFormat';
 
 interface QuoteLine { id?: string; description: string; quantity: number; unitPrice: number; }
 interface Quote {
+  // Was absent, so `q.notes` did not typecheck and openEdit sent '' instead —
+  // which the server happily wrote over the real note.
+  notes?: string | null;
   id: string;
   title: string;
   status: string;
@@ -19,12 +25,9 @@ interface Quote {
   lines: QuoteLine[];
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-  SENT: 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300',
-  ACCEPTED: 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-300',
-  REJECTED: 'bg-red-100 text-red-600 dark:bg-red-500/10 dark:text-red-400',
-};
+const STATUS_VARIANT = {
+  DRAFT: 'gray', SENT: 'blue', ACCEPTED: 'green', REJECTED: 'red',
+} as const;
 
 const EMPTY_LINE: QuoteLine = { description: '', quantity: 1, unitPrice: 0 };
 
@@ -81,7 +84,7 @@ export default function QuotesPage() {
     setForm({
       title: q.title,
       validUntil: q.validUntil ? q.validUntil.split('T')[0] : '',
-      notes: '',
+      notes: q.notes ?? '',
       lines: q.lines.map(l => ({ description: l.description, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
     });
     setShowModal(true);
@@ -102,201 +105,198 @@ export default function QuotesPage() {
 
   const lineTotal = form.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
 
-  if (isLoading) return <div className="p-8 text-gray-500 dark:text-gray-400">Loading…</div>;
+  if (isLoading) return <Spinner label="Loading…" />;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <FileText size={24} className="text-brand-600" />
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Quotes & Proposals</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Create and manage sales quotes</p>
-          </div>
-        </div>
-        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
-          <Plus size={16} /> New Quote
-        </button>
-      </div>
+      <PageHeader
+        title="Quotes & Proposals"
+        subtitle="Create and manage sales quotes"
+        actions={<Button icon={<Plus size={16} />} onClick={openCreate}>New Quote</Button>}
+      />
 
       <div className="grid grid-cols-1 gap-4">
         {quotes.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-xl py-16 text-center text-gray-400 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-500">
-            <FileText size={40} className="mx-auto mb-3 opacity-30" />
-            <p>No quotes yet. Create your first proposal.</p>
-          </div>
+          <EmptyState
+            icon={<FileText size={24} />}
+            title="No quotes yet"
+            description="Create your first proposal."
+            action={{ label: 'New Quote', onClick: openCreate }}
+          />
         ) : (
           quotes.map(q => (
-            <div key={q.id} data-testid="quote-card" className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow dark:bg-gray-900 dark:border-gray-800">
+            <Card key={q.id} data-testid="quote-card" className="hover:shadow-ui-md transition-shadow">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">{q.title}</h3>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[q.status] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>
+                    <h3 className="font-semibold text-fg">{q.title}</h3>
+                    <Badge variant={STATUS_VARIANT[q.status as keyof typeof STATUS_VARIANT] ?? 'gray'}>
                       {q.status}
-                    </span>
+                    </Badge>
                   </div>
-                  {q.deal && <p className="text-xs text-gray-500 dark:text-gray-400">Deal: {q.deal.title}</p>}
-                  <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">{date(q.createdAt)}</p>
+                  {q.deal && <p className="text-xs text-fg-muted">Deal: {q.deal.title}</p>}
+                  <p className="text-xs text-fg-subtle mt-0.5">{date(q.createdAt)}</p>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-1 text-xl font-bold text-gray-900 dark:text-white">
+                  <div className="flex items-center gap-1 text-xl font-bold text-fg">
                     {money(q.lines?.reduce((s, l) => s + Number(l.quantity) * Number(l.unitPrice), 0) ?? 0)}
                   </div>
                   {q.validUntil && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500">Valid until {date(q.validUntil)}</p>
+                    <p className="text-xs text-fg-subtle">Valid until {date(q.validUntil)}</p>
                   )}
                 </div>
               </div>
 
               {/* Line preview */}
               {q.lines?.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <div className="mt-3 pt-3 border-t border-line-subtle">
                   <div className="space-y-1">
                     {q.lines.slice(0, 3).map((l, i) => (
-                      <div key={i} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                      <div key={i} className="flex justify-between text-xs text-fg-muted">
                         <span>{l.description} × {Number(l.quantity)}</span>
                         <span>{money(Number(l.quantity) * Number(l.unitPrice))}</span>
                       </div>
                     ))}
-                    {q.lines.length > 3 && <p className="text-xs text-gray-400 dark:text-gray-500">+{q.lines.length - 3} more items</p>}
+                    {q.lines.length > 3 && <p className="text-xs text-fg-subtle">+{q.lines.length - 3} more items</p>}
                   </div>
                 </div>
               )}
 
               <div className="flex items-center gap-2 mt-4">
                 {q.status === 'DRAFT' && (
-                  <button onClick={() => changeStatus.mutate({ id: q.id, status: 'SENT' })}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20">
-                    <Send size={12} /> Send
-                  </button>
+                  <Button size="xs" variant="subtle" icon={<Send size={12} />}
+                    onClick={() => changeStatus.mutate({ id: q.id, status: 'SENT' })}>
+                    Send
+                  </Button>
                 )}
                 {q.status === 'SENT' && (
                   <>
-                    <button onClick={() => changeStatus.mutate({ id: q.id, status: 'ACCEPTED' })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 dark:bg-green-500/10 dark:text-green-300 dark:hover:bg-green-500/20">
-                      <CheckCircle size={12} /> Accept
-                    </button>
-                    <button onClick={() => changeStatus.mutate({ id: q.id, status: 'REJECTED' })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-100 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
-                      <XCircle size={12} /> Reject
-                    </button>
+                    <Button size="xs" variant="subtle" icon={<CheckCircle size={12} />}
+                      onClick={() => changeStatus.mutate({ id: q.id, status: 'ACCEPTED' })}>
+                      Accept
+                    </Button>
+                    <Button size="xs" variant="danger" icon={<XCircle size={12} />}
+                      onClick={() => changeStatus.mutate({ id: q.id, status: 'REJECTED' })}>
+                      Reject
+                    </Button>
                   </>
                 )}
                 {(q.status === 'SENT' || q.status === 'ACCEPTED') && (
-                  <button onClick={() => copyShareLink(q.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">
-                    {copiedId === q.id ? <><CheckIcon size={12} /> Copied</> : <><Link2 size={12} /> Copy customer link</>}
-                  </button>
+                  <Button size="xs" variant="secondary"
+                    icon={copiedId === q.id ? <CheckIcon size={12} /> : <Link2 size={12} />}
+                    onClick={() => copyShareLink(q.id)}>
+                    {copiedId === q.id ? 'Copied' : 'Copy customer link'}
+                  </Button>
                 )}
                 <RowActions items={[
                   { label: 'Edit quote', icon: <Pencil size={14} />, onClick: () => openEdit(q), hidden: q.status !== 'DRAFT' },
                   { label: 'Delete quote', icon: <Trash2 size={14} />, onClick: () => { if (confirm('Delete this quote?')) remove.mutate(q.id); }, variant: 'danger' },
                 ]} />
               </div>
-            </div>
+            </Card>
           ))
         )}
       </div>
 
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div role="dialog" aria-modal="true" className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 dark:bg-gray-900">
-            <h2 className="text-xl font-bold mb-5 text-gray-900 dark:text-white">{editing ? 'Edit Quote' : 'New Quote'}</h2>
+      <Modal
+        open={showModal}
+        onClose={closeModal}
+        title={editing ? 'Edit Quote' : 'New Quote'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeModal} className="flex-1">Cancel</Button>
+            <Button
+              className="flex-1"
+              disabled={!form.title || form.lines.length === 0}
+              loading={save.isPending}
+              onClick={() => save.mutate(form)}
+            >
+              {save.isPending ? 'Saving…' : editing ? 'Save Changes' : 'Create Quote'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {!editing && quoteTemplates && quoteTemplates.length > 0 && (
+            <div className="form-section">
+              <p className="form-section-title flex items-center gap-1.5"><LayoutTemplate size={13} /> Start from a template</p>
+              <SearchableSelect
+                ariaLabel="Template"
+                value=""
+                onChange={val => {
+                  const t = quoteTemplates.find(t => t.id === val);
+                  if (t) setForm(f => ({ ...f, lines: t.lines.map(l => ({ description: l.description, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })) }));
+                }}
+                options={quoteTemplates.map(t => ({ value: t.id, label: t.name }))}
+                placeholder="— none, start blank —"
+              />
+            </div>
+          )}
+          <div className="form-section">
+            <p className="form-section-title">Quote Details</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Title" required>
+                <Input aria-label="Title" placeholder="e.g. Proposal for Acme Corp"
+                  value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+              </Field>
+              <Field label="Valid Until">
+                <Input type="date"
+                  value={form.validUntil} onChange={e => setForm(f => ({ ...f, validUntil: e.target.value }))} />
+              </Field>
+            </div>
+          </div>
 
-            <div className="space-y-3">
-              {!editing && quoteTemplates && quoteTemplates.length > 0 && (
-                <div className="form-section">
-                  <p className="form-section-title flex items-center gap-1.5"><LayoutTemplate size={13} /> Start from a template</p>
-                  <SearchableSelect
-                    ariaLabel="Template"
-                    value=""
-                    onChange={val => {
-                      const t = quoteTemplates.find(t => t.id === val);
-                      if (t) setForm(f => ({ ...f, lines: t.lines.map(l => ({ description: l.description, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })) }));
-                    }}
-                    options={quoteTemplates.map(t => ({ value: t.id, label: t.name }))}
-                    placeholder="— none, start blank —"
+          {/* Line items */}
+          <div className="form-section">
+            <p className="form-section-title">Line Items</p>
+            <div className="space-y-2">
+              <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-fg-muted uppercase px-1">
+                <div className="col-span-6">Description</div>
+                <div className="col-span-2">Qty</div>
+                <div className="col-span-3">Unit Price</div>
+                <div className="col-span-1"></div>
+              </div>
+              {form.lines.map((line, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2">
+                  <Input inputSize="sm" className="col-span-6"
+                    aria-label="Description" placeholder="Service description"
+                    value={line.description}
+                    onChange={e => updateLine(i, 'description', e.target.value)} />
+                  <Input inputSize="sm" type="number" min="1" aria-label="Qty" className="col-span-2 text-center"
+                    value={line.quantity}
+                    onChange={e => updateLine(i, 'quantity', Number(e.target.value))} />
+                  <Input inputSize="sm" type="number" min="0" step="0.01" className="col-span-3"
+                    aria-label="Price" placeholder="0.00"
+                    value={line.unitPrice}
+                    onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} />
+                  <IconButton
+                    label="Remove line"
+                    tone="danger"
+                    className="col-span-1 disabled:!opacity-0"
+                    icon={<Trash2 size={14} />}
+                    disabled={form.lines.length === 1}
+                    onClick={() => removeLine(i)}
                   />
                 </div>
-              )}
-              <div className="form-section">
-                <p className="form-section-title">Quote Details</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="form-label">Title <span className="req">*</span></label>
-                    <input className="ui-input" aria-label="Title" placeholder="e.g. Proposal for Acme Corp"
-                      value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="form-label">Valid Until</label>
-                    <input type="date" className="ui-input"
-                      value={form.validUntil} onChange={e => setForm(f => ({ ...f, validUntil: e.target.value }))} />
-                  </div>
-                </div>
-              </div>
+              ))}
+              <Button variant="ghost" size="sm" icon={<Plus size={14} />} onClick={addLine} className="mt-1">
+                Add line
+              </Button>
+            </div>
+          </div>
 
-              {/* Line items */}
-              <div className="form-section">
-                <p className="form-section-title">Line Items</p>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase px-1 dark:text-gray-400">
-                    <div className="col-span-6">Description</div>
-                    <div className="col-span-2">Qty</div>
-                    <div className="col-span-3">Unit Price</div>
-                    <div className="col-span-1"></div>
-                  </div>
-                  {form.lines.map((line, i) => (
-                    <div key={i} className="grid grid-cols-12 gap-2">
-                      <input className="col-span-6 border border-gray-200 rounded-lg px-2 py-1.5 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
-                        aria-label="Description" placeholder="Service description"
-                        value={line.description}
-                        onChange={e => updateLine(i, 'description', e.target.value)} />
-                      <input type="number" min="1" aria-label="Qty" className="col-span-2 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
-                        value={line.quantity}
-                        onChange={e => updateLine(i, 'quantity', Number(e.target.value))} />
-                      <input type="number" min="0" step="0.01" className="col-span-3 border border-gray-200 rounded-lg px-2 py-1.5 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
-                        aria-label="Price" placeholder="0.00"
-                        value={line.unitPrice}
-                        onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} />
-                      <button onClick={() => removeLine(i)} disabled={form.lines.length === 1}
-                        className="col-span-1 p-1 text-gray-300 hover:text-red-500 disabled:opacity-0 dark:text-gray-600 dark:hover:text-red-400">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  <button onClick={addLine} className="text-sm text-brand-600 hover:underline flex items-center gap-1 mt-1">
-                    <Plus size={14} /> Add line
-                  </button>
-                </div>
-              </div>
+          {editing && <Attachments entityType="QUOTE" entityId={editing.id} />}
 
-              </div>
-
-              {editing && <Attachments entityType="QUOTE" entityId={editing.id} />}
-
-              {/* Total */}
-              <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
-                <div className="text-right">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Total: </span>
-                  <span className="text-lg font-bold text-gray-900 dark:text-white">{money(lineTotal)}</span>
-                </div>
-              </div>
-
-            <div className="flex gap-3 mt-5">
-              <button onClick={closeModal} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">Cancel</button>
-              <button
-                disabled={!form.title || form.lines.length === 0 || save.isPending}
-                onClick={() => save.mutate(form)}
-                className="flex-1 bg-brand-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-              >
-                {save.isPending ? 'Saving…' : editing ? 'Save Changes' : 'Create Quote'}
-              </button>
+          {/* Total */}
+          <div className="flex justify-end pt-2 border-t border-line-subtle">
+            <div className="text-right">
+              <span className="text-sm text-fg-muted">Total: </span>
+              <span className="text-lg font-bold text-fg">{money(lineTotal)}</span>
             </div>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

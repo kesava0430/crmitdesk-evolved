@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { Building2, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Building2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { Alert, Button, Card, EmptyState, Field, Input, Spinner } from '../shared/components';
 
 type Status = 'validating' | 'ready' | 'invalid' | 'success';
 
@@ -62,97 +63,82 @@ export function AcceptInvitePage() {
     }
   }
 
-  const inp = 'ui-input';
-  const lbl = 'form-label';
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-50 to-blue-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <Building2 className="text-brand-600" size={28} />
-          <h1 className="text-2xl font-bold text-gray-900">CRM & IT Desk</h1>
+    <div className="min-h-screen bg-canvas flex items-center justify-center p-6">
+      <Card padding="lg" className="w-full max-w-md">
+        <div className="flex items-center justify-center gap-2.5 mb-7">
+          <Building2 className="text-accent" size={26} />
+          <h1 className="text-xl font-semibold text-fg tracking-tight">CRM &amp; IT Desk</h1>
         </div>
 
-        {status === 'validating' && (
-          <div className="flex flex-col items-center gap-3 py-8 text-gray-500">
-            <Loader2 size={28} className="animate-spin text-brand-500" />
-            <p className="text-sm">Validating your invite...</p>
-          </div>
-        )}
+        {status === 'validating' && <Spinner label="Validating your invite..." compact />}
 
         {status === 'invalid' && (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <AlertCircle size={36} className="text-red-400" />
-            <h2 className="font-semibold text-gray-900">Invalid or expired invite</h2>
-            <p className="text-sm text-gray-500">This invite link is no longer valid. Ask your admin to send a new one.</p>
-            <button
-              onClick={() => navigate('/login')}
-              className="mt-2 text-sm text-brand-600 hover:underline font-medium"
-            >
-              Back to sign in
-            </button>
-          </div>
+          <EmptyState
+            compact
+            icon={<AlertCircle />}
+            title="Invalid or expired invite"
+            description="This invite link is no longer valid. Ask your admin to send a new one."
+            action={{ label: 'Back to sign in', onClick: () => navigate('/login') }}
+          />
         )}
 
         {status === 'success' && (
           <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <CheckCircle size={36} className="text-green-500" />
-            <h2 className="font-semibold text-gray-900">Account created!</h2>
-            <p className="text-sm text-gray-500">Redirecting you to sign in...</p>
+            <span className="w-12 h-12 rounded-full bg-success-soft text-success flex items-center justify-center">
+              <CheckCircle size={26} />
+            </span>
+            <h2 className="font-semibold text-fg tracking-tight">Account created!</h2>
+            <p className="text-[13px] text-fg-muted leading-relaxed">Redirecting you to sign in...</p>
           </div>
         )}
 
         {status === 'ready' && (
           <>
             <div className="mb-6 text-center">
-              <h2 className="text-lg font-semibold text-gray-900">You've been invited</h2>
+              <h2 className="text-lg font-semibold text-fg tracking-tight">You've been invited</h2>
               {inviteInfo?.orgName && (
-                <p className="text-sm text-gray-500 mt-1">
-                  Join <span className="font-medium text-gray-700">{inviteInfo.orgName}</span>
+                <p className="text-[13px] text-fg-muted mt-1">
+                  Join <span className="font-medium text-fg">{inviteInfo.orgName}</span>
                 </p>
               )}
-              <p className="text-sm text-brand-600 font-medium mt-1">{inviteInfo?.email}</p>
+              <p className="text-[13px] text-accent font-medium mt-1">{inviteInfo?.email}</p>
             </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-4">{error}</div>
-            )}
+            {error && <Alert tone="danger" className="mb-4">{error}</Alert>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className={lbl}>Your Name <span className="text-red-500">*</span></label>
-                <input
+              <Field label="Your Name" required htmlFor="invite-name">
+                <Input
+                  id="invite-name"
                   type="text" required minLength={2} value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className={inp} placeholder="Jane Smith"
+                  placeholder="Jane Smith" autoComplete="name"
                 />
-              </div>
-              <div>
-                <label className={lbl}>Password <span className="text-red-500">*</span></label>
-                <input
+              </Field>
+              <Field label="Password" required htmlFor="invite-password">
+                <Input
+                  id="invite-password"
                   type="password" required minLength={8} value={form.password}
                   onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  className={inp} placeholder="Min 8 characters"
+                  placeholder="Min 8 characters" autoComplete="new-password"
                 />
-              </div>
-              <div>
-                <label className={lbl}>Confirm Password <span className="text-red-500">*</span></label>
-                <input
+              </Field>
+              <Field label="Confirm Password" required htmlFor="invite-confirm">
+                <Input
+                  id="invite-confirm"
                   type="password" required value={form.confirmPassword}
                   onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))}
-                  className={inp} placeholder="••••••••"
+                  placeholder="••••••••" autoComplete="new-password"
                 />
-              </div>
-              <button
-                type="submit" disabled={loading}
-                className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
-              >
+              </Field>
+              <Button type="submit" block loading={loading} className="mt-1">
                 {loading ? 'Creating account...' : 'Set Up Account'}
-              </button>
+              </Button>
             </form>
           </>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

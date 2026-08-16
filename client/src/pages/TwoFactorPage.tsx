@@ -1,11 +1,24 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { Shield, ShieldCheck, ShieldOff, Copy, CheckCircle, AlertCircle } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldOff, Copy, CheckCircle } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useFormat } from '../hooks/useFormat';
+import {
+  Alert, Button, Card, FormError, IconButton, Input, Modal, Spinner,
+} from '../shared/components';
 
 interface TotpStatus { enabled: boolean; setupAt: string | null; }
 interface SetupData { secret: string; uri: string; }
+
+/** The numbered step marker used through the setup flow. */
+function StepDot({ n }: { n: number }) {
+  return (
+    <span className="w-6 h-6 shrink-0 bg-accent text-accent-fg rounded-full flex items-center justify-center text-[11px] font-bold">
+      {n}
+    </span>
+  );
+}
 
 export default function TwoFactorPage() {
   const { date } = useFormat();
@@ -57,176 +70,212 @@ export default function TwoFactorPage() {
     setTimeout(() => setCopied(null), 2000);
   }
 
-  if (isLoading) return <div className="p-8 text-gray-500">Loading…</div>;
+  function closeDisable() {
+    setShowDisable(false);
+    setError(null);
+  }
+
+  if (isLoading) return <Spinner />;
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="p-6 max-w-2xl mx-auto space-y-6">
+      <div className="flex items-center gap-3">
         {status?.enabled ? (
-          <ShieldCheck size={24} className="text-green-600" />
+          <ShieldCheck size={24} className="text-success" />
         ) : (
-          <Shield size={24} className="text-brand-600" />
+          <Shield size={24} className="text-accent" />
         )}
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Two-Factor Authentication</h1>
-          <p className="text-sm text-gray-500">Protect your account with an authenticator app</p>
+          <h1 className="text-[20px] font-semibold text-fg leading-tight tracking-tight">
+            Two-Factor Authentication
+          </h1>
+          <p className="text-[13px] text-fg-muted mt-0.5">Protect your account with an authenticator app</p>
         </div>
       </div>
 
       {/* Status card */}
-      <div className={`rounded-xl border p-5 mb-6 ${status?.enabled ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {status?.enabled ? (
-              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                <ShieldCheck size={20} className="text-green-600" />
-              </div>
-            ) : (
-              <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                <ShieldOff size={20} className="text-gray-400" />
-              </div>
-            )}
-            <div>
-              <p className="font-semibold text-gray-900">2FA is {status?.enabled ? 'enabled' : 'disabled'}</p>
-              {status?.enabled && status.setupAt && (
-                <p className="text-xs text-green-600">Enabled {date(status.setupAt)}</p>
-              )}
-              {!status?.enabled && (
-                <p className="text-sm text-gray-500">Your account is not protected with 2FA</p>
-              )}
-            </div>
-          </div>
-          {status?.enabled ? (
-            <button onClick={() => { setShowDisable(true); setError(null); }}
-              className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50">
+      <Alert
+        tone={status?.enabled ? 'success' : 'neutral'}
+        icon={status?.enabled ? <ShieldCheck size={17} /> : <ShieldOff size={17} />}
+        title={`2FA is ${status?.enabled ? 'enabled' : 'disabled'}`}
+        actions={
+          status?.enabled ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setShowDisable(true); setError(null); }}
+            >
               Disable 2FA
-            </button>
+            </Button>
           ) : (
-            <button onClick={() => setup.mutate()}
+            <Button
+              size="sm"
+              loading={setup.isPending}
               disabled={setup.isPending || step !== 'idle'}
-              className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
+              onClick={() => setup.mutate()}
+            >
               {setup.isPending ? 'Setting up…' : 'Enable 2FA'}
-            </button>
-          )}
-        </div>
-      </div>
+            </Button>
+          )
+        }
+      >
+        {status?.enabled
+          ? (status.setupAt ? `Enabled ${date(status.setupAt)}` : null)
+          : 'Your account is not protected with 2FA'}
+      </Alert>
 
       {/* Setup flow */}
       {step === 'setup' && setupData && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-5">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-brand-600 rounded-full flex items-center justify-center text-white text-xs font-bold">1</div>
-            <p className="font-medium text-gray-800">Scan with your authenticator app</p>
+        <Card padding="lg" className="space-y-5">
+          <div className="flex items-center gap-2.5">
+            <StepDot n={1} />
+            <p className="text-[13.5px] font-medium text-fg">Scan with your authenticator app</p>
           </div>
 
-          {/* QR code via URL - use a QR code service */}
+          {/* Rendered locally, on purpose.
+              This previously pointed at https://api.qrserver.com with the full
+              otpauth:// URI in the query string — which handed a third party
+              the raw TOTP shared secret, the account email and the issuer, in a
+              URL that lands in their access logs. Anyone holding that secret can
+              mint valid 2FA codes forever, so it defeats the point of enabling
+              2FA at all. It also meant the QR silently failed to render on an
+              air-gapped or egress-restricted deployment.
+              qrcode.react does the encoding in the browser; the secret never
+              leaves the device. */}
           <div className="flex justify-center">
-            <div className="bg-white border-2 border-gray-200 rounded-xl p-3">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setupData.uri)}`}
-                alt="QR Code"
-                className="w-48 h-48"
+            {/* Deliberately white in every theme — a QR code needs a light quiet zone to scan. */}
+            <div className="bg-white border border-line rounded-card p-3 shadow-ui-sm">
+              <QRCodeSVG
+                value={setupData.uri}
+                size={192}
+                level="M"
+                marginSize={0}
+                bgColor="#ffffff"
+                fgColor="#0f172a"
+                title="Two-factor authentication setup QR code"
               />
             </div>
           </div>
 
           <div>
-            <p className="text-sm text-gray-500 mb-2">Or enter the code manually:</p>
-            <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-              <code className="flex-1 text-sm font-mono text-gray-800 tracking-widest">{setupData.secret}</code>
-              <button onClick={() => copyText(setupData.secret, 'secret')}
-                className="p-1 hover:bg-gray-200 rounded">
-                {copied === 'secret' ? <CheckCircle size={14} className="text-green-600" /> : <Copy size={14} className="text-gray-400" />}
-              </button>
+            <p className="text-[13px] text-fg-muted mb-2">Or enter the code manually:</p>
+            <div className="flex items-center gap-2 bg-surface-sunken border border-line-subtle rounded-card px-3 py-2">
+              <code className="flex-1 text-[13px] font-mono text-fg tracking-widest break-all">
+                {setupData.secret}
+              </code>
+              <IconButton
+                label={copied === 'secret' ? 'Copied' : 'Copy secret'}
+                icon={copied === 'secret'
+                  ? <CheckCircle size={14} className="text-success" />
+                  : <Copy size={14} />}
+                onClick={() => copyText(setupData.secret, 'secret')}
+              />
             </div>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-6 h-6 bg-brand-600 rounded-full flex items-center justify-center text-white text-xs font-bold">2</div>
-              <p className="font-medium text-gray-800">Enter the 6-digit code</p>
+          <div className="border-t border-line-subtle pt-5">
+            <div className="flex items-center gap-2.5 mb-3">
+              <StepDot n={2} />
+              <p className="text-[13.5px] font-medium text-fg">Enter the 6-digit code</p>
             </div>
-            <input
-              className="ui-input text-center text-2xl font-mono tracking-[0.5em]"
+            <Input
+              className="text-center text-2xl font-mono tracking-[0.5em]"
               placeholder="000000"
               maxLength={6}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              invalid={!!error}
               value={token}
               onChange={e => setToken(e.target.value.replace(/\D/g, ''))}
             />
-            {error && (
-              <div className="flex items-center gap-1.5 mt-2 text-sm text-red-600">
-                <AlertCircle size={13} /> {error}
-              </div>
-            )}
-            <button
+            {error && <FormError className="mt-2">{error}</FormError>}
+            <Button
+              className="mt-3"
+              block
+              loading={enable.isPending}
               disabled={token.length !== 6 || enable.isPending}
               onClick={() => enable.mutate(token)}
-              className="w-full mt-3 bg-brand-600 text-white rounded-lg py-2.5 font-medium text-sm hover:bg-brand-700 disabled:opacity-50"
             >
               {enable.isPending ? 'Verifying…' : 'Verify & Enable'}
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Backup codes */}
       {step === 'backup' && backupCodes.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <CheckCircle size={20} className="text-green-600" />
-            <h3 className="font-semibold text-gray-900">2FA Enabled! Save your backup codes</h3>
+        <Card padding="lg">
+          <div className="flex items-center gap-2 mb-3">
+            <CheckCircle size={19} className="text-success shrink-0" />
+            <h3 className="text-[14px] font-semibold text-fg tracking-tight">
+              2FA Enabled! Save your backup codes
+            </h3>
           </div>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-[13px] text-fg-muted leading-relaxed mb-4">
             Store these codes somewhere safe. Each can be used once if you lose access to your authenticator.
           </p>
           <div className="grid grid-cols-2 gap-2 mb-4">
             {backupCodes.map((code, i) => (
-              <div key={i} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-mono text-sm text-center text-gray-800">
+              <div
+                key={i}
+                className="bg-surface-sunken border border-line-subtle rounded-card px-3 py-2 font-mono text-[13px] text-center text-fg"
+              >
                 {code}
               </div>
             ))}
           </div>
-          <button
-            onClick={() => copyText(backupCodes.join('\n'), 'backup')}
-            className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-lg py-2 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            {copied === 'backup' ? <CheckCircle size={14} className="text-green-600" /> : <Copy size={14} />}
-            {copied === 'backup' ? 'Copied!' : 'Copy all codes'}
-          </button>
-          <button onClick={() => setStep('idle')} className="w-full mt-2 text-sm text-brand-600 hover:underline">
-            Done
-          </button>
-        </div>
+          <div className="space-y-2">
+            <Button
+              variant="secondary"
+              block
+              icon={copied === 'backup'
+                ? <CheckCircle size={14} className="text-success" />
+                : <Copy size={14} />}
+              onClick={() => copyText(backupCodes.join('\n'), 'backup')}
+            >
+              {copied === 'backup' ? 'Copied!' : 'Copy all codes'}
+            </Button>
+            <Button variant="ghost" block onClick={() => setStep('idle')}>
+              Done
+            </Button>
+          </div>
+        </Card>
       )}
 
       {/* Disable modal */}
-      {showDisable && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-lg font-bold mb-2">Disable 2FA</h3>
-            <p className="text-sm text-gray-500 mb-4">Enter your authenticator code to confirm.</p>
-            <input
-              className="ui-input text-center text-2xl font-mono tracking-[0.5em] mb-2"
-              placeholder="000000"
-              maxLength={6}
-              value={disableToken}
-              onChange={e => setDisableToken(e.target.value.replace(/\D/g, ''))}
-            />
-            {error && <p className="text-sm text-red-500 mb-2">{error}</p>}
-            <div className="flex gap-3">
-              <button onClick={() => { setShowDisable(false); setError(null); }}
-                className="flex-1 border border-gray-200 rounded-lg py-2 text-sm text-gray-600">Cancel</button>
-              <button
-                disabled={disableToken.length !== 6 || disable.isPending}
-                onClick={() => disable.mutate(disableToken)}
-                className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-              >
-                {disable.isPending ? 'Disabling…' : 'Disable'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={showDisable}
+        onClose={closeDisable}
+        title="Disable 2FA"
+        subtitle="Enter your authenticator code to confirm."
+        icon={<ShieldOff size={17} />}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeDisable}>Cancel</Button>
+            <Button
+              variant="danger"
+              loading={disable.isPending}
+              disabled={disableToken.length !== 6 || disable.isPending}
+              onClick={() => disable.mutate(disableToken)}
+            >
+              {disable.isPending ? 'Disabling…' : 'Disable'}
+            </Button>
+          </>
+        }
+      >
+        <Input
+          className="text-center text-2xl font-mono tracking-[0.5em]"
+          placeholder="000000"
+          maxLength={6}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          invalid={!!error}
+          value={disableToken}
+          onChange={e => setDisableToken(e.target.value.replace(/\D/g, ''))}
+        />
+        {error && <FormError className="mt-2">{error}</FormError>}
+      </Modal>
     </div>
   );
 }

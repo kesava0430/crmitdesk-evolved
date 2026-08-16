@@ -15,8 +15,11 @@ import {
   useEmployees,
   type Department,
 } from '../../api/people';
-import { PageHeader, Button, Modal, Badge, Spinner, EmptyState } from '../../shared/components';
-import { Building2, Plus, Users2, MapPin, Trash2, ChevronRight } from 'lucide-react';
+import {
+  PageHeader, PageBody, Card, Tabs, Button, IconButton, Modal, Badge, Spinner, EmptyState,
+  Field, Input, Select, FormError,
+} from '../../shared/components';
+import { Building2, Plus, Users2, MapPin, Trash2, ChevronRight, X } from 'lucide-react';
 
 /**
  * Org structure — departments, teams and locations.
@@ -28,13 +31,6 @@ import { Building2, Plus, Users2, MapPin, Trash2, ChevronRight } from 'lucide-re
  * can see.
  */
 
-const field =
-  'w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white';
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">{children}</label>;
-}
-
 // ─── Departments ──────────────────────────────────────────────────────────────
 
 function DepartmentNode({ dept, depth = 0 }: { dept: Department; depth?: number }) {
@@ -44,42 +40,45 @@ function DepartmentNode({ dept, depth = 0 }: { dept: Department; depth?: number 
   const children = dept.children ?? [];
 
   return (
-    <div className={depth > 0 ? 'ml-4 border-l border-gray-200 dark:border-gray-700 pl-4' : ''}>
+    <div className={depth > 0 ? 'ml-4 border-l border-line pl-4' : ''}>
       <div className="flex items-center gap-2 py-2 group">
         {children.length > 0 ? (
-          <button onClick={() => setOpen(v => !v)} className="w-4 text-[10px] text-gray-400">
-            {open ? '▾' : '▸'}
-          </button>
+          <IconButton
+            size="xs"
+            label={open ? 'Collapse departments' : 'Expand departments'}
+            icon={<span className="text-[10px]">{open ? '▾' : '▸'}</span>}
+            onClick={() => setOpen(v => !v)}
+          />
         ) : (
           <span className="w-4" />
         )}
-        <Building2 size={13} className="text-gray-400 shrink-0" />
+        <Building2 size={13} className="text-fg-subtle shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">
+          <p className="text-[13px] font-medium text-fg truncate">
             {dept.name}
-            {dept.code && <span className="text-[11px] text-gray-400 ml-1.5">{dept.code}</span>}
+            {dept.code && <span className="text-[11px] text-fg-subtle ml-1.5">{dept.code}</span>}
           </p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+          <p className="text-[11px] text-fg-subtle">
             {dept._count?.employees ?? 0} people
             {dept.head ? ` · led by ${dept.head.displayName}` : ' · no head set'}
             {dept.costCenter ? ` · ${dept.costCenter}` : ''}
           </p>
         </div>
         {!dept.isActive && <Badge variant="gray">Inactive</Badge>}
-        <button
+        <IconButton
+          label="Delete department"
+          tone="danger"
+          revealOnRowHover
+          icon={<Trash2 size={13} />}
           onClick={() => {
             setError('');
             del.mutate(dept.id, {
               onError: (err: any) => setError(err?.response?.data?.error || 'Could not delete.'),
             });
           }}
-          className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"
-          aria-label="Delete department"
-        >
-          <Trash2 size={13} />
-        </button>
+        />
       </div>
-      {error && <p className="text-[11.5px] text-red-600 dark:text-red-400 ml-10 mb-1">{error}</p>}
+      {error && <FormError className="ml-10 mb-1 !text-[11.5px]">{error}</FormError>}
       {open && children.map(c => <DepartmentNode key={c.id} dept={c} depth={depth + 1} />)}
     </div>
   );
@@ -97,11 +96,11 @@ function DepartmentsPanel() {
   return (
     <>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400">
+        <p className="text-[12.5px] text-fg-muted">
           Departments nest, so you can model Sales → Inside Sales → SDR.
         </p>
-        <Button size="xs" onClick={() => setOpen(true)}>
-          <Plus size={12} /> Department
+        <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
+          Department
         </Button>
       </div>
 
@@ -115,11 +114,11 @@ function DepartmentsPanel() {
           action={{ label: 'Add department', onClick: () => setOpen(true) }}
         />
       ) : (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
+        <Card padding="sm">
           {data.data.map(d => (
             <DepartmentNode key={d.id} dept={d} />
           ))}
-        </div>
+        </Card>
       )}
 
       <Modal
@@ -161,50 +160,38 @@ function DepartmentsPanel() {
         }
       >
         <div className="space-y-3">
-          <div>
-            <Label>Name</Label>
-            <input className={field} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-          </div>
+          <Field label="Name">
+            <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Code</Label>
-              <input className={field} value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} />
-            </div>
-            <div>
-              <Label>Cost centre</Label>
-              <input
-                className={field}
-                value={form.costCenter}
-                onChange={e => setForm({ ...form, costCenter: e.target.value })}
-              />
-            </div>
+            <Field label="Code">
+              <Input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} />
+            </Field>
+            <Field label="Cost centre">
+              <Input value={form.costCenter} onChange={e => setForm({ ...form, costCenter: e.target.value })} />
+            </Field>
           </div>
-          <div>
-            <Label>Parent department</Label>
-            <select className={field} value={form.parentId} onChange={e => setForm({ ...form, parentId: e.target.value })}>
+          <Field label="Parent department">
+            <Select value={form.parentId} onChange={e => setForm({ ...form, parentId: e.target.value })}>
               <option value="">— top level —</option>
               {(flat?.data ?? []).map(d => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                 </option>
               ))}
-            </select>
-          </div>
-          <div>
-            <Label>Head of department</Label>
-            <select className={field} value={form.headId} onChange={e => setForm({ ...form, headId: e.target.value })}>
+            </Select>
+          </Field>
+          <Field label="Head of department" hint='Used by approval policies with a "Department head" step.'>
+            <Select value={form.headId} onChange={e => setForm({ ...form, headId: e.target.value })}>
               <option value="">—</option>
               {(employees?.data ?? []).map(e => (
                 <option key={e.id} value={e.id}>
                   {e.displayName}
                 </option>
               ))}
-            </select>
-            <p className="text-[11px] text-gray-400 mt-1">
-              Used by approval policies with a "Department head" step.
-            </p>
-          </div>
-          {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+            </Select>
+          </Field>
+          <FormError>{error}</FormError>
         </div>
       </Modal>
     </>
@@ -229,11 +216,11 @@ function TeamsPanel() {
   return (
     <>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400">
+        <p className="text-[12.5px] text-fg-muted">
           Team membership drives TEAM-scoped permissions — members can see each other's records where a role allows it.
         </p>
-        <Button size="xs" onClick={() => setOpen(true)}>
-          <Plus size={12} /> Team
+        <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
+          Team
         </Button>
       </div>
 
@@ -249,54 +236,59 @@ function TeamsPanel() {
       ) : (
         <div className="space-y-2">
           {data.data.map(t => (
-            <div
-              key={t.id}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
-            >
+            <Card key={t.id} padding="none" className="overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3">
-                <button onClick={() => setExpanded(expanded === t.id ? null : t.id)} className="text-gray-400">
-                  <ChevronRight size={14} className={expanded === t.id ? 'rotate-90 transition-transform' : 'transition-transform'} />
-                </button>
+                <IconButton
+                  size="xs"
+                  label={expanded === t.id ? 'Collapse team' : 'Expand team'}
+                  icon={
+                    <ChevronRight
+                      size={14}
+                      className={expanded === t.id ? 'rotate-90 transition-transform' : 'transition-transform'}
+                    />
+                  }
+                  onClick={() => setExpanded(expanded === t.id ? null : t.id)}
+                />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-medium text-gray-900 dark:text-white truncate">{t.name}</p>
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                  <p className="text-[13.5px] font-medium text-fg truncate">{t.name}</p>
+                  <p className="text-[11px] text-fg-subtle">
                     {t.members.length} member{t.members.length === 1 ? '' : 's'}
                     {t.department ? ` · ${t.department.name}` : ''}
                     {t.lead ? ` · led by ${t.lead.displayName}` : ''}
                   </p>
                 </div>
-                <button
+                <IconButton
+                  label="Delete team"
+                  tone="danger"
+                  icon={<Trash2 size={13} />}
                   onClick={() => del.mutate(t.id)}
-                  className="text-gray-300 hover:text-red-500"
-                  aria-label="Delete team"
-                >
-                  <Trash2 size={13} />
-                </button>
+                />
               </div>
 
               {expanded === t.id && (
-                <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-800 pt-3">
+                <div className="px-4 pb-3 border-t border-line-subtle pt-3">
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     {t.members.map(m => (
                       <span
                         key={m.id}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[11.5px] rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[11.5px] rounded-badge bg-surface-sunken text-fg"
                       >
                         {m.employee.displayName}
-                        {m.role === 'LEAD' && <span className="text-[10px] text-indigo-500">lead</span>}
-                        <button
+                        {m.role === 'LEAD' && <span className="text-[10px] text-accent">lead</span>}
+                        <IconButton
+                          size="xs"
+                          label="Remove member"
+                          tone="danger"
+                          className="!w-4 !h-4"
+                          icon={<X size={11} />}
                           onClick={() => removeMember.mutate({ teamId: t.id, employeeId: m.employee.id })}
-                          className="text-gray-400 hover:text-red-500"
-                          aria-label="Remove member"
-                        >
-                          ×
-                        </button>
+                        />
                       </span>
                     ))}
-                    {!t.members.length && <span className="text-[12px] text-gray-400">No members yet</span>}
+                    {!t.members.length && <span className="text-[12px] text-fg-subtle">No members yet</span>}
                   </div>
-                  <select
-                    className={field}
+                  <Select
+                    aria-label="Add a member"
                     value=""
                     onChange={e => {
                       if (e.target.value) addMember.mutate({ teamId: t.id, employeeId: e.target.value });
@@ -310,10 +302,10 @@ function TeamsPanel() {
                           {emp.displayName}
                         </option>
                       ))}
-                  </select>
+                  </Select>
                 </div>
               )}
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -356,47 +348,35 @@ function TeamsPanel() {
         }
       >
         <div className="space-y-3">
-          <div>
-            <Label>Name</Label>
-            <input className={field} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-          </div>
-          <div>
-            <Label>Description</Label>
-            <input
-              className={field}
-              value={form.description}
-              onChange={e => setForm({ ...form, description: e.target.value })}
-            />
-          </div>
+          <Field label="Name">
+            <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+          </Field>
+          <Field label="Description">
+            <Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Department</Label>
-              <select
-                className={field}
-                value={form.departmentId}
-                onChange={e => setForm({ ...form, departmentId: e.target.value })}
-              >
+            <Field label="Department">
+              <Select value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })}>
                 <option value="">—</option>
                 {(departments?.data ?? []).map(d => (
                   <option key={d.id} value={d.id}>
                     {d.name}
                   </option>
                 ))}
-              </select>
-            </div>
-            <div>
-              <Label>Team lead</Label>
-              <select className={field} value={form.leadId} onChange={e => setForm({ ...form, leadId: e.target.value })}>
+              </Select>
+            </Field>
+            <Field label="Team lead">
+              <Select value={form.leadId} onChange={e => setForm({ ...form, leadId: e.target.value })}>
                 <option value="">—</option>
                 {(employees?.data ?? []).map(e => (
                   <option key={e.id} value={e.id}>
                     {e.displayName}
                   </option>
                 ))}
-              </select>
-            </div>
+              </Select>
+            </Field>
           </div>
-          {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+          <FormError>{error}</FormError>
         </div>
       </Modal>
     </>
@@ -416,11 +396,11 @@ function LocationsPanel() {
   return (
     <>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400">
+        <p className="text-[12.5px] text-fg-muted">
           A location is the HR/asset concept. Attendance geo-fences stay where they are and can roll up to one.
         </p>
-        <Button size="xs" onClick={() => setOpen(true)}>
-          <Plus size={12} /> Location
+        <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
+          Location
         </Button>
       </div>
 
@@ -434,32 +414,32 @@ function LocationsPanel() {
           action={{ label: 'Add location', onClick: () => setOpen(true) }}
         />
       ) : (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <Card padding="none" className="overflow-hidden">
           {data.data.map(l => (
             <div
               key={l.id}
-              className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0 group"
+              className="flex items-center gap-3 px-4 py-3 border-b border-line-subtle last:border-0 group"
             >
-              <MapPin size={14} className="text-gray-400 shrink-0" />
+              <MapPin size={14} className="text-fg-subtle shrink-0" />
               <div className="min-w-0 flex-1">
-                <p className="text-[13.5px] font-medium text-gray-900 dark:text-white truncate">{l.name}</p>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                <p className="text-[13.5px] font-medium text-fg truncate">{l.name}</p>
+                <p className="text-[11px] text-fg-subtle">
                   {[l.city, l.country].filter(Boolean).join(', ') || 'No address'}
                   {` · ${l._count?.employees ?? 0} people`}
                   {l._count?.officeLocations ? ` · ${l._count.officeLocations} geo-fence(s)` : ''}
                 </p>
               </div>
               <Badge variant="indigo">{l.type.replace(/_/g, ' ')}</Badge>
-              <button
+              <IconButton
+                label="Delete location"
+                tone="danger"
+                revealOnRowHover
+                icon={<Trash2 size={13} />}
                 onClick={() => del.mutate(l.id)}
-                className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"
-                aria-label="Delete location"
-              >
-                <Trash2 size={13} />
-              </button>
+              />
             </div>
           ))}
-        </div>
+        </Card>
       )}
 
       <Modal
@@ -496,30 +476,26 @@ function LocationsPanel() {
       >
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Name</Label>
-              <input className={field} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-            </div>
-            <div>
-              <Label>Type</Label>
-              <select className={field} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+            <Field label="Name">
+              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            </Field>
+            <Field label="Type">
+              <Select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
                 {['HEAD_OFFICE', 'BRANCH', 'PLANT', 'WAREHOUSE', 'CLIENT_SITE', 'REMOTE'].map(t => (
                   <option key={t} value={t}>
                     {t.replace(/_/g, ' ')}
                   </option>
                 ))}
-              </select>
-            </div>
-            <div>
-              <Label>City</Label>
-              <input className={field} value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
-            </div>
-            <div>
-              <Label>Country</Label>
-              <input className={field} value={form.country} onChange={e => setForm({ ...form, country: e.target.value })} />
-            </div>
+              </Select>
+            </Field>
+            <Field label="City">
+              <Input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
+            </Field>
+            <Field label="Country">
+              <Input value={form.country} onChange={e => setForm({ ...form, country: e.target.value })} />
+            </Field>
           </div>
-          {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+          <FormError>{error}</FormError>
         </div>
       </Modal>
     </>
@@ -542,28 +518,23 @@ export default function OrgStructurePage() {
       <PageHeader
         title="Org Structure"
         subtitle="Departments, teams and locations — the backbone the org chart, approvals and permission scopes are built on."
+        below={
+          <Tabs<(typeof TABS)[number]['key']>
+            aria-label="Org structure views"
+            variant="segmented"
+            value={tab}
+            onChange={setTab}
+            items={TABS.map(t => ({ key: t.key, label: t.label, icon: <t.icon size={12} /> }))}
+          />
+        }
       />
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden w-fit mb-4">
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium ${
-                tab === t.key
-                  ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                  : 'text-gray-600 dark:text-gray-300'
-              }`}
-            >
-              <t.icon size={12} /> {t.label}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'departments' && <DepartmentsPanel />}
-        {tab === 'teams' && <TeamsPanel />}
-        {tab === 'locations' && <LocationsPanel />}
+      <div className="flex-1 overflow-auto">
+        <PageBody width="full">
+          {tab === 'departments' && <DepartmentsPanel />}
+          {tab === 'teams' && <TeamsPanel />}
+          {tab === 'locations' && <LocationsPanel />}
+        </PageBody>
       </div>
     </div>
   );

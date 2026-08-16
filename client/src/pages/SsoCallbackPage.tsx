@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Alert, Button, Card, Spinner } from '../shared/components';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -40,18 +40,20 @@ export default function SsoCallbackPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-50 px-6 text-center">
-        <AlertCircle className="text-red-500" size={22} />
-        <p className="text-sm text-gray-700 max-w-sm">{error}</p>
-        <Link to="/login" className="text-sm font-medium text-brand-600 hover:text-brand-700">Back to sign in</Link>
+      <div className="min-h-screen flex items-center justify-center bg-canvas p-6">
+        <Card padding="lg" className="w-full max-w-sm space-y-5">
+          <Alert tone="danger" title="Sign-in failed">{error}</Alert>
+          <Link to="/login" className="block">
+            <Button variant="secondary" block>Back to sign in</Button>
+          </Link>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-50 text-gray-500">
-      <Loader2 className="animate-spin" size={22} />
-      <p className="text-sm">Finishing sign-in...</p>
+    <div className="min-h-screen flex items-center justify-center bg-canvas px-6">
+      <Spinner label="Finishing sign-in..." />
     </div>
   );
 }

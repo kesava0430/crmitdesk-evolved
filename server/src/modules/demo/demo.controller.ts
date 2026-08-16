@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../../middleware/errorHandler';
 import { prisma } from '../../utils/prisma';
-import { seedAllDemoOrgs, VERTICALS, loginEmailFor } from '../../utils/seedDemoData';
+import { seedAllDemoOrgs, seedMissingDemoOrgs, VERTICALS, loginEmailFor } from '../../utils/seedDemoData';
+import { AuthRequest } from '../../middleware/authenticate';
 
 /**
  * POST /demo/reset — re-seeds every industry-vertical showcase org from
@@ -142,11 +143,47 @@ export async function demoStatus(_req: Request, res: Response, next: NextFunctio
       hint:
         ready === 0
           ? peoplePlatform
-            ? 'No demo organizations exist. Run `npm run db:seed` in the server directory.'
+            ? 'No demo organizations exist. Run `npm run db:seed`, or POST /api/demo/seed-missing as an admin if this host has no shell.'
             : 'The people-platform tables are missing. Run `npx prisma migrate dev` and then `npm run db:seed`.'
           : ready < VERTICALS.length
-            ? `${VERTICALS.length - ready} vertical(s) are missing. Re-run \`npm run db:seed\` to rebuild them all.`
+            ? `${VERTICALS.length - ready} workspace(s) missing. POST /api/demo/seed-missing as an admin to create just those — no shell needed, and it leaves the existing ones untouched.`
             : 'All demo organizations are seeded and ready.',
+    });
+  } catch (err) { next(err); }
+}
+
+
+/**
+ * POST /demo/seed-missing — creates demo orgs that don't exist yet.
+ *
+ * Separate from /demo/reset, and deliberately held to a lower bar, because the
+ * two do genuinely different things. A reset tears down and rebuilds every
+ * demo org, so it stays behind the shared secret. This only creates what is
+ * absent, so it cannot destroy a working workspace no matter who calls it.
+ *
+ * Accepts either the reset secret (for CI) or a signed-in SUPER_ADMIN. That
+ * second path is the point: adding a vertical leaves every deployed
+ * environment one org short, and on a host with no shell — Render's free tier,
+ * for instance — `npm run db:seed` simply isn't available. Without this the
+ * only fix is a paid plan or a redeploy.
+ */
+export async function seedMissing(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const secret = process.env.DEMO_RESET_SECRET;
+    const provided = req.header('x-demo-reset-secret');
+    const bySecret = !!secret && provided === secret;
+    const byAdmin = req.user?.role === 'SUPER_ADMIN' || req.user?.role === 'PLATFORM_ADMIN';
+
+    if (!bySecret && !byAdmin) {
+      throw new AppError(403, 'Sign in as an admin, or send the demo reset secret.');
+    }
+
+    const result = await seedMissingDemoOrgs();
+    res.json({
+      ...result,
+      message: result.created.length
+        ? `Created ${result.created.length} demo workspace(s): ${result.created.join(', ')}.`
+        : 'Every demo workspace already exists — nothing to create.',
     });
   } catch (err) { next(err); }
 }

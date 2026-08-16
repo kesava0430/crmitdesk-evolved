@@ -1,13 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
 import { Palette, Check, Type, X, Moon, Sun } from 'lucide-react';
-import { useTheme, THEME_LABELS, FONT_LABELS, type ThemeStyle, type ThemeFont } from '../../contexts/ThemeContext';
+import {
+  useTheme, THEME_LABELS, FONT_LABELS, THEME_ACCENTS,
+  type ThemeStyle, type ThemeFont,
+} from '../../contexts/ThemeContext';
 
-/* ── Visual previews for each theme ── */
-const THEME_PREVIEWS: Record<ThemeStyle, { radius: string; accent: string; shadow: string }> = {
-  minimal:  { radius: '10px', accent: '#6366f1', shadow: '0 4px 12px rgba(0,0,0,0.08)' },
-  modern:   { radius: '6px',  accent: '#4f46e5', shadow: '0 8px 20px rgba(0,0,0,0.18)' },
-  classic:  { radius: '3px',  accent: '#475569', shadow: '0 2px 6px rgba(0,0,0,0.12)' },
-  friendly: { radius: '16px', accent: '#f97316', shadow: '0 6px 18px rgba(0,0,0,0.08)' },
+/* Swatch previews. These deliberately mirror the real per-theme values from
+   index.css — an earlier version kept its own hand-copied map that had drifted
+   (it showed Classic as grey at 3px when Classic is corporate blue, and Modern
+   as indigo at 6px when Modern is violet), so the picker advertised a look you
+   did not actually get. Accents come from THEME_ACCENTS so there is one source
+   of truth; only the geometry is repeated here, and it is deliberately
+   approximate because these are 28px-tall doodles. */
+const PREVIEW_GEOMETRY: Record<ThemeStyle, { radius: string; shadow: string; bar: string }> = {
+  minimal:  { radius: '10px', shadow: '0 4px 12px rgba(15,23,42,0.10)', bar: 'transparent' },
+  modern:   { radius: '6px',  shadow: '0 8px 20px rgba(9,9,30,0.20)',   bar: 'linear-gradient(90deg,#6d28d9,#8b5cf6)' },
+  classic:  { radius: '2px',  shadow: '0 2px 6px rgba(17,24,39,0.14)',  bar: 'transparent' },
+  friendly: { radius: '14px', shadow: '0 6px 18px rgba(120,72,32,0.14)', bar: 'linear-gradient(90deg,#ea580c,#fbbf24)' },
 };
 
 const FONT_SAMPLES: Record<ThemeFont, string> = {
@@ -23,123 +32,103 @@ export function ThemePicker() {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    function onClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
     }
-    if (open) document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    if (open) {
+      document.addEventListener('mousedown', onClick);
+      document.addEventListener('keydown', onKey);
+    }
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [open]);
 
   return (
     <div className="relative" ref={panelRef}>
-      {/* Trigger button */}
       <button
         onClick={() => setOpen(v => !v)}
         title="Appearance"
-        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/10 transition-all"
+        aria-label="Appearance settings"
+        aria-expanded={open}
+        className="w-8 h-8 flex items-center justify-center rounded-btn text-sidebar-muted hover:text-sidebar-fg hover:bg-white/10 transition-all"
       >
         <Palette size={16} />
       </button>
 
-      {/* Panel */}
       {open && (
-        <div
-          className="absolute bottom-10 left-0 z-[200] w-72 animate-slide-down bg-white dark:bg-gray-900"
-          style={{
-            borderRadius: '16px',
-            boxShadow: '0 20px 40px -8px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.06)',
-            padding: '0',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Panel header */}
-          <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100 dark:border-gray-800">
+        <div className="absolute bottom-10 left-0 z-[200] w-72 animate-slide-down ui-popover overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3.5 border-b border-line-subtle">
             <div className="flex items-center gap-2">
-              <Palette size={14} className="text-brand-500" />
-              <span className="text-[13px] font-semibold text-gray-800 dark:text-gray-200">Appearance</span>
+              <Palette size={14} className="text-accent" />
+              <span className="text-[13px] font-semibold text-fg">Appearance</span>
             </div>
             <button
               onClick={() => setOpen(false)}
-              className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+              aria-label="Close"
+              className="w-6 h-6 flex items-center justify-center rounded-btn text-fg-subtle hover:text-fg hover:bg-surface-hover transition-all"
             >
               <X size={13} />
             </button>
           </div>
 
-          <div className="p-4 space-y-5">
-            {/* ── Theme style ── */}
+          <div className="p-4 space-y-5 max-h-[70vh] overflow-y-auto">
+            {/* ── Visual style ── */}
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3">
-                Visual Style
+              <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-widest mb-3">
+                Visual style
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {(Object.keys(THEME_LABELS) as ThemeStyle[]).map(s => {
-                  const preview = THEME_PREVIEWS[s];
-                  const active  = style === s;
+                  const geo = PREVIEW_GEOMETRY[s];
+                  const accent = THEME_ACCENTS[s];
+                  const active = style === s;
                   return (
                     <button
                       key={s}
                       onClick={() => setStyle(s)}
-                      className={`theme-swatch relative text-left p-3 border transition-all ${
+                      aria-pressed={active}
+                      className={`theme-swatch relative text-left p-3 border rounded-card transition-all ${
                         active
-                          ? 'border-brand-500 bg-brand-50/60'
-                          : 'border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/60 hover:border-gray-200 dark:hover:border-gray-700 hover:bg-white dark:hover:bg-gray-800'
+                          ? 'border-accent bg-accent-soft'
+                          : 'border-line-subtle bg-surface-sunken hover:border-line-strong'
                       }`}
-                      style={{ borderRadius: '10px' }}
                     >
-                      {/* Mini UI preview */}
-                      <div className="mb-2.5 space-y-1.5">
-                        {/* Fake modal shape */}
+                      <div className="mb-2.5 space-y-1.5" aria-hidden="true">
                         <div
-                          className="w-full h-7 bg-white border border-gray-200 overflow-hidden"
-                          style={{ borderRadius: preview.radius, boxShadow: preview.shadow }}
+                          className="w-full h-7 bg-white border border-slate-200 overflow-hidden"
+                          style={{ borderRadius: geo.radius, boxShadow: geo.shadow }}
                         >
-                          <div
-                            className="h-1.5 w-full"
-                            style={{
-                              background: s === 'modern'   ? 'linear-gradient(90deg,#4f46e5,#8b5cf6)' :
-                                          s === 'friendly' ? 'linear-gradient(90deg,#f97316,#fbbf24)' :
-                                          'transparent',
-                            }}
-                          />
+                          <div className="h-1.5 w-full" style={{ background: geo.bar }} />
                           <div className="px-2 pt-1 flex items-center justify-between">
-                            <div className="h-1.5 w-10 bg-gray-200 rounded-full" />
+                            <div className="h-1.5 w-10 bg-slate-200 rounded-full" />
                             <div
                               className="h-1.5 w-4"
-                              style={{
-                                background: preview.accent,
-                                borderRadius: preview.radius,
-                                opacity: 0.9,
-                              }}
+                              style={{ background: accent, borderRadius: geo.radius, opacity: 0.9 }}
                             />
                           </div>
                         </div>
-                        {/* Fake button row */}
                         <div className="flex gap-1">
-                          <div
-                            className="h-2 flex-1"
-                            style={{ background: preview.accent, borderRadius: preview.radius, opacity: 0.85 }}
-                          />
-                          <div
-                            className="h-2 flex-1 bg-gray-200"
-                            style={{ borderRadius: preview.radius }}
-                          />
+                          <div className="h-2 flex-1" style={{ background: accent, borderRadius: geo.radius, opacity: 0.85 }} />
+                          <div className="h-2 flex-1 bg-slate-200" style={{ borderRadius: geo.radius }} />
                         </div>
                       </div>
 
-                      <p className="text-[11.5px] font-semibold text-gray-800 dark:text-gray-200 leading-none">
+                      <p className="text-[11.5px] font-semibold text-fg leading-none">
                         {THEME_LABELS[s].name}
                       </p>
-                      <p className="text-[10.5px] text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">
+                      <p className="text-[10.5px] text-fg-muted mt-1 leading-snug">
                         {THEME_LABELS[s].desc}
                       </p>
 
                       {active && (
-                        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-brand-500 flex items-center justify-center">
-                          <Check size={9} strokeWidth={3} className="text-white" />
-                        </div>
+                        <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-accent flex items-center justify-center">
+                          <Check size={9} strokeWidth={3} className="text-accent-fg" />
+                        </span>
                       )}
                     </button>
                   );
@@ -147,32 +136,34 @@ export function ThemePicker() {
               </div>
             </div>
 
-            {/* ── Dark mode ── */}
+            {/* ── Colour mode ── */}
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3">
-                Color Mode
+              <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-widest mb-3">
+                Colour mode
               </p>
               <button
                 onClick={toggleDark}
-                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 hover:border-gray-200 dark:hover:border-gray-700 transition-all"
+                role="switch"
+                aria-checked={dark}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-btn border border-line-subtle bg-surface-sunken hover:border-line-strong transition-all"
               >
-                <span className="flex items-center gap-2 text-[13px] font-medium text-gray-800 dark:text-gray-200">
-                  {dark ? <Moon size={14} className="text-brand-500" /> : <Sun size={14} className="text-amber-500" />}
+                <span className="flex items-center gap-2 text-[13px] font-medium text-fg">
+                  {dark ? <Moon size={14} className="text-accent" /> : <Sun size={14} className="text-amber-500" />}
                   {dark ? 'Dark' : 'Light'}
                 </span>
-                <span
-                  className={`relative w-9 h-5 rounded-full transition-colors ${dark ? 'bg-brand-500' : 'bg-gray-300'}`}
-                >
+                <span className={`relative w-9 h-5 rounded-full transition-colors ${dark ? 'bg-accent' : 'bg-line-strong'}`}>
                   <span
-                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${dark ? 'translate-x-4' : 'translate-x-0.5'}`}
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                      dark ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
                   />
                 </span>
               </button>
             </div>
 
-            {/* ── Font choice ── */}
+            {/* ── Font ── */}
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-widest mb-3 flex items-center gap-1.5">
                 <Type size={10} /> Font
               </p>
               <div className="space-y-1">
@@ -182,24 +173,22 @@ export function ThemePicker() {
                     <button
                       key={f}
                       onClick={() => setFont(f)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all ${
+                      aria-pressed={active}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-btn text-left border transition-all ${
                         active
-                          ? 'bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
+                          ? 'bg-accent-soft border-accent/30'
+                          : 'border-transparent hover:bg-surface-hover'
                       }`}
                     >
                       <span
-                        className="text-[13px] font-medium text-gray-800 dark:text-gray-200"
+                        className="text-[13px] font-medium text-fg"
                         style={{ fontFamily: FONT_LABELS[f].family }}
                       >
                         {FONT_SAMPLES[f]}
                       </span>
-                      <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                        {active
-                          ? <Check size={12} className="text-brand-500" />
-                          : <span className="italic opacity-50">Aa</span>
-                        }
-                      </span>
+                      {active
+                        ? <Check size={12} className="text-accent" />
+                        : <span className="text-[11px] text-fg-subtle italic opacity-60">Aa</span>}
                     </button>
                   );
                 })}

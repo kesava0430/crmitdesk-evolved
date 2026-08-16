@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import { PageHeader, Button, Modal, Badge, Spinner, EmptyState, RowActions } from '../../shared/components';
+import {
+  PageHeader, PageBody, Card, CardHeader, Button, Modal, Badge, Spinner, EmptyState,
+  RowActions, Field, Input, Checkbox, Alert,
+} from '../../shared/components';
 import { Building2, Plus, Pencil, Trash2, Tag, MapPin, Wifi } from 'lucide-react';
 
 interface OfficeLocation {
@@ -100,25 +103,27 @@ function OfficeLocationsSection() {
   }
 
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Building2 size={14} /> Office Locations</p>
-        <Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add Location</Button>
-      </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Employees must be within the radius of an active location, or on an allowed IP/network, to check in.</p>
+    <Card>
+      <CardHeader
+        title="Office Locations"
+        icon={<Building2 size={14} />}
+        className="mb-3"
+        actions={<Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add Location</Button>}
+      />
+      <p className="text-xs text-fg-subtle mb-4">Employees must be within the radius of an active location, or on an allowed IP/network, to check in.</p>
 
       {isLoading ? <Spinner /> : (data || []).length === 0 ? (
         <EmptyState icon={<Building2 size={20} />} title="No office locations yet" description="Add one so employees can check in" />
       ) : (
         <div className="space-y-2">
           {(data || []).map(loc => (
-            <div key={loc.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl flex-wrap">
+            <div key={loc.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-gray-800 dark:text-gray-200 text-sm">{loc.name}</span>
+                  <span className="font-medium text-fg text-sm">{loc.name}</span>
                   <Badge variant={loc.isActive ? 'green' : 'gray'}>{loc.isActive ? 'Active' : 'Inactive'}</Badge>
                 </div>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                <p className="text-xs text-fg-subtle mt-0.5">
                   {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)} · {loc.radiusMeters}m radius
                   {loc.allowedIps && ` · IP allowlist: ${loc.allowedIps}`}
                 </p>
@@ -141,39 +146,36 @@ function OfficeLocationsSection() {
           </Button>
         </>}>
         <div className="space-y-4">
-          {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
-          <div>
-            <label className="form-label">Name</label>
-            <input className="ui-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Main Office" />
-          </div>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <Field label="Name">
+            <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Main Office" />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Latitude</label>
-              <input className="ui-input" value={form.latitude} onChange={e => setForm(f => ({ ...f, latitude: e.target.value }))} placeholder="12.9716" />
-            </div>
-            <div>
-              <label className="form-label">Longitude</label>
-              <input className="ui-input" value={form.longitude} onChange={e => setForm(f => ({ ...f, longitude: e.target.value }))} placeholder="77.5946" />
-            </div>
+            <Field label="Latitude">
+              <Input value={form.latitude} onChange={e => setForm(f => ({ ...f, latitude: e.target.value }))} placeholder="12.9716" />
+            </Field>
+            <Field label="Longitude">
+              <Input value={form.longitude} onChange={e => setForm(f => ({ ...f, longitude: e.target.value }))} placeholder="77.5946" />
+            </Field>
           </div>
-          <button type="button" onClick={useMyLocation} disabled={locating} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 flex items-center gap-1">
-            {locating ? <Spinner /> : <MapPin size={12} />} Use my current location
-          </button>
-          <div>
-            <label className="form-label">Radius (meters)</label>
-            <input className="ui-input" type="number" min={10} max={50000} value={form.radiusMeters} onChange={e => setForm(f => ({ ...f, radiusMeters: e.target.value }))} />
-          </div>
-          <div>
-            <label className="form-label">Allowed IPs / CIDR (optional)</label>
-            <input className="ui-input" value={form.allowedIps} onChange={e => setForm(f => ({ ...f, allowedIps: e.target.value }))} placeholder="203.0.113.4, 203.0.113.0/24" />
-            <button type="button" onClick={useMyIp} disabled={detectingIp} className="mt-1.5 text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 flex items-center gap-1">
-              {detectingIp ? <Spinner /> : <Wifi size={12} />} Use my current IP
-            </button>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Comma-separated. If set, check-in also verifies the employee's public IP matches the office network.</p>
-          </div>
+          <Button variant="ghost" size="xs" icon={<MapPin size={12} />} loading={locating} onClick={useMyLocation} disabled={locating}>
+            Use my current location
+          </Button>
+          <Field label="Radius (meters)">
+            <Input type="number" min={10} max={50000} value={form.radiusMeters} onChange={e => setForm(f => ({ ...f, radiusMeters: e.target.value }))} />
+          </Field>
+          <Field
+            label="Allowed IPs / CIDR (optional)"
+            hint="Comma-separated. If set, check-in also verifies the employee's public IP matches the office network."
+          >
+            <Input value={form.allowedIps} onChange={e => setForm(f => ({ ...f, allowedIps: e.target.value }))} placeholder="203.0.113.4, 203.0.113.0/24" />
+            <Button className="mt-1.5 self-start" variant="ghost" size="xs" icon={<Wifi size={12} />} loading={detectingIp} onClick={useMyIp} disabled={detectingIp}>
+              Use my current IP
+            </Button>
+          </Field>
         </div>
       </Modal>
-    </div>
+    </Card>
   );
 }
 
@@ -218,22 +220,24 @@ function LeaveTypesSection() {
   function closeModal() { setModalOpen(false); setEditing(null); }
 
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5"><Tag size={14} /> Leave Types</p>
-        <Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add Type</Button>
-      </div>
+    <Card>
+      <CardHeader
+        title="Leave Types"
+        icon={<Tag size={14} />}
+        className="mb-3"
+        actions={<Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add Type</Button>}
+      />
 
       {isLoading ? <Spinner /> : (data || []).length === 0 ? (
         <EmptyState icon={<Tag size={20} />} title="No leave types yet" description="Add types like Annual, Sick, Casual" />
       ) : (
         <div className="space-y-2">
           {(data || []).map(t => (
-            <div key={t.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl flex-wrap">
+            <div key={t.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.color }} />
-                <span className="font-medium text-gray-800 dark:text-gray-200 text-sm">{t.name}</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500">{t.annualQuota} days/yr · {t.isPaid ? 'Paid' : 'Unpaid'}</span>
+                <span className="font-medium text-fg text-sm">{t.name}</span>
+                <span className="text-xs text-fg-subtle">{t.annualQuota} days/yr · {t.isPaid ? 'Paid' : 'Unpaid'}</span>
                 {!t.isActive && <Badge variant="gray">Inactive</Badge>}
               </div>
               <RowActions items={[
@@ -253,43 +257,45 @@ function LeaveTypesSection() {
           </Button>
         </>}>
         <div className="space-y-4">
-          {error && <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg px-3 py-2">{error}</p>}
-          <div>
-            <label className="form-label">Name</label>
-            <input className="ui-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Annual Leave" />
-          </div>
-          <div>
-            <label className="form-label">Annual quota (days)</label>
-            <input className="ui-input" type="number" min={0} max={365} value={form.annualQuota} onChange={e => setForm(f => ({ ...f, annualQuota: e.target.value }))} />
-          </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input type="checkbox" checked={form.isPaid} onChange={e => setForm(f => ({ ...f, isPaid: e.target.checked }))} />
-            Paid leave
-          </label>
-          <div>
-            <label className="form-label">Color</label>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <Field label="Name">
+            <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Annual Leave" />
+          </Field>
+          <Field label="Annual quota (days)">
+            <Input type="number" min={0} max={365} value={form.annualQuota} onChange={e => setForm(f => ({ ...f, annualQuota: e.target.value }))} />
+          </Field>
+          <Checkbox
+            label="Paid leave"
+            checked={form.isPaid}
+            onChange={e => setForm(f => ({ ...f, isPaid: e.target.checked }))}
+          />
+          <Field label="Color">
             <div className="flex gap-2 flex-wrap">
               {COLOR_SWATCHES.map(c => (
                 <button key={c} type="button" onClick={() => setForm(f => ({ ...f, color: c }))}
-                  className="w-7 h-7 rounded-full shrink-0"
-                  style={{ background: c, outline: form.color === c ? '2px solid #111827' : 'none', outlineOffset: 2 }}
+                  className={`w-7 h-7 rounded-full shrink-0 ${
+                    form.color === c ? 'ring-2 ring-fg ring-offset-2 ring-offset-surface-raised' : ''
+                  }`}
+                  style={{ background: c }}
                   aria-label={c}
                 />
               ))}
             </div>
-          </div>
+          </Field>
         </div>
       </Modal>
-    </div>
+    </Card>
   );
 }
 
 export default function HRSettingsPage() {
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-4xl mx-auto">
+    <div>
       <PageHeader title="HR Settings" subtitle="Configure office locations and leave types" />
-      <OfficeLocationsSection />
-      <LeaveTypesSection />
+      <PageBody width="full" className="max-w-4xl mx-auto">
+        <OfficeLocationsSection />
+        <LeaveTypesSection />
+      </PageBody>
     </div>
   );
 }

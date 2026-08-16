@@ -13,7 +13,10 @@ import {
   type Person,
 } from '../../api/people';
 import { useRoles } from '../../api/work';
-import { PageHeader, Button, Modal, Badge, Spinner, EmptyState, SearchInput, RowActions } from '../../shared/components';
+import {
+  PageHeader, PageBody, Toolbar, Card, StatTile, Tabs, Button, Modal, Badge, Avatar,
+  Field, Input, Select, Alert, FormError, Spinner, EmptyState, SearchInput, RowActions,
+} from '../../shared/components';
 import { UserSquare2, Plus, KeyRound, ShieldOff, Copy, Check, Link2, Building2, Mail } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { useAuth } from '../../contexts/AuthContext';
@@ -37,47 +40,43 @@ const STATUS_VARIANT: Record<string, any> = {
   EXITED: 'gray',
 };
 
-const field =
-  'w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white';
-
-function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
-  return (
-    <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">
-      {children} {required && <span className="text-red-500">*</span>}
-    </label>
-  );
-}
+const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'CONSULTANT', 'TEMPORARY'];
 
 function InviteLinkBox({ link, onDone }: { link: string; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 p-4">
-      <p className="text-[13px] font-medium text-emerald-900 dark:text-emerald-200 mb-1">Invite created</p>
-      <p className="text-[12px] text-emerald-800/80 dark:text-emerald-300/80 mb-3">
+    <Alert tone="success" title="Invite created">
+      <p className="mb-3">
         We emailed it too, but sending can fail quietly — copy the link so you have it either way.
       </p>
       <div className="flex items-center gap-2">
-        <input readOnly value={link} className={`${field} font-mono text-[11.5px]`} />
+        <Input readOnly value={link} aria-label="Invite link" className="font-mono !text-[11.5px]" />
         <Button
           size="sm"
           variant="secondary"
+          aria-label="Copy invite link"
+          icon={copied ? <Check size={13} /> : <Copy size={13} />}
           onClick={() => {
             navigator.clipboard?.writeText(link);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
           }}
-        >
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-        </Button>
+        />
       </div>
       <div className="flex justify-end mt-3">
         <Button size="sm" onClick={onDone}>Done</Button>
       </div>
-    </div>
+    </Alert>
   );
 }
 
 // ─── Add person ───────────────────────────────────────────────────────────────
+
+const LOGIN_MODES = [
+  { key: 'invite', label: 'Send an invite' },
+  { key: 'password', label: 'Set a password' },
+  { key: 'none', label: 'No login' },
+] as const;
 
 function AddPersonModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreatePerson();
@@ -169,108 +168,86 @@ function AddPersonModal({ open, onClose }: { open: boolean; onClose: () => void 
       ) : (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label required>First name</Label>
-              <input className={field} value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
-            </div>
-            <div>
-              <Label>Last name</Label>
-              <input className={field} value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} />
-            </div>
-            <div>
-              <Label>Designation</Label>
-              <input className={field} value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} placeholder="e.g. Account Executive" />
-            </div>
-            <div>
-              <Label required>Joining date</Label>
-              <input type="date" className={field} value={form.joiningDate} onChange={e => setForm({ ...form, joiningDate: e.target.value })} />
-            </div>
-            <div>
-              <Label>Department</Label>
-              <select className={field} value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })}>
+            <Field label="First name" required>
+              <Input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
+            </Field>
+            <Field label="Last name">
+              <Input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} />
+            </Field>
+            <Field label="Designation">
+              <Input value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} placeholder="e.g. Account Executive" />
+            </Field>
+            <Field label="Joining date" required>
+              <Input type="date" value={form.joiningDate} onChange={e => setForm({ ...form, joiningDate: e.target.value })} />
+            </Field>
+            <Field label="Department">
+              <Select value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })}>
                 <option value="">—</option>
                 {(departments?.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label>Location</Label>
-              <select className={field} value={form.locationId} onChange={e => setForm({ ...form, locationId: e.target.value })}>
+              </Select>
+            </Field>
+            <Field label="Location">
+              <Select value={form.locationId} onChange={e => setForm({ ...form, locationId: e.target.value })}>
                 <option value="">—</option>
                 {(locations?.data ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label>Reports to</Label>
-              <select className={field} value={form.managerId} onChange={e => setForm({ ...form, managerId: e.target.value })}>
+              </Select>
+            </Field>
+            <Field label="Reports to">
+              <Select value={form.managerId} onChange={e => setForm({ ...form, managerId: e.target.value })}>
                 <option value="">—</option>
                 {(managers?.data ?? []).map(m => <option key={m.id} value={m.id}>{m.displayName}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label>Employment type</Label>
-              <select className={field} value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })}>
-                {['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'CONSULTANT', 'TEMPORARY'].map(t => (
-                  <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
-            </div>
+              </Select>
+            </Field>
+            <Field label="Employment type">
+              <Select
+                value={form.employmentType}
+                onChange={e => setForm({ ...form, employmentType: e.target.value })}
+                options={EMPLOYMENT_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ') }))}
+              />
+            </Field>
           </div>
 
           {/* ── Access ── */}
-          <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-            <Label>System access</Label>
-            <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden w-fit mb-3">
-              {([
-                { key: 'invite', label: 'Send an invite' },
-                { key: 'password', label: 'Set a password' },
-                { key: 'none', label: 'No login' },
-              ] as const).map(o => (
-                <button
-                  key={o.key}
-                  type="button"
-                  onClick={() => setForm({ ...form, loginMode: o.key })}
-                  className={`px-3 py-1.5 text-[12.5px] font-medium ${
-                    form.loginMode === o.key
-                      ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                      : 'text-gray-600 dark:text-gray-300'
-                  }`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
+          <div className="border-t border-line-subtle pt-4">
+            <Field label="System access">
+              <Tabs
+                variant="segmented"
+                aria-label="System access"
+                className="mb-3 w-fit"
+                value={form.loginMode}
+                onChange={key => setForm({ ...form, loginMode: key })}
+                items={LOGIN_MODES.map(o => ({ key: o.key, label: o.label }))}
+              />
+            </Field>
 
             {form.loginMode === 'none' ? (
-              <p className="text-[12px] text-gray-500 dark:text-gray-400">
+              <p className="text-[12px] text-fg-muted">
                 They'll appear in the directory and org chart, can be assigned tasks and hold assets — but cannot sign
                 in, and don't use a licensed seat. You can grant access later at any time.
               </p>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label required>Work email</Label>
-                  <input className={field} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="name@company.com" />
-                </div>
-                <div>
-                  <Label>Role</Label>
-                  <select className={field} value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
+                <Field label="Work email" required>
+                  <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="name@company.com" />
+                </Field>
+                <Field label="Role">
+                  <Select value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
                     <option value="">Employee (self-service only)</option>
                     {(roles?.data ?? []).filter(r => r.isActive).map(r => (
                       <option key={r.id} value={r.id}>{r.name}</option>
                     ))}
-                  </select>
-                </div>
+                  </Select>
+                </Field>
                 {form.loginMode === 'password' && (
-                  <div className="col-span-2">
-                    <Label required>Password</Label>
-                    <input type="password" className={field} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="At least 8 characters" />
-                  </div>
+                  <Field label="Password" required className="col-span-2">
+                    <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="At least 8 characters" />
+                  </Field>
                 )}
               </div>
             )}
           </div>
 
-          {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+          <FormError>{error}</FormError>
         </div>
       )}
     </Modal>
@@ -326,40 +303,33 @@ function GrantLoginModal({ person, onClose }: { person: Person | null; onClose: 
         <InviteLinkBox link={inviteLink} onDone={() => { setInviteLink(null); onClose(); }} />
       ) : (
         <div className="space-y-3">
-          <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden w-fit">
-            {(['invite', 'password'] as const).map(m => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setForm({ ...form, mode: m })}
-                className={`px-3 py-1.5 text-[12.5px] font-medium ${
-                  form.mode === m ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900' : 'text-gray-600 dark:text-gray-300'
-                }`}
-              >
-                {m === 'invite' ? 'Send an invite' : 'Set a password'}
-              </button>
-            ))}
-          </div>
-          <div>
-            <Label required>Work email</Label>
-            <input className={field} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-          </div>
-          <div>
-            <Label>Role</Label>
-            <select className={field} value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
+          <Tabs
+            variant="segmented"
+            aria-label="Login mode"
+            value={form.mode}
+            onChange={mode => setForm({ ...form, mode })}
+            items={[
+              { key: 'invite' as const, label: 'Send an invite' },
+              { key: 'password' as const, label: 'Set a password' },
+            ]}
+          />
+          <Field label="Work email" required>
+            <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+          </Field>
+          <Field label="Role">
+            <Select value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
               <option value="">Employee (self-service only)</option>
               {(roles?.data ?? []).filter(r => r.isActive).map(r => (
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
-            </select>
-          </div>
+            </Select>
+          </Field>
           {form.mode === 'password' && (
-            <div>
-              <Label required>Password</Label>
-              <input type="password" className={field} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
-            </div>
+            <Field label="Password" required>
+              <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+            </Field>
           )}
-          {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+          <FormError>{error}</FormError>
         </div>
       )}
     </Modal>
@@ -404,179 +374,172 @@ export default function PeoplePage() {
         title="People"
         subtitle="Everyone in the organization — staff who sign in, and staff who don't."
         actions={
-          <Button size="sm" onClick={() => setAddOpen(true)}>
-            <Plus size={14} /> Add person
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>
+            Add person
           </Button>
         }
       />
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
-        {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: 'Total people', value: stats.total },
-              { label: 'Can sign in', value: stats.canSignIn },
-              { label: 'No login', value: stats.noLogin },
-              { label: 'On notice', value: stats.onNotice },
-            ].map(s => (
-              <div key={s.label} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3.5">
-                <p className="text-xs text-gray-500 dark:text-gray-400">{s.label}</p>
-                <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">{s.value}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Logins that never got an employee record — one click to repair. */}
-        {!!stats?.unlinkedLogins && (
-          <div className="rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-4 flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">
-                {stats.unlinkedLogins} login{stats.unlinkedLogins === 1 ? '' : 's'} without a person record
-              </p>
-              <p className="text-[12px] text-amber-800/80 dark:text-amber-300/80 mt-0.5">
-                They can sign in but are missing from the directory and org chart. Creating the records takes a second
-                and needs no re-typing.
-              </p>
+      <div className="flex-1 overflow-auto">
+        <PageBody>
+          {stats && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total people', value: stats.total },
+                { label: 'Can sign in', value: stats.canSignIn },
+                { label: 'No login', value: stats.noLogin },
+                { label: 'On notice', value: stats.onNotice },
+              ].map(s => (
+                <StatTile key={s.label} label={s.label} value={s.value} />
+              ))}
             </div>
-            <Button size="sm" variant="secondary" loading={repair.isPending} onClick={() => repair.mutate()}>
-              <Link2 size={13} /> Fix {stats.unlinkedLogins}
-            </Button>
-          </div>
-        )}
+          )}
 
-        {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+          {/* Logins that never got an employee record — one click to repair. */}
+          {!!stats?.unlinkedLogins && (
+            <Alert
+              tone="warning"
+              title={`${stats.unlinkedLogins} login${stats.unlinkedLogins === 1 ? '' : 's'} without a person record`}
+              actions={
+                <Button size="sm" variant="secondary" icon={<Link2 size={13} />} loading={repair.isPending} onClick={() => repair.mutate()}>
+                  Fix {stats.unlinkedLogins}
+                </Button>
+              }
+            >
+              They can sign in but are missing from the directory and org chart. Creating the records takes a second
+              and needs no re-typing.
+            </Alert>
+          )}
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            {TABS.map(t => (
-              <button
-                key={t.key}
-                onClick={() => setLogin(t.key)}
-                className={`px-3 py-1.5 text-[12.5px] font-medium ${
-                  login === t.key
-                    ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                    : 'text-gray-600 dark:text-gray-300'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, email…" />
-          <select className={`${field} w-auto`} value={departmentId} onChange={e => setDepartmentId(e.target.value)}>
-            <option value="">All departments</option>
-            {(departments?.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </div>
+          <FormError>{error}</FormError>
 
-        {isLoading ? (
-          <Spinner />
-        ) : !data?.data.length ? (
-          <EmptyState
-            icon={<UserSquare2 />}
-            title="Nobody here yet"
-            description="Add your first person — you can decide whether they need a login."
-            action={{ label: 'Add person', onClick: () => setAddOpen(true) }}
-          />
-        ) : (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-            {data.data.map(p => (
-              <div
-                key={p.id}
-                className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50/70 dark:hover:bg-gray-800/40 transition-colors"
-              >
-                <div className="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-[12px] font-semibold shrink-0">
-                  {p.displayName.slice(0, 2).toUpperCase()}
-                </div>
+          <Toolbar>
+            <Tabs
+              variant="segmented"
+              aria-label="Filter by login"
+              value={login}
+              onChange={setLogin}
+              items={TABS.map(t => ({ key: t.key, label: t.label }))}
+            />
+            <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, email…" />
+            <Select
+              className="w-auto"
+              aria-label="Filter by department"
+              value={departmentId}
+              onChange={e => setDepartmentId(e.target.value)}
+            >
+              <option value="">All departments</option>
+              {(departments?.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+          </Toolbar>
 
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-medium text-gray-900 dark:text-white truncate">{p.displayName}</p>
-                  <div className="flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500 flex-wrap">
-                    {p.employeeCode && <span>{p.employeeCode}</span>}
-                    {p.designation && <span>· {p.designation}</span>}
-                    {p.department && (
-                      <span className="inline-flex items-center gap-1">· <Building2 size={10} /> {p.department.name}</span>
+          {isLoading ? (
+            <Spinner />
+          ) : !data?.data.length ? (
+            <EmptyState
+              icon={<UserSquare2 />}
+              title="Nobody here yet"
+              description="Add your first person — you can decide whether they need a login."
+              action={{ label: 'Add person', onClick: () => setAddOpen(true) }}
+            />
+          ) : (
+            <Card padding="none" className="overflow-hidden">
+              {data.data.map(p => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 px-4 py-3 border-b border-line-subtle last:border-0 hover:bg-surface-hover transition-colors"
+                >
+                  <Avatar name={p.displayName} size="md" />
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-medium text-fg truncate">{p.displayName}</p>
+                    <div className="flex items-center gap-2 text-[11px] text-fg-subtle flex-wrap">
+                      {p.employeeCode && <span>{p.employeeCode}</span>}
+                      {p.designation && <span>· {p.designation}</span>}
+                      {p.department && (
+                        <span className="inline-flex items-center gap-1">· <Building2 size={10} /> {p.department.name}</span>
+                      )}
+                      {p.email && (
+                        <span className="inline-flex items-center gap-1">· <Mail size={10} /> {p.email}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Access state, said plainly rather than in table terms. */}
+                    {!p.hasLogin ? (
+                      <Badge variant="gray">No login</Badge>
+                    ) : !p.loginActive ? (
+                      <Badge variant="red">Access revoked</Badge>
+                    ) : p.employeeId ? (
+                      <Select
+                        selectSize="sm"
+                        className="max-w-[150px]"
+                        aria-label={`Role for ${p.displayName}`}
+                        value={p.roleId ?? ''}
+                        onChange={e => {
+                          setError('');
+                          assignRole.mutate(
+                            { id: p.employeeId!, roleId: e.target.value },
+                            { onError: (err: any) => setError(err?.response?.data?.error || 'Could not change that role.') }
+                          );
+                        }}
+                      >
+                        {!p.roleId && <option value="">{p.role?.replace(/_/g, ' ') ?? 'No role'}</option>}
+                        {(roles?.data ?? []).filter(r => r.isActive).map(r => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </Select>
+                    ) : (
+                      <Badge variant="blue">{p.roleName ?? 'Login'}</Badge>
                     )}
-                    {p.email && (
-                      <span className="inline-flex items-center gap-1">· <Mail size={10} /> {p.email}</span>
+
+                    {p.employmentStatus && (
+                      <Badge variant={STATUS_VARIANT[p.employmentStatus] ?? 'gray'}>
+                        {p.employmentStatus.replace(/_/g, ' ')}
+                      </Badge>
                     )}
+
+                    {!p.employeeId && <Badge variant="orange">Not in directory</Badge>}
+
+                    <span className="text-[11px] text-fg-subtle hidden lg:block w-20 text-right">
+                      {p.joiningDate ? fmt.date(p.joiningDate) : ''}
+                    </span>
+
+                    <RowActions
+                      items={[
+                        ...(p.employeeId && !p.hasLogin
+                          ? [{ label: 'Give a login', icon: <KeyRound size={13} />, onClick: () => setGranting(p) }]
+                          : []),
+                        ...(p.employeeId && p.hasLogin && p.userId !== currentUser?.id
+                          ? [{
+                              label: 'Revoke access',
+                              icon: <ShieldOff size={13} />,
+                              variant: 'danger' as const,
+                              onClick: () => {
+                                setError('');
+                                revoke.mutate(p.employeeId!, {
+                                  onError: (err: any) =>
+                                    setError(err?.response?.data?.error || 'Could not revoke access.'),
+                                });
+                              },
+                            }]
+                          : []),
+                      ]}
+                    />
                   </div>
                 </div>
+              ))}
+            </Card>
+          )}
 
-                <div className="flex items-center gap-2 shrink-0">
-                  {/* Access state, said plainly rather than in table terms. */}
-                  {!p.hasLogin ? (
-                    <Badge variant="gray">No login</Badge>
-                  ) : !p.loginActive ? (
-                    <Badge variant="red">Access revoked</Badge>
-                  ) : p.employeeId ? (
-                    <select
-                      aria-label={`Role for ${p.displayName}`}
-                      value={p.roleId ?? ''}
-                      onChange={e => {
-                        setError('');
-                        assignRole.mutate(
-                          { id: p.employeeId!, roleId: e.target.value },
-                          { onError: (err: any) => setError(err?.response?.data?.error || 'Could not change that role.') }
-                        );
-                      }}
-                      className="px-2 py-1 text-[11.5px] border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 max-w-[150px]"
-                    >
-                      {!p.roleId && <option value="">{p.role?.replace(/_/g, ' ') ?? 'No role'}</option>}
-                      {(roles?.data ?? []).filter(r => r.isActive).map(r => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Badge variant="blue">{p.roleName ?? 'Login'}</Badge>
-                  )}
-
-                  {p.employmentStatus && (
-                    <Badge variant={STATUS_VARIANT[p.employmentStatus] ?? 'gray'}>
-                      {p.employmentStatus.replace(/_/g, ' ')}
-                    </Badge>
-                  )}
-
-                  {!p.employeeId && <Badge variant="orange">Not in directory</Badge>}
-
-                  <span className="text-[11px] text-gray-400 dark:text-gray-500 hidden lg:block w-20 text-right">
-                    {p.joiningDate ? fmt.date(p.joiningDate) : ''}
-                  </span>
-
-                  <RowActions
-                    items={[
-                      ...(p.employeeId && !p.hasLogin
-                        ? [{ label: 'Give a login', icon: <KeyRound size={13} />, onClick: () => setGranting(p) }]
-                        : []),
-                      ...(p.employeeId && p.hasLogin && p.userId !== currentUser?.id
-                        ? [{
-                            label: 'Revoke access',
-                            icon: <ShieldOff size={13} />,
-                            variant: 'danger' as const,
-                            onClick: () => {
-                              setError('');
-                              revoke.mutate(p.employeeId!, {
-                                onError: (err: any) =>
-                                  setError(err?.response?.data?.error || 'Could not revoke access.'),
-                              });
-                            },
-                          }]
-                        : []),
-                    ]}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!!data?.data.some(p => p.hasLogin) && (
-          <p className="text-[11.5px] text-gray-400 dark:text-gray-500">
-            Change a role from the selector on any row. Create and edit the roles themselves under{' '}
-            <span className="font-medium">Administration → Roles &amp; Permissions</span>.
-          </p>
-        )}
+          {!!data?.data.some(p => p.hasLogin) && (
+            <p className="text-[11.5px] text-fg-subtle">
+              Change a role from the selector on any row. Create and edit the roles themselves under{' '}
+              <span className="font-medium">Administration → Roles &amp; Permissions</span>.
+            </p>
+          )}
+        </PageBody>
       </div>
 
       <AddPersonModal open={addOpen} onClose={() => setAddOpen(false)} />

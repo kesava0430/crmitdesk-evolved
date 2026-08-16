@@ -1,15 +1,25 @@
 import { useSearchParams } from 'react-router-dom';
-import { CreditCard, CheckCircle, Zap, Building2, Star, ExternalLink, AlertCircle } from 'lucide-react';
+import { CreditCard, CheckCircle, Zap, Building2, Star, ExternalLink } from 'lucide-react';
 import { useSubscription, useCreateCheckout, useCreatePortal } from '../api/billing';
-import { Spinner } from '../shared/components';
+import {
+  PageHeader, PageBody, Card, StatTile, SectionHeader, Button, Badge, Alert, Spinner,
+} from '../shared/components';
 import { useFormat } from '../hooks/useFormat';
 
 const PLAN_ICONS = { FREE: Star, PRO: Zap, ENTERPRISE: Building2 };
-const PLAN_COLORS = {
-  FREE: { bg: 'bg-gray-50 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700', badge: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300', btn: 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-500' },
-  PRO: { bg: 'bg-violet-50 dark:bg-violet-500/10', border: 'border-violet-300 dark:border-violet-500/30', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300', btn: 'bg-brand-600 text-white hover:bg-brand-700' },
-  ENTERPRISE: { bg: 'bg-blue-50 dark:bg-blue-500/10', border: 'border-blue-300 dark:border-blue-500/30', badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300', btn: 'bg-blue-600 text-white hover:bg-blue-700' },
-};
+
+/**
+ * Tint for the *current* plan's card only. Marked `!` because it deliberately
+ * overrides `<Card>`'s default surface — everything else about the card
+ * (radius, padding, shadow) still comes from the component.
+ */
+const PLAN_TINT = {
+  FREE: '!bg-surface-sunken !border-line',
+  PRO: '!bg-violet-50 dark:!bg-violet-500/10 !border-violet-300 dark:!border-violet-500/30',
+  ENTERPRISE: '!bg-blue-50 dark:!bg-blue-500/10 !border-blue-300 dark:!border-blue-500/30',
+} as const;
+
+const PLAN_BADGE = { FREE: 'gray', PRO: 'purple', ENTERPRISE: 'blue' } as const;
 
 const FEATURES: Record<string, string[]> = {
   FREE:       ['5 billable seats (Employees are unlimited)', 'CRM + IT Desk', 'Email notifications', 'AI features (limited)', 'Attachments via your own Google Drive', 'Community support'],
@@ -28,180 +38,165 @@ export function BillingPage() {
   const success = searchParams.get('success') === '1';
   const canceled = searchParams.get('canceled') === '1';
 
-  if (isLoading) return <div className="p-6 flex justify-center"><Spinner label="Loading billing…" /></div>;
+  if (isLoading) return <Spinner label="Loading billing…" />;
 
   const current = sub?.plan || 'FREE';
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <CreditCard size={20} className="text-brand-600" />
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Billing & Plans</h1>
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Manage your subscription and billing details.</p>
-        </div>
-        {sub?.stripeCustomerId && (
-          <button onClick={() => portal.mutate()} disabled={portal.isPending}
-            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800 dark:text-gray-200">
-            {portal.isPending ? <Spinner /> : <ExternalLink size={14} />}
+    <div>
+      <PageHeader
+        title="Billing & Plans"
+        subtitle="Manage your subscription and billing details."
+        actions={sub?.stripeCustomerId ? (
+          <Button
+            variant="secondary"
+            icon={<ExternalLink size={14} />}
+            loading={portal.isPending}
+            onClick={() => portal.mutate()}
+          >
             Manage billing
-          </button>
+          </Button>
+        ) : undefined}
+      />
+
+      <PageBody>
+        {/* Flash messages */}
+        {success && (
+          <Alert tone="success" icon={<CheckCircle size={18} />}>
+            Subscription updated successfully! Your plan is now active.
+          </Alert>
         )}
-      </div>
+        {canceled && (
+          <Alert tone="warning">
+            Checkout was cancelled. Your current plan is unchanged.
+          </Alert>
+        )}
 
-      {/* Flash messages */}
-      {success && (
-        <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl mb-6 dark:bg-green-500/10 dark:border-green-500/30">
-          <CheckCircle size={18} className="text-green-600 flex-shrink-0 dark:text-green-400" />
-          <p className="text-sm text-green-800 font-medium dark:text-green-300">Subscription updated successfully! Your plan is now active.</p>
-        </div>
-      )}
-      {canceled && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl mb-6 dark:bg-amber-500/10 dark:border-amber-500/30">
-          <AlertCircle size={18} className="text-amber-600 flex-shrink-0 dark:text-amber-400" />
-          <p className="text-sm text-amber-800 dark:text-amber-300">Checkout was cancelled. Your current plan is unchanged.</p>
-        </div>
-      )}
-
-      {/* Current plan summary */}
-      {sub && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-8 dark:bg-gray-900 dark:border-gray-800">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <p className="text-xs text-gray-500 mb-1 dark:text-gray-400">Current plan</p>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-bold text-gray-900 dark:text-white">{sub.planConfig.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sub.status === 'active' ? 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400' : 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400'}`}>
-                  {sub.status}
-                </span>
-                {sub.cancelAtPeriodEnd && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">Cancels at period end</span>
-                )}
+        {/* Current plan summary */}
+        {sub && (
+          <Card>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <p className="text-[11.5px] text-fg-muted mb-1">Current plan</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold text-fg">{sub.planConfig.name}</span>
+                  <Badge variant={sub.status === 'active' ? 'green' : 'red'}>{sub.status}</Badge>
+                  {sub.cancelAtPeriodEnd && <Badge variant="yellow">Cancels at period end</Badge>}
+                </div>
+                <p className="text-[13px] text-fg-muted mt-1">{sub.seats} seats · {sub.planConfig.price > 0 ? `$${sub.planConfig.price}/mo` : 'Free forever'}</p>
               </div>
-              <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">{sub.seats} seats · {sub.planConfig.price > 0 ? `$${sub.planConfig.price}/mo` : 'Free forever'}</p>
+              {sub.currentPeriodEnd && (
+                <div className="text-right">
+                  <p className="text-[11.5px] text-fg-subtle">Next billing date</p>
+                  <p className="text-[13px] font-medium text-fg">{date(sub.currentPeriodEnd)}</p>
+                </div>
+              )}
             </div>
-            {sub.currentPeriodEnd && (
-              <div className="text-right">
-                <p className="text-xs text-gray-400 dark:text-gray-500">Next billing date</p>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{date(sub.currentPeriodEnd)}</p>
-              </div>
-            )}
-          </div>
 
-          {/* Seat usage */}
-          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Billable seats used</p>
-              <p className={`text-xs font-semibold ${sub.seatsUsed >= sub.seats ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                {sub.seatsUsed} / {sub.seats}
+            {/* Seat usage */}
+            <div className="mt-4 pt-4 border-t border-line-subtle">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[11.5px] font-medium text-fg-muted">Billable seats used</p>
+                <p className={`text-[11.5px] font-semibold ${sub.seatsUsed >= sub.seats ? 'text-danger' : 'text-fg'}`}>
+                  {sub.seatsUsed} / {sub.seats}
+                </p>
+              </div>
+              <div className="w-full h-2 bg-surface-sunken rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${sub.seatsUsed >= sub.seats ? 'bg-danger' : sub.seatsUsed / sub.seats >= 0.8 ? 'bg-warning' : 'bg-accent'}`}
+                  style={{ width: `${Math.min(100, (sub.seatsUsed / sub.seats) * 100)}%` }}
+                />
+              </div>
+              <p className="text-[11.5px] text-fg-subtle mt-1.5">
+                Every role counts except Employee — those logins are free and unlimited.
+                {sub.seatsUsed >= sub.seats && ' You\'re at your limit; upgrade to add more people in a billable role.'}
               </p>
             </div>
-            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-800">
-              <div
-                className={`h-full rounded-full transition-all ${sub.seatsUsed >= sub.seats ? 'bg-red-500' : sub.seatsUsed / sub.seats >= 0.8 ? 'bg-amber-400' : 'bg-brand-500'}`}
-                style={{ width: `${Math.min(100, (sub.seatsUsed / sub.seats) * 100)}%` }}
-              />
-            </div>
-            <p className="text-xs text-gray-400 mt-1.5 dark:text-gray-500">
-              Every role counts except Employee — those logins are free and unlimited.
-              {sub.seatsUsed >= sub.seats && ' You\'re at your limit; upgrade to add more people in a billable role.'}
+          </Card>
+        )}
+
+        {/* Usage this month — informational only, nothing here is billed or
+            capped yet. Purely visibility until real limits get set. */}
+        {sub && (
+          <Card>
+            <p className="text-[11.5px] text-fg-muted mb-3">
+              Usage this month <span className="text-fg-subtle">({monthDay(sub.usage.periodStart)} – {monthDay(sub.usage.periodEnd)})</span>
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* Usage this month — informational only, nothing here is billed or
-          capped yet. Purely visibility until real limits get set. */}
-      {sub && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-8 dark:bg-gray-900 dark:border-gray-800">
-          <p className="text-xs text-gray-500 mb-3 dark:text-gray-400">
-            Usage this month <span className="text-gray-400 dark:text-gray-500">({monthDay(sub.usage.periodStart)} – {monthDay(sub.usage.periodEnd)})</span>
-          </p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{sub.usage.aiCalls.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">AI calls</p>
+            <div className="grid grid-cols-2 gap-4">
+              <StatTile tone="sunken" label="AI calls" value={sub.usage.aiCalls.toLocaleString()} />
+              <StatTile tone="sunken" label="WhatsApp messages sent" value={sub.usage.whatsappSends.toLocaleString()} />
             </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{sub.usage.whatsappSends.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">WhatsApp messages sent</p>
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-3 dark:text-gray-500">Not currently limited or billed separately — shown for visibility only.</p>
-        </div>
-      )}
+            <p className="text-[11.5px] text-fg-subtle mt-3">Not currently limited or billed separately — shown for visibility only.</p>
+          </Card>
+        )}
 
-      {/* Plan cards */}
-      <h2 className="text-base font-semibold text-gray-900 mb-4 dark:text-white">Available Plans</h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {(['FREE', 'PRO', 'ENTERPRISE'] as const).map(plan => {
-          const isCurrent = plan === current;
-          const colors = PLAN_COLORS[plan];
-          const Icon = PLAN_ICONS[plan];
-          const price = plan === 'FREE' ? 0 : plan === 'PRO' ? 49 : 149;
+        {/* Plan cards */}
+        <SectionHeader title="Available Plans" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {(['FREE', 'PRO', 'ENTERPRISE'] as const).map(plan => {
+            const isCurrent = plan === current;
+            const Icon = PLAN_ICONS[plan];
+            const price = plan === 'FREE' ? 0 : plan === 'PRO' ? 49 : 149;
+            const locked = isCurrent || plan === 'FREE';
 
-          return (
-            <div key={plan}
-              className={`relative rounded-2xl border-2 p-6 flex flex-col ${isCurrent ? `${colors.bg} ${colors.border}` : 'bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-800'}`}>
-              {isCurrent && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className={`text-xs font-semibold px-3 py-1 rounded-full ${colors.badge}`}>Current plan</span>
+            return (
+              <Card
+                key={plan}
+                padding="lg"
+                className={`relative flex flex-col !border-2 ${isCurrent ? PLAN_TINT[plan] : ''}`}
+              >
+                {isCurrent && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <Badge variant={PLAN_BADGE[plan]}>Current plan</Badge>
+                  </div>
+                )}
+                {plan === 'PRO' && !isCurrent && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <Badge variant="accent">Most popular</Badge>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 mb-3">
+                  <Icon size={18} className={plan === 'FREE' ? 'text-fg-subtle' : plan === 'PRO' ? 'text-accent' : 'text-blue-600'} />
+                  <h3 className="font-bold text-fg">{plan === 'FREE' ? 'Free' : plan === 'PRO' ? 'Pro' : 'Enterprise'}</h3>
                 </div>
-              )}
-              {plan === 'PRO' && !isCurrent && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-brand-600 text-white">Most popular</span>
+
+                <div className="mb-5">
+                  <span className="text-3xl font-bold text-fg">${price}</span>
+                  <span className="text-[13px] text-fg-subtle">/mo</span>
                 </div>
-              )}
 
-              <div className="flex items-center gap-2 mb-3">
-                <Icon size={18} className={plan === 'FREE' ? 'text-gray-400 dark:text-gray-500' : plan === 'PRO' ? 'text-brand-600' : 'text-blue-600'} />
-                <h3 className="font-bold text-gray-900 dark:text-white">{plan === 'FREE' ? 'Free' : plan === 'PRO' ? 'Pro' : 'Enterprise'}</h3>
-              </div>
+                <ul className="space-y-2 flex-1 mb-6">
+                  {FEATURES[plan].map(f => (
+                    <li key={f} className="flex items-center gap-2 text-[13px] text-fg-muted">
+                      <CheckCircle size={13} className="text-success flex-shrink-0" /> {f}
+                    </li>
+                  ))}
+                </ul>
 
-              <div className="mb-5">
-                <span className="text-3xl font-bold text-gray-900 dark:text-white">${price}</span>
-                <span className="text-sm text-gray-400 dark:text-gray-500">/mo</span>
-              </div>
-
-              <ul className="space-y-2 flex-1 mb-6">
-                {FEATURES[plan].map(f => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                    <CheckCircle size={13} className="text-green-500 flex-shrink-0" /> {f}
-                  </li>
-                ))}
-              </ul>
-
-              {isCurrent ? (
-                <button disabled className="w-full py-2.5 rounded-xl text-sm font-medium bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600">
-                  Current plan
-                </button>
-              ) : plan === 'FREE' ? (
-                <button disabled className="w-full py-2.5 rounded-xl text-sm font-medium bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600">
-                  Downgrade
-                </button>
-              ) : (
-                <button onClick={() => checkout.mutate(plan)} disabled={checkout.isPending}
-                  className={`w-full py-2.5 rounded-xl text-sm font-medium disabled:opacity-40 flex items-center justify-center gap-2 ${colors.btn}`}>
-                  {checkout.isPending ? <Spinner /> : null}
-                  Upgrade to {plan === 'PRO' ? 'Pro' : 'Enterprise'}
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Stripe setup note */}
-      {!sub?.stripeCustomerId && sub?.plan === 'FREE' && (
-        <div className="mt-8 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-300">
-          <p className="font-medium mb-1">Configure Stripe to enable payments</p>
-          <p>Add <code className="bg-amber-100 px-1 rounded dark:bg-amber-500/20">STRIPE_SECRET_KEY</code>, <code className="bg-amber-100 px-1 rounded dark:bg-amber-500/20">STRIPE_WEBHOOK_SECRET</code>, <code className="bg-amber-100 px-1 rounded dark:bg-amber-500/20">STRIPE_PRO_PRICE_ID</code>, and <code className="bg-amber-100 px-1 rounded dark:bg-amber-500/20">STRIPE_ENTERPRISE_PRICE_ID</code> to <code className="bg-amber-100 px-1 rounded dark:bg-amber-500/20">server/.env</code>.</p>
+                {/* One disabled state, two labels — this used to be two identical
+                    buttons that differed only in their text. */}
+                {locked ? (
+                  <Button block variant="secondary" disabled>
+                    {isCurrent ? 'Current plan' : 'Downgrade'}
+                  </Button>
+                ) : (
+                  <Button block loading={checkout.isPending} onClick={() => checkout.mutate(plan)}>
+                    Upgrade to {plan === 'PRO' ? 'Pro' : 'Enterprise'}
+                  </Button>
+                )}
+              </Card>
+            );
+          })}
         </div>
-      )}
+
+        {/* Stripe setup note */}
+        {!sub?.stripeCustomerId && sub?.plan === 'FREE' && (
+          <Alert tone="warning" icon={<CreditCard size={15} />} title="Configure Stripe to enable payments">
+            <p>Add <code className="bg-warning/15 px-1 rounded">STRIPE_SECRET_KEY</code>, <code className="bg-warning/15 px-1 rounded">STRIPE_WEBHOOK_SECRET</code>, <code className="bg-warning/15 px-1 rounded">STRIPE_PRO_PRICE_ID</code>, and <code className="bg-warning/15 px-1 rounded">STRIPE_ENTERPRISE_PRICE_ID</code> to <code className="bg-warning/15 px-1 rounded">server/.env</code>.</p>
+          </Alert>
+        )}
+      </PageBody>
     </div>
   );
 }

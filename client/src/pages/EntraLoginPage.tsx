@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '../shared/components';
 
 // Public — the org-specific sign-in link an admin shares with employees
 // (see DirectorySSOPage.tsx's "Employee sign-in link"). This is a full-page
@@ -17,9 +17,8 @@ export default function EntraLoginPage() {
   }, [orgSlug]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-50 text-gray-500">
-      <Loader2 className="animate-spin" size={22} />
-      <p className="text-sm">Redirecting you to your organization's sign-in...</p>
+    <div className="min-h-screen flex items-center justify-center bg-canvas px-6">
+      <Spinner label="Redirecting you to your organization's sign-in..." />
     </div>
   );
 }

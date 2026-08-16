@@ -3,7 +3,7 @@ import { Layers, Settings2, Zap } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useCustomModules, useCustomModule } from '../api/customModules';
 import { CustomModuleRecordsTab } from '../shared/components/CustomModuleRecords';
-import { PageHeader, Spinner, EmptyState } from '../shared/components';
+import { PageHeader, Spinner, EmptyState, Badge } from '../shared/components';
 
 // Same roles allowed to see the "Custom Modules" builder link in
 // AppLayout.tsx's NAV_SECTIONS — kept in sync manually since routeAccess.ts
@@ -53,14 +53,14 @@ export default function CustomModuleViewPage() {
         actions={
           <>
             {found.syncConfig?.isActive && (
-              <span className="flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/30 px-2.5 py-1 rounded-full">
-                <Zap size={11} /> Sync enabled
-              </span>
+              <Badge variant="indigo"><Zap size={11} /> Sync enabled</Badge>
             )}
             {canManage && (
+              // Stays a real <Link> so routing (and cmd-click) keeps working —
+              // Button renders a <button> and cannot carry the route.
               <Link
                 to={`/custom-modules?module=${module_.id}`}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="inline-flex items-center gap-1.5 px-3 h-ctl-sm border border-line rounded-btn text-xs font-medium text-fg bg-surface shadow-ui-sm hover:bg-surface-hover hover:border-line-strong transition-colors"
               >
                 <Settings2 size={13} /> Manage fields &amp; sync
               </Link>

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { Building2, CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Building2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Alert, Button, Card, Spinner } from '../shared/components';
 
 type Status = 'validating' | 'ready' | 'invalid' | 'approved' | 'rejected' | 'already-decided';
 
@@ -11,6 +12,47 @@ interface RequestInfo {
   email: string;
   status: string;
   createdAt: string;
+}
+
+const outcomeTones = {
+  success: 'bg-success-soft text-success',
+  danger: 'bg-danger-soft text-danger',
+  warning: 'bg-warning-soft text-warning',
+  neutral: 'bg-surface-sunken text-fg-subtle',
+} as const;
+
+/** Terminal state panel — one shape for all five outcomes this page can land on. */
+function Outcome({
+  tone, icon, title, children, action,
+}: {
+  tone: keyof typeof outcomeTones;
+  icon: React.ReactNode;
+  title: React.ReactNode;
+  children?: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-8 text-center">
+      <span className={`w-12 h-12 rounded-full flex items-center justify-center ${outcomeTones[tone]}`}>
+        {icon}
+      </span>
+      <h2 className="font-semibold text-fg tracking-tight">{title}</h2>
+      {children && (
+        <p className="text-[13px] text-fg-muted leading-relaxed max-w-[320px]">{children}</p>
+      )}
+      {action && <div className="mt-1">{action}</div>}
+    </div>
+  );
+}
+
+/** One label/value row in the request summary. */
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-fg-muted shrink-0">{label}</span>
+      <span className="font-medium text-fg text-right min-w-0 truncate">{value}</span>
+    </div>
+  );
 }
 
 /**
@@ -54,110 +96,85 @@ export function OrgApprovalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-50 to-blue-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <Building2 className="text-brand-600" size={28} />
-          <h1 className="text-2xl font-bold text-gray-900">CRM & IT Desk</h1>
+    <div className="min-h-screen bg-canvas flex items-center justify-center p-6">
+      <Card padding="lg" className="w-full max-w-md">
+        <div className="flex items-center justify-center gap-2.5 mb-7">
+          <Building2 className="text-accent" size={26} />
+          <h1 className="text-xl font-semibold text-fg tracking-tight">CRM &amp; IT Desk</h1>
         </div>
 
-        {status === 'validating' && (
-          <div className="flex flex-col items-center gap-3 py-8 text-gray-500">
-            <Loader2 size={28} className="animate-spin text-brand-500" />
-            <p className="text-sm">Loading request...</p>
-          </div>
-        )}
+        {status === 'validating' && <Spinner label="Loading request..." compact />}
 
         {status === 'invalid' && (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <AlertCircle size={36} className="text-red-400" />
-            <h2 className="font-semibold text-gray-900">Request not found</h2>
-            <p className="text-sm text-gray-500">This link is invalid.</p>
-          </div>
+          <Outcome tone="danger" icon={<AlertCircle size={26} />} title="Request not found">
+            This link is invalid.
+          </Outcome>
         )}
 
         {status === 'already-decided' && (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <AlertCircle size={36} className="text-amber-400" />
-            <h2 className="font-semibold text-gray-900">Already {info?.status.toLowerCase()}</h2>
-            <p className="text-sm text-gray-500">This request was already decided — no action needed.</p>
-          </div>
+          <Outcome tone="warning" icon={<AlertCircle size={26} />} title={`Already ${info?.status.toLowerCase()}`}>
+            This request was already decided — no action needed.
+          </Outcome>
         )}
 
         {status === 'approved' && (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <CheckCircle size={36} className="text-green-500" />
-            <h2 className="font-semibold text-gray-900">Approved</h2>
-            <p className="text-sm text-gray-500">
-              <span className="font-medium text-gray-700">{info?.organizationName}</span> has been created.
-              {info?.email && ` ${info.email} has been notified and can now log in.`}
-            </p>
-            <button
-              onClick={() => navigate('/login')}
-              className="mt-2 text-sm text-brand-600 hover:underline font-medium"
-            >
-              Go to sign in
-            </button>
-          </div>
+          <Outcome
+            tone="success"
+            icon={<CheckCircle size={26} />}
+            title="Approved"
+            action={
+              <Button variant="secondary" size="sm" onClick={() => navigate('/login')}>
+                Go to sign in
+              </Button>
+            }
+          >
+            <span className="font-medium text-fg">{info?.organizationName}</span> has been created.
+            {info?.email && ` ${info.email} has been notified and can now log in.`}
+          </Outcome>
         )}
 
         {status === 'rejected' && (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <XCircle size={36} className="text-gray-400" />
-            <h2 className="font-semibold text-gray-900">Request rejected</h2>
-            <p className="text-sm text-gray-500">No org or user was created.</p>
-          </div>
+          <Outcome tone="neutral" icon={<XCircle size={26} />} title="Request rejected">
+            No org or user was created.
+          </Outcome>
         )}
 
         {status === 'ready' && info && (
           <>
             <div className="mb-6 text-center">
-              <h2 className="text-lg font-semibold text-gray-900">New signup request</h2>
-              <p className="text-sm text-gray-500 mt-1">Review before anything is created</p>
+              <h2 className="text-lg font-semibold text-fg tracking-tight">New signup request</h2>
+              <p className="text-[13px] text-fg-muted mt-1">Review before anything is created</p>
             </div>
 
-            <div className="space-y-2 bg-gray-50 rounded-xl p-4 mb-6 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Organization</span>
-                <span className="font-medium text-gray-900">{info.organizationName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Requested by</span>
-                <span className="font-medium text-gray-900">{info.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Email</span>
-                <span className="font-medium text-gray-900">{info.email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Submitted</span>
-                <span className="font-medium text-gray-900">{new Date(info.createdAt).toLocaleString()}</span>
-              </div>
-            </div>
+            <Card tone="sunken" flat padding="md" className="space-y-2.5 mb-6 text-[13px]">
+              <DetailRow label="Organization" value={info.organizationName} />
+              <DetailRow label="Requested by" value={info.name} />
+              <DetailRow label="Email" value={info.email} />
+              <DetailRow label="Submitted" value={new Date(info.createdAt).toLocaleString()} />
+            </Card>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-4">{error}</div>
-            )}
+            {error && <Alert tone="danger" className="mb-4">{error}</Alert>}
 
             <div className="flex gap-3">
-              <button
+              <Button
+                variant="secondary"
+                block
                 onClick={() => decide('reject')}
                 disabled={deciding}
-                className="flex-1 border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-gray-700 font-medium py-2.5 rounded-lg text-sm transition-colors"
               >
                 Reject
-              </button>
-              <button
+              </Button>
+              <Button
+                block
+                loading={deciding}
                 onClick={() => decide('approve')}
-                disabled={deciding}
-                className="flex-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
               >
                 {deciding ? 'Approving...' : 'Approve'}
-              </button>
+              </Button>
             </div>
           </>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

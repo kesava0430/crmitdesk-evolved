@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
-import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions } from '../shared/components';
+import {
+  PageHeader, PageBody, Card, StatTile, Button, Modal, Badge, SearchInput, EmptyState,
+  Spinner, SearchableSelect, RowActions, Alert, Avatar, Field, Input,
+  DataTable, type Column,
+} from '../shared/components';
 import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check, KeyRound } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
 import { useRoles } from '../api/work';
@@ -60,34 +64,32 @@ function UserForm({ initial, onSubmit, loading }: any) {
       <div className="form-section">
         <p className="form-section-title">Account Details</p>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Full Name <span className="req">*</span></label>
-            <input aria-label="Full Name" required className="ui-input" value={form.name} onChange={f('name')} placeholder="Jane Smith" />
-          </div>
-          <div>
-            <label className="form-label">Email <span className="req">*</span></label>
-            <input aria-label="Email" required type="email" className="ui-input" value={form.email} onChange={f('email')} disabled={!!initial} placeholder="jane@company.com" />
-          </div>
+          <Field label="Full Name" required>
+            <Input aria-label="Full Name" required value={form.name} onChange={f('name')} placeholder="Jane Smith" />
+          </Field>
+          <Field label="Email" required>
+            <Input aria-label="Email" required type="email" value={form.email} onChange={f('email')} disabled={!!initial} placeholder="jane@company.com" />
+          </Field>
           {!initial && (
-            <div>
-              <label className="form-label">Password <span className="req">*</span></label>
-              <input aria-label="Password" required type="password" minLength={8} className="ui-input" value={form.password} onChange={f('password')} placeholder="Min 8 characters" />
-            </div>
+            <Field label="Password" required>
+              <Input aria-label="Password" required type="password" minLength={8} value={form.password} onChange={f('password')} placeholder="Min 8 characters" />
+            </Field>
           )}
-          <div>
-            <label className="form-label">Department</label>
-            <input className="ui-input" value={form.department} onChange={f('department')} placeholder="e.g. Engineering, Sales" />
-          </div>
-          <div>
-            <label className="form-label">Phone (WhatsApp)</label>
-            <input aria-label="Phone" className="ui-input" value={form.phone || ''} onChange={f('phone')} placeholder="+14155551234" />
-          </div>
+          <Field label="Department">
+            <Input value={form.department} onChange={f('department')} placeholder="e.g. Engineering, Sales" />
+          </Field>
+          <Field label="Phone (WhatsApp)">
+            <Input aria-label="Phone" value={form.phone || ''} onChange={f('phone')} placeholder="+14155551234" />
+          </Field>
         </div>
       </div>
       <div className="form-section">
         <p className="form-section-title">Permissions</p>
-        <div>
-          <label className="form-label">Role <span className="req">*</span></label>
+        <Field
+          label="Role"
+          required
+          hint={<>Decides what this user can see and do. Manage the list under Administration → Roles &amp; Permissions.</>}
+        >
           <SearchableSelect
             ariaLabel="Role"
             value={form.roleId || (initialRoleId ?? '')}
@@ -95,10 +97,7 @@ function UserForm({ initial, onSubmit, loading }: any) {
             required
             options={rolesLoading ? [{ value: '', label: 'Loading roles…' }] : roleOptions}
           />
-          <p className="form-hint">
-            Decides what this user can see and do. Manage the list under Administration → Roles &amp; Permissions.
-          </p>
-        </div>
+        </Field>
       </div>
       <div className="flex justify-end pt-1">
         <Button type="submit" loading={loading}>{initial ? 'Save Changes' : 'Create User'}</Button>
@@ -129,16 +128,18 @@ function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      {error && <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm px-3 py-2.5 rounded-lg">{error}</div>}
+      {error && <Alert tone="danger">{error}</Alert>}
       <div className="form-section">
         <p className="form-section-title">Invite Details</p>
         <div className="space-y-4">
-          <div>
-            <label className="form-label">Email address <span className="req">*</span></label>
-            <input aria-label="Email" required type="email" className="ui-input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="colleague@company.com" />
-          </div>
-          <div>
-            <label className="form-label">Role <span className="req">*</span></label>
+          <Field label="Email address" required>
+            <Input aria-label="Email" required type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="colleague@company.com" />
+          </Field>
+          <Field
+            label="Role"
+            required
+            hint="The role is stored on the invite, so a custom role survives until the person accepts."
+          >
             <SearchableSelect
               ariaLabel="Role"
               value={form.roleId}
@@ -146,10 +147,7 @@ function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
               required
               options={rolesLoading ? [{ value: '', label: 'Loading roles…' }] : roleOptions}
             />
-            <p className="form-hint">
-              The role is stored on the invite, so a custom role survives until the person accepts.
-            </p>
-          </div>
+          </Field>
         </div>
       </div>
       <div className="flex justify-end pt-1">
@@ -169,17 +167,21 @@ function CopyLink({ link }: { link: string }) {
   }
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-lg">
-        <Check size={16} className="text-green-600 dark:text-green-400 flex-shrink-0" />
-        <span className="text-sm text-green-700 dark:text-green-300 font-medium">Invite link generated!</span>
-      </div>
-      <p className="text-sm text-gray-600 dark:text-gray-300">Share this link with the invitee — it expires in 7 days:</p>
+      <Alert tone="success" icon={<Check size={16} />} className="font-medium">
+        Invite link generated!
+      </Alert>
+      <p className="text-[13px] text-fg-muted">Share this link with the invitee — it expires in 7 days:</p>
       <div className="flex gap-2">
-        <input readOnly value={link} className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-200 font-mono truncate" />
-        <button onClick={copy} className="flex items-center gap-1 px-3 py-2 bg-brand-600 text-white text-xs rounded-lg hover:bg-brand-700 transition-colors flex-shrink-0">
-          {copied ? <Check size={13} /> : <Copy size={13} />}
+        <Input
+          readOnly
+          value={link}
+          aria-label="Invite link"
+          inputSize="sm"
+          className="flex-1 font-mono truncate !bg-surface-sunken"
+        />
+        <Button size="sm" icon={copied ? <Check size={13} /> : <Copy size={13} />} onClick={copy}>
           {copied ? 'Copied!' : 'Copy'}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -249,27 +251,85 @@ export function UsersPage() {
     setInviteLink(null);
   }
 
+  const columns: Column<any>[] = [
+    {
+      key: 'user',
+      header: 'User',
+      cell: u => (
+        <div className="flex items-center gap-3">
+          <Avatar name={u.name} size="md" />
+          <div>
+            <p className="font-medium text-fg">{u.name}</p>
+            <p className="text-[11.5px] text-fg-subtle">{u.email}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      // Show the assigned Role's name when there is one — a custom role like
+      // "Regional Sales Head" is far more useful here than the base access
+      // level it maps to. Users still on the legacy enum fall back to it.
+      cell: u => (
+        <Badge variant={roleVariant[u.role] || 'gray'}>
+          {u.roleRef?.name ?? u.role.replace(/_/g, ' ')}
+        </Badge>
+      ),
+    },
+    { key: 'department', header: 'Department', muted: true, cell: u => u.department || '—' },
+    {
+      key: 'employee',
+      header: 'Employee',
+      // Adding a user creates their employee record automatically, so this
+      // should read as a code for everyone. "Not linked" means provisioning
+      // was skipped or failed — use "Fix employee records" above to repair it.
+      cell: u => u.employee
+        ? <span className="text-[11.5px] font-mono text-fg-muted">{u.employee.employeeCode}</span>
+        : <Badge variant="orange">Not linked</Badge>,
+    },
+    {
+      key: 'lastLogin',
+      header: 'Last Login',
+      hideBelow: 'sm',
+      cell: () => <span className="text-fg-subtle">—</span>,
+    },
+    {
+      key: 'createdAt',
+      header: 'Created At',
+      hideBelow: 'sm',
+      cell: u => <span className="text-fg-subtle">{u.createdAt ? date(u.createdAt) : '—'}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: u => <Badge variant={u.isActive ? 'green' : 'gray'}>{u.isActive ? 'Active' : 'Inactive'}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      cell: u => (
+        <RowActions items={[
+          { label: 'Edit', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', user: u }) },
+          { label: 'Reset Password', icon: <KeyRound size={14} />, onClick: () => resetPassword.mutate(u.id), hidden: !u.isActive },
+          { label: 'Deactivate', icon: <UserX size={14} />, onClick: () => deactivate.mutate(u.id), variant: 'danger', hidden: !u.isActive },
+          { label: 'Reactivate', icon: <Shield size={14} />, onClick: () => update.mutate({ id: u.id, isActive: true }), hidden: u.isActive },
+        ]} />
+      ),
+    },
+  ];
+
   const BLOCKED_ROLES = ['SALES_REP', 'IT_AGENT', 'EMPLOYEE'];
   if (currentUser && BLOCKED_ROLES.includes(currentUser.role)) {
     return (
       <div className="p-8 text-center">
-        <p className="text-red-600 dark:text-red-400 text-sm font-medium">Access denied. You don't have permission to view this page.</p>
+        <p className="text-danger text-[13px] font-medium">Access denied. You don't have permission to view this page.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-5 animate-slide-up">
-      {/* Role summary */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-        {ROLES.map(role => (
-          <div key={role} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3 text-center">
-            <p className="text-xl font-bold text-gray-900 dark:text-white">{roleGroups[role]}</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{role.replace(/_/g,' ')}</p>
-          </div>
-        ))}
-      </div>
-
+    <div className="animate-slide-up">
       <PageHeader
         title="Users"
         subtitle={`${filtered?.length ?? 0} users`}
@@ -280,119 +340,70 @@ export function UsersPage() {
         </>}
       />
 
-      {/* Users with no employee record — one click to repair, never re-entry. */}
-      {unlinked.length > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-              {unlinked.length} user{unlinked.length === 1 ? '' : 's'} without an employee record
-            </p>
-            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-              New users normally get one automatically. These predate that, or were created while HR was unavailable —
-              creating them here takes a second and needs no re-typing.
-            </p>
-          </div>
-          <Button
-            variant="secondary"
-            loading={reconcile.isPending}
-            onClick={() => reconcile.mutate()}
+      <PageBody>
+        {/* Role summary */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+          {ROLES.map(role => (
+            <StatTile key={role} label={role.replace(/_/g, ' ')} value={roleGroups[role]} />
+          ))}
+        </div>
+
+        {/* Users with no employee record — one click to repair, never re-entry. */}
+        {unlinked.length > 0 && (
+          <Alert
+            tone="warning"
+            title={`${unlinked.length} user${unlinked.length === 1 ? '' : 's'} without an employee record`}
+            actions={
+              <Button
+                variant="secondary"
+                loading={reconcile.isPending}
+                onClick={() => reconcile.mutate()}
+              >
+                Create {unlinked.length} employee record{unlinked.length === 1 ? '' : 's'}
+              </Button>
+            }
           >
-            Create {unlinked.length} employee record{unlinked.length === 1 ? '' : 's'}
-          </Button>
-        </div>
-      )}
+            New users normally get one automatically. These predate that, or were created while HR was unavailable —
+            creating them here takes a second and needs no re-typing.
+          </Alert>
+        )}
 
-      {/* Pending Invites */}
-      {pendingInvites.length > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4">
-          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">Pending Invites ({pendingInvites.length})</p>
-          <div className="space-y-1">
-            {pendingInvites.map((inv: any) => (
-              <div key={inv.id} className="flex items-center justify-between text-sm">
-                <span className="text-amber-700 dark:text-amber-300">{inv.email}</span>
-                <div className="flex items-center gap-2">
-                  <Badge variant="yellow">{inv.role.replace(/_/g,' ')}</Badge>
-                  <span className="text-xs text-amber-500 dark:text-amber-400">Expires {date(inv.expiresAt)}</span>
+        {/* Pending Invites */}
+        {pendingInvites.length > 0 && (
+          <Alert tone="warning" title={`Pending Invites (${pendingInvites.length})`}>
+            <div className="space-y-1 mt-1">
+              {pendingInvites.map((inv: any) => (
+                <div key={inv.id} className="flex items-center justify-between gap-2">
+                  <span>{inv.email}</span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="yellow">{inv.role.replace(/_/g, ' ')}</Badge>
+                    <span className="text-[11.5px] opacity-80">Expires {date(inv.expiresAt)}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {isLoading ? <Spinner /> : filtered?.length === 0 ? (
-        <EmptyState icon={<Users size={24} />} title="No users found" description="Invite or create team members to get started" action={{ label: 'Invite User', onClick: () => setModal('invite') }} />
-      ) : (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
-          <div className="table-container">
-          <table className="w-full text-sm min-w-[640px]">
-            <thead><tr className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Department</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Employee</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Last Login</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Created At</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-            </tr></thead>
-            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-              {filtered?.map((u: any) => (
-                <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
-                        {u.name[0]?.toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{u.name}</p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500">{u.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {/* Show the assigned Role's name when there is one — a
-                        custom role like "Regional Sales Head" is far more
-                        useful here than the base access level it maps to.
-                        Users still on the legacy enum fall back to it. */}
-                    <Badge variant={roleVariant[u.role] || 'gray'}>
-                      {u.roleRef?.name ?? u.role.replace(/_/g, ' ')}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{u.department || '—'}</td>
-                  {/* Adding a user creates their employee record automatically, so
-                      this should read as a code for everyone. "Not linked" means
-                      provisioning was skipped or failed — use "Fix employee
-                      records" above to repair it. */}
-                  <td className="px-4 py-3">
-                    {u.employee ? (
-                      <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{u.employee.employeeCode}</span>
-                    ) : (
-                      <Badge variant="orange">Not linked</Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">—</td>
-                  <td className="px-4 py-3 hidden sm:table-cell text-gray-400 dark:text-gray-500">
-                    {u.createdAt ? date(u.createdAt) : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge variant={u.isActive ? 'green' : 'gray'}>{u.isActive ? 'Active' : 'Inactive'}</Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <RowActions items={[
-                      { label: 'Edit', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', user: u }) },
-                      { label: 'Reset Password', icon: <KeyRound size={14} />, onClick: () => resetPassword.mutate(u.id), hidden: !u.isActive },
-                      { label: 'Deactivate', icon: <UserX size={14} />, onClick: () => deactivate.mutate(u.id), variant: 'danger', hidden: !u.isActive },
-                      { label: 'Reactivate', icon: <Shield size={14} />, onClick: () => update.mutate({ id: u.id, isActive: true }), hidden: u.isActive },
-                    ]} />
-                  </td>
-                </tr>
               ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
+            </div>
+          </Alert>
+        )}
+
+        {isLoading ? <Spinner /> : (
+          <Card padding="none">
+            <DataTable
+              columns={columns}
+              rows={filtered ?? []}
+              rowKey={(u: any) => u.id}
+              minWidth={640}
+              empty={
+                <EmptyState
+                  icon={<Users size={24} />}
+                  title="No users found"
+                  description="Invite or create team members to get started"
+                  action={{ label: 'Invite User', onClick: () => setModal('invite') }}
+                />
+              }
+            />
+          </Card>
+        )}
+      </PageBody>
 
       {/* Create User Modal */}
       <Modal open={modal === 'create'} onClose={closeModal} title="Create User">

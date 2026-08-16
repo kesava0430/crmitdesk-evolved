@@ -1,10 +1,26 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { KeyRound, CheckCircle, AlertCircle, Trash2, Zap, Copy, Check, Plus, Pencil, X, RefreshCw } from 'lucide-react';
+import { KeyRound, Trash2, Zap, Copy, Check, Plus, Pencil, X, RefreshCw } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
+import {
+  PageBody, Card, CardHeader, Field, Input, Select, Checkbox,
+  Button, IconButton, Badge, Alert, Spinner,
+} from '../shared/components';
+
+/**
+ * Microsoft's brand blue.
+ *
+ * Third-party brand marks are deliberately exempt from the design-token
+ * system: the Entra ID tile has to read as Microsoft whichever theme the
+ * customer picks, so this stays a literal hex rather than becoming
+ * `bg-accent`.
+ */
+const MICROSOFT_BRAND_TILE = 'bg-[#0078D4]';
 
 const ROLES = ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP', 'IT_MANAGER', 'IT_AGENT', 'EMPLOYEE'];
+
+const ROLE_OPTIONS = ROLES.map(r => ({ value: r, label: r.replace(/_/g, ' ') }));
 
 interface DirectoryConfig {
   tenantId: string;
@@ -69,73 +85,69 @@ function RoleMappingsSection() {
 
   const rowForm = (
     <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_140px_80px_auto] gap-2 items-start">
-      <input className="ui-input text-xs" placeholder="Entra group object ID" value={form.groupId} onChange={e => setForm(f => ({ ...f, groupId: e.target.value }))} />
-      <input className="ui-input text-xs" placeholder="Group name (for reference)" value={form.groupLabel} onChange={e => setForm(f => ({ ...f, groupLabel: e.target.value }))} />
-      <select className="ui-input text-xs" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-        {ROLES.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
-      </select>
-      <input type="number" className="ui-input text-xs" placeholder="Priority" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: Number(e.target.value) || 0 }))} />
+      <Input inputSize="sm" placeholder="Entra group object ID" value={form.groupId} onChange={e => setForm(f => ({ ...f, groupId: e.target.value }))} />
+      <Input inputSize="sm" placeholder="Group name (for reference)" value={form.groupLabel} onChange={e => setForm(f => ({ ...f, groupLabel: e.target.value }))} />
+      <Select selectSize="sm" options={ROLE_OPTIONS} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} />
+      <Input inputSize="sm" type="number" placeholder="Priority" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: Number(e.target.value) || 0 }))} />
       <div className="flex items-center gap-1">
-        <button
-          onClick={() => editingId ? update.mutate({ id: editingId, data: form }) : create.mutate(form)}
-          disabled={!form.groupId || !form.groupLabel || create.isPending || update.isPending}
-          className="p-2 rounded-lg bg-brand-600 text-white disabled:opacity-50"
+        <Button
+          size="sm"
           aria-label="Save mapping"
-        >
-          <Check size={14} />
-        </button>
-        <button
-          onClick={() => { setAdding(false); setEditingId(null); setForm(MAPPING_DEFAULT); }}
-          className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400"
+          icon={<Check size={14} />}
+          onClick={() => editingId ? update.mutate({ id: editingId, data: form }) : create.mutate(form)}
+          disabled={!form.groupId || !form.groupLabel}
+          loading={create.isPending || update.isPending}
+        />
+        <Button
+          size="sm"
+          variant="secondary"
           aria-label="Cancel"
-        >
-          <X size={14} />
-        </button>
+          icon={<X size={14} />}
+          onClick={() => { setAdding(false); setEditingId(null); setForm(MAPPING_DEFAULT); }}
+        />
       </div>
     </div>
   );
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Group → role mapping</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-            People in the highest-priority matching group get that role. Anyone not in a mapped group gets the default role above.
-          </p>
-        </div>
-        {!adding && (
-          <button
+    <Card className="space-y-4">
+      <CardHeader
+        title="Group → role mapping"
+        subtitle="People in the highest-priority matching group get that role. Anyone not in a mapped group gets the default role above."
+        actions={!adding && (
+          <Button
+            size="xs"
+            variant="subtle"
+            icon={<Plus size={14} />}
             onClick={() => { setAdding(true); setEditingId(null); setForm(MAPPING_DEFAULT); }}
-            className="flex items-center gap-1 text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline shrink-0"
           >
-            <Plus size={14} /> Add mapping
-          </button>
+            Add mapping
+          </Button>
         )}
-      </div>
+      />
 
       {isLoading ? (
-        <p className="text-xs text-gray-400 dark:text-gray-500">Loading...</p>
+        <Spinner compact />
       ) : mappings.length === 0 && !adding ? (
-        <p className="text-xs text-gray-400 dark:text-gray-500">No group mappings yet — everyone provisioned via SSO gets the default role.</p>
+        <p className="text-xs text-fg-subtle">No group mappings yet — everyone provisioned via SSO gets the default role.</p>
       ) : (
         <div className="space-y-2">
           {mappings.map(m => editingId === m.id ? (
             <div key={m.id}>{rowForm}</div>
           ) : (
-            <div key={m.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
-              <span className="flex-1 truncate text-gray-700 dark:text-gray-300">{m.groupLabel}</span>
-              <span className="text-gray-400 dark:text-gray-500">priority {m.priority}</span>
-              <span className="font-medium text-gray-800 dark:text-gray-200">{m.role.replace(/_/g, ' ')}</span>
-              <button onClick={() => startEdit(m)} className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" aria-label="Edit mapping"><Pencil size={13} /></button>
-              <button onClick={() => remove.mutate(m.id)} className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400" aria-label="Delete mapping"><Trash2 size={13} /></button>
+            <div key={m.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-line-subtle last:border-0">
+              <span className="flex-1 truncate text-fg">{m.groupLabel}</span>
+              <span className="text-fg-subtle">priority {m.priority}</span>
+              <span className="font-medium text-fg">{m.role.replace(/_/g, ' ')}</span>
+              <IconButton label="Edit mapping" icon={<Pencil size={13} />} onClick={() => startEdit(m)} />
+              <IconButton label="Delete mapping" icon={<Trash2 size={13} />} tone="danger" onClick={() => remove.mutate(m.id)} />
             </div>
           ))}
         </div>
       )}
 
       {adding && rowForm}
-    </div>
+    </Card>
   );
 }
 
@@ -164,69 +176,69 @@ function SyncSection({ autoProvisioningEnabled }: { autoProvisioningEnabled: boo
   });
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Scheduled sync</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+    <Card className="space-y-4">
+      <CardHeader
+        title="Scheduled sync"
+        subtitle={
+          <>
             Runs automatically once a day, pre-creating and deactivating accounts based on group membership.
             {!autoProvisioningEnabled && ' Turn on automatic provisioning above to enable it.'}
-          </p>
-        </div>
-        <button
-          onClick={() => sync.mutate()}
-          disabled={!autoProvisioningEnabled || sync.isPending}
-          className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 shrink-0"
-        >
-          <RefreshCw size={13} className={sync.isPending ? 'animate-spin' : ''} /> Sync Now
-        </button>
-      </div>
+          </>
+        }
+        actions={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<RefreshCw size={13} />}
+            onClick={() => sync.mutate()}
+            disabled={!autoProvisioningEnabled}
+            loading={sync.isPending}
+          >
+            Sync Now
+          </Button>
+        }
+      />
 
       {sync.isError && (
-        <div className="flex items-center gap-2 p-2.5 rounded-lg text-xs bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-500/30">
-          <AlertCircle size={13} /> {(sync.error as any)?.response?.data?.error ?? 'Sync failed'}
-        </div>
+        <Alert tone="danger">{(sync.error as any)?.response?.data?.error ?? 'Sync failed'}</Alert>
       )}
 
       {logs.length > 0 && (
         <div className="space-y-1.5">
           {logs.slice(0, 5).map(log => (
-            <div key={log.id} className="flex items-center gap-3 text-xs py-1 border-b border-gray-100 dark:border-gray-800 last:border-0">
-              <span className={`shrink-0 ${log.status === 'OK' ? 'text-green-600 dark:text-green-400' : log.status === 'ERROR' ? 'text-red-600 dark:text-red-400' : 'text-gray-400'}`}>
+            <div key={log.id} className="flex items-center gap-3 text-xs py-1 border-b border-line-subtle last:border-0">
+              <span className={`shrink-0 ${log.status === 'OK' ? 'text-success' : log.status === 'ERROR' ? 'text-danger' : 'text-fg-subtle'}`}>
                 {log.status === 'RUNNING' ? 'Running…' : log.status === 'OK' ? 'Succeeded' : 'Failed'}
               </span>
-              <span className="text-gray-400 dark:text-gray-500">{dateTime(log.startedAt)}</span>
+              <span className="text-fg-subtle">{dateTime(log.startedAt)}</span>
               {log.status === 'OK' && (
-                <span className="text-gray-500 dark:text-gray-400 ml-auto">
+                <span className="text-fg-muted ml-auto">
                   +{log.usersCreated} created, {log.usersDeactivated} deactivated
                 </span>
               )}
-              {log.status === 'ERROR' && <span className="text-red-500 dark:text-red-400 ml-auto truncate">{log.errorMessage}</span>}
+              {log.status === 'ERROR' && <span className="text-danger ml-auto truncate">{log.errorMessage}</span>}
             </div>
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
 function CopyField({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div>
-      <label className="form-label">{label}</label>
+    <Field label={label}>
       <div className="flex items-center gap-2">
-        <input readOnly value={value} className="ui-input font-mono text-xs" onFocus={e => e.target.select()} />
-        <button
-          type="button"
-          onClick={() => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-          className="shrink-0 p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+        <Input readOnly value={value} className="font-mono text-xs" onFocus={e => e.target.select()} />
+        <Button
+          variant="secondary"
           aria-label={`Copy ${label}`}
-        >
-          {copied ? <Check size={14} className="text-green-600 dark:text-green-400" /> : <Copy size={14} />}
-        </button>
+          icon={copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+          onClick={() => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+        />
       </div>
-    </div>
+    </Field>
   );
 }
 
@@ -279,136 +291,118 @@ export default function DirectorySSOPage() {
   const connected = !!config;
   const canSave = !!form.tenantId && !!form.clientId && !!form.loginSlug && (connected || !!form.clientSecret);
 
-  if (isLoading) return <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">Loading...</div>;
+  if (isLoading) return <Spinner />;
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-[#0078D4] rounded-xl flex items-center justify-center">
+    <PageBody width="narrow">
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-card flex items-center justify-center shrink-0 ${MICROSOFT_BRAND_TILE}`}>
           <KeyRound size={20} className="text-white" />
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Single Sign-On (Microsoft Entra ID)</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Let employees sign in with their Microsoft work account</p>
+        <div className="min-w-0">
+          <h1 className="text-[18px] font-semibold text-fg leading-tight tracking-tight">Single Sign-On (Microsoft Entra ID)</h1>
+          <p className="text-[13px] text-fg-muted mt-0.5">Let employees sign in with their Microsoft work account</p>
         </div>
-        {connected && form.isEnabled && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 px-2.5 py-1 rounded-full">
-            <CheckCircle size={12} /> Connected
-          </span>
-        )}
+        {connected && form.isEnabled && <Badge variant="green" dot className="ml-auto">Connected</Badge>}
       </div>
 
-      <div className="space-y-5">
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">Entra App Registration</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
-            Register CRMITdesk as an app in your organization's Microsoft Entra admin center, then paste its details here.
-            Existing CRMITdesk accounts can always sign in this way; turn on automatic provisioning below to also create accounts for new employees on first sign-in.
-          </p>
-          <div className="space-y-4">
-            <div>
-              <label className="form-label">Tenant ID</label>
-              <input className="ui-input" value={form.tenantId} onChange={e => setForm(f => ({ ...f, tenantId: e.target.value }))} placeholder="00000000-0000-0000-0000-000000000000" />
+      <Card>
+        <CardHeader
+          title="Entra App Registration"
+          subtitle="Register CRMITdesk as an app in your organization's Microsoft Entra admin center, then paste its details here. Existing CRMITdesk accounts can always sign in this way; turn on automatic provisioning below to also create accounts for new employees on first sign-in."
+          className="mb-4"
+        />
+        <div className="space-y-4">
+          <Field label="Tenant ID">
+            <Input value={form.tenantId} onChange={e => setForm(f => ({ ...f, tenantId: e.target.value }))} placeholder="00000000-0000-0000-0000-000000000000" />
+          </Field>
+          <Field label="Client (Application) ID">
+            <Input value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} placeholder="00000000-0000-0000-0000-000000000000" />
+          </Field>
+          <Field label="Client Secret">
+            <Input
+              type="password"
+              value={form.clientSecret}
+              onChange={e => setForm(f => ({ ...f, clientSecret: e.target.value }))}
+              placeholder={config?.hasClientSecret ? '•••••••••••••• (saved — leave blank to keep it)' : 'Paste the secret value'}
+            />
+          </Field>
+          <Field label="Sign-in link" hint="Share this link with your employees to sign in with Microsoft.">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-fg-subtle shrink-0">/login/</span>
+              <Input value={form.loginSlug} onChange={e => setForm(f => ({ ...f, loginSlug: e.target.value.toLowerCase() }))} placeholder="acme" />
             </div>
-            <div>
-              <label className="form-label">Client (Application) ID</label>
-              <input className="ui-input" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} placeholder="00000000-0000-0000-0000-000000000000" />
-            </div>
-            <div>
-              <label className="form-label">Client Secret</label>
-              <input type="password" className="ui-input" value={form.clientSecret} onChange={e => setForm(f => ({ ...f, clientSecret: e.target.value }))}
-                placeholder={config?.hasClientSecret ? '•••••••••••••• (saved — leave blank to keep it)' : 'Paste the secret value'} />
-            </div>
-            <div>
-              <label className="form-label">Sign-in link</label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-400 dark:text-gray-500 shrink-0">/login/</span>
-                <input className="ui-input" value={form.loginSlug} onChange={e => setForm(f => ({ ...f, loginSlug: e.target.value.toLowerCase() }))} placeholder="acme" />
-              </div>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Share this link with your employees to sign in with Microsoft.</p>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input type="checkbox" checked={form.isEnabled} onChange={e => setForm(f => ({ ...f, isEnabled: e.target.checked }))} />
-              Enabled
-            </label>
-          </div>
+          </Field>
+          <Checkbox
+            label="Enabled"
+            checked={form.isEnabled}
+            onChange={e => setForm(f => ({ ...f, isEnabled: e.target.checked }))}
+          />
         </div>
+      </Card>
 
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">Automatic provisioning</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
-            When enabled, people signing in with Microsoft for the first time get a CRMITdesk account automatically instead of needing an Invite.
-          </p>
-          <div className="space-y-4">
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input type="checkbox" checked={form.autoProvisioningEnabled} onChange={e => setForm(f => ({ ...f, autoProvisioningEnabled: e.target.checked }))} />
-              Automatically create accounts for new Microsoft sign-ins
-            </label>
-            <div>
-              <label className="form-label">Default role</label>
-              <select className="ui-input" value={form.defaultRole} onChange={e => setForm(f => ({ ...f, defaultRole: e.target.value }))}>
-                {ROLES.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
-              </select>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Given to anyone not in a group mapped below.</p>
-            </div>
-          </div>
+      <Card>
+        <CardHeader
+          title="Automatic provisioning"
+          subtitle="When enabled, people signing in with Microsoft for the first time get a CRMITdesk account automatically instead of needing an Invite."
+          className="mb-4"
+        />
+        <div className="space-y-4">
+          <Checkbox
+            label="Automatically create accounts for new Microsoft sign-ins"
+            checked={form.autoProvisioningEnabled}
+            onChange={e => setForm(f => ({ ...f, autoProvisioningEnabled: e.target.checked }))}
+          />
+          <Field label="Default role" hint="Given to anyone not in a group mapped below.">
+            <Select options={ROLE_OPTIONS} value={form.defaultRole} onChange={e => setForm(f => ({ ...f, defaultRole: e.target.value }))} />
+          </Field>
         </div>
+      </Card>
 
-        {connected && <RoleMappingsSection />}
-        {connected && <SyncSection autoProvisioningEnabled={config.autoProvisioningEnabled} />}
+      {connected && <RoleMappingsSection />}
+      {connected && <SyncSection autoProvisioningEnabled={config.autoProvisioningEnabled} />}
 
+      {connected && (
+        <Card className="space-y-4">
+          <CardHeader title="Give these to your Entra admin" />
+          <CopyField label="Redirect URI (add under Authentication in your app registration)" value={config.redirectUri} />
+          <CopyField label="Employee sign-in link" value={config.loginUrl} />
+        </Card>
+      )}
+
+      {saved && <Alert tone="success">Configuration saved successfully!</Alert>}
+      {save.isError && (
+        <Alert tone="danger">{(save.error as any)?.response?.data?.error ?? 'Could not save configuration'}</Alert>
+      )}
+      {testResult && <Alert tone={testResult.ok ? 'success' : 'danger'}>{testResult.msg}</Alert>}
+
+      <div className="flex items-center gap-3">
+        <Button
+          size="lg"
+          className="flex-1"
+          onClick={() => save.mutate(form)}
+          disabled={!canSave}
+          loading={save.isPending}
+        >
+          {save.isPending ? 'Saving...' : connected ? 'Update Configuration' : 'Connect Microsoft Entra ID'}
+        </Button>
         {connected && (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Give these to your Entra admin</h2>
-            <CopyField label="Redirect URI (add under Authentication in your app registration)" value={config.redirectUri} />
-            <CopyField label="Employee sign-in link" value={config.loginUrl} />
-          </div>
+          <>
+            <Button size="lg" variant="secondary" icon={<Zap size={14} />} onClick={runTest}>
+              Test
+            </Button>
+            <Button
+              size="lg"
+              variant="danger"
+              icon={<Trash2 size={14} />}
+              onClick={() => remove.mutate()}
+              loading={remove.isPending}
+            >
+              Disconnect
+            </Button>
+          </>
         )}
-
-        {saved && (
-          <div className="flex items-center gap-2 p-3 rounded-lg text-sm bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-500/30">
-            <CheckCircle size={15} /> Configuration saved successfully!
-          </div>
-        )}
-        {save.isError && (
-          <div className="flex items-center gap-2 p-3 rounded-lg text-sm bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-500/30">
-            <AlertCircle size={15} /> {(save.error as any)?.response?.data?.error ?? 'Could not save configuration'}
-          </div>
-        )}
-        {testResult && (
-          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${testResult.ok ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400'}`}>
-            {testResult.ok ? <CheckCircle size={15} /> : <AlertCircle size={15} />}
-            {testResult.msg}
-          </div>
-        )}
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => save.mutate(form)}
-            disabled={!canSave || save.isPending}
-            className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition-colors"
-          >
-            {save.isPending ? 'Saving...' : connected ? 'Update Configuration' : 'Connect Microsoft Entra ID'}
-          </button>
-          {connected && (
-            <>
-              <button
-                onClick={runTest}
-                className="flex items-center gap-1.5 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                <Zap size={14} /> Test
-              </button>
-              <button
-                onClick={() => remove.mutate()}
-                disabled={remove.isPending}
-                className="flex items-center gap-1.5 px-4 py-2.5 border border-red-200 dark:border-red-500/30 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-              >
-                <Trash2 size={14} /> Disconnect
-              </button>
-            </>
-          )}
-        </div>
       </div>
-    </div>
+    </PageBody>
   );
 }

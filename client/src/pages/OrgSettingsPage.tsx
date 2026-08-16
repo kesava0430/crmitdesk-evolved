@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Globe2, CheckCircle } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
 import { useOrgSettings, useUpdateOrgSettings } from '../api/org';
-import { SearchableSelect } from '../shared/components';
+import { PageHeader, PageBody, Card, Button, Field, SearchableSelect, Spinner } from '../shared/components';
 import { currencySymbol } from '../utils/format';
 
 // Intl.supportedValuesOf('currency'/'timeZone') is the runtime's own ICU
@@ -99,63 +99,56 @@ export default function OrgSettingsPage() {
   } catch { preview = now.toLocaleString(); }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <Globe2 size={24} className="text-brand-600" />
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Org Settings</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Currency and time zone used across the whole app for this organization</p>
-        </div>
-      </div>
+    <div>
+      <PageHeader
+        title="Org Settings"
+        subtitle="Currency and time zone used across the whole app for this organization"
+      />
 
-      {isLoading ? (
-        <p className="text-sm text-gray-400 dark:text-gray-500">Loading…</p>
-      ) : (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 space-y-5">
-          <div>
-            <label className="form-label">Currency</label>
-            <SearchableSelect
-              ariaLabel="Currency"
-              value={currency}
-              onChange={setCurrency}
-              options={currencyOptions}
-              required
-            />
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-              Applies to deal values, quotes, invoices, and payroll amounts across the app — e.g. {new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(1234.5)}.
-            </p>
-          </div>
-
-          <div>
-            <label className="form-label">Time zone</label>
-            <SearchableSelect
-              ariaLabel="Time zone"
-              value={timezone}
-              onChange={setTimezone}
-              options={timezoneOptions}
-              required
-            />
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-              Applies to ticket/deal/activity timestamps app-wide — right now that's <strong>{preview}</strong>. Dates are still stored the same way either way; this only changes how they're displayed.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              onClick={save}
-              disabled={!dirty || update.isPending}
-              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white text-sm font-semibold rounded-xl transition-colors"
+      <PageBody width="narrow">
+        {isLoading ? (
+          <Spinner />
+        ) : (
+          <Card className="space-y-5">
+            <Field
+              label="Currency"
+              hint={<>Applies to deal values, quotes, invoices, and payroll amounts across the app — e.g. {new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(1234.5)}.</>}
             >
-              {update.isPending ? 'Saving…' : 'Save Changes'}
-            </button>
-            {saved && (
-              <span className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
-                <CheckCircle size={15} /> Saved
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+              <SearchableSelect
+                ariaLabel="Currency"
+                value={currency}
+                onChange={setCurrency}
+                options={currencyOptions}
+                required
+              />
+            </Field>
+
+            <Field
+              label="Time zone"
+              hint={<>Applies to ticket/deal/activity timestamps app-wide — right now that's <strong>{preview}</strong>. Dates are still stored the same way either way; this only changes how they're displayed.</>}
+            >
+              <SearchableSelect
+                ariaLabel="Time zone"
+                value={timezone}
+                onChange={setTimezone}
+                options={timezoneOptions}
+                required
+              />
+            </Field>
+
+            <div className="flex items-center gap-3 pt-1">
+              <Button onClick={save} disabled={!dirty} loading={update.isPending}>
+                {update.isPending ? 'Saving…' : 'Save Changes'}
+              </Button>
+              {saved && (
+                <span className="flex items-center gap-1 text-[13px] text-success">
+                  <CheckCircle size={15} /> Saved
+                </span>
+              )}
+            </div>
+          </Card>
+        )}
+      </PageBody>
     </div>
   );
 }

@@ -97,7 +97,6 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       data: {
         ...data,
         dealId: data.dealId ?? undefined,
-        notes: data.notes ?? undefined,
         dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
         ...(lines ? { lines: { create: lines } } : {}),
       },

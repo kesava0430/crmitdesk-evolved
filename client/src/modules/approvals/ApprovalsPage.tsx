@@ -13,7 +13,11 @@ import {
   type ApprovalPolicyStep,
 } from '../../api/work';
 import { useRoles } from '../../api/work';
-import { PageHeader, Button, Modal, Badge, Spinner, EmptyState } from '../../shared/components';
+import {
+  PageHeader, PageBody, Toolbar, Card, Tabs, Button, IconButton, Modal, Badge,
+  Field, Input, Select, FormError, Spinner, EmptyState, approvalStatusVariant,
+  type TabItem,
+} from '../../shared/components';
 import { CheckCircle2, Plus, Trash2, UserCheck, Inbox, GitBranch, Check, X } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { useAuth } from '../../contexts/AuthContext';
@@ -27,14 +31,8 @@ import { useAuth } from '../../contexts/AuthContext';
  * (All requests), and the admin who defines the rules (Policies).
  */
 
-const STATUS_VARIANT: Record<string, any> = {
-  PENDING: 'yellow',
-  APPROVED: 'green',
-  REJECTED: 'red',
-  CANCELLED: 'gray',
-  EXPIRED: 'orange',
-  SKIPPED: 'gray',
-};
+/** `approvalStatusVariant` covers the request states; steps add SKIPPED. */
+const stepVariant = (status: string) => approvalStatusVariant[status] ?? 'gray';
 
 const ENTITY_TYPES = [
   'LEAVE_REQUEST',
@@ -58,13 +56,6 @@ const APPROVER_TYPES = [
   { value: 'USER', label: 'A specific person' },
 ];
 
-const field =
-  'w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white';
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <label className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1 block">{children}</label>;
-}
-
 // ─── Inbox ────────────────────────────────────────────────────────────────────
 
 function InboxPanel() {
@@ -73,6 +64,10 @@ function InboxPanel() {
   const fmt = useFormat();
   const [comments, setComments] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // `decide` is one mutation shared across every row, so `decide.isPending`
+  // cannot say WHICH row is busy. Without this, acting on one approval spun
+  // and disabled the buttons on all of them.
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   if (isLoading) return <Spinner />;
   if (!data?.data.length) {
@@ -87,11 +82,13 @@ function InboxPanel() {
 
   const act = (id: string, decision: 'APPROVED' | 'REJECTED') => {
     setErrors(e => ({ ...e, [id]: '' }));
+    setPendingId(id);
     decide.mutate(
       { id, decision, comment: comments[id] || undefined },
       {
         onError: (err: any) =>
           setErrors(e => ({ ...e, [id]: err?.response?.data?.error || 'Could not record that decision.' })),
+        onSettled: () => setPendingId(null),
       }
     );
   };
@@ -99,53 +96,49 @@ function InboxPanel() {
   return (
     <div className="space-y-2">
       {data.data.map(a => (
-        <div
-          key={a.stepId}
-          className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4"
-        >
+        <Card key={a.stepId} padding="sm">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-medium text-gray-900 dark:text-white">{a.title}</p>
+              <p className="text-[14px] font-medium text-fg">{a.title}</p>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <Badge variant="yellow">{a.stepName}</Badge>
                 <Badge variant="gray">{a.entityType.replace(/_/g, ' ').toLowerCase()}</Badge>
-                <span className="text-[11.5px] text-gray-400 dark:text-gray-500">from {a.requester.name}</span>
+                <span className="text-[11.5px] text-fg-subtle">from {a.requester.name}</span>
                 {a.amount != null && (
-                  <span className="text-[11.5px] font-medium text-gray-700 dark:text-gray-200">
+                  <span className="text-[11.5px] font-medium text-fg">
                     {fmt.money(a.amount)}
                   </span>
                 )}
-                {a.policyName && <span className="text-[11.5px] text-gray-400">· {a.policyName}</span>}
+                {a.policyName && <span className="text-[11.5px] text-fg-subtle">· {a.policyName}</span>}
               </div>
               {a.description && (
-                <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-2">{a.description}</p>
+                <p className="text-[12.5px] text-fg-muted mt-2">{a.description}</p>
               )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <Button size="xs" variant="danger" onClick={() => act(a.requestId, 'REJECTED')} loading={decide.isPending}>
-                <X size={12} /> Reject
+              <Button size="xs" variant="danger" icon={<X size={12} />} onClick={() => act(a.requestId, 'REJECTED')} loading={pendingId === a.requestId} disabled={!!pendingId}>
+                Reject
               </Button>
-              <Button size="xs" onClick={() => act(a.requestId, 'APPROVED')} loading={decide.isPending}>
-                <Check size={12} /> Approve
+              <Button size="xs" icon={<Check size={12} />} onClick={() => act(a.requestId, 'APPROVED')} loading={pendingId === a.requestId} disabled={!!pendingId}>
+                Approve
               </Button>
             </div>
           </div>
 
-          <input
+          <Input
+            className="mt-3"
             value={comments[a.requestId] ?? ''}
             onChange={e => setComments(c => ({ ...c, [a.requestId]: e.target.value }))}
+            aria-label="Optional comment"
             placeholder="Optional comment — the requester will see this"
-            className={`${field} mt-3`}
           />
-          {errors[a.requestId] && (
-            <p className="text-[12px] text-red-600 dark:text-red-400 mt-1.5">{errors[a.requestId]}</p>
-          )}
+          {errors[a.requestId] && <FormError className="mt-1.5">{errors[a.requestId]}</FormError>}
           {a.expiresAt && (
-            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">
+            <p className="text-[11px] text-warning mt-1.5">
               Expires {fmt.dateTime(a.expiresAt)} if no decision is made
             </p>
           )}
-        </div>
+        </Card>
       ))}
     </div>
   );
@@ -162,14 +155,21 @@ function RequestsPanel() {
 
   return (
     <>
-      <select className={`${field} w-auto mb-3`} value={status} onChange={e => setStatus(e.target.value)}>
-        <option value="">All statuses</option>
-        {['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED'].map(s => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
+      <Toolbar className="mb-3">
+        <Select
+          className="w-auto"
+          aria-label="Filter by status"
+          value={status}
+          onChange={e => setStatus(e.target.value)}
+        >
+          <option value="">All statuses</option>
+          {['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED'].map(s => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+      </Toolbar>
 
       {isLoading ? (
         <Spinner />
@@ -182,18 +182,15 @@ function RequestsPanel() {
       ) : (
         <div className="space-y-2">
           {data.data.map(r => (
-            <div
-              key={r.id}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4"
-            >
+            <Card key={r.id} padding="sm">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-medium text-gray-900 dark:text-white">{r.title}</p>
+                  <p className="text-[13.5px] font-medium text-fg">{r.title}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <Badge variant={STATUS_VARIANT[r.status]}>{r.status}</Badge>
-                    <span className="text-[11.5px] text-gray-400">{r.requester.name}</span>
-                    <span className="text-[11.5px] text-gray-400">· {fmt.date(r.createdAt)}</span>
-                    {r.policy && <span className="text-[11.5px] text-gray-400">· {r.policy.name}</span>}
+                    <Badge variant={stepVariant(r.status)}>{r.status}</Badge>
+                    <span className="text-[11.5px] text-fg-subtle">{r.requester.name}</span>
+                    <span className="text-[11.5px] text-fg-subtle">· {fmt.date(r.createdAt)}</span>
+                    {r.policy && <span className="text-[11.5px] text-fg-subtle">· {r.policy.name}</span>}
                   </div>
                 </div>
                 {r.status === 'PENDING' && r.requester.id === user?.id && (
@@ -209,18 +206,18 @@ function RequestsPanel() {
                     <span
                       className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0 ${
                         s.status === 'APPROVED'
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
+                          ? 'bg-success-soft text-success-fg'
                           : s.status === 'REJECTED'
-                            ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                            : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                            ? 'bg-danger-soft text-danger-fg'
+                            : 'bg-surface-sunken text-fg-muted'
                       }`}
                     >
                       {s.order}
                     </span>
-                    <span className="text-gray-700 dark:text-gray-200">{s.name}</span>
-                    <Badge variant={STATUS_VARIANT[s.status]}>{s.status}</Badge>
+                    <span className="text-fg">{s.name}</span>
+                    <Badge variant={stepVariant(s.status)}>{s.status}</Badge>
                     {s.actions.map(a => (
-                      <span key={a.id} className="text-[11px] text-gray-400">
+                      <span key={a.id} className="text-[11px] text-fg-subtle">
                         {a.approver.name} {a.decision.toLowerCase()}
                         {a.comment ? ` — "${a.comment}"` : ''}
                       </span>
@@ -228,7 +225,7 @@ function RequestsPanel() {
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -302,78 +299,72 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
       }
     >
       <div className="space-y-3">
-        <div>
-          <Label>Policy name</Label>
-          <input className={field} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Standard leave approval" />
-        </div>
+        <Field label="Policy name">
+          <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Standard leave approval" />
+        </Field>
 
         <div className="grid grid-cols-3 gap-3">
-          <div>
-            <Label>Applies to</Label>
-            <select className={field} value={entityType} onChange={e => setEntityType(e.target.value)}>
-              {ENTITY_TYPES.map(t => (
-                <option key={t} value={t}>
-                  {t.replace(/_/g, ' ').toLowerCase()}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>Mode</Label>
-            <select className={field} value={mode} onChange={e => setMode(e.target.value)}>
+          <Field label="Applies to">
+            <Select
+              value={entityType}
+              onChange={e => setEntityType(e.target.value)}
+              options={ENTITY_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ').toLowerCase() }))}
+            />
+          </Field>
+          <Field label="Mode">
+            <Select value={mode} onChange={e => setMode(e.target.value)}>
               <option value="SEQUENTIAL">Sequential</option>
               <option value="PARALLEL">Parallel</option>
               <option value="ANY_ONE">Any one</option>
               <option value="UNANIMOUS">Unanimous</option>
-            </select>
-          </div>
-          <div>
-            <Label>Expires after (hours)</Label>
-            <input className={field} value={expiryHours} onChange={e => setExpiryHours(e.target.value)} />
-          </div>
+            </Select>
+          </Field>
+          <Field label="Expires after (hours)">
+            <Input value={expiryHours} onChange={e => setExpiryHours(e.target.value)} />
+          </Field>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <Label>Steps</Label>
-            <Button size="xs" variant="secondary" onClick={addStep}>
-              <Plus size={11} /> Add step
+            <p className="text-[12px] font-medium text-fg-muted">Steps</p>
+            <Button size="xs" variant="secondary" icon={<Plus size={11} />} onClick={addStep}>
+              Add step
             </Button>
           </div>
           <div className="space-y-2">
             {steps.map((s, i) => (
-              <div key={i} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
+              <div key={i} className="border border-line rounded-card p-3 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-[10px] font-semibold flex items-center justify-center text-gray-600 dark:text-gray-300">
+                  <span className="w-5 h-5 rounded-full bg-surface-sunken text-[10px] font-semibold flex items-center justify-center text-fg-muted shrink-0">
                     {s.order}
                   </span>
-                  <input
-                    className={`${field} flex-1`}
-                    value={s.name}
-                    onChange={e => updateStep(i, { name: e.target.value })}
-                    placeholder="Step name"
-                  />
+                  <div className="flex-1">
+                    <Input
+                      value={s.name}
+                      onChange={e => updateStep(i, { name: e.target.value })}
+                      aria-label={`Step ${s.order} name`}
+                      placeholder="Step name"
+                    />
+                  </div>
                   {steps.length > 1 && (
-                    <button onClick={() => removeStep(i)} className="text-gray-300 hover:text-red-500">
-                      <Trash2 size={13} />
-                    </button>
+                    <IconButton
+                      label="Remove step"
+                      icon={<Trash2 size={13} />}
+                      tone="danger"
+                      onClick={() => removeStep(i)}
+                    />
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <select
-                    className={field}
+                  <Select
+                    aria-label="Approver type"
                     value={s.approverType}
                     onChange={e => updateStep(i, { approverType: e.target.value })}
-                  >
-                    {APPROVER_TYPES.map(t => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={APPROVER_TYPES}
+                  />
                   {s.approverType === 'ROLE' && (
-                    <select
-                      className={field}
+                    <Select
+                      aria-label="Approver role"
                       value={s.approverRoleKey ?? ''}
                       onChange={e => updateStep(i, { approverRoleKey: e.target.value })}
                     >
@@ -383,7 +374,7 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
                           {r.name}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                 </div>
               </div>
@@ -391,7 +382,7 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
           </div>
         </div>
 
-        {error && <p className="text-[12.5px] text-red-600 dark:text-red-400">{error}</p>}
+        <FormError>{error}</FormError>
       </div>
     </Modal>
   );
@@ -405,16 +396,16 @@ function PoliciesPanel() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <p className="text-[12.5px] text-fg-muted">
           With no matching policy, a record proceeds without approval — so adding one is opt-in, never a surprise block.
         </p>
-        <Button size="xs" onClick={() => setOpen(true)}>
-          <Plus size={12} /> Policy
+        <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
+          Policy
         </Button>
       </div>
 
-      {error && <p className="text-[12.5px] text-red-600 dark:text-red-400 mb-2">{error}</p>}
+      {error && <FormError className="mb-2">{error}</FormError>}
 
       {isLoading ? (
         <Spinner />
@@ -428,47 +419,41 @@ function PoliciesPanel() {
       ) : (
         <div className="space-y-2">
           {data.data.map(p => (
-            <div
-              key={p.id}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 group"
-            >
+            <Card key={p.id} padding="sm" className="group">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[13.5px] font-medium text-gray-900 dark:text-white">{p.name}</p>
+                  <p className="text-[13.5px] font-medium text-fg">{p.name}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <Badge variant="indigo">{p.entityType.replace(/_/g, ' ').toLowerCase()}</Badge>
                     <Badge variant="gray">{p.mode.toLowerCase()}</Badge>
                     {!p.isActive && <Badge variant="gray">Inactive</Badge>}
-                    <span className="text-[11.5px] text-gray-400">{p._count?.requests ?? 0} requests</span>
-                    {p.expiryHours && <span className="text-[11.5px] text-gray-400">· expires in {p.expiryHours}h</span>}
+                    <span className="text-[11.5px] text-fg-subtle">{p._count?.requests ?? 0} requests</span>
+                    {p.expiryHours && <span className="text-[11.5px] text-fg-subtle">· expires in {p.expiryHours}h</span>}
                   </div>
                 </div>
-                <button
+                <IconButton
+                  label="Delete policy"
+                  icon={<Trash2 size={13} />}
+                  tone="danger"
+                  revealOnRowHover
                   onClick={() => {
                     setError('');
                     del.mutate(p.id, {
                       onError: (err: any) => setError(err?.response?.data?.error || 'Could not delete that policy.'),
                     });
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"
-                  aria-label="Delete policy"
-                >
-                  <Trash2 size={13} />
-                </button>
+                />
               </div>
 
               <div className="flex items-center gap-1.5 mt-3 flex-wrap">
                 {p.steps.map(s => (
-                  <span
-                    key={s.order}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
-                  >
+                  <Badge key={s.order} variant="gray">
                     {s.order}. {s.name}
-                    {s.isOptional && <span className="text-[10px] text-gray-400">optional</span>}
-                  </span>
+                    {s.isOptional && <span className="text-[10px] text-fg-subtle">optional</span>}
+                  </Badge>
                 ))}
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -490,28 +475,28 @@ function DelegationsPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-        <p className="text-[13px] font-medium text-gray-900 dark:text-white mb-1">Delegate your approvals</p>
-        <p className="text-[12px] text-gray-500 dark:text-gray-400 mb-3">
+      <Card padding="sm">
+        <p className="text-[13px] font-medium text-fg mb-1">Delegate your approvals</p>
+        <p className="text-[12px] text-fg-muted mb-3">
           While a delegation is active, both you and your delegate can approve — so coming back early doesn't lock you
           out of your own queue.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-          <input
-            className={field}
+          <Input
+            aria-label="Delegate's user ID"
             placeholder="Delegate's user ID"
             value={form.toUserId}
             onChange={e => setForm({ ...form, toUserId: e.target.value })}
           />
-          <input
+          <Input
             type="date"
-            className={field}
+            aria-label="Delegation starts"
             value={form.startsAt}
             onChange={e => setForm({ ...form, startsAt: e.target.value })}
           />
-          <input
+          <Input
             type="date"
-            className={field}
+            aria-label="Delegation ends"
             value={form.endsAt}
             onChange={e => setForm({ ...form, endsAt: e.target.value })}
           />
@@ -533,8 +518,8 @@ function DelegationsPanel() {
             Delegate
           </Button>
         </div>
-        {error && <p className="text-[12px] text-red-600 dark:text-red-400 mt-2">{error}</p>}
-      </div>
+        {error && <FormError className="mt-2">{error}</FormError>}
+      </Card>
 
       {isLoading ? (
         <Spinner />
@@ -545,18 +530,18 @@ function DelegationsPanel() {
           description="Delegate your approvals when you're away so nothing sits waiting."
         />
       ) : (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <Card padding="none" className="overflow-hidden">
           {data.data.map(d => (
             <div
               key={d.id}
-              className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0"
+              className="flex items-center gap-3 px-4 py-3 border-b border-line-subtle last:border-0"
             >
-              <UserCheck size={14} className="text-gray-400" />
+              <UserCheck size={14} className="text-fg-subtle" />
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] text-gray-900 dark:text-white">
+                <p className="text-[13px] text-fg">
                   {d.from?.name} → {d.to?.name}
                 </p>
-                <p className="text-[11px] text-gray-400">
+                <p className="text-[11px] text-fg-subtle">
                   {fmt.date(d.startsAt)} – {fmt.date(d.endsAt)}
                   {d.reason ? ` · ${d.reason}` : ''}
                 </p>
@@ -570,7 +555,7 @@ function DelegationsPanel() {
               )}
             </div>
           ))}
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -578,15 +563,17 @@ function DelegationsPanel() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const TABS = [
-  { key: 'inbox', label: 'My inbox', icon: Inbox },
-  { key: 'requests', label: 'All requests', icon: CheckCircle2 },
-  { key: 'policies', label: 'Policies', icon: GitBranch },
-  { key: 'delegations', label: 'Delegations', icon: UserCheck },
-] as const;
+type TabKey = 'inbox' | 'requests' | 'policies' | 'delegations';
+
+const TABS: TabItem<TabKey>[] = [
+  { key: 'inbox', label: 'My inbox', icon: <Inbox size={12} /> },
+  { key: 'requests', label: 'All requests', icon: <CheckCircle2 size={12} /> },
+  { key: 'policies', label: 'Policies', icon: <GitBranch size={12} /> },
+  { key: 'delegations', label: 'Delegations', icon: <UserCheck size={12} /> },
+];
 
 export default function ApprovalsPage() {
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('inbox');
+  const [tab, setTab] = useState<TabKey>('inbox');
   const { data: pending } = useMyPendingApprovals();
 
   return (
@@ -594,32 +581,24 @@ export default function ApprovalsPage() {
       <PageHeader
         title="Approvals"
         subtitle="One approval engine shared by leave, change requests, quotes and anything else you wire up."
+        below={
+          <Tabs
+            variant="segmented"
+            aria-label="Approval views"
+            value={tab}
+            onChange={setTab}
+            items={TABS.map(t => (t.key === 'inbox' ? { ...t, count: pending?.total } : t))}
+          />
+        }
       />
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden w-fit mb-4">
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium ${
-                tab === t.key
-                  ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                  : 'text-gray-600 dark:text-gray-300'
-              }`}
-            >
-              <t.icon size={12} /> {t.label}
-              {t.key === 'inbox' && !!pending?.total && (
-                <span className="ml-0.5 px-1.5 rounded-full bg-red-500 text-white text-[10px]">{pending.total}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'inbox' && <InboxPanel />}
-        {tab === 'requests' && <RequestsPanel />}
-        {tab === 'policies' && <PoliciesPanel />}
-        {tab === 'delegations' && <DelegationsPanel />}
+      <div className="flex-1 overflow-auto">
+        <PageBody>
+          {tab === 'inbox' && <InboxPanel />}
+          {tab === 'requests' && <RequestsPanel />}
+          {tab === 'policies' && <PoliciesPanel />}
+          {tab === 'delegations' && <DelegationsPanel />}
+        </PageBody>
       </div>
     </div>
   );

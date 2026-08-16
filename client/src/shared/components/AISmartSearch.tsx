@@ -125,13 +125,13 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
           onFocus={() => query && setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 200)}
           placeholder={placeholder}
-          className="w-full pl-9 pr-8 py-2 text-sm bg-gray-100 dark:bg-gray-800 rounded-xl border border-transparent focus:border-indigo-300 focus:bg-white dark:focus:bg-gray-900 focus:outline-none transition-all"
+          className="w-full pl-9 pr-8 py-2 text-sm bg-surface-sunken rounded-xl border border-transparent focus:border-indigo-300 focus:bg-white dark:focus:bg-gray-900 focus:outline-none transition-all"
         />
       </div>
 
       {open && results.length > 0 && (
-        <div className="absolute top-full mt-1 w-full min-w-[320px] bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl z-50 animate-scale-in overflow-hidden">
-          <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex items-center gap-1.5">
+        <div className="absolute top-full mt-1 w-full min-w-[320px] bg-surface rounded-xl border border-line shadow-xl z-50 animate-scale-in overflow-hidden">
+          <div className="px-3 py-2 border-b border-line-subtle flex items-center gap-1.5">
             {aiPowered
               ? <Sparkles size={11} className="text-indigo-400" />
               : <Search size={11} className="text-gray-400" />}
@@ -148,16 +148,16 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
                 <li key={`${r.type}-${r.id}`}>
                   <button
                     onMouseDown={() => handleSelect(r)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-hover transition-colors"
                   >
                     <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${colorClass}`}>
                       <Icon size={13} />
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{r.title}</p>
-                      {r.subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{r.subtitle}</p>}
+                      <p className="text-sm font-medium text-fg truncate">{r.title}</p>
+                      {r.subtitle && <p className="text-xs text-fg-muted truncate">{r.subtitle}</p>}
                     </div>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 capitalize flex-shrink-0">{r.type}</span>
+                    <span className="text-xs text-fg-subtle capitalize flex-shrink-0">{r.type}</span>
                   </button>
                 </li>
               );

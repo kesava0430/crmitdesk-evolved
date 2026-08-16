@@ -5,6 +5,9 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './index.css';
 import { ThemeProvider } from './contexts/ThemeContext';
+// Renders the toastStore. Without this mounted, every addToast() call in the
+// app pushed into a store with no subscriber and the user saw nothing.
+import { ToastContainer } from './shared/components/ToastContainer';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <App />
+          <ToastContainer />
         </BrowserRouter>
       </QueryClientProvider>
     </ThemeProvider>

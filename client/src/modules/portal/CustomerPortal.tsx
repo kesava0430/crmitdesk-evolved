@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Plus, ArrowLeft, Send, LogOut, Ticket, CheckCircle, Clock, AlertCircle, MessageCircle, X } from 'lucide-react';
-import { Spinner } from '../../shared/components';
+import {
+  Spinner, Button, IconButton, Card, Field, Input, Textarea,
+  Badge, Alert, EmptyState, ticketStatusVariant,
+} from '../../shared/components';
 import { formatDate, formatDateTime } from '../../utils/format';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,25 +38,30 @@ function portalApi(token: string) {
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    OPEN: 'bg-blue-50 text-blue-700',
-    IN_PROGRESS: 'bg-yellow-50 text-yellow-700',
-    PENDING: 'bg-orange-50 text-orange-600',
-    RESOLVED: 'bg-green-50 text-green-700',
-    CLOSED: 'bg-gray-100 text-gray-500',
-  };
-  const icons: Record<string, React.ReactNode> = {
-    OPEN: <Clock size={11} />,
-    IN_PROGRESS: <AlertCircle size={11} />,
-    PENDING: <Clock size={11} />,
-    RESOLVED: <CheckCircle size={11} />,
-    CLOSED: <CheckCircle size={11} />,
-  };
+const STATUS_ICONS: Record<string, React.ReactNode> = {
+  OPEN: <Clock size={11} />,
+  IN_PROGRESS: <AlertCircle size={11} />,
+  PENDING: <Clock size={11} />,
+  RESOLVED: <CheckCircle size={11} />,
+  CLOSED: <CheckCircle size={11} />,
+};
+
+/* Colours come from Badge.tsx's shared `ticketStatusVariant` map rather than a
+   local one, so the portal cannot drift from the staff-side ticket colours. */
+function TicketStatusBadge({ status }: { status: string }) {
   return (
-    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${styles[status] || 'bg-gray-50 text-gray-600'}`}>
-      {icons[status]} {status.replace('_', ' ')}
-    </span>
+    <Badge variant={ticketStatusVariant[status] ?? 'gray'}>
+      {STATUS_ICONS[status]} {status.replace('_', ' ')}
+    </Badge>
+  );
+}
+
+/* Shared shell for the unauthenticated screens (login / verify / bad link). */
+function PortalSplash({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-accent-soft via-canvas to-canvas flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">{children}</div>
+    </div>
   );
 }
 
@@ -85,38 +93,57 @@ function LoginView({ orgId }: { orgId: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-blue-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <img src="/logo.svg" alt="Logo" className="w-14 h-14 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900">Support Portal</h1>
-          <p className="text-sm text-gray-500 mt-1">Submit and track your support tickets</p>
-        </div>
-
-        {sent ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-            <CheckCircle size={40} className="text-green-500 mx-auto mb-3" />
-            <h3 className="font-semibold text-gray-900 mb-2">Check your email</h3>
-            <p className="text-sm text-gray-500">We sent a magic login link to <strong>{email}</strong>. The link expires in 30 minutes.</p>
-            <button onClick={() => setSent(false)} className="mt-4 text-sm text-brand-600 hover:text-brand-700">Use a different email</button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Your email address</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="you@company.com" required
-              className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 mb-4" />
-            {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
-            <button type="submit" disabled={loading || !email}
-              className="w-full py-3 bg-brand-600 text-white rounded-xl font-medium text-sm hover:bg-brand-700 disabled:opacity-40 flex items-center justify-center gap-2">
-              {loading ? <Spinner /> : <Send size={15} />}
-              Send magic link
-            </button>
-            <p className="text-xs text-gray-400 text-center mt-4">No password needed — we'll email you a one-click login link.</p>
-          </form>
-        )}
+    <PortalSplash>
+      {/* Logo */}
+      <div className="text-center mb-8">
+        <img src="/logo.svg" alt="Logo" className="w-14 h-14 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold text-fg tracking-tight">Support Portal</h1>
+        <p className="text-sm text-fg-muted mt-1">Submit and track your support tickets</p>
       </div>
-    </div>
+
+      {sent ? (
+        <Card padding="lg" tone="raised" className="text-center">
+          <CheckCircle size={40} className="text-success mx-auto mb-3" />
+          <h3 className="font-semibold text-fg mb-2">Check your email</h3>
+          <p className="text-sm text-fg-muted leading-relaxed">
+            We sent a magic login link to <strong className="text-fg">{email}</strong>. The link expires in 30 minutes.
+          </p>
+          <Button variant="ghost" size="sm" className="mt-4" onClick={() => setSent(false)}>
+            Use a different email
+          </Button>
+        </Card>
+      ) : (
+        <form onSubmit={handleSubmit}>
+          <Card padding="lg" tone="raised">
+            <Field label="Your email address" htmlFor="portal-email">
+              <Input
+                id="portal-email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                type="email"
+                placeholder="you@company.com"
+                required
+              />
+            </Field>
+            {error && <Alert tone="danger" className="mt-3">{error}</Alert>}
+            <Button
+              type="submit"
+              size="lg"
+              block
+              className="mt-4"
+              disabled={!email}
+              loading={loading}
+              icon={<Send size={15} />}
+            >
+              Send magic link
+            </Button>
+            <p className="text-xs text-fg-subtle text-center mt-4 leading-relaxed">
+              No password needed — we'll email you a one-click login link.
+            </p>
+          </Card>
+        </form>
+      )}
+    </PortalSplash>
   );
 }
 
@@ -132,18 +159,20 @@ function VerifyView({ token, orgId, onLogin }: { token: string; orgId: string; o
   }, []);
 
   if (error) return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="text-center max-w-sm">
-        <AlertCircle size={48} className="text-red-400 mx-auto mb-4" />
-        <h2 className="font-semibold text-gray-900 mb-2">Link expired</h2>
-        <p className="text-sm text-gray-500 mb-4">{error}</p>
-        <a href={`/portal?org=${orgId}`} className="text-brand-600 text-sm hover:text-brand-700">Request a new link →</a>
-      </div>
-    </div>
+    <PortalSplash>
+      <Card padding="lg" tone="raised" className="text-center">
+        <AlertCircle size={48} className="text-danger mx-auto mb-4" />
+        <h2 className="font-semibold text-fg mb-2">Link expired</h2>
+        <p className="text-sm text-fg-muted mb-4 leading-relaxed">{error}</p>
+        <a href={`/portal?org=${orgId}`} className="text-accent text-sm hover:underline font-medium">
+          Request a new link →
+        </a>
+      </Card>
+    </PortalSplash>
   );
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen bg-canvas flex items-center justify-center">
       <div className="text-center">
         <Spinner label="Signing you in…" />
       </div>
@@ -166,41 +195,48 @@ function TicketListView({ session, onNew, onSelect }: { session: PortalSession; 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-bold text-gray-900">My Tickets</h2>
-        <button onClick={onNew}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700">
-          <Plus size={14} /> New Ticket
-        </button>
+        <h2 className="text-lg font-bold text-fg tracking-tight">My Tickets</h2>
+        <Button icon={<Plus size={14} />} onClick={onNew}>New Ticket</Button>
       </div>
 
       {loading ? <Spinner label="Loading tickets…" /> : tickets.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
-          <Ticket size={36} className="text-gray-300 mx-auto mb-3" />
-          <p className="text-sm font-medium text-gray-600 mb-1">No tickets yet</p>
-          <p className="text-xs text-gray-400 mb-4">Submit a ticket when you need help</p>
-          <button onClick={onNew} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm hover:bg-brand-700">
-            <Plus size={13} /> Create first ticket
-          </button>
-        </div>
+        <Card padding="none" flat className="border-dashed">
+          <EmptyState
+            icon={<Ticket />}
+            title="No tickets yet"
+            description="Submit a ticket when you need help"
+            action={{ label: 'Create first ticket', onClick: onNew }}
+          />
+        </Card>
       ) : (
         <div className="space-y-3">
           {tickets.map(t => (
-            <button key={t.id} onClick={() => onSelect(t)}
-              className="w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-brand-200 hover:shadow-sm transition-all">
+            <Card
+              key={t.id}
+              padding="sm"
+              interactive
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(t)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(t); }
+              }}
+              className="text-left"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 text-sm truncate">{t.title}</p>
-                  <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{t.body}</p>
+                  <p className="font-medium text-fg text-sm truncate">{t.title}</p>
+                  <p className="text-xs text-fg-muted mt-0.5 line-clamp-2 leading-relaxed">{t.body}</p>
                 </div>
-                <div className="flex-shrink-0">
-                  <StatusBadge status={t.status} />
+                <div className="shrink-0">
+                  <TicketStatusBadge status={t.status} />
                 </div>
               </div>
               <div className="flex items-center gap-3 mt-2">
-                {t.category && <span className="text-xs text-gray-400">{t.category.name}</span>}
-                <span className="text-xs text-gray-300">{formatDate(t.createdAt, session.user.orgTimezone)}</span>
+                {t.category && <span className="text-xs text-fg-muted">{t.category.name}</span>}
+                <span className="text-xs text-fg-subtle">{formatDate(t.createdAt, session.user.orgTimezone)}</span>
               </div>
-            </button>
+            </Card>
           ))}
         </div>
       )}
@@ -232,32 +268,46 @@ function NewTicketView({ session, onBack, onCreated }: { session: PortalSession;
 
   return (
     <div>
-      <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6">
-        <ArrowLeft size={14} /> Back
-      </button>
-      <h2 className="text-lg font-bold text-gray-900 mb-6">Submit a Ticket</h2>
-      <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Subject *</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} required
-            placeholder="Briefly describe your issue"
-            className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Details *</label>
-          <textarea value={body} onChange={e => setBody(e.target.value)} required rows={6}
-            placeholder="Describe your issue in detail. Include any steps to reproduce, error messages, or screenshots."
-            className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none" />
-        </div>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        <div className="flex gap-3">
-          <button type="button" onClick={onBack} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50">Cancel</button>
-          <button type="submit" disabled={loading || !title || !body}
-            className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-40 flex items-center justify-center gap-2">
-            {loading ? <Spinner /> : <Send size={14} />}
-            Submit Ticket
-          </button>
-        </div>
+      <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onBack} className="mb-6 -ml-3">
+        Back
+      </Button>
+      <h2 className="text-lg font-bold text-fg mb-6 tracking-tight">Submit a Ticket</h2>
+      <form onSubmit={handleSubmit}>
+        <Card padding="lg" className="space-y-5">
+          <Field label="Subject" required htmlFor="portal-ticket-title">
+            <Input
+              id="portal-ticket-title"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              required
+              placeholder="Briefly describe your issue"
+            />
+          </Field>
+          <Field label="Details" required htmlFor="portal-ticket-body">
+            <Textarea
+              id="portal-ticket-body"
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              required
+              rows={6}
+              className="resize-none"
+              placeholder="Describe your issue in detail. Include any steps to reproduce, error messages, or screenshots."
+            />
+          </Field>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" block onClick={onBack}>Cancel</Button>
+            <Button
+              type="submit"
+              block
+              disabled={!title || !body}
+              loading={loading}
+              icon={<Send size={14} />}
+            >
+              Submit Ticket
+            </Button>
+          </div>
+        </Card>
       </form>
     </div>
   );
@@ -268,18 +318,20 @@ function NewTicketView({ session, onBack, onCreated }: { session: PortalSession;
 function TicketDetailView({ ticket, onBack, timezone }: { ticket: PortalTicket; onBack: () => void; timezone?: string }) {
   return (
     <div>
-      <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6">
-        <ArrowLeft size={14} /> Back to tickets
-      </button>
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onBack} className="mb-6 -ml-3">
+        Back to tickets
+      </Button>
+      <Card padding="lg">
         <div className="flex items-start justify-between gap-4 mb-4">
-          <h2 className="text-base font-bold text-gray-900">{ticket.title}</h2>
-          <StatusBadge status={ticket.status} />
+          <h2 className="text-base font-bold text-fg tracking-tight">{ticket.title}</h2>
+          <TicketStatusBadge status={ticket.status} />
         </div>
-        {ticket.category && <p className="text-xs text-gray-400 mb-3">Category: {ticket.category.name}</p>}
-        <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap">{ticket.body}</div>
-        <p className="text-xs text-gray-400 mt-4">Submitted on {formatDateTime(ticket.createdAt, timezone)}</p>
-      </div>
+        {ticket.category && <p className="text-xs text-fg-muted mb-3">Category: {ticket.category.name}</p>}
+        <div className="bg-surface-sunken border border-line-subtle rounded-card p-4 text-sm text-fg whitespace-pre-wrap leading-relaxed">
+          {ticket.body}
+        </div>
+        <p className="text-xs text-fg-subtle mt-4">Submitted on {formatDateTime(ticket.createdAt, timezone)}</p>
+      </Card>
     </div>
   );
 }
@@ -335,19 +387,29 @@ function PortalChatWidget({ session }: { session: PortalSession }) {
   return (
     <>
       {open && (
-        <div className="fixed bottom-20 right-4 left-4 sm:left-auto sm:right-6 sm:w-80 h-96 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 bg-brand-600 text-white shrink-0">
+        <div className="fixed bottom-20 right-4 left-4 sm:left-auto sm:right-6 sm:w-80 h-96 bg-surface-raised rounded-card shadow-ui-lg border border-line flex flex-col z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 bg-accent text-accent-fg shrink-0">
             <p className="text-sm font-semibold">Live chat</p>
-            <button onClick={() => setOpen(false)} className="p-1 hover:bg-white/10 rounded"><X size={15} /></button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Close live chat"
+              title="Close live chat"
+              className="p-1 rounded-btn hover:bg-white/15 transition-colors"
+            >
+              <X size={15} />
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
             {messages.length === 0 && (
-              <p className="text-xs text-gray-400 text-center mt-6">Send a message and our team will reply here.</p>
+              <p className="text-xs text-fg-muted text-center mt-6">Send a message and our team will reply here.</p>
             )}
             {messages.map(m => (
               <div key={m.id} className={`flex ${m.direction === 'INBOUND' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
-                  m.direction === 'INBOUND' ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+                <div className={`max-w-[80%] rounded-card px-3 py-2 text-sm leading-relaxed ${
+                  m.direction === 'INBOUND'
+                    ? 'bg-accent text-accent-fg rounded-br-sm'
+                    : 'bg-surface-sunken text-fg border border-line-subtle rounded-bl-sm'
                 }`}>
                   {m.body}
                 </div>
@@ -355,21 +417,29 @@ function PortalChatWidget({ session }: { session: PortalSession }) {
             ))}
             <div ref={bottomRef} />
           </div>
-          <form onSubmit={handleSend} className="flex items-center gap-2 p-2.5 border-t border-gray-100 shrink-0">
-            <input
-              value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…"
-              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 min-w-0"
+          <form onSubmit={handleSend} className="flex items-center gap-2 p-2.5 border-t border-line-subtle shrink-0">
+            <Input
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              aria-label="Message"
+              placeholder="Type a message…"
+              className="flex-1 min-w-0"
             />
-            <button type="submit" disabled={sending || !draft.trim()} className="p-2 bg-brand-600 text-white rounded-xl disabled:opacity-40 shrink-0">
-              <Send size={14} />
-            </button>
+            <Button
+              type="submit"
+              aria-label="Send message"
+              disabled={!draft.trim()}
+              loading={sending}
+              icon={<Send size={14} />}
+              className="shrink-0 !px-3"
+            />
           </form>
         </div>
       )}
       <button
+        type="button"
         onClick={() => setOpen(v => !v)}
-        className="fixed bottom-5 right-5 w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-brand-600 text-white shadow-lg flex items-center justify-center hover:bg-brand-700 z-50"
-        style={{ width: 52, height: 52 }}
+        className="fixed bottom-5 right-5 w-14 h-14 rounded-full bg-accent text-accent-fg shadow-ui-lg flex items-center justify-center hover:bg-accent-hover active:bg-accent-active transition-colors z-50"
         aria-label="Open live chat"
       >
         {open ? <X size={20} /> : <MessageCircle size={20} />}
@@ -420,32 +490,30 @@ export function CustomerPortal() {
     // success screen despite nothing ever being sent.
     if (!orgId) {
       return (
-        <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-blue-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-            <AlertCircle size={40} className="text-amber-500 mx-auto mb-3" />
-            <h3 className="font-semibold text-gray-900 mb-2">Missing organization</h3>
-            <p className="text-sm text-gray-500">This link is missing your organization. Please use the exact link from your invite email, or ask your support team to resend it.</p>
-          </div>
-        </div>
+        <PortalSplash>
+          <Card padding="lg" tone="raised" className="text-center">
+            <AlertCircle size={40} className="text-warning mx-auto mb-3" />
+            <h3 className="font-semibold text-fg mb-2">Missing organization</h3>
+            <p className="text-sm text-fg-muted leading-relaxed">This link is missing your organization. Please use the exact link from your invite email, or ask your support team to resend it.</p>
+          </Card>
+        </PortalSplash>
       );
     }
     return <LoginView orgId={orgId} />;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-canvas">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <header className="bg-surface/90 backdrop-blur-sm border-b border-line sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src="/logo.svg" alt="Logo" className="w-7 h-7" />
-            <span className="font-semibold text-gray-900 text-sm">Support Portal</span>
+            <span className="font-semibold text-fg text-sm">Support Portal</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 hidden sm:block">{session.user.email}</span>
-            <button onClick={logout} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg" title="Sign out">
-              <LogOut size={15} />
-            </button>
+            <span className="text-xs text-fg-muted hidden sm:block">{session.user.email}</span>
+            <IconButton label="Sign out" tone="danger" icon={<LogOut size={15} />} onClick={logout} />
           </div>
         </div>
       </header>
@@ -454,9 +522,9 @@ export function CustomerPortal() {
       <main className="max-w-2xl mx-auto px-4 py-8">
         {/* Welcome banner */}
         {view === 'list' && (
-          <div className="bg-brand-600 text-white rounded-2xl p-5 mb-6">
+          <div className="bg-accent text-accent-fg rounded-card shadow-ui-sm p-5 mb-6">
             <p className="text-sm font-medium opacity-80">Welcome back</p>
-            <p className="text-xl font-bold">{session.user.name}</p>
+            <p className="text-xl font-bold tracking-tight">{session.user.name}</p>
           </div>
         )}
 

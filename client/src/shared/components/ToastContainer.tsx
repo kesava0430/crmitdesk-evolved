@@ -17,16 +17,16 @@ export function ToastContainer() {
   if (!toasts.length) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 w-96 max-w-[calc(100vw-2rem)] pointer-events-none">
+    <div role="region" aria-label="Notifications" aria-live="polite" className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 w-96 max-w-[calc(100vw-2rem)] pointer-events-none">
       {toasts.map(t => {
         const { icon, bg, bar } = CONFIG[t.type];
         return (
           <div
             key={t.id}
-            className={`flex items-start gap-3 p-3 rounded-lg border shadow-lg pointer-events-auto overflow-hidden relative ${bg}`}
+            className={`flex items-start gap-3 p-3 rounded-card border shadow-ui-lg pointer-events-auto overflow-hidden relative animate-slide-in ${bg}`}
           >
             {/* colour bar on left */}
-            <span className={`absolute left-0 top-0 bottom-0 w-1 ${bar} rounded-l-lg`} />
+            <span className={`absolute left-0 top-0 bottom-0 w-1 ${bar}`} />
             <span className="shrink-0 mt-0.5 ml-2">{icon}</span>
             <div className="flex-1 min-w-0">
               <p className="text-sm leading-snug">{t.message}</p>

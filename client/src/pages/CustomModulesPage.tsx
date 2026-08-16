@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Layers, Plus, Trash2, Pencil, RefreshCw, CheckCircle2, XCircle, Clock, Zap, Sparkles, FileEdit } from 'lucide-react';
 import {
@@ -6,7 +6,11 @@ import {
   useAddModuleField, useUpdateModuleField, useRemoveModuleField,
   useSyncConfig, useSaveSyncConfig, useTriggerSync, useModuleTemplates,
 } from '../api/customModules';
-import { PageHeader, Button, Modal, Spinner, EmptyState, SearchableSelect, RowActions } from '../shared/components';
+import {
+  PageHeader, Button, Modal, Spinner, EmptyState, SearchableSelect, RowActions,
+  Card, Tabs, Field, Input, Textarea, Select, Checkbox, IconButton,
+  DataTable, Badge, Alert, type Column,
+} from '../shared/components';
 import { CustomModuleRecordsTab } from '../shared/components/CustomModuleRecords';
 import { useFormat } from '../hooks/useFormat';
 
@@ -29,6 +33,25 @@ const NAV_SECTION_OPTIONS = [
 
 const CREATE_DEFAULT = { name: '', icon: 'Layers', description: '', navSection: 'CRM', templateId: undefined as string | undefined };
 
+/** One selectable starting-point tile in the create-module dialog. */
+function TemplateChoice({ selected, icon, title, hint, onClick }: {
+  selected: boolean; icon: React.ReactNode; title: string; hint: string; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={`text-left p-3 rounded-card border text-sm transition-colors ${
+        selected ? 'border-accent bg-accent-soft' : 'border-line hover:bg-surface-hover'
+      }`}
+    >
+      <span className="flex items-center gap-1.5 font-medium text-fg">{icon} {title}</span>
+      <span className="block text-xs text-fg-subtle mt-0.5">{hint}</span>
+    </button>
+  );
+}
+
 function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
   const create = useCreateCustomModule();
   const { data: templates } = useModuleTemplates();
@@ -49,47 +72,42 @@ function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClos
   return (
     <Modal open={open} onClose={() => { setForm(CREATE_DEFAULT); onClose(); }} title="New Custom Module">
       <form className="space-y-4" onSubmit={submit}>
-        <div>
-          <label className="form-label">Start from a template</label>
+        <Field label="Start from a template">
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
+            <TemplateChoice
+              selected={!form.templateId}
+              icon={<FileEdit size={14} />}
+              title="Start from scratch"
+              hint="Add your own fields afterward"
               onClick={() => pickTemplate(null)}
-              className={`text-left p-3 rounded-xl border text-sm ${!form.templateId ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 dark:border-brand-500' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-            >
-              <span className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-100"><FileEdit size={14} /> Start from scratch</span>
-              <span className="block text-xs text-gray-400 dark:text-gray-500 mt-0.5">Add your own fields afterward</span>
-            </button>
+            />
             {(templates ?? []).map((t: any) => (
-              <button
-                type="button"
+              <TemplateChoice
                 key={t.id}
+                selected={form.templateId === t.id}
+                icon={<Sparkles size={14} />}
+                title={t.name}
+                hint={`${t.fieldCount} pre-built field${t.fieldCount === 1 ? '' : 's'}`}
                 onClick={() => pickTemplate(t)}
-                className={`text-left p-3 rounded-xl border text-sm ${form.templateId === t.id ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 dark:border-brand-500' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-              >
-                <span className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-100"><Sparkles size={14} /> {t.name}</span>
-                <span className="block text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t.fieldCount} pre-built field{t.fieldCount === 1 ? '' : 's'}</span>
-              </button>
+              />
             ))}
           </div>
-        </div>
-        <div>
-          <label className="form-label">Module Name <span className="req">*</span></label>
-          <input aria-label="Module Name" required className="ui-input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Warranty Claims" />
-        </div>
-        <div>
-          <label className="form-label">Description</label>
-          <textarea aria-label="Description" className="ui-input" rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="What is this module for?" />
-        </div>
-        <div>
-          <label className="form-label">Sidebar section</label>
-          <select className="ui-input" aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}>
-            {NAV_SECTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Which part of the sidebar this module's link appears under, once it has at least one field.</p>
-        </div>
+        </Field>
+        <Field label="Module Name" required>
+          <Input aria-label="Module Name" required value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Warranty Claims" />
+        </Field>
+        <Field label="Description">
+          <Textarea aria-label="Description" rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="What is this module for?" />
+        </Field>
+        <Field
+          label="Sidebar section"
+          hint="Which part of the sidebar this module's link appears under, once it has at least one field."
+        >
+          <Select aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}
+            options={NAV_SECTION_OPTIONS} />
+        </Field>
         {!form.templateId && (
-          <p className="text-xs text-gray-400 dark:text-gray-500">You'll add fields to it on the next screen — nothing shows up for other users until you add at least one field.</p>
+          <p className="text-xs text-fg-subtle">You'll add fields to it on the next screen — nothing shows up for other users until you add at least one field.</p>
         )}
         <div className="flex justify-end pt-1"><Button type="submit" loading={create.isPending}>Create Module</Button></div>
       </form>
@@ -110,20 +128,16 @@ function EditModuleModal({ module_, onClose }: { module_: any; onClose: () => vo
   return (
     <Modal open onClose={onClose} title="Edit Module">
       <form className="space-y-4" onSubmit={submit}>
-        <div>
-          <label className="form-label">Module Name <span className="req">*</span></label>
-          <input aria-label="Module Name" required className="ui-input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-        </div>
-        <div>
-          <label className="form-label">Description</label>
-          <textarea aria-label="Description" className="ui-input" rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
-        </div>
-        <div>
-          <label className="form-label">Sidebar section</label>
-          <select className="ui-input" aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}>
-            {NAV_SECTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
+        <Field label="Module Name" required>
+          <Input aria-label="Module Name" required value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+        </Field>
+        <Field label="Description">
+          <Textarea aria-label="Description" rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
+        </Field>
+        <Field label="Sidebar section">
+          <Select aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}
+            options={NAV_SECTION_OPTIONS} />
+        </Field>
         <div className="flex justify-end pt-1"><Button type="submit" loading={update.isPending}>Save Changes</Button></div>
       </form>
     </Modal>
@@ -155,28 +169,20 @@ function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field:
   return (
     <Modal open onClose={onClose} title={field ? 'Edit Field' : 'Add Field'}>
       <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="form-label">Label <span className="req">*</span></label>
-          <input aria-label="Field Label" required className="ui-input" value={form.label} onChange={e => setForm(p => ({ ...p, label: e.target.value }))} placeholder="e.g. Claim Amount" />
-        </div>
-        <div>
-          <label className="form-label">Type</label>
+        <Field label="Label" required>
+          <Input aria-label="Field Label" required value={form.label} onChange={e => setForm(p => ({ ...p, label: e.target.value }))} placeholder="e.g. Claim Amount" />
+        </Field>
+        <Field label="Type">
           <SearchableSelect ariaLabel="Field Type" value={form.fieldType} onChange={val => setForm(p => ({ ...p, fieldType: val }))} required options={FIELD_TYPES.map(t => ({ value: t, label: TYPE_LABELS[t] }))} />
-        </div>
+        </Field>
         {form.fieldType === 'DROPDOWN' && (
-          <div>
-            <label className="form-label">Options</label>
-            <input aria-label="Dropdown Options" className="ui-input" value={form.options} onChange={e => setForm(p => ({ ...p, options: e.target.value }))} placeholder="Option A, Option B, Option C" />
-            <p className="form-hint">Comma-separated</p>
-          </div>
+          <Field label="Options" hint="Comma-separated">
+            <Input aria-label="Dropdown Options" value={form.options} onChange={e => setForm(p => ({ ...p, options: e.target.value }))} placeholder="Option A, Option B, Option C" />
+          </Field>
         )}
         <div className="flex gap-4">
-          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-            <input type="checkbox" checked={form.required} onChange={e => setForm(p => ({ ...p, required: e.target.checked }))} className="rounded" /> Required
-          </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-            <input type="checkbox" checked={form.isPrimary} onChange={e => setForm(p => ({ ...p, isPrimary: e.target.checked }))} className="rounded" /> Use as record title
-          </label>
+          <Checkbox label="Required" checked={form.required} onChange={e => setForm(p => ({ ...p, required: e.target.checked }))} />
+          <Checkbox label="Use as record title" checked={form.isPrimary} onChange={e => setForm(p => ({ ...p, isPrimary: e.target.checked }))} />
         </div>
         <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{field ? 'Save Changes' : 'Add Field'}</Button></div>
       </form>
@@ -189,46 +195,41 @@ function FieldsTab({ module_ }: { module_: any }) {
   const [fieldModal, setFieldModal] = useState<null | 'new' | any>(null);
   const fields = module_.fields ?? [];
 
+  const columns: Column<any>[] = [
+    { key: 'label', header: 'Label', cell: f => <span className="font-medium text-fg">{f.label}</span> },
+    { key: 'key', header: 'Key', cell: f => <code className="text-xs bg-surface-sunken text-fg px-1.5 py-0.5 rounded">{f.fieldKey}</code> },
+    { key: 'type', header: 'Type', cell: f => <Badge variant="blue">{TYPE_LABELS[f.fieldType] ?? f.fieldType}</Badge> },
+    {
+      key: 'required', header: 'Required',
+      cell: f => f.required ? <span className="text-success font-medium">Yes</span> : <span className="text-fg-subtle">No</span>,
+    },
+    {
+      key: 'primary', header: 'Title Field',
+      cell: f => f.isPrimary ? <CheckCircle2 size={14} className="text-accent" /> : <span className="text-fg-subtle">—</span>,
+    },
+    {
+      key: 'actions', header: '', width: 56,
+      cell: f => (
+        <RowActions items={[
+          { label: 'Edit field', icon: <Pencil size={14} />, onClick: () => setFieldModal(f) },
+          { label: 'Delete field', icon: <Trash2 size={14} />, onClick: () => { if (confirm('Delete this field? Existing record data for it is kept but hidden.')) removeField.mutate({ moduleId: module_.id, fieldId: f.id }); }, variant: 'danger' },
+        ]} />
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
         <Button size="sm" icon={<Plus size={13} />} onClick={() => setFieldModal('new')}>Add Field</Button>
       </div>
-      {fields.length === 0 ? (
-        <EmptyState icon={<Layers size={22} />} title="No fields yet" description="Add fields to define this module's shape" />
-      ) : (
-        <div className="table-container">
-          <table className="w-full text-sm min-w-[560px]">
-            <thead className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Label</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Key</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Required</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Title Field</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {fields.map((f: any) => (
-                <tr key={f.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/60">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{f.label}</td>
-                  <td className="px-4 py-3"><code className="text-xs bg-gray-100 dark:bg-gray-800 dark:text-gray-300 px-1.5 py-0.5 rounded">{f.fieldKey}</code></td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">{TYPE_LABELS[f.fieldType] ?? f.fieldType}</span></td>
-                  <td className="px-4 py-3">{f.required ? <span className="text-green-600 dark:text-green-400 font-medium">Yes</span> : <span className="text-gray-400 dark:text-gray-500">No</span>}</td>
-                  <td className="px-4 py-3">{f.isPrimary ? <CheckCircle2 size={14} className="text-brand-500" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
-                  <td className="px-4 py-3">
-                    <RowActions items={[
-                      { label: 'Edit field', icon: <Pencil size={14} />, onClick: () => setFieldModal(f) },
-                      { label: 'Delete field', icon: <Trash2 size={14} />, onClick: () => { if (confirm('Delete this field? Existing record data for it is kept but hidden.')) removeField.mutate({ moduleId: module_.id, fieldId: f.id }); }, variant: 'danger' },
-                    ]} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        rows={fields}
+        rowKey={(f: any) => f.id}
+        minWidth={560}
+        empty={<EmptyState icon={<Layers size={22} />} title="No fields yet" description="Add fields to define this module's shape" />}
+      />
       {fieldModal && <FieldFormModal moduleId={module_.id} field={fieldModal === 'new' ? null : fieldModal} onClose={() => setFieldModal(null)} />}
     </div>
   );
@@ -269,78 +270,70 @@ function SyncTab({ module_ }: { module_: any }) {
 
   return (
     <div className="space-y-5">
-      <div className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/30 rounded-xl p-4 text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed">
+      <Alert tone="info" icon={null}>
         Polls an external REST API on a schedule, validates each record against this module's fields, and upserts it —
         deduped on the field you pick as the external ID (if any). Runs automatically once saved; use "Sync now" to test immediately.
-      </div>
+      </Alert>
 
       {config && (
-        <div className="flex flex-wrap items-center gap-3 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
+        <Card padding="sm" flat className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5 text-sm">
-            {config.lastStatus === 'SUCCESS' ? <CheckCircle2 size={15} className="text-green-500" /> : config.lastStatus === 'FAILED' ? <XCircle size={15} className="text-red-500" /> : <Clock size={15} className="text-gray-300 dark:text-gray-600" />}
-            <span className="font-medium text-gray-700 dark:text-gray-300">{config.lastStatus ? `Last sync: ${config.lastStatus}` : 'Never synced'}</span>
+            {config.lastStatus === 'SUCCESS' ? <CheckCircle2 size={15} className="text-success" /> : config.lastStatus === 'FAILED' ? <XCircle size={15} className="text-danger" /> : <Clock size={15} className="text-fg-subtle" />}
+            <span className="font-medium text-fg">{config.lastStatus ? `Last sync: ${config.lastStatus}` : 'Never synced'}</span>
           </div>
-          {config.lastSyncAt && <span className="text-xs text-gray-400 dark:text-gray-500">{dateTime(config.lastSyncAt)}</span>}
-          {config.lastRecordCount != null && <span className="text-xs text-gray-400 dark:text-gray-500">· {config.lastRecordCount} record(s)</span>}
-          {config.lastError && <span className="text-xs text-red-500 dark:text-red-400">· {config.lastError}</span>}
+          {config.lastSyncAt && <span className="text-xs text-fg-subtle">{dateTime(config.lastSyncAt)}</span>}
+          {config.lastRecordCount != null && <span className="text-xs text-fg-subtle">· {config.lastRecordCount} record(s)</span>}
+          {config.lastError && <span className="text-xs text-danger">· {config.lastError}</span>}
           <Button size="sm" variant="secondary" icon={<RefreshCw size={13} />} onClick={() => trigger.mutate(module_.id)} loading={trigger.isPending} className="ml-auto">Sync Now</Button>
-        </div>
+        </Card>
       )}
 
       <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="form-label">API URL <span className="req">*</span></label>
-          <input aria-label="API URL" required type="url" className="ui-input" value={form.url} onChange={e => setForm(p => ({ ...p, url: e.target.value }))} placeholder="https://api.example.com/records" />
-        </div>
+        <Field label="API URL" required>
+          <Input aria-label="API URL" required type="url" value={form.url} onChange={e => setForm(p => ({ ...p, url: e.target.value }))} placeholder="https://api.example.com/records" />
+        </Field>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Method</label>
+          <Field label="Method">
             <SearchableSelect ariaLabel="Method" value={form.method} onChange={val => setForm(p => ({ ...p, method: val }))} options={[{ value: 'GET', label: 'GET' }, { value: 'POST', label: 'POST' }]} />
-          </div>
-          <div>
-            <label className="form-label">Poll every (minutes)</label>
-            <input aria-label="Poll interval" type="number" min={1} max={1440} className="ui-input" value={form.pollIntervalMin} onChange={e => setForm(p => ({ ...p, pollIntervalMin: Number(e.target.value) }))} />
-          </div>
+          </Field>
+          <Field label="Poll every (minutes)">
+            <Input aria-label="Poll interval" type="number" min={1} max={1440} value={form.pollIntervalMin} onChange={e => setForm(p => ({ ...p, pollIntervalMin: Number(e.target.value) }))} />
+          </Field>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Auth Type</label>
+          <Field label="Auth Type">
             <SearchableSelect ariaLabel="Auth Type" value={form.authType} onChange={val => setForm(p => ({ ...p, authType: val }))} options={[{ value: 'NONE', label: 'None' }, { value: 'API_KEY', label: 'API Key Header' }, { value: 'BEARER', label: 'Bearer Token' }]} />
-          </div>
+          </Field>
           {form.authType === 'API_KEY' && (
-            <div>
-              <label className="form-label">Header Name</label>
-              <input aria-label="Auth Header Name" className="ui-input" value={form.authHeaderName} onChange={e => setForm(p => ({ ...p, authHeaderName: e.target.value }))} placeholder="X-API-Key" />
-            </div>
+            <Field label="Header Name">
+              <Input aria-label="Auth Header Name" value={form.authHeaderName} onChange={e => setForm(p => ({ ...p, authHeaderName: e.target.value }))} placeholder="X-API-Key" />
+            </Field>
           )}
         </div>
         {form.authType !== 'NONE' && (
-          <div>
-            <label className="form-label">{form.authType === 'BEARER' ? 'Bearer Token' : 'API Key Value'}</label>
-            <input aria-label="Auth Value" type="password" className="ui-input" value={form.authValue} onChange={e => setForm(p => ({ ...p, authValue: e.target.value }))} placeholder={config ? 'Leave blank to keep existing' : ''} />
-          </div>
+          <Field label={form.authType === 'BEARER' ? 'Bearer Token' : 'API Key Value'}>
+            <Input aria-label="Auth Value" type="password" value={form.authValue} onChange={e => setForm(p => ({ ...p, authValue: e.target.value }))} placeholder={config ? 'Leave blank to keep existing' : ''} />
+          </Field>
         )}
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Record Path</label>
-            <input aria-label="Record Path" className="ui-input" value={form.recordPath} onChange={e => setForm(p => ({ ...p, recordPath: e.target.value }))} placeholder="e.g. data.items (blank = response is the array)" />
-          </div>
-          <div>
-            <label className="form-label">External ID Field</label>
-            <input aria-label="External ID Field" className="ui-input" value={form.externalIdField} onChange={e => setForm(p => ({ ...p, externalIdField: e.target.value }))} placeholder="e.g. id (blank = never dedupe)" />
-          </div>
+          <Field label="Record Path">
+            <Input aria-label="Record Path" value={form.recordPath} onChange={e => setForm(p => ({ ...p, recordPath: e.target.value }))} placeholder="e.g. data.items (blank = response is the array)" />
+          </Field>
+          <Field label="External ID Field">
+            <Input aria-label="External ID Field" value={form.externalIdField} onChange={e => setForm(p => ({ ...p, externalIdField: e.target.value }))} placeholder="e.g. id (blank = never dedupe)" />
+          </Field>
         </div>
 
         <div className="form-section">
           <p className="form-section-title">Field Mapping</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">For each module field, the key to read from each external record.</p>
+          <p className="text-xs text-fg-subtle mb-2">For each module field, the key to read from each external record.</p>
           <div className="space-y-2">
             {fields.map((f: any) => (
               <div key={f.id} className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-gray-300 w-40 flex-shrink-0 truncate">{f.label}</span>
-                <input
+                <span className="text-sm text-fg-muted w-40 flex-shrink-0 truncate">{f.label}</span>
+                <Input
                   aria-label={`Mapping for ${f.label}`}
-                  className="ui-input flex-1"
+                  className="flex-1"
                   value={form.fieldMapping[f.fieldKey] ?? ''}
                   onChange={e => setForm(p => ({ ...p, fieldMapping: { ...p.fieldMapping, [f.fieldKey]: e.target.value } }))}
                   placeholder={`external.${f.fieldKey}`}
@@ -370,13 +363,24 @@ export default function CustomModulesPage() {
   // nav-linked page (CustomModuleViewPage) sends managers here pre-selected
   // via ?module=<id>, instead of always landing on whichever module happens
   // to be first alphabetically/by creation order.
+  // `?module=` is an ENTRY point, not a binding. The previous version re-ran
+  // on every `selectedId` change and unconditionally reset the selection back
+  // to the query param, so clicking any other module in the sidebar snapped
+  // straight back and the list was effectively frozen. Honour the param once,
+  // then leave the user's choice alone.
+  const appliedDeepLink = useRef(false);
   useEffect(() => {
-    const fromQuery = searchParams.get('module');
-    if (fromQuery && modules?.some((m: any) => m.id === fromQuery)) {
-      setSelectedId(fromQuery);
-      return;
+    if (!modules?.length) return;
+    if (!appliedDeepLink.current) {
+      const fromQuery = searchParams.get('module');
+      if (fromQuery && modules.some((m: any) => m.id === fromQuery)) {
+        appliedDeepLink.current = true;
+        setSelectedId(fromQuery);
+        return;
+      }
+      appliedDeepLink.current = true;
     }
-    if (!selectedId && modules?.length) setSelectedId(modules[0].id);
+    if (!selectedId) setSelectedId(modules[0].id);
   }, [modules, selectedId, searchParams]);
 
   return (
@@ -391,57 +395,60 @@ export default function CustomModulesPage() {
         <EmptyState icon={<Layers size={24} />} title="No custom modules yet" description="Create your first module to model data that doesn't fit CRM/IT Desk out of the box" action={{ label: 'New Module', onClick: () => setCreateOpen(true) }} />
       ) : (
         <div className="flex flex-col sm:flex-row gap-4 flex-1 min-h-0">
-          <div className="w-full sm:w-60 sm:flex-shrink-0 max-h-48 sm:max-h-none bg-white border border-gray-100 rounded-xl overflow-y-auto p-2 space-y-1">
+          <Card padding="none" className="w-full sm:w-60 sm:flex-shrink-0 max-h-48 sm:max-h-none overflow-y-auto p-2 space-y-1">
             {modules.map((m: any) => (
               <button
                 key={m.id}
                 onClick={() => setSelectedId(m.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between gap-2 group ${selectedId === m.id ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+                className={`w-full text-left px-3 py-2 rounded-btn text-sm flex items-center justify-between gap-2 group transition-colors ${
+                  selectedId === m.id ? 'bg-accent-soft text-accent-soft-fg font-medium' : 'text-fg-muted hover:bg-surface-hover'
+                }`}
               >
                 <span className="truncate">{m.name}</span>
                 <span className="flex items-center gap-1 flex-shrink-0">
-                  {m.syncConfig?.isActive && <span title="Sync enabled"><Zap size={11} className="text-indigo-400" /></span>}
-                  <span className="text-xs text-gray-400">{m._count?.records ?? 0}</span>
+                  {m.syncConfig?.isActive && <span title="Sync enabled"><Zap size={11} className="text-info" /></span>}
+                  <span className="text-xs text-fg-subtle">{m._count?.records ?? 0}</span>
                 </span>
               </button>
             ))}
-          </div>
+          </Card>
 
-          <div className="flex-1 min-w-0 bg-white border border-gray-100 rounded-xl p-4 overflow-y-auto">
+          <Card padding="none" className="flex-1 min-w-0 p-4 overflow-y-auto">
             {!module_ ? <Spinner /> : (
               <>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="font-semibold text-gray-900">{module_.name}</h2>
-                    {module_.description && <p className="text-xs text-gray-400">{module_.description}</p>}
+                    <h2 className="font-semibold text-fg">{module_.name}</h2>
+                    {module_.description && <p className="text-xs text-fg-subtle">{module_.description}</p>}
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
+                    <IconButton
+                      label="Edit module"
+                      icon={<Pencil size={15} />}
                       onClick={() => setEditOpen(true)}
-                      className="p-1.5 text-gray-300 hover:text-gray-600"
-                      aria-label="Edit module"
-                    ><Pencil size={15} /></button>
-                    <button
+                    />
+                    <IconButton
+                      label="Delete module"
+                      tone="danger"
+                      icon={<Trash2 size={15} />}
                       onClick={() => { if (confirm(`Delete "${module_.name}" and all its records? This can't be undone.`)) { deleteModule.mutate(module_.id); setSelectedId(null); } }}
-                      className="p-1.5 text-gray-300 hover:text-red-500"
-                      aria-label="Delete module"
-                    ><Trash2 size={15} /></button>
+                    />
                   </div>
                 </div>
-                <div role="tablist" className="flex gap-2 mb-4">
-                  {(['records', 'fields', 'sync'] as const).map(t => (
-                    <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-                      className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors capitalize ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                      {t}
-                    </button>
-                  ))}
-                </div>
+                <Tabs
+                  variant="pill"
+                  aria-label="Module section"
+                  className="mb-4"
+                  items={(['records', 'fields', 'sync'] as const).map(t => ({ key: t, label: <span className="capitalize">{t}</span> }))}
+                  value={tab}
+                  onChange={setTab}
+                />
                 {tab === 'fields' && <FieldsTab module_={module_} />}
                 {tab === 'records' && <CustomModuleRecordsTab module_={module_} />}
                 {tab === 'sync' && <SyncTab module_={module_} />}
               </>
             )}
-          </div>
+          </Card>
         </div>
       )}
 

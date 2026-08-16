@@ -42,7 +42,7 @@ export function AISuggestionList({ suggestions, onApply, label = 'AI suggestions
   if (!suggestions.length) return null;
   return (
     <div className={`mt-2 ${className}`}>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 flex items-center gap-1">
+      <p className="text-xs text-fg-subtle mb-1.5 flex items-center gap-1">
         <Sparkles size={10} className="text-indigo-400 dark:text-indigo-300" /> {label}
       </p>
       <div className="flex flex-wrap gap-1.5">

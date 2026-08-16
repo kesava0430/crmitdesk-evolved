@@ -1105,6 +1105,37 @@ export async function seedAllDemoOrgs() {
   return results;
 }
 
+/**
+ * Seeds only the verticals that don't exist yet.
+ *
+ * The important property here is that it is **non-destructive**: buildOrg()
+ * deletes an org before rebuilding it, so a full reseed would tear down seven
+ * working demo workspaces to fix the one that is missing. This touches nothing
+ * that already exists, which is what makes it safe to expose to an ordinary
+ * admin rather than only to a secret-holding CI job.
+ *
+ * That distinction matters in practice: adding a new vertical to VERTICALS
+ * (as real estate was) leaves every deployed environment one org short until
+ * something creates it, and on a host without shell access `npm run db:seed`
+ * is not an option.
+ */
+export async function seedMissingDemoOrgs(): Promise<{ created: string[]; alreadyPresent: string[] }> {
+  const existing = await prisma.organization.findMany({
+    where: { slug: { in: DEMO_VERTICAL_SLUGS } },
+    select: { slug: true },
+  });
+  const present = new Set(existing.map(o => o.slug));
+
+  const created: string[] = [];
+  for (const preset of VERTICALS) {
+    if (present.has(preset.slug)) continue;
+    await buildOrg(preset);
+    created.push(preset.slug);
+  }
+
+  return { created, alreadyPresent: [...present] };
+}
+
 // ─── Back-compat exports (previous single-vertical API) ───────────────────────
 export const DEMO_ORG_SLUG = DEFAULT_VERTICAL;
 export const DEMO_SEED_EMAILS = seedEmailsFor(DEFAULT_VERTICAL);

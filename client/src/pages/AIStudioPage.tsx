@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import {
   Brain, Building2, Zap, Code2, Plus, Trash2, Play, Save,
-  CheckCircle2, XCircle, Loader2,
+  CheckCircle2, XCircle,
   Pencil, ToggleLeft, ToggleRight, X,
 } from 'lucide-react';
+import {
+  Alert, Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Input, Modal,
+  PageBody, PageHeader, SectionHeader, Select, Spinner, Tabs, Textarea, Toolbar,
+} from '../shared/components';
 import {
   useBusinessContext, useSaveBusinessContext,
   useGenerateSetup, useApplySetup,
@@ -26,6 +30,12 @@ const TRIGGERS     = ['onLoad', 'onChange', 'onSubmit', 'onValidate', 'onFieldCh
 const FIELD_TYPES  = ['text', 'number', 'boolean', 'select'] as const;
 const OUTPUT_TYPES = ['text', 'json', 'number'] as const;
 
+const TONES = [
+  { key: 'professional' as const, label: 'Professional' },
+  { key: 'casual'       as const, label: 'Casual' },
+  { key: 'technical'    as const, label: 'Technical' },
+];
+
 const SCRIPT_TEMPLATE = `// Available: context.entity, context.field, context.user
 // context.setValue(fieldName, value)
 // context.setError(fieldName, message)
@@ -38,6 +48,12 @@ if (context.entity.title?.toLowerCase().includes('urgent')) {
   context.notify('Priority set to HIGH based on urgent keyword', 'info');
 }
 `;
+
+/** A monospace code well. `bg-gray-950 text-gray-100` was a hardcoded dark
+    panel that stayed black in light mode and clashed with every theme; the
+    sunken surface token gives the same "this is code, not prose" reading
+    while following the theme. */
+const CODE_SURFACE = 'font-mono !bg-surface-sunken text-fg';
 
 // ─── Generate Setup (labels + draft workflow rules from Business Context) ─────
 // Two-step propose/confirm: generateSetup only reads context and calls the
@@ -147,112 +163,124 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
   const hasFieldLabels = labels && Object.keys(labels.fields ?? {}).length > 0;
 
   return (
-    <div className="pt-6 mt-6 border-t border-gray-100 dark:border-gray-800">
-      <p className="form-label mb-1">Generate Setup</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-        Uses your industry and company description above to propose relabeled terminology (e.g. "Tickets" → "Cases")
-        and a handful of draft automation rules tailored to your business — nothing changes until you review and apply.
-      </p>
+    <div className="pt-6 mt-6 border-t border-line-subtle space-y-3">
+      <SectionHeader
+        title="Generate Setup"
+        subtitle={'Uses your industry and company description above to propose relabeled terminology (e.g. "Tickets" → "Cases") and a handful of draft automation rules tailored to your business — nothing changes until you review and apply.'}
+      />
 
       {!hasContext && (
-        <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 mb-3">
+        <Alert tone="warning">
           Fill in and save your industry and company description above first.
-        </p>
+        </Alert>
       )}
 
       {!labels && !rules.length && (
-        <button
+        <Button
+          variant="outline"
+          icon={<Brain size={16} />}
           onClick={handleGenerate}
-          disabled={!hasContext || generate.isPending}
-          className="flex items-center gap-2 px-4 py-2 border border-brand-600 text-brand-600 rounded-lg text-sm font-semibold hover:bg-brand-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!hasContext}
+          loading={generate.isPending}
         >
-          {generate.isPending ? <Loader2 size={16} className="animate-spin" /> : <Brain size={16} />}
           {generate.isPending ? 'Generating…' : 'Generate setup'}
-        </button>
+        </Button>
       )}
 
       {generate.isError && (
-        <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+        <Alert tone="danger">
           {(generate.error as any)?.response?.data?.error || 'Could not generate a setup — try again.'}
-        </p>
+        </Alert>
       )}
 
       {(hasEntityLabels || hasFieldLabels) && labels && (
         <div className="mt-4 space-y-4">
           <div>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Suggested terminology</p>
+            <p className="text-sm font-semibold text-fg mb-2">Suggested terminology</p>
             <div className="space-y-2">
               {Object.entries(labels.entities ?? {}).map(([entity, names]) => (
-                <div key={entity} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100 mb-2">
-                    <input type="checkbox" checked={enabledEntities.has(entity)}
-                      onChange={() => toggle(enabledEntities, setEnabledEntities, entity)} />
-                    {ENTITY_DISPLAY[entity] ?? entity} → {(names as any).plural}
-                  </label>
+                <Card key={entity} padding="sm" flat>
+                  <Checkbox
+                    className="mb-2"
+                    checked={enabledEntities.has(entity)}
+                    onChange={() => toggle(enabledEntities, setEnabledEntities, entity)}
+                    label={<span className="font-medium">{ENTITY_DISPLAY[entity] ?? entity} → {(names as any).plural}</span>}
+                  />
                   <div className="grid grid-cols-2 gap-2 pl-6 mb-2">
-                    <input value={(names as any).singular} placeholder="Singular"
-                      onChange={e => updateEntityLabel(entity, 'singular', e.target.value)}
-                      className="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-1 text-xs" />
-                    <input value={(names as any).plural} placeholder="Plural"
-                      onChange={e => updateEntityLabel(entity, 'plural', e.target.value)}
-                      className="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-1 text-xs" />
+                    <Input inputSize="sm" value={(names as any).singular} placeholder="Singular"
+                      aria-label={`${ENTITY_DISPLAY[entity] ?? entity} singular label`}
+                      onChange={e => updateEntityLabel(entity, 'singular', e.target.value)} />
+                    <Input inputSize="sm" value={(names as any).plural} placeholder="Plural"
+                      aria-label={`${ENTITY_DISPLAY[entity] ?? entity} plural label`}
+                      onChange={e => updateEntityLabel(entity, 'plural', e.target.value)} />
                   </div>
                   {(labels.fields as any)?.[entity] && (
-                    <div className="pl-6 space-y-1">
+                    <div className="pl-6 space-y-1.5">
                       {Object.entries((labels.fields as any)[entity] as Record<string, string>).map(([field, val]) => (
-                        <label key={field} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-                          <input type="checkbox" checked={enabledFields.has(`${entity}.${field}`)}
-                            onChange={() => toggle(enabledFields, setEnabledFields, `${entity}.${field}`)} />
-                          {FIELD_DISPLAY[entity]?.[field] ?? field}:
-                          <input value={val} onChange={e => updateFieldLabel(entity, field, e.target.value)}
-                            className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-0.5 text-xs" />
-                        </label>
+                        <div key={field} className="flex items-center gap-2">
+                          <Checkbox
+                            checked={enabledFields.has(`${entity}.${field}`)}
+                            onChange={() => toggle(enabledFields, setEnabledFields, `${entity}.${field}`)}
+                            label={<span className="text-xs text-fg-muted">{FIELD_DISPLAY[entity]?.[field] ?? field}:</span>}
+                          />
+                          <Input
+                            inputSize="sm"
+                            className="flex-1"
+                            aria-label={`${FIELD_DISPLAY[entity]?.[field] ?? field} label`}
+                            value={val}
+                            onChange={e => updateFieldLabel(entity, field, e.target.value)}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
-                </div>
+                </Card>
               ))}
             </div>
           </div>
 
           {rules.length > 0 && (
             <div>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Draft automation rules</p>
+              <p className="text-sm font-semibold text-fg mb-2">Draft automation rules</p>
               <div className="space-y-2">
                 {rules.map(rule => {
                   const missing = stillNeedsInput(rule);
                   return (
-                    <div key={rule._draftId} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                      <label className="flex items-start gap-2 text-sm">
-                        <input type="checkbox" checked={enabledRules.has(rule._draftId)} className="mt-0.5"
-                          onChange={() => toggle(enabledRules, setEnabledRules, rule._draftId)} />
-                        <div>
-                          <p className="font-medium text-gray-800 dark:text-gray-100">{rule.name}</p>
-                          {rule.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rule.description}</p>}
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-                            Trigger: {rule.trigger} · Actions: {rule.actions.map(a => a.type).join(', ')}
-                          </p>
-                        </div>
-                      </label>
+                    <Card key={rule._draftId} padding="sm" flat>
+                      <Checkbox
+                        checked={enabledRules.has(rule._draftId)}
+                        onChange={() => toggle(enabledRules, setEnabledRules, rule._draftId)}
+                        label={<span className="font-medium">{rule.name}</span>}
+                        hint={
+                          <>
+                            {rule.description && <span className="block">{rule.description}</span>}
+                            <span className="block text-[11px] text-fg-subtle mt-1">
+                              Trigger: {rule.trigger} · Actions: {rule.actions.map(a => a.type).join(', ')}
+                            </span>
+                          </>
+                        }
+                      />
                       {rule.needsInput.length > 0 && (
                         <div className="pl-6 mt-2 space-y-1.5">
                           {rule.needsInput.map(need => (
                             <div key={need} className="flex items-center gap-2">
-                              <span className="text-[11px] text-gray-500 dark:text-gray-400 w-32 shrink-0">{need}:</span>
-                              <input
+                              <span className="text-[11px] text-fg-muted w-32 shrink-0">{need}:</span>
+                              <Input
+                                inputSize="sm"
+                                className="flex-1"
+                                aria-label={need}
                                 placeholder={need.endsWith('.userId') ? 'User ID' : need.endsWith('.to') ? 'Recipient email' : 'Webhook URL'}
                                 value={ruleInputs[rule._draftId]?.[need] ?? ''}
                                 onChange={e => setRuleInputs(p => ({ ...p, [rule._draftId]: { ...p[rule._draftId], [need]: e.target.value } }))}
-                                className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-2 py-1 text-xs"
                               />
                             </div>
                           ))}
                           {missing.length > 0 && (
-                            <p className="text-[11px] text-amber-600 dark:text-amber-400">Fill these in, or this rule won't be created.</p>
+                            <p className="text-[11px] text-warning">Fill these in, or this rule won't be created.</p>
                           )}
                         </div>
                       )}
-                    </div>
+                    </Card>
                   );
                 })}
               </div>
@@ -260,28 +288,19 @@ function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
           )}
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleApply}
-              disabled={apply.isPending}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
-            >
-              {apply.isPending ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+            <Button icon={<CheckCircle2 size={16} />} onClick={handleApply} loading={apply.isPending}>
               Apply selected
-            </button>
-            <button
-              onClick={() => { setLabels(null); setRules([]); }}
-              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            >
+            </Button>
+            <Button variant="ghost" onClick={() => { setLabels(null); setRules([]); }}>
               Discard
-            </button>
+            </Button>
           </div>
 
           {apply.isSuccess && apply.data && (
-            <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5">
-              <CheckCircle2 size={14} />
+            <Alert tone="success">
               Applied — {apply.data.rulesCreated} rule{apply.data.rulesCreated === 1 ? '' : 's'} created
               {apply.data.rulesSkipped > 0 ? `, ${apply.data.rulesSkipped} skipped (still missing required input)` : ''}.
-            </p>
+            </Alert>
           )}
         </div>
       )}
@@ -317,127 +336,105 @@ function BusinessContextTab() {
     set('terminology', t);
   }
 
-  if (isLoading) return <div className="py-16 text-center text-gray-400 dark:text-gray-500"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
+  if (isLoading) return <div className="py-16 flex justify-center"><Spinner /></div>;
 
   return (
     <div className="max-w-2xl space-y-6">
-      <div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Tell the AI about your business so every AI feature speaks your language and understands your domain.
-        </p>
-      </div>
+      <p className="text-sm text-fg-muted">
+        Tell the AI about your business so every AI feature speaks your language and understands your domain.
+      </p>
 
       {/* Industry */}
-      <div>
-        <label className="form-label">Industry</label>
-        <select
+      <Field label="Industry">
+        <Select
           value={current.industry ?? ''}
           onChange={e => set('industry', e.target.value)}
-          className="ui-input"
+          placeholder="Select your industry…"
         >
-          <option value="">Select your industry…</option>
           {INDUSTRIES.map(i => <option key={i}>{i}</option>)}
-        </select>
-      </div>
+        </Select>
+      </Field>
 
       {/* Company description */}
-      <div>
-        <label className="form-label">Company Description</label>
-        <textarea
+      <Field label="Company Description">
+        <Textarea
           rows={3}
           value={current.companyDesc ?? ''}
           onChange={e => set('companyDesc', e.target.value)}
           placeholder="Briefly describe what your company does, who your customers are, and your main business goals…"
-          className="ui-input resize-none"
+          className="resize-none"
         />
-      </div>
+      </Field>
 
       {/* Tone */}
-      <div>
-        <label className="form-label">AI Response Tone</label>
-        <div className="flex gap-3">
-          {(['professional', 'casual', 'technical'] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => set('tone', t)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
-                (current.tone ?? 'professional') === t
-                  ? 'bg-brand-600 text-white border-brand-600'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Field label="AI Response Tone">
+        <Tabs
+          items={TONES}
+          value={(current.tone ?? 'professional') as typeof TONES[number]['key']}
+          onChange={t => set('tone', t)}
+          variant="segmented"
+          aria-label="AI Response Tone"
+        />
+      </Field>
 
       {/* Domain Terminology */}
-      <div>
-        <label className="form-label">Domain Terminology</label>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Teach the AI your company's specific terms. E.g., "policy" = "insurance coverage", "client" = "patient".
-        </p>
+      <Field
+        label="Domain Terminology"
+        hint={'Teach the AI your company’s specific terms. E.g., "policy" = "insurance coverage", "client" = "patient".'}
+      >
         <div className="flex gap-2 mb-2">
-          <input
+          <Input
+            className="flex-1"
+            aria-label="Term"
             value={termKey}
             onChange={e => setTermKey(e.target.value)}
             placeholder="Term (e.g. patient)"
-            className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
-          <input
+          <Input
+            className="flex-1"
+            aria-label="Meaning"
             value={termVal}
             onChange={e => setTermVal(e.target.value)}
             placeholder="Means (e.g. customer with active policy)"
-            className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
-          <button
-            onClick={addTerm}
-            className="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-          >
-            Add
-          </button>
+          <Button onClick={addTerm}>Add</Button>
         </div>
         {Object.entries(current.terminology ?? {}).length > 0 && (
           <div className="space-y-1">
             {Object.entries(current.terminology ?? {}).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-1.5 text-sm">
-                <span className="font-medium text-gray-800 dark:text-gray-100">{k}</span>
-                <span className="text-gray-400 dark:text-gray-500">→</span>
-                <span className="text-gray-600 dark:text-gray-300 flex-1">{v as string}</span>
-                <button onClick={() => removeTerm(k)} className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400">
-                  <X size={14} />
-                </button>
+              <div key={k} className="flex items-center gap-2 bg-surface-sunken rounded-btn px-3 py-1.5 text-sm">
+                <span className="font-medium text-fg">{k}</span>
+                <span className="text-fg-subtle">→</span>
+                <span className="text-fg-muted flex-1">{v as string}</span>
+                <IconButton
+                  size="xs"
+                  tone="danger"
+                  label={`Remove ${k}`}
+                  onClick={() => removeTerm(k)}
+                  icon={<X size={14} />}
+                />
               </div>
             ))}
           </div>
         )}
-      </div>
+      </Field>
 
       {/* Extra system context */}
-      <div>
-        <label className="form-label">Additional AI Instructions</label>
-        <textarea
+      <Field label="Additional AI Instructions">
+        <Textarea
           rows={3}
           value={current.customSystem ?? ''}
           onChange={e => set('customSystem', e.target.value)}
           placeholder="Any extra instructions injected into every AI prompt. E.g., 'Always comply with HIPAA guidelines. Never suggest specific medications.'"
-          className="ui-input resize-none"
+          className="resize-none"
         />
-      </div>
+      </Field>
 
-      <button
-        onClick={() => save.mutate(current)}
-        disabled={save.isPending}
-        className="flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
-      >
-        {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+      <Button size="lg" icon={<Save size={16} />} onClick={() => save.mutate(current)} loading={save.isPending}>
         Save Business Context
-      </button>
+      </Button>
       {save.isSuccess && (
-        <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5">
-          <CheckCircle2 size={14} /> Saved — all AI features now use this context.
-        </p>
+        <Alert tone="success">Saved — all AI features now use this context.</Alert>
       )}
 
       <GenerateSetupSection hasContext={!!(current.industry || current.companyDesc)} />
@@ -497,144 +494,138 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
   const isSaving = createFn.isPending || updateFn.isPending;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900 dark:text-white">{fn.id ? 'Edit Function' : 'New Custom AI Function'}</h3>
-          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"><X size={20} /></button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="form-label">Function Name *</label>
-              <input
-                value={form.name ?? ''}
-                onChange={e => set('name', e.target.value)}
-                placeholder="e.g. Classify Patient Urgency"
-                className="ui-input"
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="form-label">Description</label>
-              <input
-                value={form.description ?? ''}
-                onChange={e => set('description', e.target.value)}
-                placeholder="What does this function do?"
-                className="ui-input"
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="form-label">System Prompt *</label>
-              <textarea
-                rows={5}
-                value={form.systemPrompt ?? ''}
-                onChange={e => set('systemPrompt', e.target.value)}
-                placeholder="You are a helpful assistant specializing in… Analyze the provided inputs and return…"
-                className="ui-input resize-none font-mono"
-              />
-            </div>
-            <div>
-              <label className="form-label">Output Type</label>
-              <select
-                value={form.outputType ?? 'text'}
-                onChange={e => set('outputType', e.target.value)}
-                className="ui-input"
-              >
-                {OUTPUT_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Input Schema */}
-          <div>
-            <label className="form-label">Input Fields</label>
-            {(form.inputSchema ?? []).map((f, i) => (
-              <div key={i} className="flex items-center gap-2 mb-1 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-1.5 text-sm">
-                <span className="font-medium text-gray-800 dark:text-gray-100 w-24 truncate">{f.label}</span>
-                <span className="text-gray-400 dark:text-gray-500 text-xs">{f.name}</span>
-                <span className="text-xs px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-300">{f.type}</span>
-                {f.required && <span className="text-xs text-red-500 dark:text-red-400">required</span>}
-                <button onClick={() => removeField(i)} className="ml-auto text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"><X size={12} /></button>
-              </div>
-            ))}
-            <div className="flex gap-2 mt-2">
-              <input
-                value={newField.name ?? ''}
-                onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
-                placeholder="field_name"
-                className="w-28 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
-              />
-              <input
-                value={newField.label ?? ''}
-                onChange={e => setNewField(p => ({ ...p, label: e.target.value }))}
-                placeholder="Label"
-                className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-              <select
-                value={newField.type ?? 'text'}
-                onChange={e => setNewField(p => ({ ...p, type: e.target.value as any }))}
-                className="w-24 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-              >
-                {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
-              <button onClick={addField} className="px-3 py-1 bg-brand-600 text-white rounded-lg text-xs font-medium hover:bg-brand-700">
-                Add
-              </button>
-            </div>
-          </div>
-
-          {/* Test panel */}
-          {fn.id && (
-            <div className="border border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-3">Test this function</p>
-              {(form.inputSchema ?? []).map(f => (
-                <div key={f.name} className="mb-2">
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">{f.label}</label>
-                  <input
-                    value={testInputs[f.name] ?? ''}
-                    onChange={e => setTestInputs(p => ({ ...p, [f.name]: e.target.value }))}
-                    className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-400"
-                  />
-                </div>
-              ))}
-              {!form.inputSchema?.length && (
-                <input
-                  value={testInputs['text'] ?? ''}
-                  onChange={e => setTestInputs({ text: e.target.value })}
-                  placeholder="Enter test input text…"
-                  className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-400 mb-2"
-                />
-              )}
-              <button
-                onClick={handleTest}
-                disabled={testing}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
-              >
-                {testing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-                Run Test
-              </button>
-              {testResult && (
-                <pre className="mt-3 bg-gray-900 text-green-400 rounded-lg p-3 text-xs overflow-x-auto whitespace-pre-wrap">
-                  {testResult}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="px-6 pb-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
-            Cancel
-          </button>
-          <button
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={fn.id ? 'Edit Function' : 'New Custom AI Function'}
+      footer={
+        <>
+          <Button variant="secondary" block onClick={onClose}>Cancel</Button>
+          <Button
+            block
             onClick={handleSave}
-            disabled={isSaving || !form.name || !form.systemPrompt}
-            className="flex-1 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
+            loading={isSaving}
+            disabled={!form.name || !form.systemPrompt}
           >
             {isSaving ? 'Saving…' : fn.id ? 'Save Changes' : 'Create Function'}
-          </button>
-        </div>
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Function Name" required>
+          <Input
+            value={form.name ?? ''}
+            onChange={e => set('name', e.target.value)}
+            placeholder="e.g. Classify Patient Urgency"
+          />
+        </Field>
+        <Field label="Description">
+          <Input
+            value={form.description ?? ''}
+            onChange={e => set('description', e.target.value)}
+            placeholder="What does this function do?"
+          />
+        </Field>
+        <Field label="System Prompt" required>
+          <Textarea
+            rows={5}
+            value={form.systemPrompt ?? ''}
+            onChange={e => set('systemPrompt', e.target.value)}
+            placeholder="You are a helpful assistant specializing in… Analyze the provided inputs and return…"
+            className="resize-none font-mono"
+          />
+        </Field>
+        <Field label="Output Type" className="sm:w-1/2">
+          <Select value={form.outputType ?? 'text'} onChange={e => set('outputType', e.target.value)}>
+            {OUTPUT_TYPES.map(t => <option key={t}>{t}</option>)}
+          </Select>
+        </Field>
+
+        {/* Input Schema */}
+        <Field label="Input Fields">
+          {(form.inputSchema ?? []).map((f, i) => (
+            <div key={i} className="flex items-center gap-2 mb-1 bg-surface-sunken rounded-btn px-3 py-1.5 text-sm">
+              <span className="font-medium text-fg w-24 truncate">{f.label}</span>
+              <span className="text-fg-subtle text-xs font-mono">{f.name}</span>
+              <Badge variant="gray" size="sm">{f.type}</Badge>
+              {f.required && <Badge variant="red" size="sm">required</Badge>}
+              <IconButton
+                size="xs"
+                tone="danger"
+                className="ml-auto"
+                label={`Remove ${f.label}`}
+                onClick={() => removeField(i)}
+                icon={<X size={12} />}
+              />
+            </div>
+          ))}
+          <div className="flex gap-2 mt-2">
+            <Input
+              inputSize="sm"
+              className="w-28 font-mono"
+              aria-label="Field name"
+              value={newField.name ?? ''}
+              onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
+              placeholder="field_name"
+            />
+            <Input
+              inputSize="sm"
+              className="flex-1"
+              aria-label="Field label"
+              value={newField.label ?? ''}
+              onChange={e => setNewField(p => ({ ...p, label: e.target.value }))}
+              placeholder="Label"
+            />
+            <Select
+              selectSize="sm"
+              className="w-24"
+              aria-label="Field type"
+              value={newField.type ?? 'text'}
+              onChange={e => setNewField(p => ({ ...p, type: e.target.value as any }))}
+            >
+              {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
+            </Select>
+            <Button size="sm" onClick={addField}>Add</Button>
+          </div>
+        </Field>
+
+        {/* Test panel */}
+        {fn.id && (
+          <Card padding="sm" tone="sunken" flat className="border-dashed">
+            <p className="text-xs font-medium text-fg-muted mb-3">Test this function</p>
+            {(form.inputSchema ?? []).map(f => (
+              <Field key={f.name} label={f.label} className="mb-2">
+                <Input
+                  inputSize="sm"
+                  value={testInputs[f.name] ?? ''}
+                  onChange={e => setTestInputs(p => ({ ...p, [f.name]: e.target.value }))}
+                />
+              </Field>
+            ))}
+            {!form.inputSchema?.length && (
+              <Input
+                inputSize="sm"
+                className="mb-2"
+                aria-label="Test input text"
+                value={testInputs['text'] ?? ''}
+                onChange={e => setTestInputs({ text: e.target.value })}
+                placeholder="Enter test input text…"
+              />
+            )}
+            <Button size="sm" icon={<Play size={13} />} onClick={handleTest} loading={testing}>
+              Run Test
+            </Button>
+            {testResult && (
+              <pre className="mt-3 rounded-btn p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-line bg-surface text-fg">
+                {testResult}
+              </pre>
+            )}
+          </Card>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -644,69 +635,68 @@ function FunctionsTab() {
   const updateFn = useUpdateFunction();
   const [editing, setEditing] = useState<Partial<CustomAIFunction> | null>(null);
 
-  if (isLoading) return <div className="py-16 text-center text-gray-400 dark:text-gray-500"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
+  if (isLoading) return <div className="py-16 flex justify-center"><Spinner /></div>;
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-500 dark:text-gray-400">Build reusable AI functions your team can call across the product.</p>
-        <button
-          onClick={() => setEditing(EMPTY_FN)}
-          className="flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-        >
-          <Plus size={15} /> New Function
-        </button>
-      </div>
+      <Toolbar
+        className="mb-4"
+        right={
+          <Button icon={<Plus size={15} />} onClick={() => setEditing(EMPTY_FN)}>
+            New Function
+          </Button>
+        }
+      >
+        <p className="text-sm text-fg-muted">Build reusable AI functions your team can call across the product.</p>
+      </Toolbar>
 
       {fns.length === 0 ? (
-        <div className="py-16 text-center text-gray-400 dark:text-gray-500 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-          <Zap size={32} className="mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No custom functions yet</p>
-          <p className="text-sm mt-1">Create your first AI function to get started.</p>
-        </div>
+        <EmptyState
+          icon={<Zap />}
+          title="No custom functions yet"
+          description="Create your first AI function to get started."
+          action={{ label: 'New Function', onClick: () => setEditing(EMPTY_FN) }}
+        />
       ) : (
         <div className="space-y-3">
           {fns.map(fn => (
-            <div key={fn.id} data-testid="ai-function-card" className={`bg-white dark:bg-gray-900 rounded-xl border dark:border-gray-800 shadow-sm p-4 ${!fn.isActive ? 'opacity-60' : ''}`}>
+            <Card key={fn.id} data-testid="ai-function-card" padding="sm" className={fn.isActive ? '' : 'opacity-60'}>
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-500/10 flex items-center justify-center flex-shrink-0">
-                  <Zap size={15} className="text-purple-600 dark:text-purple-400" />
+                <div className="w-8 h-8 rounded-btn bg-accent-soft flex items-center justify-center flex-shrink-0">
+                  <Zap size={15} className="text-accent" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-semibold text-gray-900 dark:text-white text-sm">{fn.name}</span>
-                    <span className="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded">{fn.outputType}</span>
+                    <span className="font-semibold text-fg text-sm">{fn.name}</span>
+                    <Badge variant="gray" size="sm">{fn.outputType}</Badge>
                     {fn.runCount > 0 && (
-                      <span className="text-xs text-gray-400 dark:text-gray-500">{fn.runCount} runs</span>
+                      <span className="text-xs text-fg-subtle">{fn.runCount} runs</span>
                     )}
                   </div>
-                  {fn.description && <p className="text-xs text-gray-500 dark:text-gray-400">{fn.description}</p>}
+                  {fn.description && <p className="text-xs text-fg-muted">{fn.description}</p>}
                   {fn.inputSchema?.length > 0 && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    <p className="text-xs text-fg-subtle mt-1">
                       Inputs: {fn.inputSchema.map(f => f.label).join(', ')}
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
+                <div className="flex items-center gap-1">
+                  <IconButton
+                    label={fn.isActive ? 'Disable' : 'Enable'}
+                    tone="accent"
                     onClick={() => updateFn.mutate({ id: fn.id, isActive: !fn.isActive })}
-                    className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400"
-                    title={fn.isActive ? 'Disable' : 'Enable'}
-                  >
-                    {fn.isActive ? <ToggleRight size={18} className="text-brand-600" /> : <ToggleLeft size={18} />}
-                  </button>
-                  <button onClick={() => setEditing(fn)} className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400">
-                    <Pencil size={15} />
-                  </button>
-                  <button
+                    icon={fn.isActive ? <ToggleRight size={18} className="text-accent" /> : <ToggleLeft size={18} />}
+                  />
+                  <IconButton label="Edit function" tone="accent" onClick={() => setEditing(fn)} icon={<Pencil size={15} />} />
+                  <IconButton
+                    label="Delete function"
+                    tone="danger"
                     onClick={() => { if (window.confirm('Delete this function?')) deleteFn.mutate(fn.id); }}
-                    className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                    icon={<Trash2 size={15} />}
+                  />
                 </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -747,121 +737,106 @@ function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onCl
   const isSaving = createScript.isPending || updateScript.isPending;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900 dark:text-white">{script.id ? 'Edit Script' : 'New Custom Script'}</h3>
-          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"><X size={20} /></button>
+    <Modal
+      open
+      onClose={onClose}
+      size="xl"
+      title={script.id ? 'Edit Script' : 'New Custom Script'}
+      footer={
+        <>
+          <Button variant="secondary" block onClick={onClose}>Cancel</Button>
+          <Button block onClick={handleSave} loading={isSaving} disabled={!form.name || !form.script}>
+            {isSaving ? 'Saving…' : script.id ? 'Save Changes' : 'Create Script'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Script Name" required>
+          <Input
+            value={form.name ?? ''}
+            onChange={e => set('name', e.target.value)}
+            placeholder="e.g. Auto-set priority from keywords"
+          />
+        </Field>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Entity Type">
+            <Select value={form.entityType ?? 'ticket'} onChange={e => set('entityType', e.target.value)} className="capitalize">
+              {ENTITY_TYPES.map(t => <option key={t}>{t}</option>)}
+            </Select>
+          </Field>
+          <Field label="Trigger">
+            <Select value={form.trigger ?? 'onLoad'} onChange={e => set('trigger', e.target.value)}>
+              {TRIGGERS.map(t => <option key={t}>{t}</option>)}
+            </Select>
+          </Field>
+          {form.trigger === 'onFieldChange' && (
+            <Field label={<>Field Target <span className="text-fg-subtle">(leave blank for all fields)</span></>}>
+              <Input
+                value={form.fieldTarget ?? ''}
+                onChange={e => set('fieldTarget', e.target.value)}
+                placeholder="e.g. priority"
+                className="font-mono"
+              />
+            </Field>
+          )}
         </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="form-label">Script Name *</label>
-              <input
-                value={form.name ?? ''}
-                onChange={e => set('name', e.target.value)}
-                placeholder="e.g. Auto-set priority from keywords"
-                className="ui-input"
-              />
-            </div>
-            <div>
-              <label className="form-label">Entity Type</label>
-              <select
-                value={form.entityType ?? 'ticket'}
-                onChange={e => set('entityType', e.target.value)}
-                className="ui-input capitalize"
-              >
-                {ENTITY_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Trigger</label>
-              <select
-                value={form.trigger ?? 'onLoad'}
-                onChange={e => set('trigger', e.target.value)}
-                className="ui-input"
-              >
-                {TRIGGERS.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-            {form.trigger === 'onFieldChange' && (
-              <div>
-                <label className="form-label">Field Target <span className="text-gray-400 dark:text-gray-500">(leave blank for all fields)</span></label>
-                <input
-                  value={form.fieldTarget ?? ''}
-                  onChange={e => set('fieldTarget', e.target.value)}
-                  placeholder="e.g. priority"
-                  className="ui-input font-mono"
-                />
-              </div>
-            )}
-            <div className="col-span-2">
-              <label className="form-label">Description</label>
-              <input
-                value={form.description ?? ''}
-                onChange={e => set('description', e.target.value)}
-                placeholder="What does this script do?"
-                className="ui-input"
-              />
-            </div>
-          </div>
 
-          {/* Code editor */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-300">Script <span className="text-gray-400 dark:text-gray-500">(JavaScript)</span></label>
-              <button
-                onClick={handleValidate}
-                disabled={validate.isPending}
-                className="flex items-center gap-1 text-xs text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300"
-              >
-                {validate.isPending ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                Validate syntax
-              </button>
-            </div>
-            <textarea
-              rows={14}
-              value={form.script ?? ''}
-              onChange={e => { set('script', e.target.value); setValidation(null); }}
-              className="ui-input resize-y font-mono bg-gray-950 text-gray-100"
-              spellCheck={false}
-            />
-            {validation && (
-              <div className={`mt-1.5 flex items-center gap-1.5 text-xs ${validation.valid ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {validation.valid
-                  ? <><CheckCircle2 size={13} /> Syntax OK — script is valid</>
-                  : <><XCircle size={13} /> {validation.error}</>
-                }
-              </div>
-            )}
-          </div>
+        <Field label="Description">
+          <Input
+            value={form.description ?? ''}
+            onChange={e => set('description', e.target.value)}
+            placeholder="What does this script do?"
+          />
+        </Field>
 
-          {/* Context reference */}
-          <details className="text-xs text-gray-500 dark:text-gray-400">
-            <summary className="cursor-pointer font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">Available context API</summary>
-            <pre className="mt-2 bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 text-xs overflow-x-auto">{`context.entity          // current form data (object)
+        {/* Code editor */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="form-label !mb-0">Script <span className="text-fg-subtle">(JavaScript)</span></label>
+            <Button
+              variant="ghost"
+              size="xs"
+              icon={<CheckCircle2 size={12} />}
+              onClick={handleValidate}
+              loading={validate.isPending}
+              className="!text-accent"
+            >
+              Validate syntax
+            </Button>
+          </div>
+          <Textarea
+            rows={14}
+            value={form.script ?? ''}
+            onChange={e => { set('script', e.target.value); setValidation(null); }}
+            aria-label="Script (JavaScript)"
+            className={CODE_SURFACE}
+            spellCheck={false}
+          />
+          {validation && (
+            <div className={`mt-1.5 flex items-center gap-1.5 text-xs ${validation.valid ? 'text-success' : 'text-danger'}`}>
+              {validation.valid
+                ? <><CheckCircle2 size={13} /> Syntax OK — script is valid</>
+                : <><XCircle size={13} /> {validation.error}</>
+              }
+            </div>
+          )}
+        </div>
+
+        {/* Context reference */}
+        <details className="text-xs text-fg-muted">
+          <summary className="cursor-pointer font-medium text-fg-muted hover:text-fg">Available context API</summary>
+          <pre className="mt-2 bg-surface-sunken border border-line-subtle rounded-btn p-3 text-xs overflow-x-auto font-mono text-fg">{`context.entity          // current form data (object)
 context.field           // { name, value } — only on onFieldChange
 context.user            // { id, name, role }
 context.setValue(field, value)   // set a form field
 context.setError(field, message) // show validation error
 context.notify(msg, type?)       // toast: info|success|warning|error
 await context.ai(prompt)         // call AI, returns string`}</pre>
-          </details>
-        </div>
-        <div className="px-6 pb-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving || !form.name || !form.script}
-            className="flex-1 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
-          >
-            {isSaving ? 'Saving…' : script.id ? 'Save Changes' : 'Create Script'}
-          </button>
-        </div>
+        </details>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -871,66 +846,66 @@ function ScriptsTab() {
   const updateScript = useUpdateScript();
   const [editing, setEditing] = useState<Partial<CustomScript> | null>(null);
 
-  if (isLoading) return <div className="py-16 text-center text-gray-400 dark:text-gray-500"><Loader2 size={24} className="animate-spin mx-auto" /></div>;
+  if (isLoading) return <div className="py-16 flex justify-center"><Spinner /></div>;
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+      <Toolbar
+        className="mb-4"
+        right={
+          <Button icon={<Plus size={15} />} onClick={() => setEditing(EMPTY_SCRIPT)}>
+            New Script
+          </Button>
+        }
+      >
+        <p className="text-sm text-fg-muted">
           Write JavaScript that runs on form events — auto-fill fields, validate inputs, call AI, or show notifications.
         </p>
-        <button
-          onClick={() => setEditing(EMPTY_SCRIPT)}
-          className="flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-        >
-          <Plus size={15} /> New Script
-        </button>
-      </div>
+      </Toolbar>
 
       {scripts.length === 0 ? (
-        <div className="py-16 text-center text-gray-400 dark:text-gray-500 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-          <Code2 size={32} className="mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No custom scripts yet</p>
-          <p className="text-sm mt-1">Create scripts to automate form behaviour across your CRM & IT Desk forms.</p>
-        </div>
+        <EmptyState
+          icon={<Code2 />}
+          title="No custom scripts yet"
+          description="Create scripts to automate form behaviour across your CRM & IT Desk forms."
+          action={{ label: 'New Script', onClick: () => setEditing(EMPTY_SCRIPT) }}
+        />
       ) : (
         <div className="space-y-3">
           {scripts.map(s => (
-            <div key={s.id} data-testid="ai-script-card" className={`bg-white dark:bg-gray-900 rounded-xl border dark:border-gray-800 shadow-sm p-4 ${!s.isActive ? 'opacity-60' : ''}`}>
+            <Card key={s.id} data-testid="ai-script-card" padding="sm" className={s.isActive ? '' : 'opacity-60'}>
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
-                  <Code2 size={15} className="text-emerald-600 dark:text-emerald-400" />
+                <div className="w-8 h-8 rounded-btn bg-success-soft flex items-center justify-center flex-shrink-0">
+                  <Code2 size={15} className="text-success" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-semibold text-gray-900 dark:text-white text-sm">{s.name}</span>
-                    <span className="text-xs px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded capitalize">{s.entityType}</span>
-                    <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded">{s.trigger}</span>
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className="font-semibold text-fg text-sm">{s.name}</span>
+                    <Badge variant="green" size="sm" className="capitalize">{s.entityType}</Badge>
+                    <Badge variant="blue" size="sm">{s.trigger}</Badge>
                     {s.fieldTarget && (
-                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-mono">.{s.fieldTarget}</span>
+                      <Badge variant="gray" size="sm" className="font-mono">.{s.fieldTarget}</Badge>
                     )}
                   </div>
-                  {s.description && <p className="text-xs text-gray-500 dark:text-gray-400">{s.description}</p>}
+                  {s.description && <p className="text-xs text-fg-muted">{s.description}</p>}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
+                <div className="flex items-center gap-1">
+                  <IconButton
+                    label={s.isActive ? 'Disable' : 'Enable'}
+                    tone="accent"
                     onClick={() => updateScript.mutate({ id: s.id, isActive: !s.isActive })}
-                    className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400"
-                  >
-                    {s.isActive ? <ToggleRight size={18} className="text-brand-600" /> : <ToggleLeft size={18} />}
-                  </button>
-                  <button onClick={() => setEditing(s)} className="text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400">
-                    <Pencil size={15} />
-                  </button>
-                  <button
+                    icon={s.isActive ? <ToggleRight size={18} className="text-accent" /> : <ToggleLeft size={18} />}
+                  />
+                  <IconButton label="Edit script" tone="accent" onClick={() => setEditing(s)} icon={<Pencil size={15} />} />
+                  <IconButton
+                    label="Delete script"
+                    tone="danger"
                     onClick={() => { if (window.confirm('Delete this script?')) deleteScript.mutate(s.id); }}
-                    className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                    icon={<Trash2 size={15} />}
+                  />
                 </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -943,53 +918,29 @@ function ScriptsTab() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'context',   label: 'Business Context', icon: Building2, desc: 'Domain & terminology' },
-  { id: 'functions', label: 'Custom Functions',  icon: Zap,       desc: 'Build AI-powered functions' },
-  { id: 'scripts',   label: 'Custom Scripts',    icon: Code2,     desc: 'Form & field automation' },
-] as const;
+  { key: 'context'   as const, label: 'Business Context', icon: <Building2 size={15} /> },
+  { key: 'functions' as const, label: 'Custom Functions',  icon: <Zap size={15} /> },
+  { key: 'scripts'   as const, label: 'Custom Scripts',    icon: <Code2 size={15} /> },
+];
 
-type TabId = typeof TABS[number]['id'];
+type TabId = typeof TABS[number]['key'];
 
 export default function AIStudioPage() {
   const [tab, setTab] = useState<TabId>('context');
 
   return (
-    <div className="p-6 max-w-5xl mx-auto animate-slide-up">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-brand-600 flex items-center justify-center">
-          <Brain size={20} className="text-white" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AI Studio</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Configure your AI to match your domain, build custom functions, and automate forms</p>
-        </div>
-      </div>
+    <div className="animate-slide-up">
+      <PageHeader
+        title="AI Studio"
+        subtitle="Configure your AI to match your domain, build custom functions, and automate forms"
+        below={<Tabs items={TABS} value={tab} onChange={setTab} variant="segmented" fill aria-label="AI Studio section" />}
+      />
 
-      {/* Tab bar */}
-      <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${
-              tab === t.id
-                ? 'bg-white dark:bg-gray-700 shadow text-brand-700 dark:text-brand-400'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-            }`}
-          >
-            <t.icon size={15} />
-            <span className="hidden sm:inline">{t.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      <div>
+      <PageBody width="narrow">
         {tab === 'context'   && <BusinessContextTab />}
         {tab === 'functions' && <FunctionsTab />}
         {tab === 'scripts'   && <ScriptsTab />}
-      </div>
+      </PageBody>
     </div>
   );
 }

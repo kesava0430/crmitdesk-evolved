@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../api/client';
 import { Clock, Plus, Trash2 } from 'lucide-react';
+import { Card, Button, IconButton, Badge, Avatar, Field, Input } from '../../../shared/components';
 import { useFormat } from '../../../hooks/useFormat';
 
 interface TimeEntry {
@@ -50,96 +51,94 @@ export function TimeTrackingPanel({ ticketId }: Props) {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden dark:bg-gray-900 dark:border-gray-700">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+    <Card padding="none" className="overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line-subtle">
         <div className="flex items-center gap-2">
-          <Clock size={16} className="text-brand-600 dark:text-brand-400" />
-          <span className="font-semibold text-gray-800 text-sm dark:text-gray-100">Time Tracking</span>
+          <Clock size={16} className="text-accent" />
+          <span className="font-semibold text-fg text-sm">Time Tracking</span>
           {totalMinutes > 0 && (
-            <span className="px-2 py-0.5 bg-brand-50 text-brand-700 rounded-full text-xs font-semibold dark:bg-brand-500/10 dark:text-brand-300">
-              {formatTime(totalMinutes)} total
-            </span>
+            <Badge variant="accent">{formatTime(totalMinutes)} total</Badge>
           )}
         </div>
-        <button
-          onClick={() => setShowForm(f => !f)}
-          className="flex items-center gap-1 px-2.5 py-1 bg-brand-50 text-brand-700 rounded-lg text-xs font-medium hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20"
-        >
-          <Plus size={12} /> Log time
-        </button>
+        <Button size="xs" variant="subtle" icon={<Plus size={12} />} onClick={() => setShowForm(f => !f)}>
+          Log time
+        </Button>
       </div>
 
       {showForm && (
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 dark:bg-gray-800/60 dark:border-gray-800">
+        <div className="px-4 py-3 bg-surface-sunken border-b border-line-subtle">
           <div className="flex items-end gap-3">
-            <div className="flex-shrink-0">
-              <label htmlFor="tt-minutes" className="form-label">Minutes</label>
-              <input
-                id="tt-minutes"
-                aria-label="Minutes"
-                type="number"
-                min="1"
-                className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-                placeholder="30"
-                value={form.minutes}
-                onChange={e => setForm(f => ({ ...f, minutes: e.target.value }))}
-              />
+            <div className="shrink-0">
+              <Field label="Minutes" htmlFor="tt-minutes">
+                <Input
+                  id="tt-minutes"
+                  aria-label="Minutes"
+                  type="number"
+                  min="1"
+                  inputSize="sm"
+                  className="w-20 text-center"
+                  placeholder="30"
+                  value={form.minutes}
+                  onChange={e => setForm(f => ({ ...f, minutes: e.target.value }))}
+                />
+              </Field>
             </div>
-            <div className="flex-1">
-              <label htmlFor="tt-note" className="form-label">Note (optional)</label>
-              <input
-                id="tt-note"
-                aria-label="Note"
-                className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-                placeholder="What did you work on?"
-                value={form.note}
-                onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
-              />
+            <div className="flex-1 min-w-0">
+              <Field label="Note (optional)" htmlFor="tt-note">
+                <Input
+                  id="tt-note"
+                  aria-label="Note"
+                  inputSize="sm"
+                  placeholder="What did you work on?"
+                  value={form.note}
+                  onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+                />
+              </Field>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">Cancel</button>
-              <button
-                disabled={!form.minutes || Number(form.minutes) < 1 || log.isPending}
+            <div className="flex gap-2 pb-0.5">
+              <Button size="sm" variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={!form.minutes || Number(form.minutes) < 1}
+                loading={log.isPending}
                 onClick={() => log.mutate({ minutes: Number(form.minutes), description: form.note || undefined })}
-                className="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
               >
                 {log.isPending ? 'Saving…' : 'Log'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="divide-y divide-gray-50 dark:divide-gray-800">
+      <div className="divide-y divide-line-subtle">
         {entries.length === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">No time logged yet.</div>
+          <div className="px-4 py-6 text-center text-sm text-fg-subtle">No time logged yet.</div>
         ) : (
           entries.map(e => (
-            <div key={e.id} className="px-4 py-3 flex items-start justify-between group hover:bg-gray-50 dark:hover:bg-gray-800">
+            <div key={e.id} className="px-4 py-3 flex items-start justify-between group hover:bg-surface-hover">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold flex-shrink-0 dark:bg-brand-500/10 dark:text-brand-300">
-                  {e.user.name[0].toUpperCase()}
-                </div>
+                <Avatar name={e.user.name} size="sm" />
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatTime(e.minutes)}</span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500">by {e.user.name}</span>
+                    <span className="text-sm font-semibold text-fg">{formatTime(e.minutes)}</span>
+                    <span className="text-xs text-fg-subtle">by {e.user.name}</span>
                   </div>
-                  {e.description && <p className="text-xs text-gray-500 mt-0.5 dark:text-gray-400">{e.description}</p>}
-                  <p className="text-xs text-gray-300 mt-0.5 dark:text-gray-600">{fmtLoggedAt(e.loggedAt || e.createdAt)}</p>
+                  {e.description && <p className="text-xs text-fg-muted mt-0.5">{e.description}</p>}
+                  <p className="text-xs text-fg-subtle mt-0.5">{fmtLoggedAt(e.loggedAt || e.createdAt)}</p>
                 </div>
               </div>
-              <button
-                aria-label="Delete time entry"
+              <IconButton
+                label="Delete time entry"
+                tone="danger"
+                size="xs"
+                revealOnRowHover
+                icon={<Trash2 size={13} />}
                 onClick={() => remove.mutate(e.id)}
-                className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 rounded transition-opacity"
-              >
-                <Trash2 size={13} />
-              </button>
+              />
             </div>
           ))
         )}
       </div>
-    </div>
+    </Card>
   );
 }

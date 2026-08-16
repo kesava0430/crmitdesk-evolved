@@ -5,18 +5,11 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Download, BarChart2, Clock, Target, DollarSign } from 'lucide-react';
 import { useAnalyticsOverview, useTicketAnalytics, useCrmAnalytics } from '../api/analytics';
-import { Spinner } from '../shared/components';
+import {
+  Alert, Button, Card, CardHeader, EmptyState, PageBody, PageHeader, Select, Spinner, StatTile,
+} from '../shared/components';
+import { useChartTheme, type ChartTheme } from '../shared/chartTheme';
 import { useFormat } from '../hooks/useFormat';
-
-// ─── Colors ───────────────────────────────────────────────────────────────────
-
-const COLORS = ['#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-const STATUS_COLORS: Record<string, string> = {
-  OPEN: '#4f46e5', IN_PROGRESS: '#f59e0b', PENDING: '#f97316', RESOLVED: '#10b981', CLOSED: '#6b7280',
-};
-const PRIORITY_COLORS: Record<string, string> = {
-  LOW: '#6b7280', MEDIUM: '#4f46e5', HIGH: '#f59e0b', CRITICAL: '#ef4444',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,46 +33,52 @@ function KpiCard({ label, value, change, prefix = '', suffix = '', icon: Icon }:
   const isPos = change !== undefined && change > 0;
   const isNeg = change !== undefined && change < 0;
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-4 sm:p-5 overflow-hidden">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
-        <div className="w-8 h-8 rounded-xl bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center">
-          <Icon size={15} className="text-brand-600 dark:text-brand-400" />
-        </div>
-      </div>
-      <p className="text-2xl font-bold text-gray-900 dark:text-white">{prefix}{value}{suffix}</p>
-      {change !== undefined && (
-        <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${isPos ? 'text-green-600 dark:text-green-400' : isNeg ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}`}>
+    <StatTile
+      label={label}
+      value={`${prefix}${value}${suffix}`}
+      icon={<Icon size={15} />}
+      hint={change !== undefined ? (
+        <span className={`inline-flex items-center gap-1 font-medium ${isPos ? 'text-success' : isNeg ? 'text-danger' : 'text-fg-subtle'}`}>
           {isPos ? <TrendingUp size={12} /> : isNeg ? <TrendingDown size={12} /> : <Minus size={12} />}
           {isPos ? '+' : ''}{change}% vs prev 30d
-        </div>
-      )}
-    </div>
+        </span>
+      ) : undefined}
+    />
   );
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
+// ─── Chart card ───────────────────────────────────────────────────────────────
+// Was a bespoke `bg-surface border rounded-xl p-4 sm:p-5` wrapper with its own
+// header row; now the same idea assembled from Card + CardHeader so padding and
+// radius follow the theme.
 
-function Section({ title, children, onExport }: { title: string; children: React.ReactNode; onExport?: () => void }) {
+function ChartCard({ title, children, onExport }: { title: string; children: React.ReactNode; onExport?: () => void }) {
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-4 sm:p-5 overflow-hidden">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="font-semibold text-gray-900 dark:text-white text-sm">{title}</h2>
-        {onExport && (
-          <button onClick={onExport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
-            <Download size={11} /> Export CSV
-          </button>
+    <Card className="overflow-hidden">
+      <CardHeader
+        title={title}
+        className="mb-5"
+        actions={onExport && (
+          <Button variant="secondary" size="xs" icon={<Download size={11} />} onClick={onExport}>
+            Export CSV
+          </Button>
         )}
-      </div>
+      />
       {children}
-    </div>
+    </Card>
   );
+}
+
+/** Grid line, themed identically for every cartesian chart on this page. */
+function Grid({ t }: { t: ChartTheme }) {
+  return <CartesianGrid strokeDasharray="3 3" stroke={t.grid} />;
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function AnalyticsPage() {
   const { symbol } = useFormat();
+  const t = useChartTheme();
   const fmt = (n: number) => n >= 1000 ? `${symbol}${(n / 1000).toFixed(1)}k` : `${symbol}${n}`;
   const [days, setDays] = useState(30);
 
@@ -117,184 +116,195 @@ export function AnalyticsPage() {
   })) || [];
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto animate-slide-up">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <BarChart2 size={20} className="text-brand-600" />
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Analytics</h1>
+    <div className="animate-slide-up">
+      <PageHeader
+        title="Analytics"
+        subtitle="Performance metrics, trends, and forecasts."
+        actions={
+          <Select
+            value={days}
+            onChange={e => setDays(Number(e.target.value))}
+            aria-label="Date range"
+            className="w-auto"
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </Select>
+        }
+      />
+
+      <PageBody>
+        {/* KPI row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard label="Open Tickets" value={overview?.tickets.current ?? '—'} change={overview?.tickets.change} icon={BarChart2} />
+          <KpiCard label="New Leads" value={overview?.leads.current ?? '—'} change={overview?.leads.change} icon={Target} />
+          <KpiCard label="Revenue Won" value={overview?.revenue.current ? fmt(overview.revenue.current) : '—'} change={overview?.revenue.change} icon={DollarSign} />
+          <KpiCard label="Avg Resolution" value={overview?.avgResolutionHours != null ? `${overview.avgResolutionHours}h` : '—'} icon={Clock} />
+        </div>
+
+        {/* SLA + win rate badges */}
+        {(tickets?.slaCompliance != null || crm?.deals.winRate != null) && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {tickets?.slaCompliance != null && (
+              <Alert
+                tone={tickets.slaCompliance >= 90 ? 'success' : tickets.slaCompliance >= 70 ? 'warning' : 'danger'}
+                icon={null}
+              >
+                SLA Compliance: <strong>{tickets.slaCompliance}%</strong>
+              </Alert>
+            )}
+            {crm?.deals.winRate != null && (
+              <Alert tone="accent" icon={null}>
+                Deal Win Rate: <strong>{crm.deals.winRate}%</strong>
+              </Alert>
+            )}
+            {crm?.leads.conversionRate != null && (
+              <Alert tone="info" icon={null}>
+                Lead Conversion: <strong>{crm.leads.conversionRate}%</strong>
+              </Alert>
+            )}
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Performance metrics, trends, and forecasts.</p>
-        </div>
-        <select value={days} onChange={e => setDays(Number(e.target.value))}
-          className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 self-start sm:self-auto">
-          <option value={7}>Last 7 days</option>
-          <option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
-      </div>
-
-      {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <KpiCard label="Open Tickets" value={overview?.tickets.current ?? '—'} change={overview?.tickets.change} icon={BarChart2} />
-        <KpiCard label="New Leads" value={overview?.leads.current ?? '—'} change={overview?.leads.change} icon={Target} />
-        <KpiCard label="Revenue Won" value={overview?.revenue.current ? fmt(overview.revenue.current) : '—'} change={overview?.revenue.change} icon={DollarSign} />
-        <KpiCard label="Avg Resolution" value={overview?.avgResolutionHours != null ? `${overview.avgResolutionHours}h` : '—'} icon={Clock} />
-      </div>
-
-      {/* SLA + win rate badges */}
-      {(tickets?.slaCompliance != null || crm?.deals.winRate != null) && (
-        <div className="flex flex-wrap gap-3 mb-6">
-          {tickets?.slaCompliance != null && (
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border ${tickets.slaCompliance >= 90 ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30 text-green-800 dark:text-green-300' : tickets.slaCompliance >= 70 ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300' : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-300'}`}>
-              SLA Compliance: <strong>{tickets.slaCompliance}%</strong>
-            </div>
-          )}
-          {crm?.deals.winRate != null && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 text-brand-800 dark:text-brand-300 rounded-xl text-sm font-medium">
-              Deal Win Rate: <strong>{crm.deals.winRate}%</strong>
-            </div>
-          )}
-          {crm?.leads.conversionRate != null && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/30 text-violet-800 dark:text-violet-300 rounded-xl text-sm font-medium">
-              Lead Conversion: <strong>{crm.leads.conversionRate}%</strong>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Charts grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Ticket volume */}
-        <Section title="Ticket Volume (Created vs. Resolved)"
-          onExport={() => downloadCsv(volumeData, 'ticket_volume.csv')}>
-          {ticketsLoading ? <Spinner /> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={volumeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Legend />
-                <Area type="monotone" dataKey="Created" stroke="#4f46e5" fill="#ede9fe" strokeWidth={2} />
-                <Area type="monotone" dataKey="Resolved" stroke="#10b981" fill="#d1fae5" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </Section>
-
-        {/* Forecast */}
-        <Section title="7-Day Ticket Forecast">
-          {ticketsLoading ? <Spinner /> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={forecastData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="Actual" stroke="#4f46e5" strokeWidth={2} dot={false} connectNulls />
-                <Line type="monotone" dataKey="Forecast" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </Section>
-
-        {/* Ticket status donut */}
-        <Section title="Tickets by Status" onExport={() => downloadCsv(statusData, 'ticket_status.csv')}>
-          {ticketsLoading ? <Spinner /> : statusData.length === 0 ? <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No data yet</p> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={e => `${e.name} (${e.value})`} labelLine={false}>
-                  {statusData.map(s => <Cell key={s.name} fill={STATUS_COLORS[s.name.replace(' ', '_')] || '#ccc'} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </Section>
-
-        {/* Priority bar */}
-        <Section title="Tickets by Priority" onExport={() => downloadCsv(priorityData, 'ticket_priority.csv')}>
-          {ticketsLoading ? <Spinner /> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={priorityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {priorityData.map(p => <Cell key={p.name} fill={PRIORITY_COLORS[p.name] || '#ccc'} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Section>
-
-        {/* Deal pipeline */}
-        <Section title="Deal Pipeline by Stage" onExport={() => downloadCsv(pipelineData, 'deal_pipeline.csv')}>
-          {crmLoading ? <Spinner /> : pipelineData.length === 0 ? <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No open deals</p> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={pipelineData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis type="number" tick={{ fontSize: 10 }} />
-                <YAxis dataKey="stage" type="category" tick={{ fontSize: 10 }} width={90} />
-                <Tooltip formatter={(v: any, name: string) => name === 'Value' ? fmt(Number(v)) : v} />
-                <Legend />
-                <Bar dataKey="Count" fill="#4f46e5" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Section>
-
-        {/* Won revenue over time */}
-        <Section title="Won Deal Revenue" onExport={() => downloadCsv(revenueData, 'revenue.csv')}>
-          {crmLoading ? <Spinner /> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={revenueData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tickFormatter={v => `${symbol}${v}`} tick={{ fontSize: 10 }} />
-                <Tooltip formatter={(v: any) => fmt(Number(v))} />
-                <Area type="monotone" dataKey="Revenue" stroke="#10b981" fill="#d1fae5" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </Section>
-
-        {/* Lead status */}
-        <Section title="Lead Status Distribution" onExport={() => downloadCsv(leadStatusData, 'lead_status.csv')}>
-          {crmLoading ? <Spinner /> : leadStatusData.length === 0 ? <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No leads yet</p> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={leadStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={e => `${e.name} (${e.value})`}>
-                  {leadStatusData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </Section>
-
-        {/* Tickets by category */}
-        {tickets?.byCategory && tickets.byCategory.length > 0 && (
-          <Section title="Tickets by Category" onExport={() => downloadCsv(tickets.byCategory, 'ticket_category.csv')}>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={tickets.byCategory}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="category" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </Section>
         )}
-      </div>
+
+        {/* Charts grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* Ticket volume */}
+          <ChartCard title="Ticket Volume (Created vs. Resolved)"
+            onExport={() => downloadCsv(volumeData, 'ticket_volume.csv')}>
+            {ticketsLoading ? <Spinner /> : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={volumeData}>
+                  <Grid t={t} />
+                  <XAxis dataKey="date" tick={t.tick(10)} stroke={t.axis} />
+                  <YAxis tick={t.tick(10)} stroke={t.axis} />
+                  <Tooltip {...t.tooltip} cursor={t.lineCursor} />
+                  <Legend {...t.legend} />
+                  <Area type="monotone" dataKey="Created" stroke={t.series[0]} fill={t.fade(t.series[0], 0.18)} strokeWidth={2} />
+                  <Area type="monotone" dataKey="Resolved" stroke={t.series[2]} fill={t.fade(t.series[2], 0.18)} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+
+          {/* Forecast */}
+          <ChartCard title="7-Day Ticket Forecast">
+            {ticketsLoading ? <Spinner /> : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={forecastData}>
+                  <Grid t={t} />
+                  <XAxis dataKey="date" tick={t.tick(10)} stroke={t.axis} />
+                  <YAxis tick={t.tick(10)} stroke={t.axis} />
+                  <Tooltip {...t.tooltip} cursor={t.lineCursor} />
+                  <Legend {...t.legend} />
+                  <Line type="monotone" dataKey="Actual" stroke={t.series[0]} strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="Forecast" stroke={t.series[1]} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+
+          {/* Ticket status donut */}
+          <ChartCard title="Tickets by Status" onExport={() => downloadCsv(statusData, 'ticket_status.csv')}>
+            {ticketsLoading ? <Spinner /> : statusData.length === 0 ? (
+              <EmptyState compact icon={<BarChart2 />} title="No data yet" />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={e => `${e.name} (${e.value})`} labelLine={false}>
+                    {statusData.map(s => <Cell key={s.name} fill={t.statusColor(s.name)} />)}
+                  </Pie>
+                  <Tooltip {...t.tooltip} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+
+          {/* Priority bar */}
+          <ChartCard title="Tickets by Priority" onExport={() => downloadCsv(priorityData, 'ticket_priority.csv')}>
+            {ticketsLoading ? <Spinner /> : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={priorityData}>
+                  <Grid t={t} />
+                  <XAxis dataKey="name" tick={t.tick(11)} stroke={t.axis} />
+                  <YAxis tick={t.tick(10)} stroke={t.axis} />
+                  <Tooltip {...t.tooltip} cursor={t.barCursor} />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {priorityData.map(p => <Cell key={p.name} fill={t.priorityColor(p.name)} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+
+          {/* Deal pipeline */}
+          <ChartCard title="Deal Pipeline by Stage" onExport={() => downloadCsv(pipelineData, 'deal_pipeline.csv')}>
+            {crmLoading ? <Spinner /> : pipelineData.length === 0 ? (
+              <EmptyState compact icon={<Target />} title="No open deals" />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={pipelineData} layout="vertical">
+                  <Grid t={t} />
+                  <XAxis type="number" tick={t.tick(10)} stroke={t.axis} />
+                  <YAxis dataKey="stage" type="category" tick={t.tick(10)} width={90} stroke={t.axis} />
+                  <Tooltip {...t.tooltip} cursor={t.barCursor} formatter={(v: any, name: string) => name === 'Value' ? fmt(Number(v)) : v} />
+                  <Legend {...t.legend} />
+                  <Bar dataKey="Count" fill={t.series[0]} radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+
+          {/* Won revenue over time */}
+          <ChartCard title="Won Deal Revenue" onExport={() => downloadCsv(revenueData, 'revenue.csv')}>
+            {crmLoading ? <Spinner /> : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={revenueData}>
+                  <Grid t={t} />
+                  <XAxis dataKey="date" tick={t.tick(10)} stroke={t.axis} />
+                  <YAxis tickFormatter={v => `${symbol}${v}`} tick={t.tick(10)} stroke={t.axis} />
+                  <Tooltip {...t.tooltip} cursor={t.lineCursor} formatter={(v: any) => fmt(Number(v))} />
+                  <Area type="monotone" dataKey="Revenue" stroke={t.series[2]} fill={t.fade(t.series[2], 0.18)} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+
+          {/* Lead status */}
+          <ChartCard title="Lead Status Distribution" onExport={() => downloadCsv(leadStatusData, 'lead_status.csv')}>
+            {crmLoading ? <Spinner /> : leadStatusData.length === 0 ? (
+              <EmptyState compact icon={<Target />} title="No leads yet" />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={leadStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={e => `${e.name} (${e.value})`}>
+                    {leadStatusData.map((_, i) => <Cell key={i} fill={t.series[i % t.series.length]} />)}
+                  </Pie>
+                  <Tooltip {...t.tooltip} />
+                  <Legend {...t.legend} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+
+          {/* Tickets by category */}
+          {tickets?.byCategory && tickets.byCategory.length > 0 && (
+            <ChartCard title="Tickets by Category" onExport={() => downloadCsv(tickets.byCategory, 'ticket_category.csv')}>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={tickets.byCategory}>
+                  <Grid t={t} />
+                  <XAxis dataKey="category" tick={t.tick(10)} stroke={t.axis} />
+                  <YAxis tick={t.tick(10)} stroke={t.axis} />
+                  <Tooltip {...t.tooltip} cursor={t.barCursor} />
+                  <Bar dataKey="count" fill={t.series[4]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
+        </div>
+      </PageBody>
     </div>
   );
 }

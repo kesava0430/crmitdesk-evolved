@@ -3,11 +3,14 @@ import { createContext, useContext, useEffect, useState } from 'react';
 export type ThemeStyle = 'minimal' | 'modern' | 'classic' | 'friendly';
 export type ThemeFont  = 'inter' | 'jakarta' | 'dm' | 'nunito';
 
+export const THEME_STYLES: ThemeStyle[] = ['minimal', 'modern', 'classic', 'friendly'];
+export const THEME_FONTS:  ThemeFont[]  = ['inter', 'jakarta', 'dm', 'nunito'];
+
 export const THEME_LABELS: Record<ThemeStyle, { name: string; desc: string }> = {
-  minimal:  { name: 'Minimal',    desc: 'Clean & airy — lots of space, soft shadows' },
-  modern:   { name: 'Modern',     desc: 'Bold & sharp — strong presence, vivid depth' },
-  classic:  { name: 'Classic',    desc: 'Enterprise grade — structured, dense, formal' },
-  friendly: { name: 'Friendly',   desc: 'Warm & rounded — approachable and inviting' },
+  minimal:  { name: 'Minimal',  desc: 'Clean & airy — soft indigo, generous spacing' },
+  modern:   { name: 'Modern',   desc: 'Bold & sharp — deep violet, vivid depth' },
+  classic:  { name: 'Classic',  desc: 'Enterprise grade — corporate blue, dense' },
+  friendly: { name: 'Friendly', desc: 'Warm & rounded — amber, approachable' },
 };
 
 export const FONT_LABELS: Record<ThemeFont, { name: string; family: string }> = {
@@ -15,6 +18,17 @@ export const FONT_LABELS: Record<ThemeFont, { name: string; family: string }> = 
   jakarta: { name: 'Plus Jakarta Sans', family: "'Plus Jakarta Sans', system-ui, sans-serif" },
   dm:      { name: 'DM Sans',           family: "'DM Sans', system-ui, sans-serif" },
   nunito:  { name: 'Nunito Sans',       family: "'Nunito Sans', system-ui, sans-serif" },
+};
+
+/* Each theme's signature accent, for swatches in the picker. These are the
+   `--ui-accent-600` values from index.css; keep them in step if a theme's
+   accent changes. Read at render time rather than hardcoded elsewhere so the
+   picker cannot drift from what the theme actually applies. */
+export const THEME_ACCENTS: Record<ThemeStyle, string> = {
+  minimal:  '#4f46e5',
+  modern:   '#7c3aed',
+  classic:  '#2563eb',
+  friendly: '#ea580c',
 };
 
 interface ThemeContextValue {
@@ -32,54 +46,93 @@ const ThemeContext = createContext<ThemeContextValue>({
   setStyle: () => {}, setFont: () => {}, setDark: () => {}, toggleDark: () => {},
 });
 
+/* localStorage is user-writable and survives deploys, so a stale or hand-edited
+   value must not reach the DOM. Previously these were cast straight through
+   (`as ThemeStyle`), which let `data-theme="garbage"` silently fall back to the
+   :root defaults with no indication anything was wrong. */
+function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return allowed.includes(raw as T) ? (raw as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeWrite(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* Private browsing or a full quota — the theme still applies for this
+       session, it just won't be remembered. Not worth surfacing to the user. */
+  }
+}
+
+/* The [data-font] rules in index.css are the single mechanism for font family.
+   An earlier version ALSO set --font-sans inline on <html>, which always won,
+   leaving those CSS rules as dead code and two sources of truth for one value. */
 function applyTheme(style: ThemeStyle, font: ThemeFont) {
   const html = document.documentElement;
   html.setAttribute('data-theme', style);
   html.setAttribute('data-font', font);
-  html.style.setProperty('--font-sans', FONT_LABELS[font].family);
 }
 
-// Previously nothing in the codebase ever toggled a `dark` class onto
-// <html>/<body> despite Tailwind `dark:` classes being present throughout —
-// dark mode simply didn't work (see Technical Docs 14.1). This, plus setting
-// `darkMode: 'class'` in tailwind.config.js, is what actually wires it up.
 function applyDark(dark: boolean) {
   document.documentElement.classList.toggle('dark', dark);
 }
 
 function initialDark(): boolean {
-  const stored = localStorage.getItem('ui-dark');
-  if (stored !== null) return stored === 'true';
+  try {
+    const stored = localStorage.getItem('ui-dark');
+    if (stored !== null) return stored === 'true';
+  } catch { /* fall through to the OS preference */ }
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [style, setStyleState] = useState<ThemeStyle>(
-    () => (localStorage.getItem('ui-theme') as ThemeStyle) || 'minimal'
+    () => readStored('ui-theme', THEME_STYLES, 'minimal'),
   );
   const [font, setFontState] = useState<ThemeFont>(
-    () => (localStorage.getItem('ui-font') as ThemeFont) || 'inter'
+    () => readStored('ui-font', THEME_FONTS, 'inter'),
   );
   const [dark, setDarkState] = useState<boolean>(initialDark);
 
-  // Apply immediately on mount
+  // The inline bootstrap in index.html has normally already done this before
+  // first paint; re-applying keeps React state and the DOM in agreement when
+  // storage was unreadable there.
   useEffect(() => { applyTheme(style, font); applyDark(dark); }, []);
+
+  // Follow the OS only while the user has expressed no preference of their own.
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!mq) return;
+    const onChange = (e: MediaQueryListEvent) => {
+      let hasPreference = false;
+      try { hasPreference = localStorage.getItem('ui-dark') !== null; } catch { /* treat as none */ }
+      if (hasPreference) return;
+      setDarkState(e.matches);
+      applyDark(e.matches);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   function setStyle(s: ThemeStyle) {
     setStyleState(s);
-    localStorage.setItem('ui-theme', s);
+    safeWrite('ui-theme', s);
     applyTheme(s, font);
   }
 
   function setFont(f: ThemeFont) {
     setFontState(f);
-    localStorage.setItem('ui-font', f);
+    safeWrite('ui-font', f);
     applyTheme(style, f);
   }
 
   function setDark(d: boolean) {
     setDarkState(d);
-    localStorage.setItem('ui-dark', String(d));
+    safeWrite('ui-dark', String(d));
     applyDark(d);
   }
 

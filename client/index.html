@@ -16,6 +16,35 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Nunito+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <!--
+      Theme bootstrap — must run before first paint and must stay inline
+      and blocking. ThemeContext only applies the theme in a mount effect,
+      which is after React hydrates, so without this a dark-mode user gets
+      a white flash and a Classic user gets Minimal's radii on first paint.
+      Kept in sync with ThemeContext.tsx: same three localStorage keys,
+      same allow-lists.
+    -->
+    <script>
+      (function () {
+        try {
+          var d = document.documentElement;
+          var themes = ['minimal', 'modern', 'classic', 'friendly'];
+          var fonts = ['inter', 'jakarta', 'dm', 'nunito'];
+          var theme = localStorage.getItem('ui-theme');
+          var font = localStorage.getItem('ui-font');
+          d.setAttribute('data-theme', themes.indexOf(theme) > -1 ? theme : 'minimal');
+          d.setAttribute('data-font', fonts.indexOf(font) > -1 ? font : 'inter');
+          var stored = localStorage.getItem('ui-dark');
+          var dark = stored !== null
+            ? stored === 'true'
+            : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) d.classList.add('dark');
+        } catch (e) {
+          /* Private mode / disabled storage — fall through to defaults. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

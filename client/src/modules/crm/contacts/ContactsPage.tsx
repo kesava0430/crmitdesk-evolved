@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { Users, Plus, Pencil, Trash2, Mail, Phone } from 'lucide-react';
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } from '../../../api/crm';
 import { useAccounts } from '../../../api/crm';
-import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions, CustomFieldsFormFields, RecordTemplatePicker } from '../../../shared/components';
+import { PageHeader, Button, Modal, Badge, SearchInput, EmptyState, Spinner, SearchableSelect, RowActions, CustomFieldsFormFields, RecordTemplatePicker, Card, DataTable, Field, Input, Avatar, Label, FormGrid, FormActions } from '../../../shared/components';
+import type { Column } from '../../../shared/components';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useEffect } from 'react';
 import { useLabels } from '../../../hooks/useLabels';
@@ -52,51 +53,45 @@ function ContactForm({ initial, accounts, entityId, onSubmit, loading, aiPrefill
       )}
       <div className="form-section">
         <p className="form-section-title">Basic Information</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">{nameLabel} <span className="req">*</span></label>
-            <input aria-label={nameLabel} required className="ui-input" value={form.name} onChange={f('name')} placeholder="Full name" />
-          </div>
-          <div>
-            <label className="form-label">Email</label>
-            <input aria-label="Email" type="email" className="ui-input" value={form.email} onChange={f('email')} placeholder="email@company.com" />
-          </div>
-          <div>
-            <label className="form-label">{phoneLabel}</label>
-            <input aria-label={phoneLabel} className="ui-input" value={form.phone} onChange={f('phone')} placeholder="+1 (555) 000-0000" />
-          </div>
-          <div>
-            <label className="form-label">{jobTitleLabel}</label>
-            <input aria-label={jobTitleLabel} className="ui-input" value={form.jobTitle} onChange={f('jobTitle')} placeholder="e.g. Product Manager" />
-          </div>
-          <div>
-            <label className="form-label">Date of Birth</label>
-            <input aria-label="Date of Birth" type="date" className="ui-input" value={form.dateOfBirth ? String(form.dateOfBirth).slice(0, 10) : ''} onChange={f('dateOfBirth')} />
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Optional — powers birthday automations under Settings → Workflows.</p>
-          </div>
-        </div>
+        <FormGrid cols={2}>
+          <Field label={nameLabel} required>
+            <Input aria-label={nameLabel} required value={form.name} onChange={f('name')} placeholder="Full name" />
+          </Field>
+          <Field label="Email">
+            <Input aria-label="Email" type="email" value={form.email} onChange={f('email')} placeholder="email@company.com" />
+          </Field>
+          <Field label={phoneLabel}>
+            <Input aria-label={phoneLabel} value={form.phone} onChange={f('phone')} placeholder="+1 (555) 000-0000" />
+          </Field>
+          <Field label={jobTitleLabel}>
+            <Input aria-label={jobTitleLabel} value={form.jobTitle} onChange={f('jobTitle')} placeholder="e.g. Product Manager" />
+          </Field>
+          <Field label="Date of Birth" hint="Optional — powers birthday automations under Settings → Workflows.">
+            <Input aria-label="Date of Birth" type="date" value={form.dateOfBirth ? String(form.dateOfBirth).slice(0, 10) : ''} onChange={f('dateOfBirth')} />
+          </Field>
+        </FormGrid>
       </div>
       <div className="form-section">
         <p className="form-section-title">Additional Details</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <FormGrid cols={2}>
           <div>
-            <label className="form-label">Source</label>
-<SearchableSelect ariaLabel="Source" value={form.source} onChange={val => setForm((p: any) => ({ ...p, source: val }))} options={['Web','Referral','Cold Outreach','Event','Social Media','Other'].map(s => ({ value: s, label: s }))} />
+            <Label>Source</Label>
+            <SearchableSelect ariaLabel="Source" value={form.source} onChange={val => setForm((p: any) => ({ ...p, source: val }))} options={['Web','Referral','Cold Outreach','Event','Social Media','Other'].map(s => ({ value: s, label: s }))} />
           </div>
           <div>
-            <label className="form-label">Account</label>
-<SearchableSelect ariaLabel="Account" value={form.accountId} onChange={val => setForm((p: any) => ({ ...p, accountId: val }))} options={(accounts ?? []).map((a: any) => ({ value: a.id, label: a.name }))} placeholder="— none —" />
+            <Label>Account</Label>
+            <SearchableSelect ariaLabel="Account" value={form.accountId} onChange={val => setForm((p: any) => ({ ...p, accountId: val }))} options={(accounts ?? []).map((a: any) => ({ value: a.id, label: a.name }))} placeholder="— none —" />
           </div>
-        </div>
+        </FormGrid>
       </div>
       <CustomFieldsFormFields
         entityType="CONTACT"
         values={customValues}
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
       />
-      <div className="flex justify-end pt-1">
+      <FormActions>
         <Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button>
-      </div>
+      </FormActions>
     </form>
   );
 }
@@ -137,6 +132,47 @@ export function ContactsPage() {
     setModal(null);
   }
 
+  const contactColumns: Column<any>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      cell: (c: any) => (
+        <div className="flex items-center gap-2">
+          <Avatar name={c.name} size="sm" />
+          <Link to={`/crm/contacts/${c.id}`} className="font-medium text-fg hover:text-accent hover:underline">
+            {c.name}
+          </Link>
+        </div>
+      ),
+    },
+    {
+      key: 'email',
+      header: 'Email',
+      muted: true,
+      cell: (c: any) => c.email && <span className="flex items-center gap-1"><Mail size={12} />{c.email}</span>,
+    },
+    {
+      key: 'phone',
+      header: 'Phone',
+      hideBelow: 'sm',
+      muted: true,
+      cell: (c: any) => c.phone && <span className="flex items-center gap-1"><Phone size={12} />{c.phone}</span>,
+    },
+    { key: 'jobTitle', header: 'Job Title', hideBelow: 'sm', muted: true, cell: (c: any) => c.jobTitle },
+    { key: 'account', header: 'Account', cell: (c: any) => c.account && <Badge variant="blue">{c.account.name}</Badge> },
+    { key: 'source', header: 'Source', cell: (c: any) => c.source && <Badge>{c.source}</Badge> },
+    {
+      key: 'actions',
+      header: '',
+      cell: (c: any) => (
+        <RowActions items={[
+          { label: 'Edit contact', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', contact: c }) },
+          { label: 'Delete contact', icon: <Trash2 size={14} />, onClick: () => del.mutate(c.id), variant: 'danger' },
+        ]} />
+      ),
+    },
+  ];
+
   return (
     <div className="p-4 sm:p-6 animate-slide-up">
       <PageHeader
@@ -153,48 +189,14 @@ export function ContactsPage() {
       {isLoading ? <Spinner /> : contacts?.length === 0 ? (
         <EmptyState icon={<Users size={24} />} title={`No ${plural.toLowerCase()} yet`} description="Add your first contact to get started" action={{ label: `New ${singular}`, onClick: () => setModal('create') }} />
       ) : (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[640px]">
-              <thead><tr className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
-                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Phone</th>
-                <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Job Title</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Account</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Source</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider"></th>
-              </tr></thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                {contacts?.map((c: any) => (
-                  <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors duration-150 group">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                          {c.name[0]?.toUpperCase()}
-                        </div>
-                        <Link to={`/crm/contacts/${c.id}`} className="font-medium text-gray-900 dark:text-white hover:text-brand-600 hover:underline">
-                          {c.name}
-                        </Link>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{c.email && <span className="flex items-center gap-1"><Mail size={12} />{c.email}</span>}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500 dark:text-gray-400">{c.phone && <span className="flex items-center gap-1"><Phone size={12} />{c.phone}</span>}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-gray-500 dark:text-gray-400">{c.jobTitle}</td>
-                    <td className="px-4 py-3">{c.account && <Badge variant="blue">{c.account.name}</Badge>}</td>
-                    <td className="px-4 py-3">{c.source && <Badge>{c.source}</Badge>}</td>
-                    <td className="px-4 py-3">
-                      <RowActions items={[
-                        { label: 'Edit contact', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', contact: c }) },
-                        { label: 'Delete contact', icon: <Trash2 size={14} />, onClick: () => del.mutate(c.id), variant: 'danger' },
-                      ]} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Card padding="none" className="overflow-hidden">
+          <DataTable
+            columns={contactColumns}
+            rows={contacts ?? []}
+            rowKey={(c: any) => c.id}
+            minWidth={640}
+          />
+        </Card>
       )}
 
       <Modal

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Loader2, KeyRound, Eye, EyeOff } from 'lucide-react';
+import { KeyRound, Eye, EyeOff } from 'lucide-react';
 import { api } from '../api/client';
+import { Alert, Button, Card, Field, IconButton, Input } from '../shared/components';
 
 export function ResetPasswordPage() {
   const [params] = useSearchParams();
@@ -31,56 +32,67 @@ export function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-          <p className="text-sm text-gray-600">This reset link is missing its token.</p>
-          <Link to="/forgot-password" className="mt-4 inline-block text-sm text-brand-600 hover:underline font-medium">Request a new link</Link>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-canvas p-6">
+        <Card padding="lg" className="w-full max-w-sm text-center">
+          <p className="text-[13px] text-fg-muted leading-relaxed">This reset link is missing its token.</p>
+          <Link
+            to="/forgot-password"
+            className="mt-4 inline-block text-[13px] font-medium text-accent rounded-btn hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          >
+            Request a new link
+          </Link>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+    <div className="min-h-screen flex items-center justify-center bg-canvas p-6">
       <div className="w-full max-w-sm">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          <div className="w-11 h-11 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
+        <Card padding="lg">
+          <div className="w-11 h-11 rounded-card bg-accent-soft text-accent-soft-fg flex items-center justify-center mb-5">
             <KeyRound size={18} />
           </div>
-          <h1 className="text-lg font-semibold text-gray-900">Choose a new password</h1>
+          <h1 className="text-lg font-semibold text-fg tracking-tight">Choose a new password</h1>
 
           {done ? (
-            <p className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2 mt-4">
+            <Alert tone="success" className="mt-4">
               Password reset. Redirecting you to sign in…
-            </p>
+            </Alert>
           ) : (
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-              {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
-              <div className="relative">
-                <input
-                  type={showPw ? 'text' : 'password'} required minLength={8} value={password}
-                  onChange={e => setPassword(e.target.value)} placeholder="New password" autoComplete="new-password"
-                  className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            <form onSubmit={handleSubmit} className="mt-4 space-y-5">
+              {error && <Alert tone="danger">{error}</Alert>}
+              <Field label="New password" htmlFor="reset-password">
+                <div className="relative">
+                  <Input
+                    id="reset-password"
+                    type={showPw ? 'text' : 'password'} required minLength={8} value={password}
+                    onChange={e => setPassword(e.target.value)} placeholder="New password" autoComplete="new-password"
+                    className="pr-10"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <IconButton
+                      label={showPw ? 'Hide password' : 'Show password'}
+                      icon={showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                      onClick={() => setShowPw(v => !v)}
+                      tabIndex={-1}
+                    />
+                  </span>
+                </div>
+              </Field>
+              <Field label="Confirm new password" htmlFor="reset-confirm">
+                <Input
+                  id="reset-confirm"
+                  type={showPw ? 'text' : 'password'} required minLength={8} value={confirm}
+                  onChange={e => setConfirm(e.target.value)} placeholder="Confirm new password" autoComplete="new-password"
                 />
-                <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabIndex={-1}>
-                  {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-              <input
-                type={showPw ? 'text' : 'password'} required minLength={8} value={confirm}
-                onChange={e => setConfirm(e.target.value)} placeholder="Confirm new password" autoComplete="new-password"
-                className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-              />
-              <button
-                type="submit" disabled={loading}
-                className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-xl text-sm transition-colors"
-              >
-                {loading && <Loader2 size={14} className="animate-spin" />}
+              </Field>
+              <Button type="submit" block loading={loading}>
                 {loading ? 'Resetting…' : 'Reset password'}
-              </button>
+              </Button>
             </form>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   );

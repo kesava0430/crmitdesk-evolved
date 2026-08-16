@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../api/client';
 import {
-  Monitor, Plus, Search, Pencil, Trash2, X, ChevronDown,
+  Monitor, Plus, Pencil, Trash2,
   Package, Wrench, Archive, Activity
 } from 'lucide-react';
-import { SearchableSelect, RowActions } from '../../../shared/components';
+import {
+  SearchableSelect, RowActions, PageHeader, Toolbar, Button, Modal, Card, StatTile,
+  Field, Input, Select, SearchInput, Badge, Avatar, DataTable, EmptyState, Spinner,
+  type Column,
+} from '../../../shared/components';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useFormat } from '../../../hooks/useFormat';
 
@@ -36,11 +40,9 @@ interface Stats {
 const STATUSES = ['active', 'inactive', 'retired', 'in_repair'];
 const ASSET_TYPES = ['Laptop', 'Desktop', 'Monitor', 'Phone', 'Tablet', 'Server', 'Printer', 'Network', 'Peripheral', 'Other'];
 
-const STATUS_COLOR: Record<string, string> = {
-  active:    'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400',
-  inactive:  'bg-gray-100 text-gray-600 dark:bg-gray-500/10 dark:text-gray-400',
-  retired:   'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400',
-  in_repair: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400',
+/* Status colours come from Badge's shared palette rather than a local map. */
+const STATUS_VARIANT: Record<string, 'green' | 'gray' | 'red' | 'yellow'> = {
+  active: 'green', inactive: 'gray', retired: 'red', in_repair: 'yellow',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -55,6 +57,8 @@ interface FormData {
 }
 
 const EMPTY: FormData = { name: '', type: 'Laptop', serialNumber: '', assignedTo: '', status: 'active', purchaseDate: '' };
+
+const ASSET_FORM_ID = 'asset-form';
 
 function AssetModal({ asset, users, onClose }: {
   asset?: Asset; users: { id: string; name: string }[];
@@ -85,61 +89,53 @@ function AssetModal({ asset, users, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="font-semibold text-gray-900 dark:text-white">{asset ? 'Edit Asset' : 'Add Asset'}</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"><X size={16} /></button>
-        </div>
-        <form onSubmit={submit} className="p-6 space-y-3">
-          <div className="form-section">
-            <p className="form-section-title">Asset Information</p>
-            <div className="space-y-4">
-              <div>
-                <label className="form-label">Asset Name <span className="req">*</span></label>
-                <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required
-                  aria-label="Name" className="ui-input" placeholder="e.g. MacBook Pro 14" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="form-label">Type <span className="req">*</span></label>
-<SearchableSelect ariaLabel="Type" value={form.type} onChange={val => setForm(p => ({ ...p, type: val }))} required options={ASSET_TYPES.map(t => ({ value: t, label: t }))} />
-                </div>
-                <div>
-                  <label className="form-label">Status</label>
-<SearchableSelect ariaLabel="Status" value={form.status} onChange={val => setForm(p => ({ ...p, status: val }))} required options={STATUSES.map(s => ({ value: s, label: STATUS_LABEL[s] }))} />
-                </div>
-              </div>
-              <div>
-                <label className="form-label">Serial Number</label>
-                <input value={form.serialNumber} onChange={e => setForm(p => ({ ...p, serialNumber: e.target.value }))}
-                  aria-label="Serial Number" className="ui-input" placeholder="e.g. SN-12345" />
-              </div>
-            </div>
-          </div>
-          <div className="form-section">
-            <p className="form-section-title">Assignment</p>
+    <Modal
+      open
+      onClose={onClose}
+      title={asset ? 'Edit Asset' : 'Add Asset'}
+      footer={<>
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button type="submit" form={ASSET_FORM_ID} loading={save.isPending}>
+          {save.isPending ? 'Saving…' : asset ? 'Save Changes' : 'Save Asset'}
+        </Button>
+      </>}
+    >
+      <form id={ASSET_FORM_ID} onSubmit={submit} className="space-y-3">
+        <div className="form-section">
+          <p className="form-section-title">Asset Information</p>
+          <div className="space-y-4">
+            <Field label="Asset Name" required htmlFor="asset-name">
+              <Input id="asset-name" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required
+                aria-label="Name" placeholder="e.g. MacBook Pro 14" />
+            </Field>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="form-label">Assigned To</label>
-<SearchableSelect ariaLabel="Assigned To" value={form.assignedTo} onChange={val => setForm(p => ({ ...p, assignedTo: val }))} options={users.map(u => ({ value: u.id, label: u.name }))} placeholder="— Unassigned —" />
-              </div>
-              <div>
-                <label className="form-label">Purchase Date</label>
-                <input type="date" value={form.purchaseDate} onChange={e => setForm(p => ({ ...p, purchaseDate: e.target.value }))} className="ui-input" />
-              </div>
+              <Field label="Type" required>
+                <SearchableSelect ariaLabel="Type" value={form.type} onChange={val => setForm(p => ({ ...p, type: val }))} required options={ASSET_TYPES.map(t => ({ value: t, label: t }))} />
+              </Field>
+              <Field label="Status">
+                <SearchableSelect ariaLabel="Status" value={form.status} onChange={val => setForm(p => ({ ...p, status: val }))} required options={STATUSES.map(s => ({ value: s, label: STATUS_LABEL[s] }))} />
+              </Field>
             </div>
+            <Field label="Serial Number" htmlFor="asset-serial">
+              <Input id="asset-serial" value={form.serialNumber} onChange={e => setForm(p => ({ ...p, serialNumber: e.target.value }))}
+                aria-label="Serial Number" placeholder="e.g. SN-12345" />
+            </Field>
           </div>
-          {asset && <Attachments entityType="ASSET" entityId={asset.id} />}
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
-            <button type="submit" disabled={save.isPending} className="flex-1 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">
-              {save.isPending ? 'Saving…' : asset ? 'Save Changes' : 'Save Asset'}
-            </button>
+        </div>
+        <div className="form-section">
+          <p className="form-section-title">Assignment</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Assigned To">
+              <SearchableSelect ariaLabel="Assigned To" value={form.assignedTo} onChange={val => setForm(p => ({ ...p, assignedTo: val }))} options={users.map(u => ({ value: u.id, label: u.name }))} placeholder="— Unassigned —" />
+            </Field>
+            <Field label="Purchase Date" htmlFor="asset-purchase-date">
+              <Input id="asset-purchase-date" type="date" value={form.purchaseDate} onChange={e => setForm(p => ({ ...p, purchaseDate: e.target.value }))} />
+            </Field>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+        {asset && <Attachments entityType="ASSET" entityId={asset.id} />}
+      </form>
+    </Modal>
   );
 }
 
@@ -185,133 +181,104 @@ export default function AssetsPage() {
   const assets = data?.data ?? [];
   const users = usersData ?? [];
 
-  return (
-    <div className="p-4 sm:p-6 animate-slide-up">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Assets</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Track hardware and software across your organization</p>
+  const columns: Column<Asset>[] = [
+    { key: 'name', header: 'Asset', cell: a => <p className="font-medium text-fg">{a.name}</p> },
+    { key: 'type', header: 'Type', muted: true, cell: a => a.type },
+    {
+      key: 'serial', header: 'Serial #', hideBelow: 'sm', muted: true,
+      cell: a => <span className="font-mono text-xs">{a.serialNumber ?? '—'}</span>,
+    },
+    {
+      key: 'assignee', header: 'Assigned To',
+      cell: a => a.assignee ? (
+        <div className="flex items-center gap-2">
+          <Avatar name={a.assignee.name} size="xs" />
+          <span className="text-fg truncate max-w-[100px]">{a.assignee.name}</span>
         </div>
-        <button onClick={() => setModal('new')}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700">
-          <Plus size={16} /> Add Asset
-        </button>
-      </div>
+      ) : (
+        <span className="text-fg-subtle italic">Unassigned</span>
+      ),
+    },
+    {
+      key: 'status', header: 'Status',
+      cell: a => (
+        <Badge variant={STATUS_VARIANT[a.status] ?? 'gray'}>
+          {STATUS_LABEL[a.status] ?? a.status}
+        </Badge>
+      ),
+    },
+    {
+      key: 'purchaseDate', header: 'Purchase Date', hideBelow: 'sm', muted: true,
+      cell: a => a.purchaseDate ? date(a.purchaseDate) : '—',
+    },
+    {
+      key: 'actions', header: '', align: 'right',
+      cell: a => (
+        <div className="flex items-center gap-1 justify-end">
+          <RowActions items={[
+            { label: 'Edit asset', icon: <Pencil size={14} />, onClick: () => setModal(a) },
+            { label: 'Delete asset', icon: <Trash2 size={14} />, onClick: () => { if (confirm('Delete this asset?')) remove.mutate(a.id); }, variant: 'danger' },
+          ]} />
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="p-4 sm:p-6 space-y-5 animate-slide-up">
+      <PageHeader
+        title="Assets"
+        subtitle="Track hardware and software across your organization"
+        actions={<Button icon={<Plus size={16} />} onClick={() => setModal('new')}>Add Asset</Button>}
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        {[
-          { label: 'Total', value: statsData?.total ?? 0, icon: Package, color: 'text-brand-600 bg-brand-50 dark:text-brand-400 dark:bg-brand-500/10' },
-          { label: 'Active', value: statsData?.active ?? 0, icon: Activity, color: 'text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-500/10' },
-          { label: 'In Repair', value: statsData?.inRepair ?? 0, icon: Wrench, color: 'text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-500/10' },
-          { label: 'Retired', value: statsData?.retired ?? 0, icon: Archive, color: 'text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-500/10' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 card-hover shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shadow-sm ${color}`}>
-                <Icon size={15} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <StatTile label="Total" value={statsData?.total ?? 0} icon={<Package size={15} />} />
+        <StatTile label="Active" value={statsData?.active ?? 0} icon={<Activity size={15} />} />
+        <StatTile label="In Repair" value={statsData?.inRepair ?? 0} icon={<Wrench size={15} />} />
+        <StatTile label="Retired" value={statsData?.retired ?? 0} icon={<Archive size={15} />} />
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative flex-1 min-w-[160px] max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets…"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500" />
-        </div>
-        <div className="relative">
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
-            <option value="">All Statuses</option>
-            {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-          </select>
-          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
-        </div>
-        <div className="relative">
-          <select value={filterType} onChange={e => setFilterType(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
-            <option value="">All Types</option>
-            {ASSET_TYPES.map(t => <option key={t}>{t}</option>)}
-          </select>
-          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
-        </div>
-        <p className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{data?.total ?? 0} assets</p>
-      </div>
+      <Toolbar right={<p className="text-sm text-fg-subtle">{data?.total ?? 0} assets</p>}>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search assets…"
+          className="flex-1 min-w-[160px] max-w-xs"
+        />
+        <Select aria-label="Filter by status" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+          <option value="">All Statuses</option>
+          {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+        </Select>
+        <Select aria-label="Filter by type" value={filterType} onChange={e => setFilterType(e.target.value)}>
+          <option value="">All Types</option>
+          {ASSET_TYPES.map(t => <option key={t}>{t}</option>)}
+        </Select>
+      </Toolbar>
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+      <Card padding="none" className="overflow-hidden">
         {isLoading ? (
-          <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">Loading assets…</div>
-        ) : assets.length === 0 ? (
-          <div className="text-center py-16">
-            <Monitor size={40} className="text-gray-200 dark:text-gray-700 mx-auto mb-3" />
-            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No assets found</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Add your first asset to start tracking</p>
-          </div>
+          <Spinner label="Loading assets…" compact />
         ) : (
-          <div className="table-container">
-            <table className="w-full text-sm min-w-[640px]">
-              <thead>
-                <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/60">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Asset</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Serial #</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned To</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Purchase Date</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                {assets.map(asset => (
-                  <tr key={asset.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900 dark:text-gray-100">{asset.name}</p>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{asset.type}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs hidden sm:table-cell">{asset.serialNumber ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      {asset.assignee ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-700 dark:text-brand-300 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                            {asset.assignee.name[0]}
-                          </div>
-                          <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{asset.assignee.name}</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 dark:text-gray-500 italic">Unassigned</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[asset.status] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-500/10 dark:text-gray-400'}`}>
-                        {STATUS_LABEL[asset.status] ?? asset.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden sm:table-cell">
-                      {asset.purchaseDate ? date(asset.purchaseDate) : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 justify-end">
-                        <RowActions items={[
-                          { label: 'Edit asset', icon: <Pencil size={14} />, onClick: () => setModal(asset) },
-                          { label: 'Delete asset', icon: <Trash2 size={14} />, onClick: () => { if (confirm('Delete this asset?')) remove.mutate(asset.id); }, variant: 'danger' },
-                        ]} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={columns}
+            rows={assets}
+            rowKey={a => a.id}
+            minWidth={640}
+            empty={
+              <EmptyState
+                icon={<Monitor />}
+                title="No assets found"
+                description="Add your first asset to start tracking"
+                action={{ label: 'Add Asset', onClick: () => setModal('new') }}
+              />
+            }
+          />
         )}
-      </div>
+      </Card>
 
       {/* Modal */}
       {modal && (

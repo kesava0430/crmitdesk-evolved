@@ -84,7 +84,6 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       data: {
         ...data,
         dealId: data.dealId ?? undefined,
-        notes: data.notes ?? undefined,
         validUntil: data.validUntil ? new Date(data.validUntil) : undefined,
         ...(lines ? { lines: { create: lines } } : {}),
       },

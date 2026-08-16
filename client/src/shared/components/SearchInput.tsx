@@ -1,32 +1,48 @@
 import { Search, X } from 'lucide-react';
 
-interface SearchInputProps {
+export interface SearchInputProps {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   className?: string;
+  autoFocus?: boolean;
+  'aria-label'?: string;
 }
 
-export function SearchInput({ value, onChange, placeholder = 'Search…', className = '' }: SearchInputProps) {
+/**
+ * Search field. Now built on `.ui-input` rather than its own hardcoded
+ * border/radius/ring, which is why it used to be the one control in the app
+ * that ignored the theme's input styling entirely.
+ */
+export function SearchInput({
+  value,
+  onChange,
+  placeholder = 'Search…',
+  className = '',
+  autoFocus,
+  'aria-label': ariaLabel,
+}: SearchInputProps) {
   return (
     <div className={`relative ${className}`}>
-      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
+      <Search
+        size={14}
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none"
+      />
       <input
+        type="search"
         value={value}
+        autoFocus={autoFocus}
+        aria-label={ariaLabel ?? placeholder}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="
-          w-full pl-8 pr-8 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg
-          placeholder-gray-400 dark:placeholder-gray-500 text-gray-900 dark:text-gray-100
-          hover:border-gray-300 dark:hover:border-gray-600
-          focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
-          transition-all
-        "
+        className="ui-input pl-9 pr-8 [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button
+          type="button"
           onClick={() => onChange('')}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
+          aria-label="Clear search"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-subtle hover:text-fg transition-colors"
         >
           <X size={13} />
         </button>
