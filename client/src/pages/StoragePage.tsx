@@ -28,7 +28,7 @@ export default function StoragePage() {
   const connect = useConnectGoogleDrive();
   const connectHosted = useConnectHostedStorage();
   const disconnect = useDisconnectStorage();
-  const hostedQuotaBytes = status?.hosted.quotaBytes ?? 0;
+  const hostedQuotaBytes = status?.hosted?.quotaBytes ?? 0;
 
   // The OAuth callback (storage.controller.ts) redirects the browser straight
   // back to this page with ?connected=1 or ?error=... — surface it once,
@@ -105,13 +105,13 @@ export default function StoragePage() {
                   </Alert>
                   <div>
                     <div className="flex justify-between text-[11.5px] text-fg-muted mb-1 tabular-nums">
-                      <span>{formatGB(status.hosted.usedBytes)} GB used</span>
-                      <span>{formatGB(status.hosted.quotaBytes)} GB quota</span>
+                      <span>{formatGB(status.hosted?.usedBytes ?? 0)} GB used</span>
+                      <span>{formatGB(status.hosted?.quotaBytes ?? 0)} GB quota</span>
                     </div>
                     <div className="h-2 bg-surface-sunken rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all ${status.hosted.quotaBytes > 0 && status.hosted.usedBytes / status.hosted.quotaBytes > 0.9 ? 'bg-danger' : 'bg-accent'}`}
-                        style={{ width: `${status.hosted.quotaBytes > 0 ? Math.min(100, (status.hosted.usedBytes / status.hosted.quotaBytes) * 100) : 100}%` }}
+                        className={`h-full rounded-full transition-all ${hostedQuotaBytes > 0 && (status.hosted?.usedBytes ?? 0) / hostedQuotaBytes > 0.9 ? 'bg-danger' : 'bg-accent'}`}
+                        style={{ width: `${hostedQuotaBytes > 0 ? Math.min(100, ((status.hosted?.usedBytes ?? 0) / hostedQuotaBytes) * 100) : 100}%` }}
                       />
                     </div>
                   </div>
@@ -212,7 +212,7 @@ export default function StoragePage() {
                     ? `Included with your plan: ${formatGB(hostedQuotaBytes)}GB, no Google account needed.`
                     : "Not included on your current plan — upgrade to Pro (5GB) or Enterprise (50GB)."}
                 </p>
-                {!status?.hosted.available ? (
+                {!status?.hosted?.available ? (
                   <Alert tone="warning">
                     Not available on this deployment yet — whoever runs this server needs to configure a storage bucket (<code>S3_BUCKET</code> and keys) and restart it.
                   </Alert>
