@@ -224,28 +224,48 @@ export async function updateField(req: AuthRequest, res: Response, next: NextFun
       for (const child of children) {
         const vals = ((child.dependsOnValues as string[] | null) ?? []).filter(v => surviving.has(v));
         if (vals.length !== ((child.dependsOnValues as string[] | null) ?? []).length) {
-          await prisma.customField.update({
-            where: { id: child.id },
-            // A rule with nothing left to match on would hide the child
-            // forever, so it reverts to unconditional instead.
-            data: vals.length
-              ? { dependsOnValues: vals }
-              : { dependsOnFieldId: null, dependsOnValues: Prisma.DbNull },
-          });
+          // A rule with nothing left to match on would hide the child forever,
+          // so it reverts to unconditional instead.
+          const pruned: Prisma.CustomFieldUncheckedUpdateInput = vals.length
+            ? { dependsOnValues: vals }
+            : { dependsOnFieldId: null, dependsOnValues: Prisma.DbNull };
+          await prisma.customField.update({ where: { id: child.id }, data: pruned });
         }
       }
     }
 
+    /* Built key by key against one concrete Prisma input type rather than
+       spreading the parsed body.
+       `dependsOnFieldId` only exists on the *unchecked* update input (declaring
+       the `dependsOn` relation moves it there), while a plain `null` is not a
+       legal value for a Json column — those want Prisma.DbNull. Spreading the
+       Zod output offered TypeScript a shape that matched neither branch of the
+       union, so it rejected both. Naming the type makes the compiler check
+       against exactly one shape, and makes "unset" vs "leave alone" explicit
+       for every column. */
+    const updateData: Prisma.CustomFieldUncheckedUpdateInput = {};
+    if (data.label !== undefined)        updateData.label = data.label;
+    if (data.fieldType !== undefined)    updateData.fieldType = data.fieldType;
+    if (data.required !== undefined)     updateData.required = data.required;
+    if (data.position !== undefined)     updateData.position = data.position;
+    if (data.options !== undefined)      updateData.options = data.options;
+    if (data.defaultValue !== undefined) updateData.defaultValue = data.defaultValue;
+
+    if (data.dependsOnFieldId !== undefined) {
+      // A rule is a pair: choosing a parent sets both halves, clearing the
+      // parent clears both. Json columns take Prisma.DbNull, never null.
+      updateData.dependsOnFieldId = data.dependsOnFieldId ?? null;
+      updateData.dependsOnValues  = data.dependsOnFieldId
+        ? (data.dependsOnValues ?? [])
+        : Prisma.DbNull;
+    } else if (data.dependsOnValues !== undefined) {
+      // Trigger values changed while keeping the same parent.
+      updateData.dependsOnValues = data.dependsOnValues ?? Prisma.DbNull;
+    }
+
     const updated = await prisma.customField.update({
       where: { id: req.params.id },
-      data: {
-        ...data,
-        options: data.options ?? undefined,
-        ...(data.dependsOnFieldId !== undefined && {
-          dependsOnFieldId: data.dependsOnFieldId ?? null,
-          dependsOnValues: data.dependsOnFieldId ? (data.dependsOnValues ?? []) : Prisma.DbNull,
-        }),
-      },
+      data: updateData,
     });
     res.json(updated);
   } catch (err) { next(err); }
