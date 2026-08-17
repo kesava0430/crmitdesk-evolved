@@ -10,6 +10,7 @@ import {
 import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check, KeyRound } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
 import { useRoles } from '../api/work';
+import { can } from '../shared/permissions';
 
 /**
  * Role options come from the Role table, not a hardcoded list.
@@ -21,7 +22,13 @@ import { useRoles } from '../api/work';
  * not offering role creation at all.
  */
 function useRoleOptions() {
-  const { data, isLoading } = useRoles();
+  // GET /permissions/roles is MANAGERS-only. The role picker is only ever shown
+  // to someone who can already administer users, but the forms it lives in are
+  // reachable from a page a non-manager can still hit by URL, so ask only when
+  // the answer can be anything other than a refusal.
+  const { user } = useAuth();
+  const canReadRoles = can.readRoles(user?.role);
+  const { data, isLoading } = useRoles(canReadRoles);
   const options = (data?.data ?? [])
     .filter(r => r.isActive)
     .map(r => ({
@@ -32,6 +39,8 @@ function useRoleOptions() {
 }
 
 const ROLES = ['SUPER_ADMIN','CRM_MANAGER','SALES_REP','IT_MANAGER','IT_AGENT','EMPLOYEE'];
+/** Roles this page refuses outright — see the AccessDenied return below. */
+const BLOCKED_ROLES = ['SALES_REP', 'IT_AGENT', 'EMPLOYEE'];
 const roleVariant: Record<string, any> = {
   SUPER_ADMIN: 'red', CRM_MANAGER: 'purple', SALES_REP: 'blue',
   IT_MANAGER: 'orange', IT_AGENT: 'yellow', EMPLOYEE: 'gray',
@@ -53,10 +62,25 @@ function UserForm({ initial, onSubmit, loading }: any) {
     <form
       onSubmit={e => {
         e.preventDefault();
-        // Send roleId only. The server derives the legacy enum from the Role's
-        // base access level, so passing a stale `role` alongside it would just
-        // be a second source of truth to disagree with.
-        const { role: _legacy, ...payload } = form;
+        /* Send only the fields this form edits.
+           It used to spread the whole fetched user (`{ ...initial }`) into
+           state and post all of it back, which shipped `id`, `createdAt`, the
+           `employee` relation — and, fatally, `department: null` / `phone: null`
+           for any user who had neither recorded. The server's optional string
+           fields reject null, so editing a perfectly ordinary user failed with
+           a validation error about fields the admin had never touched.
+           Building the payload explicitly also means adding a column to the
+           users API can no longer break this form by accident. */
+        const payload: Record<string, unknown> = {
+          name: form.name,
+          roleId: form.roleId || undefined,
+          department: form.department ?? '',
+          phone: form.phone ?? '',
+        };
+        if (!initial) {
+          payload.email = form.email;
+          payload.password = form.password;
+        }
         onSubmit(payload);
       }}
       className="space-y-3"
@@ -197,9 +221,15 @@ export function UsersPage() {
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const qc = useQueryClient();
 
+  /* This page already refused these roles — but only after firing its two
+     admin-scoped reads, so the refusal arrived with a pair of 403s behind it.
+     Decide first, then ask. */
+  const blocked = !!currentUser && BLOCKED_ROLES.includes(currentUser.role);
+
   const { data: users, isLoading } = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => api.get('/admin/users').then(r => Array.isArray(r.data) ? r.data : r.data.data ?? []),
+    enabled: !blocked,
   });
 
   // Users with no employee record. Provisioning is automatic and non-throwing,
@@ -215,6 +245,7 @@ export function UsersPage() {
   const { data: invites } = useQuery({
     queryKey: ['admin-invites'],
     queryFn: () => api.get('/org/invites').then(r => r.data),
+    enabled: !blocked,
   });
 
   const create = useMutation({
@@ -319,8 +350,7 @@ export function UsersPage() {
     },
   ];
 
-  const BLOCKED_ROLES = ['SALES_REP', 'IT_AGENT', 'EMPLOYEE'];
-  if (currentUser && BLOCKED_ROLES.includes(currentUser.role)) {
+  if (blocked) {
     return <AccessDenied />;
   }
 

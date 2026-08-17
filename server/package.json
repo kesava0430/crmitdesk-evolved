@@ -13,7 +13,8 @@
     "test:unit": "node --test --require ./tests/unit/stub-prisma.js --require ts-node/register tests/unit/*.test.ts",
     "test:api": "ts-node tests/integration/platform-api.ts",
     "backfill": "ts-node prisma/backfill-people-platform.ts",
-    "check:storage": "ts-node scripts/check-storage.ts"
+    "check:storage": "ts-node scripts/check-storage.ts",
+    "platform:admin": "ts-node scripts/platform-admin.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -29,10 +30,10 @@
     "express-rate-limit": "^7.2.0",
     "express-validator": "^7.0.1",
     "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
     "imapflow": "^1.0.162",
+    "jsonwebtoken": "^9.0.2",
     "mailparser": "^3.6.5",
+    "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.9",
     "openai": "^4.52.0",
     "stripe": "^16.0.0",
@@ -46,9 +47,9 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
+    "@types/mailparser": "^3.4.4",
     "@types/multer": "^1.4.11",
     "@types/node": "^20.11.5",
-    "@types/mailparser": "^3.4.4",
     "@types/nodemailer": "^6.4.14",
     "@types/web-push": "^3.6.4",
     "prisma": "^5.10.0",
