@@ -40,12 +40,25 @@ const EMPTY_FORM = {
   defaultValue: '', dependsOnFieldId: '', dependsOnValues: [] as string[],
 };
 
+/** Server rule (customfields.controller.ts): /^[a-z0-9_]+$/, max 50 chars.
+    Coerce anything typed or derived from a label into that shape. */
+function sanitizeFieldKey(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')     // spaces and hyphens become underscores
+    .replace(/[^a-z0-9_]/g, '')  // drop anything else invalid
+    .replace(/_+/g, '_')         // collapse runs of underscores
+    .slice(0, 50);
+}
+
 export default function CustomFieldsPage() {
   const qc = useQueryClient();
   const [entityType, setEntityType] = useState('TICKET');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<CustomField | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  // While false, the API name mirrors the label; a manual edit takes over.
+  const [keyTouched, setKeyTouched] = useState(false);
 
   const { data: fields = [], isLoading } = useQuery<CustomField[]>({
     queryKey: ['custom-fields', entityType],
@@ -71,6 +84,7 @@ export default function CustomFieldsPage() {
   function openCreate() {
     setEditing(null);
     setForm({ ...EMPTY_FORM, entityType });
+    setKeyTouched(false);
     setShowModal(true);
   }
 
@@ -83,6 +97,7 @@ export default function CustomFieldsPage() {
       dependsOnFieldId: f.dependsOnFieldId ?? '',
       dependsOnValues: f.dependsOnValues ?? [],
     });
+    setKeyTouched(true); // never rewrite an existing field's key from its label
     setShowModal(true);
   }
 
@@ -243,11 +258,24 @@ export default function CustomFieldsPage() {
             <div className="space-y-4">
               <Field label="Label" required>
                 <Input aria-label="Label" placeholder="e.g. Customer Type" value={form.label}
-                  onChange={e => setForm(f => ({ ...f, label: e.target.value }))} />
+                  onChange={e => {
+                    const label = e.target.value;
+                    setForm(f => ({
+                      ...f,
+                      label,
+                      // Keep the API name in sync with the label until the
+                      // user takes over by typing in the API name box.
+                      ...(keyTouched ? {} : { fieldKey: sanitizeFieldKey(label) }),
+                    }));
+                  }} />
               </Field>
-              <Field label="API Name" required hint="Lowercase letters, numbers, and underscores only">
+              <Field label="API Name" required hint="Lowercase letters, numbers, and underscores only — invalid characters are converted as you type">
                 <Input aria-label="API Name" placeholder="e.g. customer_type" value={form.fieldKey}
-                  onChange={e => setForm(f => ({ ...f, fieldKey: e.target.value }))} />
+                  onChange={e => {
+                    setKeyTouched(true);
+                    const fieldKey = sanitizeFieldKey(e.target.value);
+                    setForm(f => ({ ...f, fieldKey }));
+                  }} />
               </Field>
             </div>
           </div>
