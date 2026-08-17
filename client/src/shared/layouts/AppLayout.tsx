@@ -38,6 +38,9 @@ type NavItem = {
   label: string;
   icon: React.ElementType;
   roles?: string[];
+  /** Tailwind text-* class tinting the item's icon when inactive. Mid-tone
+      (≈500) hues are used so they read on both the light and dark rails. */
+  tint?: string;
 };
 
 type NavSection = {
@@ -54,50 +57,50 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: null,
     items: [
-      { to: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard },
-      { to: "/my-work",      label: "My Work",     icon: CheckSquare },
-      { to: "/approvals",    label: "Approvals",   icon: CheckCircle2 },
+      { to: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard, tint: "text-indigo-500" },
+      { to: "/my-work",      label: "My Work",     icon: CheckSquare,    tint: "text-emerald-500" },
+      { to: "/approvals",    label: "Approvals",   icon: CheckCircle2,   tint: "text-teal-500" },
       // /inbox/conversations is ALL_STAFF on the server; without this an
       // EMPLOYEE saw the link and the entire page failed to load.
-      { to: "/inbox",        label: "Inbox",       icon: Inbox, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER', 'IT_AGENT', 'SALES_REP'] },
-      { to: "/workflows",    label: "Automation",  icon: Zap,   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/portal-users", label: "Portal",      icon: Globe, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
-      { to: "/ai-builder",   label: "AI Builder",  icon: Wand2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/ai-studio",    label: "AI Studio",   icon: Brain, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/inbox",        label: "Inbox",       icon: Inbox, tint: "text-sky-500",     roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER', 'IT_AGENT', 'SALES_REP'] },
+      { to: "/workflows",    label: "Automation",  icon: Zap,   tint: "text-amber-500",   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/portal-users", label: "Portal",      icon: Globe, tint: "text-cyan-500",    roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
+      { to: "/ai-builder",   label: "AI Builder",  icon: Wand2, tint: "text-fuchsia-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/ai-studio",    label: "AI Studio",   icon: Brain, tint: "text-violet-500",  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
     ],
   },
   {
     label: "CRM",
     roles: ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP'],
     items: [
-      { to: "/crm/contacts", label: "Contacts",  icon: Users },
-      { to: "/crm/leads",    label: "Leads",     icon: Target },
-      { to: "/crm/deals",    label: "Pipeline",  icon: TrendingUp },
-      { to: "/quotes",       label: "Quotes",    icon: FileText },
-      { to: "/invoices",     label: "Invoices",  icon: Receipt },
-      { to: "/campaigns",    label: "Campaigns", icon: Mail },
+      { to: "/crm/contacts", label: "Contacts",  icon: Users,      tint: "text-blue-500" },
+      { to: "/crm/leads",    label: "Leads",     icon: Target,     tint: "text-orange-500" },
+      { to: "/crm/deals",    label: "Pipeline",  icon: TrendingUp, tint: "text-emerald-500" },
+      { to: "/quotes",       label: "Quotes",    icon: FileText,   tint: "text-indigo-500" },
+      { to: "/invoices",     label: "Invoices",  icon: Receipt,    tint: "text-rose-500" },
+      { to: "/campaigns",    label: "Campaigns", icon: Mail,       tint: "text-pink-500" },
     ],
   },
   {
     label: "HR",
     items: [
-      { to: "/people",        label: "People",      icon: UserSquare2 },
-      { to: "/hr/directory",  label: "Org Chart",   icon: Network },
-      { to: "/hr/org",        label: "Org Structure", icon: Network, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/hr/attendance", label: "Attendance",  icon: Clock },
-      { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck },
-      { to: "/hr/payroll",    label: "Payroll",     icon: Wallet },
-      { to: "/hr/settings",   label: "HR Settings", icon: Building2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/people",        label: "People",      icon: UserSquare2, tint: "text-violet-500" },
+      { to: "/hr/directory",  label: "Org Chart",   icon: Network,     tint: "text-cyan-500" },
+      { to: "/hr/org",        label: "Org Structure", icon: Network,   tint: "text-teal-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/hr/attendance", label: "Attendance",  icon: Clock,        tint: "text-amber-500" },
+      { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck, tint: "text-green-500" },
+      { to: "/hr/payroll",    label: "Payroll",     icon: Wallet,        tint: "text-emerald-500" },
+      { to: "/hr/settings",   label: "HR Settings", icon: Building2,     tint: "text-slate-400", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
     ],
   },
   {
     label: "IT Desk",
     items: [
-      { to: "/itdesk/tickets",    label: "Tickets",        icon: Ticket },
-      { to: "/itdesk/categories", label: "Categories",     icon: FolderTree },
-      { to: "/itdesk/articles",   label: "Knowledge Base", icon: BookOpen },
-      { to: "/itdesk/assets",     label: "Assets",         icon: Monitor,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'] },
-      { to: "/change-requests",   label: "Changes",        icon: GitBranch,  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'] },
+      { to: "/itdesk/tickets",    label: "Tickets",        icon: Ticket,     tint: "text-red-500" },
+      { to: "/itdesk/categories", label: "Categories",     icon: FolderTree, tint: "text-yellow-500" },
+      { to: "/itdesk/articles",   label: "Knowledge Base", icon: BookOpen,   tint: "text-sky-500" },
+      { to: "/itdesk/assets",     label: "Assets",         icon: Monitor,    tint: "text-purple-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'] },
+      { to: "/change-requests",   label: "Changes",        icon: GitBranch,  tint: "text-orange-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'] },
     ],
   },
   {
@@ -207,8 +210,8 @@ function readCollapsed(): string[] {
 
 // Sidebar nav item
 
-function SideNavItem({ to, label, icon: Icon, onClick }: {
-  to: string; label: string; icon: React.ElementType; onClick?: () => void;
+function SideNavItem({ to, label, icon: Icon, tint, onClick }: {
+  to: string; label: string; icon: React.ElementType; tint?: string; onClick?: () => void;
 }) {
   return (
     <NavLink
@@ -218,16 +221,24 @@ function SideNavItem({ to, label, icon: Icon, onClick }: {
         `group relative flex items-center gap-2.5 h-8 px-2.5 rounded-md text-[13px] transition-colors duration-100 ${
           isActive
             ? "bg-sidebar-active text-sidebar-active-fg font-semibold"
-            : "font-medium text-sidebar-muted hover:text-sidebar-fg hover:bg-sidebar-hover"
+            : "font-medium text-sidebar-fg/90 hover:text-sidebar-fg hover:bg-sidebar-hover"
         }`
       }
     >
       {({ isActive }) => (
         <>
+          {/* Accent bar marking the active route */}
+          {isActive && (
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-full bg-accent" aria-hidden="true" />
+          )}
           <Icon
             size={15}
             strokeWidth={isActive ? 2.2 : 1.9}
-            className={`shrink-0 ${isActive ? "text-sidebar-active-fg" : "text-sidebar-heading group-hover:text-sidebar-fg"} transition-colors duration-100`}
+            className={`shrink-0 ${
+              isActive
+                ? "text-sidebar-active-fg"
+                : tint ?? "text-sidebar-heading group-hover:text-sidebar-fg"
+            } transition-colors duration-100`}
           />
           <span className="truncate flex-1">{label}</span>
         </>
@@ -280,7 +291,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
     ? NAV_SECTIONS.map(section => {
         const items = visibleModules
           .filter((m: any) => (NAV_SECTION_LABELS[m.navSection] ?? "CRM") === section.label)
-          .map((m: any): NavItem => ({ to: `/modules/${m.slug}`, label: m.name, icon: CUSTOM_MODULE_ICONS[m.icon] ?? Layers }));
+          .map((m: any): NavItem => ({ to: `/modules/${m.slug}`, label: m.name, icon: CUSTOM_MODULE_ICONS[m.icon] ?? Layers, tint: "text-indigo-400" }));
         return items.length ? { ...section, items: [...section.items, ...items] } : section;
       })
     : NAV_SECTIONS;
@@ -340,7 +351,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
                   {visibleItems.map(item => {
                     const override = ROUTE_ENTITY[item.to];
                     const label = override ? entityLabel(override.key, override.form, item.label) : item.label;
-                    return <SideNavItem key={item.to} to={item.to} label={label} icon={item.icon} onClick={onNavClick} />;
+                    return <SideNavItem key={item.to} to={item.to} label={label} icon={item.icon} tint={item.tint} onClick={onNavClick} />;
                   })}
                 </div>
               )}
