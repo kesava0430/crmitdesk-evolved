@@ -137,7 +137,9 @@ export async function remove(req: AuthRequest, res: Response, next: NextFunction
 // ─── Public share link (mirrors quotes.controller.ts's pattern exactly) ────
 
 function invoiceShareToken(invoiceId: string): string {
-  const secret = process.env.QUOTE_SHARE_SECRET || process.env.JWT_SECRET || 'dev-secret';
+  // No hardcoded fallback — see quotes.controller.ts's quoteShareToken().
+  const secret = process.env.QUOTE_SHARE_SECRET || process.env.JWT_SECRET;
+  if (!secret) throw new AppError(500, 'Server misconfigured: set QUOTE_SHARE_SECRET (or JWT_SECRET)');
   return crypto.createHmac('sha256', secret).update(`invoice:${invoiceId}`).digest('hex').slice(0, 32);
 }
 

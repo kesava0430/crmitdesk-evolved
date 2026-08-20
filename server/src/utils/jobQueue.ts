@@ -30,6 +30,16 @@ export function registerJobHandler(type: JobType, handler: JobHandler): void {
 
 const DEFAULT_MAX_ATTEMPTS = 6;
 
+/**
+ * How long a claimed (PROCESSING) job may run before another poller may
+ * assume its owner died and reclaim it. Claiming a job (see processDueJobs)
+ * pushes its nextAttemptAt this far into the future, which doubles as the
+ * stall marker — no schema change needed. Must comfortably exceed the
+ * slowest legitimate handler (an SMTP send with retries takes seconds, not
+ * minutes).
+ */
+const STALL_TIMEOUT_MS = 10 * 60 * 1000;
+
 /** Exponential backoff, capped at 30 minutes: 30s, 60s, 2m, 4m, 8m, 16m, ... */
 function backoffMs(attempt: number): number {
   return Math.min(30 * 60 * 1000, Math.pow(2, attempt) * 15 * 1000);
@@ -77,7 +87,18 @@ export async function processDueJobs(limit = 25): Promise<void> {
       continue;
     }
 
-    await prisma.backgroundJob.update({ where: { id: job.id }, data: { status: 'PROCESSING' } }).catch(() => {});
+    // ATOMIC claim: only flip PENDING → PROCESSING if it's still PENDING.
+    // The previous find-then-update pair was a race — two pollers (the old
+    // and new instance during a zero-downtime deploy, or two scaled
+    // instances) could both pick up the same job and both send the email.
+    // updateMany with the status in the WHERE makes the DB the referee:
+    // exactly one claimer sees count === 1. The claim also pushes
+    // nextAttemptAt out by STALL_TIMEOUT_MS as the stall marker.
+    const claimed = await prisma.backgroundJob.updateMany({
+      where: { id: job.id, status: 'PENDING' },
+      data: { status: 'PROCESSING', nextAttemptAt: new Date(Date.now() + STALL_TIMEOUT_MS) },
+    }).catch(() => ({ count: 0 }));
+    if (claimed.count === 0) continue; // another instance got there first
 
     try {
       await handler(job.payload);
@@ -115,23 +136,24 @@ export async function retryJob(jobId: string, orgId?: string): Promise<boolean> 
 /**
  * Returns rows stranded in PROCESSING back to PENDING.
  *
- * processDueJobs() flips a job to PROCESSING before running its handler, and
- * only ever polls for PENDING. So a crash, an OOM kill or a SIGTERM in the
- * middle of a handler left that row PROCESSING forever: never retried, never
- * marked failed, `attempts` not even incremented, and still counted as
- * in-flight in the admin panel. Every email, Slack message, Teams card and
- * push notification in flight at restart was silently lost, recoverable only
- * by someone noticing and clicking "Retry".
+ * A crash, an OOM kill or a SIGTERM mid-handler leaves the row PROCESSING;
+ * nothing polls for that status, so without recovery the send is silently
+ * lost. It counts as an attempt, so a job that reliably crashes the process
+ * still exhausts maxAttempts instead of looping forever.
  *
- * Running this at boot is safe because the app is single-process: nothing
- * else can legitimately be mid-handler while we are starting up. It counts
- * as an attempt, so a job that reliably crashes the process still exhausts
- * maxAttempts instead of looping forever.
+ * TIME-BASED, not boot-time-sweep: recovery only touches PROCESSING rows
+ * whose nextAttemptAt (set to claim-time + STALL_TIMEOUT_MS by the atomic
+ * claim above) is in the past. The old version swept EVERY PROCESSING row at
+ * boot on the assumption the app is single-process — but Render's
+ * zero-downtime deploys run the old and new instance concurrently, so the
+ * new instance's sweep was requeueing jobs the old instance was actively
+ * executing → duplicate delivery on every deploy. A time-based cutoff makes
+ * recovery safe to run at boot AND periodically, on any number of instances.
  */
 export async function recoverStalledJobs(): Promise<number> {
   try {
     const stalled = await prisma.backgroundJob.findMany({
-      where: { status: 'PROCESSING' },
+      where: { status: 'PROCESSING', nextAttemptAt: { lte: new Date() } },
       select: { id: true, attempts: true, maxAttempts: true },
     });
     if (!stalled.length) return 0;
@@ -162,13 +184,17 @@ export async function recoverStalledJobs(): Promise<number> {
 
 /** Check for due jobs every 15 seconds — frequent enough that a retried send doesn't sit around for long, cheap enough that it's a non-issue for a single Postgres instance. */
 export function startJobQueuePoller(): void {
-  // Sweep first, then poll. Every other poller in the app runs once at boot;
-  // this one did not, so a restart also meant up to 15s of dead time.
+  // Recovery + first poll at boot (recovery is now time-based, so this is
+  // safe even while the previous instance is still draining), then recovery
+  // rides along with every poll — a stalled job is picked up within one
+  // STALL_TIMEOUT_MS + 15s window without waiting for the next restart.
   recoverStalledJobs()
     .then(() => processDueJobs())
     .catch(err => console.error('[jobQueue] Startup pass failed:', err));
 
   setInterval(() => {
-    processDueJobs().catch(err => console.error('[jobQueue] Poll error:', err));
+    recoverStalledJobs()
+      .then(() => processDueJobs())
+      .catch(err => console.error('[jobQueue] Poll error:', err));
   }, 15 * 1000);
 }

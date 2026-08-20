@@ -56,7 +56,11 @@ export async function syncEmailAccount(accountId: string): Promise<{ fetched: nu
     secure: account.imapPort === 993,
     auth: { user: account.email, pass: decryptSecretOrPlain(account.password) },
     logger: false,
-    tls: { rejectUnauthorized: false }, // allow self-signed certs in dev
+    // Certificate verification must stay ON in production: with it off, a
+    // man-in-the-middle can present any certificate and harvest the tenant's
+    // decrypted mailbox password. Self-signed certs are only tolerated in
+    // dev/test.
+    tls: { rejectUnauthorized: process.env.NODE_ENV === 'production' },
   });
 
   let fetched = 0;

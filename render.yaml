@@ -178,6 +178,34 @@ services:
         sync: false
       - key: VAPID_PRIVATE_KEY
         sync: false
+      # Stripe billing (utils/stripe.ts + modules/billing) — without these,
+      # checkout/portal creation fails and the /api/billing/webhook can't
+      # verify events, so paid-plan upgrades/downgrades never apply. Get the
+      # secret key from dashboard.stripe.com → Developers → API keys, the
+      # webhook signing secret from the webhook endpoint you register there
+      # (point it at {APP_URL}/api/billing/webhook), and the two price IDs
+      # from the Products page. All four were previously missing from this
+      # Blueprint — billing was silently non-functional on a fresh deploy.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRO_PRICE_ID
+        sync: false
+      - key: STRIPE_ENTERPRISE_PRICE_ID
+        sync: false
+      # Signs the X-Webhook-Signature header on OUTBOUND workflow webhooks
+      # (utils/workflow-engine.ts) so receivers can verify calls really came
+      # from this server. Unset = webhooks go out unsigned. Any long random
+      # string works; share it with whoever consumes the webhooks.
+      - key: WORKFLOW_WEBHOOK_SECRET
+        sync: false
+      # Signs public quote/invoice e-signature share links. If unset the code
+      # falls back to JWT_SECRET — which works, but then rotating JWT_SECRET
+      # silently invalidates every outstanding share link, so give it its own
+      # long random value.
+      - key: QUOTE_SHARE_SECRET
+        sync: false
       # Contact address the push service (FCM/Mozilla's autopush/etc.) may
       # use to reach you about this VAPID identity — required format is
       # "mailto:you@example.com". Defaults to a placeholder if unset.

@@ -61,6 +61,43 @@ const UpdateSchema = z.object({
 type LegacyRole = 'SUPER_ADMIN' | 'CRM_MANAGER' | 'SALES_REP' | 'IT_MANAGER' | 'IT_AGENT' | 'EMPLOYEE';
 const LEGACY_ROLES: LegacyRole[] = ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP', 'IT_MANAGER', 'IT_AGENT', 'EMPLOYEE'];
 
+// The admin routes admit SUPER_ADMIN and both managers, so authorization
+// inside them has to be rank-aware: without it, an IT_MANAGER could PATCH
+// themselves (or anyone) to SUPER_ADMIN, or reset the SUPER_ADMIN's password
+// and take over the account. Rank comparisons below enforce two rules:
+//   - you can only ASSIGN a role of your own rank or lower (a manager can add
+//     another manager, but never mint a SUPER_ADMIN), and
+//   - you can only MANAGE (edit/deactivate/reset) users of your rank or lower
+//     (a manager can never touch the SUPER_ADMIN's account).
+// Custom roles are ranked by their resolved legacyRole, so they can't be used
+// as a side door.
+const ROLE_RANK: Record<LegacyRole, number> = {
+  SUPER_ADMIN: 3,
+  CRM_MANAGER: 2,
+  IT_MANAGER: 2,
+  SALES_REP: 1,
+  IT_AGENT: 1,
+  EMPLOYEE: 0,
+};
+
+function rankOf(role: string): number {
+  return ROLE_RANK[role as LegacyRole] ?? 0;
+}
+
+/** Caller may not act on a user who outranks them. */
+function assertCanManage(callerRole: string, targetRole: string) {
+  if (rankOf(targetRole) > rankOf(callerRole)) {
+    throw new AppError(403, 'You cannot manage a user with a higher role than your own');
+  }
+}
+
+/** Caller may not hand out a role above their own rank. */
+function assertCanAssign(callerRole: string, newRole: LegacyRole) {
+  if (rankOf(newRole) > rankOf(callerRole)) {
+    throw new AppError(403, 'You cannot assign a role higher than your own');
+  }
+}
+
 /**
  * Turns whatever the caller sent into the pair the database needs.
  *
@@ -134,6 +171,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     if (existing) throw new AppError(409, 'Email already registered');
 
     const resolved = await resolveRole(req.user!.orgId, data);
+    assertCanAssign(req.user!.role, resolved.role);
     // Seats are metered against the legacy role, so resolve first.
     await assertSeatAvailable(req.user!.orgId, resolved.role);
     // Destructure password out so it is not spread into the Prisma create call
@@ -160,6 +198,7 @@ export async function invite(req: AuthRequest, res: Response, next: NextFunction
   try {
     const input = InviteSchema.parse(req.body);
     const { role, roleId } = await resolveRole(req.user!.orgId, input);
+    assertCanAssign(req.user!.role, role);
     await assertSeatAvailable(req.user!.orgId, role);
     const email = input.email;
     const token = crypto.randomBytes(32).toString('hex');
@@ -198,6 +237,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     // Ensure target user is in same org
     const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!target) throw new AppError(404, 'User not found');
+    assertCanManage(req.user!.role, target.role);
     // Only re-check the seat limit if this update actually turns someone INTO
     // a billable role (anything but EMPLOYEE) who wasn't one already. A
     // lateral move between two billable roles (e.g. SALES_REP -> CRM_MANAGER)
@@ -207,7 +247,14 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     // Only resolve when the caller actually submitted a role change; an
     // untouched role must not be rewritten by a lookup.
     const changingRole = data.roleId !== undefined || data.role !== undefined;
+    // Nobody edits their own role — a SUPER_ADMIN accidentally demoting
+    // themselves is as locked out as a manager escalating themselves; both
+    // directions of that mistake are closed off here.
+    if (changingRole && req.params.id === req.user!.id) {
+      throw new AppError(403, 'You cannot change your own role');
+    }
     const resolved = changingRole ? await resolveRole(req.user!.orgId, data) : null;
+    if (resolved) assertCanAssign(req.user!.role, resolved.role);
 
     if (resolved && resolved.role !== target.role && !isMeteredRole(target.role)) {
       await assertSeatAvailable(req.user!.orgId, resolved.role);
@@ -240,6 +287,7 @@ export async function deactivate(req: AuthRequest, res: Response, next: NextFunc
     if (req.params.id === req.user!.id) throw new AppError(400, 'Cannot deactivate yourself');
     const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!target) throw new AppError(404, 'User not found');
+    assertCanManage(req.user!.role, target.role);
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } });
     // Losing the login means the person has left. Reactivating deliberately
     // does not un-exit them — rehiring has its own dates and is an HR decision.
@@ -260,6 +308,9 @@ export async function resetUserPassword(req: AuthRequest, res: Response, next: N
   try {
     const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!target) throw new AppError(404, 'User not found');
+    // Without this, a manager could mail themselves a reset link for the
+    // SUPER_ADMIN's account — password reset is account takeover.
+    assertCanManage(req.user!.role, target.role);
     if (!target.isActive) throw new AppError(400, 'Cannot reset the password of a deactivated user');
 
     await prisma.passwordResetToken.updateMany({

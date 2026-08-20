@@ -226,8 +226,10 @@ test('the platform console exposes storage, and can prove it works', () => {
   assert.match(routes, /settings\/storage\/test/, 'a connection test must be reachable');
 
   const controller = code(SRC, 'modules/platform-admin/platformAdmin.controller.ts');
-  assert.match(controller, /s3Bucket: z\.string\(\)/, 'the settings PATCH must accept the storage fields');
-  assert.match(controller, /s3SecretAccessKey: z\.string\(\)/);
+  // optionalText() is the zodHelpers wrapper around z.string() that treats
+  // null/'' as "not provided" — the schema moved to it, so match either form.
+  assert.match(controller, /s3Bucket: (optionalText\(\)|z\.string\(\))/, 'the settings PATCH must accept the storage fields');
+  assert.match(controller, /s3SecretAccessKey: (optionalText\(\)|z\.string\(\))/);
 
   const platform = code(SRC, 'utils/platformSettings.ts');
   const secrets = platform.slice(platform.indexOf('const SECRET_FIELDS'));

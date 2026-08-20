@@ -7,24 +7,32 @@
 
   Requires PLATFORM_BOOTSTRAP_SECRET to be set as an env var on the live
   server (Render -> crm-itdesk-server -> Environment) — the endpoint 404s
-  if it isn't set. Fill in the four values below, then run:
+  if it isn't set.
 
+  SECURITY: never write the real secret or password into this file — it is
+  committed to git, and anything committed must be treated as public. The
+  script reads them from environment variables instead; set them for the
+  current PowerShell session only, then run:
+
+      $env:PLATFORM_BOOTSTRAP_SECRET = "<the secret from Render>"
+      $env:PLATFORM_ADMIN_EMAIL      = "you@example.com"
+      $env:PLATFORM_ADMIN_PASSWORD   = "<a strong password>"
+      $env:PLATFORM_ADMIN_NAME       = "Your Name"
       .\bootstrap-platform-admin.ps1
 
   Safe to re-run later (e.g. to reset the password) — it upserts by email
-  rather than creating a duplicate account.
+  rather than creating a duplicate account. Unset PLATFORM_BOOTSTRAP_SECRET
+  on Render after use so the endpoint is disabled.
 #>
 
-# ── Fill these in ────────────────────────────────────────────────────────
-$ServerUrl = "https://crm-itdesk-server.onrender.com"
-$Secret    = "08a91a0430_08a91a0430@A"
-$Email     = "kesava@quantiqsystems.com"
-$Password  = "08a91a0430.A"
-$Name      = "Kesava"
-# ──────────────────────────────────────────────────────────────────────────
+$ServerUrl = if ($env:PLATFORM_SERVER_URL) { $env:PLATFORM_SERVER_URL } else { "https://crm-itdesk-server.onrender.com" }
+$Secret    = $env:PLATFORM_BOOTSTRAP_SECRET
+$Email     = $env:PLATFORM_ADMIN_EMAIL
+$Password  = $env:PLATFORM_ADMIN_PASSWORD
+$Name      = if ($env:PLATFORM_ADMIN_NAME) { $env:PLATFORM_ADMIN_NAME } else { "Platform Admin" }
 
-if ($Secret -eq "<paste your PLATFORM_BOOTSTRAP_SECRET here>") {
-    Write-Host "Edit this script and fill in `$Secret (and the other values) before running it." -ForegroundColor Yellow
+if (-not $Secret -or -not $Email -or -not $Password) {
+    Write-Host "Set PLATFORM_BOOTSTRAP_SECRET, PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD as env vars first — see the comment at the top of this script. Do NOT hardcode them into the file." -ForegroundColor Yellow
     exit 1
 }
 

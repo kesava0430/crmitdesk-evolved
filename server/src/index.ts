@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import { validateEnv } from './utils/env';
 import { authRouter } from './modules/core/auth/auth.routes';
 import { usersRouter } from './modules/core/users/users.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
@@ -93,6 +94,10 @@ import { prisma } from './utils/prisma';
 
 dotenv.config();
 
+// Fail fast on missing/placeholder env config — before any route, poller, or
+// DB work starts. See utils/env.ts for what's required and why.
+validateEnv();
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -124,6 +129,14 @@ app.use(cors({
 // ─── Body limits (prevent payload attacks) ───────────────────────────────────
 // Twilio webhook sends URL-encoded form data — must parse before JSON middleware
 app.use('/api/inbox/whatsapp/webhook', express.urlencoded({ extended: false, limit: '64kb' }));
+// Stripe webhook signature verification needs the EXACT raw bytes Stripe
+// signed. If the global express.json() below runs first it consumes the
+// stream and hands the route a parsed object — re-serialising never matches
+// the signature, so every real Stripe event fails verification and plan
+// changes silently stop applying. Mounting raw() here (before json()) claims
+// the body first; the route-level raw() in billing.routes.ts then sees the
+// body is already read and no-ops.
+app.use('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
