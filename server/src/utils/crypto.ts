@@ -13,6 +13,20 @@ import crypto from 'crypto';
 const ALGO = 'aes-256-gcm';
 const FORMAT_PREFIX = 'v1';
 
+/**
+ * Constant-time comparison for shared secrets (cron-endpoint headers, etc.).
+ * A plain `===` short-circuits at the first differing character, so response
+ * timing leaks how much of a guess was right — slow to exploit remotely, but
+ * free to close. Hashing both sides first normalises length (timingSafeEqual
+ * throws on unequal lengths, which would itself leak the secret's length).
+ */
+export function secretsMatch(provided: string | null | undefined, expected: string | null | undefined): boolean {
+  if (!provided || !expected) return false;
+  const a = crypto.createHash('sha256').update(provided).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
 function getKey(): Buffer {
   const secret = process.env.ENCRYPTION_KEY;
   if (!secret) {

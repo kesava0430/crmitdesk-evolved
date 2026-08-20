@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { validateRecordData } from '../modules/custom-modules/customModules.service';
+import { assertPublicHttpUrl } from './ssrfGuard';
 
 // Same setInterval-poller shape as scheduler.ts (see comment there) — one
 // Node process, one periodic DB scan, no job queue. Checked every minute;
@@ -30,7 +31,12 @@ async function runSyncForConfig(configId: string): Promise<void> {
       headers['Authorization'] = `Bearer ${config.authValue}`;
     }
 
-    const res = await fetch(config.url, { method: config.method || 'GET', headers });
+    // Admin-supplied URL, and the response body gets parsed and imported —
+    // the most dangerous SSRF shape. Refuse private/internal targets, and
+    // don't follow redirects (a public URL 302ing to a private one would
+    // bypass the guard).
+    await assertPublicHttpUrl(config.url);
+    const res = await fetch(config.url, { method: config.method || 'GET', headers, redirect: 'manual' });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
     const json = await res.json();
     const list = getByPath(json, config.recordPath);

@@ -61,6 +61,11 @@ export async function syncEmailAccount(accountId: string): Promise<{ fetched: nu
     // decrypted mailbox password. Self-signed certs are only tolerated in
     // dev/test.
     tls: { rejectUnauthorized: process.env.NODE_ENV === 'production' },
+    // Without timeouts, one unresponsive IMAP server hangs this account's
+    // sync forever — and since accounts sync sequentially, every OTHER
+    // tenant's inbox stops updating too. Fail the account and move on.
+    greetingTimeout: 30 * 1000,
+    socketTimeout: 2 * 60 * 1000,
   });
 
   let fetched = 0;
@@ -88,8 +93,16 @@ export async function syncEmailAccount(accountId: string): Promise<{ fetched: nu
           const messageId = parsed.messageId;
           if (!messageId) continue;
 
-          // Skip if we already stored this message
-          const exists = await prisma.message.findFirst({ where: { externalId: messageId } });
+          // Skip if we already stored this message — scoped to THIS org via
+          // the conversation join. Unscoped, the same Message-ID delivered
+          // to mailboxes of two different tenants (a newsletter, a CC across
+          // orgs) was stored only for whichever org synced first; the second
+          // org silently never saw the email. Backed by the
+          // messages.external_id index (see the migration of the same name)
+          // so this stays O(matching ids), not a full-table scan per email.
+          const exists = await prisma.message.findFirst({
+            where: { externalId: messageId, conversation: { orgId: account.orgId } },
+          });
           if (exists) continue;
 
           const from = extractAddress(parsed.from);
@@ -164,7 +177,28 @@ export async function syncEmailAccount(accountId: string): Promise<{ fetched: nu
 
 // ─── Sync all orgs ────────────────────────────────────────────────────────────
 
+// Overlap guard: the poller fires every 5 minutes regardless of whether the
+// previous pass finished. One slow mailbox used to mean two (then three...)
+// concurrent passes syncing the same accounts — duplicate rows and IMAP
+// connection pile-up. A simple in-process flag is enough because pollers run
+// in one process; cross-instance overlap is handled by the org-scoped dedupe
+// above.
+let syncInProgress = false;
+
 export async function syncAllEmailAccounts(): Promise<void> {
+  if (syncInProgress) {
+    console.warn('[email-sync] Previous pass still running — skipping this tick');
+    return;
+  }
+  syncInProgress = true;
+  try {
+    await runSyncPass();
+  } finally {
+    syncInProgress = false;
+  }
+}
+
+async function runSyncPass(): Promise<void> {
   const accounts = await prisma.emailAccount.findMany({ select: { id: true, email: true } });
   if (accounts.length === 0) return;
 

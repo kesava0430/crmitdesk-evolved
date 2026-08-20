@@ -10,6 +10,7 @@ import { getHostedStorageUsageBytes } from '../../utils/licensing';
 import { getSendCounts, getSendCountsForOrgs } from '../../utils/usageTracking';
 import { getPlatformStorageConfig, getPlatformSettingsForAdmin, upsertPlatformSettings } from '../../utils/platformSettings';
 import { PLANS } from '../../utils/stripe';
+import { secretsMatch } from '../../utils/crypto';
 
 const GB = 1024 * 1024 * 1024;
 /** Quota computed inline from the plan (same numbers licensing.ts's getStorageQuotaBytes uses) rather than
@@ -42,7 +43,9 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
     if (!configuredSecret) throw new AppError(404, 'Not found');
 
     const providedSecret = req.header('x-platform-bootstrap-secret');
-    if (!providedSecret || providedSecret !== configuredSecret) {
+    // Constant-time — this header mints a PLATFORM_ADMIN, the most valuable
+    // secret comparison in the codebase. See secretsMatch() in utils/crypto.ts.
+    if (!secretsMatch(providedSecret, configuredSecret)) {
       throw new AppError(404, 'Not found');
     }
 

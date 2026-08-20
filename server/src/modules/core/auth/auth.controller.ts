@@ -33,9 +33,12 @@ const ApproveOrgSignupSchema = z.object({
 });
 
 // Every new-org signup is emailed here for review before anything is created —
-// see register()/approveOrgSignup() below. Override via env if the platform
-// owner's inbox changes; defaults to the account this app was built for.
-const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'kesava.harinath30@gmail.com';
+// see register()/approveOrgSignup() below. Comes ONLY from the environment:
+// a personal inbox hardcoded as a fallback meant every white-label deployment
+// silently routed its customers' signup requests to the original developer.
+// When unset, the request is still saved durably (an admin can approve it
+// from the platform console); only the courtesy email is skipped.
+const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || '';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const LoginSchema = z.object({
@@ -163,9 +166,13 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     // client shouldn't hang waiting on SMTP (same pattern as ticket/deal
     // notification emails elsewhere in this codebase).
     const approveLink = `${FRONTEND_URL}/approve-org?token=${token}`;
-    sendMail(emailTemplates.orgSignupRequest(ADMIN_NOTIFY_EMAIL, {
-      organizationName: data.organizationName, name: data.name, email: data.email,
-    }, approveLink)).catch(() => {});
+    if (ADMIN_NOTIFY_EMAIL) {
+      sendMail(emailTemplates.orgSignupRequest(ADMIN_NOTIFY_EMAIL, {
+        organizationName: data.organizationName, name: data.name, email: data.email,
+      }, approveLink)).catch(() => {});
+    } else {
+      console.warn('[auth] ADMIN_NOTIFY_EMAIL is not set — org signup request saved but no notification email sent');
+    }
 
     res.status(202).json({
       pending: true,

@@ -22,8 +22,12 @@ precacheAndRoute(self.__WB_MANIFEST);
 // Never cache API calls — this is a data-heavy authenticated app, a stale
 // cached response would be actively wrong. Same rule the previous
 // generateSW-based runtimeCaching config had.
-registerRoute(/^\/api\//, new NetworkOnly());
-registerRoute(/^\/portal\//, new NetworkOnly());
+// Matched on url.pathname, NOT a regex against the full URL string: workbox
+// tests regexes against the absolute URL ("https://host/api/..."), so a
+// ^-anchored /^\/api\//-style pattern silently never matches — and would
+// also miss a future cross-origin VITE_API_URL deployment.
+registerRoute(({ url }) => url.pathname.startsWith('/api/'), new NetworkOnly());
+registerRoute(({ url }) => url.pathname.startsWith('/portal/'), new NetworkOnly());
 
 self.skipWaiting();
 self.addEventListener('activate', () => self.clients.claim());

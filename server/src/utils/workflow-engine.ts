@@ -5,6 +5,7 @@ import { resolveRecipientPhone } from './notification-recipient';
 import { scoreLead } from './ai';
 import { sendPushToUser } from './webPush';
 import { sendMail, emailTemplates } from './mailer';
+import { assertPublicHttpUrl } from './ssrfGuard';
 
 // ─── Outbound webhook delivery (signed + retried) ─────────────────────────────
 // Previously this action fired a single, unsigned fetch() with no retry —
@@ -80,6 +81,16 @@ async function postWebhookWithRetry(
   const blocked = isBlockedWebhookHost(url);
   if (blocked) return `Webhook skipped — target ${blocked}`;
 
+  // Second layer: isBlockedWebhookHost above is hostname-based and (as its
+  // own comment notes) cannot catch a public DNS name that resolves to a
+  // private address. assertPublicHttpUrl resolves the name and checks every
+  // address. Same friendly skip-message contract as above.
+  try {
+    await assertPublicHttpUrl(url);
+  } catch (e: any) {
+    return `Webhook skipped — ${e.message}`;
+  }
+
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
@@ -107,6 +118,10 @@ async function postWebhookWithRetry(
         headers: { ...headers, 'X-Webhook-Attempt': String(attempt) },
         body,
         signal: AbortSignal.timeout(10_000),
+        // A public URL that 302s to a private one would bypass the guard
+        // above if fetch followed it; a webhook receiver has no business
+        // redirecting a POST anyway.
+        redirect: 'manual',
       });
       if (res.ok) {
         return attempt === 1 ? `Webhook sent to ${url}` : `Webhook sent to ${url} (succeeded on attempt ${attempt})`;

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
-import { encryptSecret } from '../../utils/crypto';
+import { encryptSecret, secretsMatch } from '../../utils/crypto';
 import { entraRedirectUri, testEntraTenant } from '../../utils/entraAuth';
 import { UserRole } from '@prisma/client';
 import { syncOrgDirectory, syncAllOrgs } from './directorySync';
@@ -227,7 +227,8 @@ export async function syncAll(req: Request, res: Response, next: NextFunction) {
     const configuredSecret = process.env.DIRECTORY_SYNC_SECRET;
     if (!configuredSecret) throw new AppError(404, 'Not found');
     const providedSecret = req.header('x-directory-sync-secret');
-    if (!providedSecret || providedSecret !== configuredSecret) throw new AppError(404, 'Not found');
+    // Constant-time — see secretsMatch() in utils/crypto.ts.
+    if (!secretsMatch(providedSecret, configuredSecret)) throw new AppError(404, 'Not found');
 
     const results = await syncAllOrgs();
     res.json({ success: true, results, syncedAt: new Date().toISOString() });

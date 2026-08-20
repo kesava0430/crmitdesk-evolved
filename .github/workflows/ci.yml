@@ -1,0 +1,61 @@
+# Build + test gate for every push and pull request.
+#
+# Until now this repo had NO build/test CI at all (only the demo-reset and
+# directory-sync cron workflows) — a commit that broke the TypeScript build
+# or the unit tests was only discovered when Render's deploy failed, or
+# worse, at runtime.
+#
+# Notes specific to this repo:
+# - It's an npm-workspaces monorepo: install ONCE at the root. Running
+#   `npm ci` inside client/ or server/ wipes and replaces the shared root
+#   node_modules with only that workspace's deps.
+# - The server's tsc build hard-depends on `prisma generate` having run
+#   first (generated types drive inference in several controllers).
+# - The unit tests stub Prisma (tests/unit/stub-prisma.js) so no database
+#   is needed.
+# - The Playwright e2e suites need a live stack + Postgres and are NOT run
+#   here yet; wiring them up (playwright.config.ts webServer + a service
+#   container for Postgres) is a good next step.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (root — workspaces)
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: server
+
+      - name: Build server (tsc)
+        run: npm run build --workspace=server
+
+      - name: Server unit tests
+        run: npm run test:unit --workspace=server
+
+      - name: Build client (tsc + vite)
+        run: npm run build --workspace=client
+
+      # Fails the build only on HIGH/CRITICAL advisories in production
+      # dependencies — dev-chain advisories (vite etc.) are reported by the
+      # non-blocking step below instead, so they inform without blocking.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit all dependencies (informational)
+        run: npm audit || true

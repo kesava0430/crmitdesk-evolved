@@ -3,6 +3,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { prisma } from '../../utils/prisma';
 import { seedAllDemoOrgs, seedMissingDemoOrgs, VERTICALS, loginEmailFor } from '../../utils/seedDemoData';
 import { AuthRequest } from '../../middleware/authenticate';
+import { secretsMatch } from '../../utils/crypto';
 
 /**
  * POST /demo/reset — re-seeds every industry-vertical showcase org from
@@ -23,7 +24,9 @@ export async function resetDemo(req: Request, res: Response, next: NextFunction)
       throw new AppError(404, 'Not found');
     }
     const providedSecret = req.header('x-demo-reset-secret');
-    if (!providedSecret || providedSecret !== configuredSecret) {
+    // Constant-time — a plain !== leaks how much of a guess matched via
+    // response timing. See secretsMatch() in utils/crypto.ts.
+    if (!secretsMatch(providedSecret, configuredSecret)) {
       throw new AppError(404, 'Not found');
     }
 
@@ -171,7 +174,7 @@ export async function seedMissing(req: AuthRequest, res: Response, next: NextFun
   try {
     const secret = process.env.DEMO_RESET_SECRET;
     const provided = req.header('x-demo-reset-secret');
-    const bySecret = !!secret && provided === secret;
+    const bySecret = secretsMatch(provided, secret);
     const byAdmin = req.user?.role === 'SUPER_ADMIN' || req.user?.role === 'PLATFORM_ADMIN';
 
     if (!bySecret && !byAdmin) {

@@ -50,6 +50,23 @@ class SSEManager {
   connectedCount(orgId: string) {
     return this.clients.get(orgId)?.size ?? 0;
   }
+
+  /**
+   * Ends every open stream. Called on shutdown: server.close() waits for all
+   * connections to drain, and an SSE stream is held open indefinitely by
+   * design — so without this, every deploy/restart sat out the full
+   * forced-exit timeout and exited non-zero instead of closing cleanly.
+   * Clients auto-reconnect (EventSource retries), so ending the stream is
+   * invisible to users beyond a momentary gap.
+   */
+  closeAll() {
+    for (const org of this.clients.values()) {
+      for (const client of org) {
+        try { client.res.end(); } catch { /* connection already gone */ }
+      }
+    }
+    this.clients.clear();
+  }
 }
 
 export const sseManager = new SSEManager();

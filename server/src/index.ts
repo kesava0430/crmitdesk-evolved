@@ -91,6 +91,7 @@ import { startJobQueuePoller } from './utils/jobQueue';
 import { syncAllEmailAccounts } from './utils/email-sync';
 import { errorHandler } from './middleware/errorHandler';
 import { prisma } from './utils/prisma';
+import { sseManager } from './utils/sse';
 
 dotenv.config();
 
@@ -335,22 +336,28 @@ seedPermissionCatalog()
 // cleanly on databases without it — RAG then uses the in-process cosine path.
 ensureVectorIndex().catch(err => console.error('[rag] vector index setup failed', err));
 
+// Handles to every interval started in this file, so shutdown() can stop
+// them — otherwise a poller can fire mid-shutdown and get killed halfway
+// through a send (the job queue's stall recovery papers over that, but not
+// starting new work at all is strictly better).
+const pollers: NodeJS.Timeout[] = [];
+
 // Expire approval requests that blew past their deadline, every 15 minutes.
-setInterval(() => {
+pollers.push(setInterval(() => {
   expireOverdueApprovals()
     .then(n => { if (n > 0) console.log(`[approvals] expired ${n} overdue request(s)`); })
     .catch(err => console.error('[approvals] expiry sweep failed', err));
-}, 15 * 60 * 1000);
+}, 15 * 60 * 1000));
 
 // Purge expired refresh tokens once per hour
-setInterval(async () => {
+pollers.push(setInterval(async () => {
   const { count } = await prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   if (count > 0) console.log(`[cleanup] Deleted ${count} expired refresh tokens`);
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000));
 
 // Email sync: run immediately on startup, then every 5 minutes
 syncAllEmailAccounts().catch(() => {});
-setInterval(() => syncAllEmailAccounts().catch(() => {}), 5 * 60 * 1000);
+pollers.push(setInterval(() => syncAllEmailAccounts().catch(() => {}), 5 * 60 * 1000));
 
 // Schedule reminders: check for due WhatsApp notifications every minute
 startSchedulePoller();
@@ -377,9 +384,34 @@ startSlaMonitorPoller();
 // exponential backoff — see utils/jobQueue.ts.
 startJobQueuePoller();
 
+// ─── Crash safety net ────────────────────────────────────────────────────────
+// On Node 20 an unhandled promise rejection TERMINATES the process — and this
+// codebase has many fire-and-forget async chains (pollers, seeding, SSE
+// writes). Without these handlers the process dies with whatever half-line
+// the default reporter prints and Render just restarts it, invisibly. Log
+// loudly, then exit non-zero so the platform restarts us from a clean slate —
+// limping on after an uncaught throw risks corrupt in-memory state.
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled promise rejection — exiting for a clean restart:', reason);
+  process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception — exiting for a clean restart:', err);
+  process.exit(1);
+});
+
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal: string) {
   console.log(`[server] ${signal} received — shutting down gracefully`);
+
+  // Stop starting new background work, and release the connections that
+  // would otherwise hold server.close() open forever: every SSE stream
+  // (deliberately never-ending) and idle keep-alive sockets. Before this,
+  // any deploy with a dashboard open always hit the 10s force-exit path.
+  for (const p of pollers) clearInterval(p);
+  sseManager.closeAll();
+  server.closeIdleConnections?.();
+
   server.close(async () => {
     await prisma.$disconnect();
     console.log('[server] Closed');

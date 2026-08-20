@@ -883,6 +883,10 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
+  // Email-sync dedupe looks messages up by externalId (Message-ID header) on
+  // every synced email; without this index that was a sequential scan of an
+  // ever-growing table, making sync slower forever.
+  @@index([externalId])
   @@map("messages")
 }
 
