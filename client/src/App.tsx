@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppLayout } from './shared/layouts/AppLayout';
 import { isRouteAllowed } from './shared/routeAccess';
 import { AccessDenied } from './shared/components/AccessDenied';
+import { ServerWakingOverlay } from './shared/components/ServerWakingOverlay';
 
 // Eagerly loaded — shown before auth or as portal (must be small/fast)
 import { LoginPage } from './pages/LoginPage';
@@ -135,6 +136,10 @@ function RootRedirect() {
 export default function App() {
   return (
     <AuthProvider>
+      {/* Free-tier cold-start detector: invisible when the API is warm; a
+          "waking up the server" panel (instead of endless skeletons) while a
+          spun-down backend boots. See shared/components/ServerWakingOverlay. */}
+      <ServerWakingOverlay />
       <Routes>
         {/* Public customer portal — outside main app layout */}
         <Route path="/portal" element={<CustomerPortal />} />

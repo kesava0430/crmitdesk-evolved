@@ -20,7 +20,18 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       gcTime: 5 * 60_000,
-      retry: 1,
+      // Network-aware retry. A response with an error status (4xx/5xx) is a
+      // real answer — retrying it once (the old behavior) is plenty. NO
+      // response at all usually means the free-tier backend is cold-starting
+      // (50–90s on Render's free plan after it spins down), so those get
+      // more attempts with growing delays instead of failing the screen
+      // while the server is still booting. ServerWakingOverlay (App.tsx)
+      // shows what's happening and refetches everything once it's awake.
+      retry: (failureCount, error: any) => {
+        if (!error?.response) return failureCount < 5;
+        return failureCount < 1;
+      },
+      retryDelay: attempt => Math.min(2000 * 2 ** attempt, 15_000),
       refetchOnWindowFocus: false,
     },
   },
