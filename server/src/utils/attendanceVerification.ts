@@ -96,6 +96,45 @@ export async function expandAllowlistHostnames(allowlist: string | null | undefi
 }
 
 /**
+ * Best-effort reverse-DNS ("what DNS name does my current public IP have?")
+ * for the HR Settings "Use my DNS name" helper. Looks up the PTR record(s)
+ * for the IP and forward-confirms each candidate (FCrDNS): a name only
+ * counts as `verified` if resolving it forward returns the same IP —
+ * otherwise adding it to the allowlist would not actually match at check-in
+ * time. Typical ISP dynamic IPs have either no PTR or a generated one that
+ * changes with every re-assignment, so callers should treat a null/unverified
+ * result as "set up a DDNS hostname instead", not as an error.
+ */
+export async function detectPtrHostname(ip: string | undefined | null): Promise<{ host: string; verified: boolean } | null> {
+  if (!ip) return null;
+  const cleanIp = ip.trim().replace(/^::ffff:/i, '');
+  if (!cleanIp) return null;
+  try {
+    const names = await dns.reverse(cleanIp);
+    if (!names.length) return null;
+    for (const name of names) {
+      const fwd = await dns.resolve4(name).catch(() => [] as string[]);
+      if (fwd.includes(cleanIp)) return { host: name, verified: true };
+    }
+    return { host: names[0], verified: false };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verifies a hostname the admin typed into the allowlist: does it resolve,
+ * and does it currently point at the caller's public IP? Used by the HR
+ * Settings form so a mistyped or not-yet-propagated DDNS name is caught at
+ * configuration time instead of silently failing every check-in.
+ */
+export async function checkHostnameAgainstIp(host: string, ip: string | undefined | null): Promise<{ host: string; resolvedIps: string[]; matchesIp: boolean }> {
+  const cleanIp = (ip || '').trim().replace(/^::ffff:/i, '');
+  const resolvedIps = await dns.resolve4(host.trim()).catch(() => [] as string[]);
+  return { host: host.trim(), resolvedIps, matchesIp: !!cleanIp && resolvedIps.includes(cleanIp) };
+}
+
+/**
  * Matches `ip` against a comma-separated allowlist of exact IPv4 addresses
  * and/or CIDR blocks (e.g. "203.0.113.5, 198.51.100.0/24"). Returns
  * 'not_configured' when the allowlist is blank/unset for this office (no

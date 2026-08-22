@@ -17,6 +17,8 @@ router.post('/manual',    requireRole(...MANAGERS), c.manualEntry);
 
 // Office locations (admin config)
 router.get('/my-ip',                   requireRole(...MANAGERS), c.myIp);
+router.get('/my-host',                 requireRole(...MANAGERS), c.myHost);
+router.get('/check-host',              requireRole(...MANAGERS), c.checkHost);
 router.get('/office-locations',        requireRole(...MANAGERS), c.listOfficeLocations);
 router.post('/office-locations',       requireRole(...MANAGERS), c.createOfficeLocation);
 router.patch('/office-locations/:id',  requireRole(...MANAGERS), c.updateOfficeLocation);

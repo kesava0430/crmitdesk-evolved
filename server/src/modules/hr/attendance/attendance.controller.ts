@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
-import { verifyAgainstOfficesResolved, extractClientIp, sumWorkedMinutes } from '../../../utils/attendanceVerification';
+import { verifyAgainstOfficesResolved, extractClientIp, sumWorkedMinutes, detectPtrHostname, checkHostnameAgainstIp } from '../../../utils/attendanceVerification';
 import { sseManager, SSEEvent } from '../../../utils/sse';
 import { logAction } from '../../../utils/auditLog';
 
@@ -248,6 +248,35 @@ export async function myIp(req: AuthRequest, res: Response, next: NextFunction) 
   try {
     const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
     res.json({ ip });
+  } catch (err) { next(err); }
+}
+
+// GET /hr/attendance/my-host — best-effort reverse-DNS of the caller's
+// current public IP, for the "Use my DNS name" button. `verified` is true
+// only when the discovered name forward-resolves back to the same IP
+// (otherwise putting it in the allowlist would never match at check-in).
+// A null host is the normal case for ISP dynamic IPs — the UI then guides
+// the admin to a DDNS hostname instead.
+export async function myHost(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
+    const ptr = await detectPtrHostname(ip);
+    res.json({ ip, host: ptr?.host ?? null, verified: ptr?.verified ?? false });
+  } catch (err) { next(err); }
+}
+
+const CheckHostSchema = z.object({ host: z.string().min(1).max(253).regex(/^[a-z0-9.-]+$/i, 'Hostname only — letters, digits, dots, hyphens') });
+
+// GET /hr/attendance/check-host?host=office.myco.ddns.net — verifies a typed
+// DDNS hostname: what it resolves to right now, and whether that matches the
+// caller's current public IP. Lets the admin confirm their DDNS setup from
+// the office before saving, instead of discovering a typo at check-in time.
+export async function checkHost(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { host } = CheckHostSchema.parse({ host: req.query.host });
+    const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
+    const result = await checkHostnameAgainstIp(host, ip);
+    res.json({ ...result, yourIp: ip });
   } catch (err) { next(err); }
 }
 
