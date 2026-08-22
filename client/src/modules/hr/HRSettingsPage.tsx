@@ -179,10 +179,10 @@ function OfficeLocationsSection() {
                 <Input type="number" min={10} max={50000} value={form.radiusMeters} onChange={e => setForm(f => ({ ...f, radiusMeters: e.target.value }))} />
               </Field>
               <Field
-                label="Allowed IPs / CIDR (optional)"
-                hint="Comma-separated. If set, check-in also verifies the employee's public IP matches the office network."
+                label="Allowed IPs / CIDR / hostname (optional)"
+                hint="Comma-separated. If set, check-in also verifies the employee's public IP matches the office network. Office on a dynamic IP? Enter a dynamic-DNS hostname (e.g. office.myco.ddns.net) instead of an IP — it's resolved to the office's current address at every check-in."
               >
-                <Input value={form.allowedIps} onChange={e => setForm(f => ({ ...f, allowedIps: e.target.value }))} placeholder="203.0.113.4, 203.0.113.0/24" />
+                <Input value={form.allowedIps} onChange={e => setForm(f => ({ ...f, allowedIps: e.target.value }))} placeholder="203.0.113.4, 203.0.113.0/24, office.myco.ddns.net" />
                 <Button className="mt-1.5 self-start" variant="ghost" size="xs" icon={<Wifi size={12} />} loading={detectingIp} onClick={useMyIp} disabled={detectingIp}>
                   Use my current IP
                 </Button>

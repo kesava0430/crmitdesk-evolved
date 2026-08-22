@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
-import { verifyAgainstOffices, extractClientIp, sumWorkedMinutes } from '../../../utils/attendanceVerification';
+import { verifyAgainstOfficesResolved, extractClientIp, sumWorkedMinutes } from '../../../utils/attendanceVerification';
 import { sseManager, SSEEvent } from '../../../utils/sse';
 import { logAction } from '../../../utils/auditLog';
 
@@ -40,9 +40,12 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     }
 
     const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
-    const result = verifyAgainstOffices(offices, lat, lng, ip);
+    // Resolved variant: DDNS hostname entries in an office's allowlist are
+    // expanded to their current IPs at verification time, so offices on a
+    // dynamic public IP stay checkable (see attendanceVerification.ts).
+    const result = await verifyAgainstOfficesResolved(offices, lat, lng, ip);
 
-    // verifyAgainstOffices() now requires BOTH signals once an office has an
+    // Verification requires BOTH signals once an office has an
     // IP allowlist configured (GPS alone used to be enough even for those
     // offices) — so a failure here can be a location miss, a network miss,
     // or both, and each has to be checked independently rather than
@@ -89,7 +92,7 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
 
     const offices = await prisma.officeLocation.findMany({ where: { orgId, isActive: true } });
     const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
-    const result = verifyAgainstOffices(offices, lat, lng, ip);
+    const result = await verifyAgainstOfficesResolved(offices, lat, lng, ip);
 
     // Checkout is intentionally NOT blocked by a failed verification — an
     // employee who legitimately leaves the office (client visit, end of

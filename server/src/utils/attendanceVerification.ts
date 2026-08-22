@@ -11,6 +11,8 @@
 // exceptions (approved WFH, field visits, a flaky GPS fix) this can't
 // perfectly handle.
 
+import { promises as dns } from 'node:dns';
+
 /** Great-circle distance between two lat/lng points, in meters. */
 export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000; // Earth radius, meters
@@ -31,6 +33,67 @@ function ipv4ToInt(ip: string): number | null {
 }
 
 export type NetworkCheckStatus = 'not_configured' | 'matched' | 'not_matched';
+
+// ─── Dynamic-DNS hostname support ────────────────────────────────────────────
+// Offices on a dynamic public IP can't keep a literal address in the
+// allowlist — it goes stale on every ISP re-assignment and locks everyone
+// out of check-in. Instead the admin points a DDNS hostname at the office
+// router (the router keeps it updated) and puts the HOSTNAME in the
+// allowlist, e.g. "office.mycompany.ddns.net". At verification time each
+// hostname entry is resolved to its current A records and those IPs join
+// the allowlist for the comparison. Results are cached briefly so a busy
+// morning of check-ins doesn't hammer DNS, but short enough that an IP
+// change propagates within a minute.
+
+const DNS_CACHE = new Map<string, { ips: string[]; expiresAt: number }>();
+const DNS_TTL_MS = 60_000;          // successful lookups
+const DNS_NEGATIVE_TTL_MS = 30_000; // failed lookups — retry soon, but don't stall every check-in
+
+/** An allowlist entry is treated as a hostname when it contains a letter —
+ *  IPv4 addresses and CIDR blocks never do. */
+export function isHostnameEntry(entry: string): boolean {
+  return /[a-z]/i.test(entry);
+}
+
+async function resolveHostname(host: string): Promise<string[]> {
+  const now = Date.now();
+  const cached = DNS_CACHE.get(host);
+  if (cached && cached.expiresAt > now) return cached.ips;
+  try {
+    const ips = await dns.resolve4(host);
+    DNS_CACHE.set(host, { ips, expiresAt: now + DNS_TTL_MS });
+    return ips;
+  } catch {
+    // Unresolvable (typo, DDNS outage): treat as contributing no IPs rather
+    // than failing the whole check-in pipeline. Any other entry (an exact
+    // IP, a CIDR, another hostname) can still match.
+    DNS_CACHE.set(host, { ips: [], expiresAt: now + DNS_NEGATIVE_TTL_MS });
+    return [];
+  }
+}
+
+/**
+ * Expands an allowlist that may contain hostnames into one that contains
+ * only IPs/CIDRs, by resolving each hostname entry to its current A
+ * records. Pure IP/CIDR entries pass through untouched; a blank/unset
+ * allowlist stays blank (so 'not_configured' semantics are preserved).
+ */
+export async function expandAllowlistHostnames(allowlist: string | null | undefined): Promise<string | null | undefined> {
+  if (!allowlist || !allowlist.trim()) return allowlist;
+  const entries = allowlist.split(',').map(s => s.trim()).filter(Boolean);
+  if (!entries.some(isHostnameEntry)) return allowlist;
+  const expanded: string[] = [];
+  for (const entry of entries) {
+    if (isHostnameEntry(entry)) expanded.push(...await resolveHostname(entry));
+    else expanded.push(entry);
+  }
+  // Every entry was a hostname and none resolved (DDNS outage, DNS down):
+  // fall back to GPS-only for this check-in rather than locking the whole
+  // office out of attendance — that lockout is precisely the failure mode
+  // hostname support exists to fix, and the GPS radius check still stands.
+  // The gap self-heals on the next successful resolution (≤60s cache).
+  return expanded.length ? expanded.join(', ') : '';
+}
 
 /**
  * Matches `ip` against a comma-separated allowlist of exact IPv4 addresses
@@ -141,6 +204,26 @@ export function verifyAgainstOffices(
 
   const { distance, ...result } = best;
   return result;
+}
+
+/**
+ * Async variant of verifyAgainstOffices() that first expands any DDNS
+ * hostname entries in each office's allowlist to their current IPs (see
+ * expandAllowlistHostnames above). This is what the check-in/check-out
+ * controllers call; the sync verifyAgainstOffices() stays as-is for tests
+ * and for callers that already hold literal allowlists.
+ */
+export async function verifyAgainstOfficesResolved(
+  offices: { name: string; latitude: number; longitude: number; radiusMeters: number; allowedIps: string | null }[],
+  lat: number,
+  lng: number,
+  ip: string,
+): Promise<VerificationResult> {
+  const resolved = await Promise.all(offices.map(async o => ({
+    ...o,
+    allowedIps: (await expandAllowlistHostnames(o.allowedIps)) ?? null,
+  })));
+  return verifyAgainstOffices(resolved, lat, lng, ip);
 }
 
 /**
