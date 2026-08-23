@@ -26,23 +26,27 @@ const base =
   'disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 select-none';
 
 const variants: Record<Variant, string> = {
+  /* Linear-style primary: flat accent with an inset top sheen and a
+     slightly darker 1px edge — reads as a physical key, not a flat slab. */
   primary:
-    'bg-accent text-accent-fg shadow-ui-sm ' +
-    'hover:bg-accent-hover active:bg-accent-active active:scale-[0.98]',
+    'bg-accent text-accent-fg border border-accent-active/50 ' +
+    'shadow-[inset_0_1px_0_0_rgba(255,255,255,0.14),0_1px_2px_rgba(16,17,20,0.10)] ' +
+    'hover:bg-accent-hover active:bg-accent-active active:shadow-none active:scale-[0.985]',
   secondary:
     'bg-surface text-fg border border-line shadow-ui-sm ' +
-    'hover:bg-surface-hover hover:border-line-strong active:scale-[0.98]',
+    'hover:bg-surface-hover hover:border-line-strong active:scale-[0.985]',
   danger:
-    'bg-danger text-white shadow-ui-sm ' +
-    'hover:brightness-110 active:brightness-95 active:scale-[0.98]',
+    'bg-danger text-white border border-black/10 ' +
+    'shadow-[inset_0_1px_0_0_rgba(255,255,255,0.12),0_1px_2px_rgba(16,17,20,0.10)] ' +
+    'hover:brightness-110 active:brightness-95 active:scale-[0.985]',
   ghost:
-    'text-fg-muted hover:bg-surface-hover hover:text-fg active:scale-[0.98]',
+    'text-fg-muted hover:bg-surface-hover hover:text-fg active:scale-[0.985]',
   outline:
     'border border-accent/40 text-accent ' +
-    'hover:bg-accent-soft hover:border-accent active:scale-[0.98]',
+    'hover:bg-accent-soft hover:border-accent active:scale-[0.985]',
   /** Tinted, low-emphasis. Replaces the ad-hoc `bg-green-50 text-green-700` action chips. */
   subtle:
-    'bg-accent-soft text-accent-soft-fg hover:brightness-95 active:scale-[0.98]',
+    'bg-accent-soft text-accent-soft-fg hover:brightness-95 active:scale-[0.985]',
 };
 
 /* Horizontal padding and type scale stay fixed; height follows the theme so a
@@ -50,8 +54,8 @@ const variants: Record<Variant, string> = {
 const sizes: Record<Size, string> = {
   xs: 'px-2.5 text-[11.5px] gap-1   h-ctl-xs',
   sm: 'px-3   text-[12.5px] gap-1.5 h-ctl-sm',
-  md: 'px-4   text-[13.5px] gap-2   h-ctl-md',
-  lg: 'px-5   text-sm       gap-2   h-ctl-lg',
+  md: 'px-3.5 text-[13px]   gap-1.5 h-ctl-md',
+  lg: 'px-4   text-[13.5px] gap-2   h-ctl-lg',
 };
 
 const spinnerSize: Record<Size, number> = { xs: 11, sm: 12, md: 13, lg: 14 };

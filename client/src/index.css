@@ -32,119 +32,121 @@
 [data-font="nunito"]  { --font-sans: 'Nunito Sans', system-ui, sans-serif; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THEME: MINIMAL (default) — clean, airy, soft indigo
+   THEME: MINIMAL (default) — "Linear-grade": near-monochrome cool
+   neutrals, hairline borders, Linear's indigo used sparingly, tight
+   crisp density. Redesigned 2026-08 against Linear/Attio references;
+   the other three themes keep their own personalities untouched.
    ═══════════════════════════════════════════════════════════════════ */
 :root,
 [data-theme="minimal"] {
-  /* Surfaces */
-  --ui-canvas:          248 250 252;
+  /* Surfaces — white work surfaces on a barely-gray canvas */
+  --ui-canvas:          250 250 251;
   --ui-surface:         255 255 255;
   --ui-surface-raised:  255 255 255;
-  --ui-surface-sunken:  248 250 252;
-  --ui-surface-hover:   248 250 252;
+  --ui-surface-sunken:  247 247 249;
+  --ui-surface-hover:   244 245 247;
 
-  /* Lines */
-  --ui-line:            226 232 240;
-  --ui-line-strong:     203 213 225;
-  --ui-line-subtle:     241 245 249;
+  /* Lines — hairlines carry the structure, not shadows */
+  --ui-line:            232 233 237;
+  --ui-line-strong:     209 211 218;
+  --ui-line-subtle:     240 241 244;
 
-  /* Text */
-  --ui-fg:              15 23 42;
-  --ui-fg-muted:        100 116 139;
-  --ui-fg-subtle:       148 163 184;
+  /* Text — near-black with a cool cast, generous contrast steps */
+  --ui-fg:              24 25 32;
+  --ui-fg-muted:        96 100 112;
+  --ui-fg-subtle:       143 148 160;
 
-  /* Accent */
-  --ui-accent:          79 70 229;
-  --ui-accent-hover:    67 56 202;
-  --ui-accent-active:   55 48 163;
+  /* Accent — Linear indigo #5E6AD2, reserved for actions and focus */
+  --ui-accent:          94 106 210;
+  --ui-accent-hover:    79 90 189;
+  --ui-accent-active:   67 76 160;
   --ui-accent-fg:       255 255 255;
-  --ui-accent-soft:     238 242 255;
-  --ui-accent-soft-fg:  67 56 202;
-  --ui-accent-ring:     129 140 248;
+  --ui-accent-soft:     238 240 252;
+  --ui-accent-soft-fg:  74 83 173;
+  --ui-accent-ring:     163 172 240;
 
-  /* Status */
-  --ui-success:         5 150 105;
-  --ui-success-soft:    236 253 245;
-  --ui-success-fg:      4 120 87;
+  /* Status — slightly deeper, less pastel than before */
+  --ui-success:         22 163 74;
+  --ui-success-soft:    240 250 244;
+  --ui-success-fg:      21 128 61;
   --ui-warning:         217 119 6;
-  --ui-warning-soft:    255 251 235;
+  --ui-warning-soft:    254 249 237;
   --ui-warning-fg:      180 83 9;
   --ui-danger:          220 38 38;
   --ui-danger-soft:     254 242 242;
   --ui-danger-fg:       185 28 28;
-  --ui-info:            37 99 235;
+  --ui-info:            59 130 246;
   --ui-info-soft:       239 246 255;
   --ui-info-fg:         29 78 216;
 
-  /* Sidebar — Minimal is the flagship look: a light, quiet rail in the
-     Linear/Notion tradition rather than the stock dark-admin panel. Other
-     themes keep their own darker personalities via their own token blocks,
-     and html.dark flips this one back to a dark rail. */
-  --ui-sidebar-bg:          252 252 253;
-  --ui-sidebar-fg:          51 65 85;
-  --ui-sidebar-muted:       100 116 139;
-  --ui-sidebar-heading:     148 163 184;
-  --ui-sidebar-line:        231 234 240;
-  --ui-sidebar-hover:       241 245 249;
-  --ui-sidebar-active-bg:   238 242 255;
-  --ui-sidebar-active-fg:   67 56 202;
+  /* Sidebar — Linear's quiet light rail: one shade off the canvas,
+     tinted (not solid) active state, hairline separation. html.dark
+     flips it to the dark rail below. */
+  --ui-sidebar-bg:          251 251 252;
+  --ui-sidebar-fg:          55 58 70;
+  --ui-sidebar-muted:       96 100 112;
+  --ui-sidebar-heading:     143 148 160;
+  --ui-sidebar-line:        236 237 240;
+  --ui-sidebar-hover:       242 243 245;
+  --ui-sidebar-active-bg:   238 240 252;
+  --ui-sidebar-active-fg:   74 83 173;
 
-  /* Radius scale */
+  /* Radius scale — tighter than before; big radii read as toy-like */
   --ui-radius-xs:    4px;
   --ui-radius-sm:    6px;
-  --ui-radius-md:    10px;
-  --ui-radius-lg:    14px;
-  --ui-radius-xl:    18px;
-  --ui-radius-2xl:   24px;
+  --ui-radius-md:    8px;
+  --ui-radius-lg:    10px;
+  --ui-radius-xl:    14px;
+  --ui-radius-2xl:   18px;
   --ui-radius-full:  9999px;
 
   /* Per-element radius */
-  --ui-btn-radius:   8px;
-  --ui-input-radius: 8px;
-  --ui-card-radius:  12px;
-  --ui-badge-radius: 9999px;
-  --ui-modal-radius: 18px;
+  --ui-btn-radius:   7px;
+  --ui-input-radius: 7px;
+  --ui-card-radius:  10px;
+  --ui-badge-radius: 6px;
+  --ui-modal-radius: 14px;
 
-  /* Shadows */
-  --ui-shadow-sm:    0 1px 2px 0 rgba(15,23,42,0.05);
-  --ui-shadow-md:    0 4px 6px -1px rgba(15,23,42,0.06), 0 2px 4px -2px rgba(15,23,42,0.04);
-  --ui-shadow-lg:    0 10px 15px -3px rgba(15,23,42,0.07), 0 4px 6px -4px rgba(15,23,42,0.04);
-  --ui-shadow-modal: 0 25px 50px -12px rgba(15,23,42,0.18), 0 0 0 1px rgba(15,23,42,0.04);
+  /* Shadows — barely-there at rest, real depth only when floating */
+  --ui-shadow-sm:    0 1px 2px rgba(16,17,20,0.04);
+  --ui-shadow-md:    0 3px 8px -2px rgba(16,17,20,0.07), 0 1px 2px rgba(16,17,20,0.04);
+  --ui-shadow-lg:    0 12px 28px -8px rgba(16,17,20,0.12), 0 2px 6px -2px rgba(16,17,20,0.05);
+  --ui-shadow-modal: 0 28px 60px -12px rgba(16,17,20,0.22), 0 0 0 1px rgba(16,17,20,0.05);
 
-  /* Density — control heights, padding, type */
-  --ui-ctl-h-xs:     26px;
-  --ui-ctl-h-sm:     30px;
-  --ui-ctl-h-md:     34px;
-  --ui-ctl-h-lg:     38px;
+  /* Density — Linear-crisp: 32px controls, 13px control type */
+  --ui-ctl-h-xs:     24px;
+  --ui-ctl-h-sm:     28px;
+  --ui-ctl-h-md:     32px;
+  --ui-ctl-h-lg:     36px;
   --ui-ctl-px:       12px;
-  --ui-ctl-py:       8px;
-  --ui-font-ctl:     13.5px;
+  --ui-ctl-py:       7px;
+  --ui-font-ctl:     13px;
   --ui-card-pad:     20px;
-  --ui-row-py:       12px;
+  --ui-row-py:       10px;
   --ui-section-gap:  20px;
 
   /* Shell */
-  --ui-sidebar-w:    240px;
-  --ui-topbar-h:     56px;
+  --ui-sidebar-w:    236px;
+  --ui-topbar-h:     52px;
 
   /* Modal chrome */
   --ui-modal-bg:            255 255 255;
-  --ui-modal-border:        rgba(15,23,42,0.06);
+  --ui-modal-border:        rgba(16,17,20,0.06);
   --ui-modal-header-bg:     255 255 255;
-  --ui-modal-header-border: rgba(15,23,42,0.06);
-  --ui-modal-footer-bg:     rgba(248,250,252,0.8);
+  --ui-modal-header-border: rgba(16,17,20,0.06);
+  --ui-modal-footer-bg:     rgba(250,250,251,0.9);
   --ui-modal-accent-h:      0px;
   --ui-modal-accent-bg:     transparent;
 
-  --ui-backdrop-color:      rgba(15,23,42,0.45);
+  --ui-backdrop-color:      rgba(18,19,24,0.5);
   --ui-backdrop-blur:       8px;
 
   /* Inputs (derived from the tokens above so themes stay coherent) */
   --ui-input-bg:            rgb(var(--ui-surface));
   --ui-input-border:        rgb(var(--ui-line));
   --ui-input-border-focus:  rgb(var(--ui-accent));
-  --ui-input-ring:          rgb(var(--ui-accent) / 0.15);
-  --ui-input-shadow:        none;
+  --ui-input-ring:          rgb(var(--ui-accent) / 0.14);
+  --ui-input-shadow:        0 1px 2px rgba(16,17,20,0.03);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -461,17 +463,18 @@
 
 :root,
 [data-theme="minimal"] {
-  --ui-accent-50:  238 242 255;
-  --ui-accent-100: 224 231 255;
-  --ui-accent-200: 199 210 254;
-  --ui-accent-300: 165 180 252;
-  --ui-accent-400: 129 140 248;
-  --ui-accent-500: 99 102 241;
-  --ui-accent-600: 79 70 229;
-  --ui-accent-700: 67 56 202;
-  --ui-accent-800: 55 48 163;
-  --ui-accent-900: 49 46 129;
-  --ui-accent-950: 30 27 75;
+  /* Ramp centred on Linear indigo #5E6AD2 */
+  --ui-accent-50:  240 242 252;
+  --ui-accent-100: 228 231 249;
+  --ui-accent-200: 205 210 242;
+  --ui-accent-300: 173 180 232;
+  --ui-accent-400: 135 145 222;
+  --ui-accent-500: 94 106 210;
+  --ui-accent-600: 79 90 189;
+  --ui-accent-700: 67 76 160;
+  --ui-accent-800: 56 63 131;
+  --ui-accent-900: 48 54 108;
+  --ui-accent-950: 30 33 64;
 }
 [data-theme="modern"] {
   --ui-accent-50:  245 243 255;
@@ -526,10 +529,10 @@
    a near-white slab on a navy page. Explicit `dark:bg-brand-500/10`
    overrides already in the code still win, so nothing regresses. */
 html.dark {
-  --ui-accent-50:  30 27 75;
-  --ui-accent-100: 49 46 129;
-  --ui-accent-200: 55 48 163;
-  --ui-accent-300: 67 56 202;
+  --ui-accent-50:  34 37 62;
+  --ui-accent-100: 44 48 84;
+  --ui-accent-200: 60 67 120;
+  --ui-accent-300: 79 88 150;
 }
 html.dark[data-theme="modern"] {
   --ui-accent-50:  46 16 101;
@@ -550,49 +553,52 @@ html.dark[data-theme="friendly"] {
   --ui-accent-300: 194 65 12;
 }
 html.dark {
-  --ui-canvas:          2 6 23;
-  --ui-surface:         15 23 42;
-  --ui-surface-raised:  30 41 59;
-  --ui-surface-sunken:  2 6 23;
-  --ui-surface-hover:   30 41 59;
+  /* "Linear dark": true grays with no blue wash, layered 14→22→29 */
+  --ui-canvas:          14 15 17;
+  --ui-surface:         22 23 26;
+  --ui-surface-raised:  29 30 34;
+  --ui-surface-sunken:  14 15 17;
+  --ui-surface-hover:   29 30 34;
 
-  --ui-line:            51 65 85;
-  --ui-line-strong:     71 85 105;
-  --ui-line-subtle:     30 41 59;
+  --ui-line:            42 44 49;
+  --ui-line-strong:     62 65 72;
+  --ui-line-subtle:     30 31 35;
 
-  --ui-fg:              241 245 249;
-  --ui-fg-muted:        148 163 184;
-  --ui-fg-subtle:       100 116 139;
+  --ui-fg:              236 237 240;
+  --ui-fg-muted:        148 152 162;
+  --ui-fg-subtle:       100 104 114;
 
-  --ui-accent:          99 102 241;
-  --ui-accent-hover:    129 140 248;
-  --ui-accent-active:   165 180 252;
+  --ui-accent:          125 136 224;
+  --ui-accent-hover:    148 158 232;
+  --ui-accent-active:   168 177 240;
   --ui-accent-fg:       255 255 255;
-  --ui-accent-soft:     30 27 75;
-  --ui-accent-soft-fg:  165 180 252;
-  --ui-accent-ring:     129 140 248;
+  --ui-accent-soft:     34 37 62;
+  --ui-accent-soft-fg:  168 177 240;
+  --ui-accent-ring:     125 136 224;
 
-  --ui-success:         52 211 153;
-  --ui-success-soft:    6 44 34;
-  --ui-success-fg:      110 231 183;
-  --ui-warning:         251 191 36;
-  --ui-warning-soft:    56 36 4;
+  --ui-success:         74 222 128;
+  --ui-success-soft:    13 40 24;
+  --ui-success-fg:      134 239 172;
+  --ui-warning:         250 204 21;
+  --ui-warning-soft:    46 36 5;
   --ui-warning-fg:      253 224 71;
   --ui-danger:          248 113 113;
-  --ui-danger-soft:     60 15 15;
+  --ui-danger-soft:     55 18 18;
   --ui-danger-fg:       252 165 165;
   --ui-info:            96 165 250;
-  --ui-info-soft:       12 32 66;
+  --ui-info-soft:       17 30 54;
   --ui-info-fg:         147 197 253;
 
-  --ui-sidebar-bg:          2 6 23;
-  --ui-sidebar-fg:          226 232 240;
-  --ui-sidebar-muted:       148 163 184;
-  --ui-sidebar-heading:     100 116 139;
-  --ui-sidebar-line:        30 41 59;
-  --ui-sidebar-hover:       30 41 59;
-  --ui-sidebar-active-bg:   99 102 241;
-  --ui-sidebar-active-fg:   255 255 255;
+  /* Dark rail one step below the canvas, tinted active chip (not a
+     solid indigo slab) — matches the light rail's behavior. */
+  --ui-sidebar-bg:          16 17 19;
+  --ui-sidebar-fg:          226 228 232;
+  --ui-sidebar-muted:       148 152 162;
+  --ui-sidebar-heading:     100 104 114;
+  --ui-sidebar-line:        30 31 35;
+  --ui-sidebar-hover:       29 30 34;
+  --ui-sidebar-active-bg:   34 37 62;
+  --ui-sidebar-active-fg:   168 177 240;
 
   /* Black shadows vanish on dark surfaces — deepen and add a rim light */
   --ui-shadow-sm:    0 1px 2px 0 rgba(0,0,0,0.4);
@@ -600,13 +606,13 @@ html.dark {
   --ui-shadow-lg:    0 12px 24px -6px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
   --ui-shadow-modal: 0 32px 64px -12px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.07);
 
-  --ui-modal-bg:            30 41 59;
-  --ui-modal-border:        rgba(255,255,255,0.08);
-  --ui-modal-header-bg:     30 41 59;
-  --ui-modal-header-border: rgba(255,255,255,0.08);
-  --ui-modal-footer-bg:     rgba(15,23,42,0.7);
+  --ui-modal-bg:            29 30 34;
+  --ui-modal-border:        rgba(255,255,255,0.07);
+  --ui-modal-header-bg:     29 30 34;
+  --ui-modal-header-border: rgba(255,255,255,0.07);
+  --ui-modal-footer-bg:     rgba(22,23,26,0.7);
 
-  --ui-backdrop-color:      rgba(0,0,0,0.65);
+  --ui-backdrop-color:      rgba(0,0,0,0.6);
 
   --ui-input-bg:            rgb(var(--ui-surface-sunken));
   --ui-input-border:        rgb(var(--ui-line));
@@ -677,10 +683,10 @@ html.dark[data-theme="friendly"] {
     background: rgb(var(--ui-canvas));
     color: rgb(var(--ui-fg));
     font-family: var(--font-sans);
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-    font-size: 14px;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum' 0;
+    font-size: 13.5px;
     line-height: 1.5;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.008em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition: background-color 0.2s ease, color 0.2s ease;
@@ -876,19 +882,19 @@ html.dark[data-theme="friendly"] {
      Five hand-rolled header styles previously coexisted; this is the
      one they all collapse into. Density follows --ui-row-py, so
      Classic gets a genuinely compact grid. */
-  .ui-table { width: 100%; font-size: 13.5px; border-collapse: collapse; }
+  .ui-table { width: 100%; font-size: 13px; border-collapse: collapse; }
   .ui-table thead th {
     position: sticky;
     top: 0;
     z-index: 1;
     text-align: left;
-    padding: 10px 16px;
-    font-size: 11px;
-    font-weight: 700;
+    padding: 9px 16px;
+    font-size: 10.5px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgb(var(--ui-fg-muted));
-    background: rgb(var(--ui-surface-sunken));
+    letter-spacing: 0.08em;
+    color: rgb(var(--ui-fg-subtle));
+    background: rgb(var(--ui-surface));
     border-bottom: 1px solid rgb(var(--ui-line));
     white-space: nowrap;
   }

@@ -46,7 +46,8 @@ export function Tabs<K extends string = string>({
 }: TabsProps<K>) {
   const containers: Record<string, string> = {
     underline: 'flex gap-1 border-b border-line-subtle overflow-x-auto',
-    segmented: 'inline-flex rounded-btn border border-line overflow-hidden bg-surface',
+    /* Linear-style segmented control: recessed tray, floating active chip. */
+    segmented: 'inline-flex items-center gap-0.5 rounded-btn border border-line-subtle bg-surface-sunken p-0.5',
     pill: 'flex gap-1.5 flex-wrap',
   };
 
@@ -58,22 +59,25 @@ export function Tabs<K extends string = string>({
     if (variant === 'underline') {
       return `${base} ${off} px-3 py-2.5 text-[13px] border-b-2 -mb-px ${
         active
-          ? 'border-accent text-accent'
+          ? 'border-accent text-fg font-semibold'
           : 'border-transparent text-fg-muted hover:text-fg hover:border-line-strong'
       }`;
     }
     if (variant === 'pill') {
+      /* Quiet tinted chips instead of solid accent slabs — the accent is
+         reserved for actions, so an active filter reads as "selected",
+         not as a button begging to be pressed. */
       return `${base} ${off} px-3 py-1.5 text-[12.5px] rounded-badge border ${
         active
-          ? 'bg-accent text-accent-fg border-accent shadow-ui-sm'
+          ? 'bg-accent-soft text-accent-soft-fg border-accent/35 font-semibold'
           : 'bg-surface text-fg-muted border-line hover:border-line-strong hover:text-fg'
       }`;
     }
-    // segmented
-    return `${base} ${off} px-3.5 py-1.5 text-[12.5px] ${
+    // segmented — active chip floats on the recessed tray
+    return `${base} ${off} px-3 py-1 text-[12.5px] rounded-[calc(var(--ui-btn-radius)-2px)] ${
       active
-        ? 'bg-accent text-accent-fg'
-        : 'text-fg-muted hover:bg-surface-hover hover:text-fg'
+        ? 'bg-surface text-fg font-semibold shadow-ui-sm border border-line'
+        : 'text-fg-muted hover:text-fg border border-transparent'
     }`;
   }
 
@@ -103,7 +107,7 @@ export function Tabs<K extends string = string>({
                   active
                     ? variant === 'underline'
                       ? 'bg-accent text-accent-fg'
-                      : 'bg-white/25 text-current'
+                      : 'bg-accent/15 text-current'
                     : 'bg-surface-sunken text-fg-muted'
                 }`}
               >
