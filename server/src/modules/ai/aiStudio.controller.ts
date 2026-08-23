@@ -28,7 +28,10 @@ function getAiClient(): OpenAI | null {
   }
   return null;
 }
-const AI_MODEL = process.env.GROQ_API_KEY ? 'llama-3.1-8b-instant' : 'gpt-4o-mini';
+// llama-3.1-8b-instant was decommissioned by Groq on 2026-08-16; default now
+// tracks their recommended replacement, overridable via AI_MODEL_FAST (same
+// convention as utils/ai.ts).
+const AI_MODEL = process.env.AI_MODEL_FAST || (process.env.GROQ_API_KEY ? 'openai/gpt-oss-20b' : 'gpt-4o-mini');
 const groq = getAiClient();
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

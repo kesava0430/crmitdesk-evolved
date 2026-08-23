@@ -56,7 +56,11 @@ function envProviders(): ResolvedModel[] {
       providerKey: 'groq',
       baseUrl: 'https://api.groq.com/openai/v1',
       apiKey: process.env.GROQ_API_KEY,
-      model: 'llama-3.1-8b-instant',
+      // Groq decommissioned llama-3.1-8b-instant / llama-3.3-70b-versatile on
+      // 2026-08-16 — defaults now track their recommended replacements, and
+      // AI_MODEL_FAST / AI_MODEL_SMART env vars override without a deploy
+      // (kept in sync with utils/ai.ts's model routing).
+      model: process.env.AI_MODEL_FAST || 'openai/gpt-oss-20b',
       // Groq pricing as configured by the operator; 0 means "don't attribute
       // a cost" rather than "free", so an unpriced provider shows 0 spend
       // instead of a fabricated number.
@@ -80,7 +84,7 @@ function envProviders(): ResolvedModel[] {
 
 function envModelFor(task: AiTaskType, base: ResolvedModel): ResolvedModel {
   if (base.providerKey === 'groq') {
-    if (task === 'SMART') return { ...base, model: 'llama-3.3-70b-versatile' };
+    if (task === 'SMART') return { ...base, model: process.env.AI_MODEL_SMART || 'openai/gpt-oss-120b' };
     if (task === 'EMBEDDING') return { ...base, model: 'text-embedding-3-small', embeddingDim: 1536 };
     return base;
   }

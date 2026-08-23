@@ -1,8 +1,17 @@
-databases:
-  - name: crm-itdesk-db
-    databaseName: crm_itdesk
-    user: crmuser
-    plan: free
+# Database moved OFF Render (2026-08): Render's free PostgreSQL expires 30
+# days after creation and is then permanently deleted (14-day grace). The app
+# now uses a Neon (neon.tech) free-plan Postgres instead — serverless, no
+# expiry, auto-wake in ~milliseconds, pgvector available. DATABASE_URL is set
+# manually on the service (sync: false below) to the Neon DIRECT connection
+# string (the one WITHOUT "-pooler" in the host — Prisma migrations need a
+# direct connection) including ?sslmode=require.
+# The old block is kept for reference; re-enabling it would recreate an
+# expiring free database, so don't.
+# databases:
+#   - name: crm-itdesk-db
+#     databaseName: crm_itdesk
+#     user: crmuser
+#     plan: free
 
 services:
   # ─── Backend API ──────────────────────────────────────────────────────────
@@ -25,9 +34,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: crm-itdesk-db
-          property: connectionString
+        sync: false   # Neon direct connection string, incl. ?sslmode=require — see note at top
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
@@ -89,6 +96,14 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: OPENAI_API_KEY
+        sync: false
+      # Model overrides — providers retire models on their own schedule (Groq
+      # decommissioned both previous defaults on 2026-08-16). If AI calls start
+      # failing with a "model decommissioned" error, set the replacement model
+      # IDs here in the dashboard and the fix applies on restart, no deploy.
+      - key: AI_MODEL_FAST
+        sync: false
+      - key: AI_MODEL_SMART
         sync: false
       # SMTP fallback (mailer.ts) — only reached when RESEND_API_KEY below is
       # unset. Kept for local dev / a paid Render plan, but on THIS service's

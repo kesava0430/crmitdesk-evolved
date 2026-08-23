@@ -1,0 +1,47 @@
+# Nightly PostgreSQL backup — the lesson of the Render free-Postgres expiry
+# (the platform deleted the database and all data after 30 days). Whatever
+# host the database lives on (now Neon), this keeps an off-platform copy.
+#
+# How it works: pg_dump the whole database and store the compressed dump as a
+# GitHub Actions artifact on this repo, kept for 30 days — so at any moment
+# there are ~30 daily restore points, independent of the database provider.
+#
+# Setup (one-time): add a repo secret DATABASE_URL (GitHub → Settings →
+# Secrets and variables → Actions) with the same Neon DIRECT connection
+# string used on Render, including ?sslmode=require.
+#
+# Restore: download the artifact from the workflow run page, then
+#   gunzip backup.sql.gz && psql "<new-database-url>" -f backup.sql
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # 02:30 UTC daily (before the 03:00 demo reset)
+  workflow_dispatch: {}     # manual "Run workflow" button
+
+permissions: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Dump database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL repo secret is not set — see the comment at the top of this workflow." >&2
+            exit 1
+          fi
+          # Ubuntu runners ship a pg_dump; --no-owner/--no-privileges makes the
+          # dump restorable into any provider without role juggling.
+          pg_dump --no-owner --no-privileges -d "$DATABASE_URL" \
+            | gzip > backup.sql.gz
+          ls -lh backup.sql.gz
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backup.sql.gz
+          retention-days: 30

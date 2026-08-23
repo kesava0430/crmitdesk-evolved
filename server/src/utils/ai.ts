@@ -34,8 +34,19 @@ export function isAiConfigured(): boolean {
 
 // ─── Model Routing ────────────────────────────────────────────────────────────
 
-const AI_MODEL_FAST = process.env.GROQ_API_KEY ? 'llama-3.1-8b-instant' : 'gpt-4o-mini';
-const AI_MODEL_SMART = process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'gpt-4o';
+/* Groq retires models on a schedule — llama-3.1-8b-instant and
+   llama-3.3-70b-versatile were both decommissioned on 2026-08-16, which
+   silently broke every AI feature for Groq-keyed deployments until these
+   defaults were updated. Two defenses now:
+   1. Defaults track Groq's own recommended replacements (openai/gpt-oss-20b
+      for the fast tier, openai/gpt-oss-120b for the smart tier).
+   2. Both names are env-overridable (AI_MODEL_FAST / AI_MODEL_SMART), so the
+      NEXT deprecation is fixed by changing an environment variable in the
+      hosting dashboard — no code change, no redeploy of a new build. */
+const AI_MODEL_FAST =
+  process.env.AI_MODEL_FAST || (process.env.GROQ_API_KEY ? 'openai/gpt-oss-20b' : 'gpt-4o-mini');
+const AI_MODEL_SMART =
+  process.env.AI_MODEL_SMART || (process.env.GROQ_API_KEY ? 'openai/gpt-oss-120b' : 'gpt-4o');
 const AI_MODEL = AI_MODEL_FAST;
 
 // ─── In-Memory Response Cache (5-min TTL) ────────────────────────────────────
