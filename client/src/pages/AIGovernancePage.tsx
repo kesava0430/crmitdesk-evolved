@@ -112,6 +112,17 @@ function ObservabilityPanel() {
         </Alert>
       )}
 
+      {/* License token allowance (set by the platform operator) — separate
+          from the org's own USD budget above, and always a hard cap. */}
+      {(data.budget as any).tokenLimitMonthly > 0 && (
+        <Alert tone={(data.budget as any).tokenPercentUsed >= 100 ? 'danger' : (data.budget as any).tokenPercentUsed >= 80 ? 'warning' : 'info'}>
+          License token allowance — {((data.budget as any).tokensUsed ?? 0).toLocaleString()} of {((data.budget as any).tokenLimitMonthly ?? 0).toLocaleString()} tokens used this month ({(data.budget as any).tokenPercentUsed}%).
+          {(data.budget as any).tokenPercentUsed >= 100
+            ? ' The allowance is exhausted — AI calls are blocked until next month or a license change.'
+            : ' AI calls stop automatically when the allowance is used up.'}
+        </Alert>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile label="AI calls" value={<span className="tabular-nums">{data.totalCalls.toLocaleString()}</span>} />
         <StatTile

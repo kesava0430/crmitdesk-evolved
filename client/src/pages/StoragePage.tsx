@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { CheckCircle, ExternalLink, Unplug, Cloud, ArrowRightLeft, Database } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useStorageStatus, useConnectGoogleDrive, useConnectHostedStorage, useDisconnectStorage } from '../api/storage';
+import { useStorageStatus, useStorageUsage, useConnectGoogleDrive, useConnectHostedStorage, useDisconnectStorage } from '../api/storage';
 import { Alert, Badge, Button, Card, PageBody, PageHeader, SkeletonCard } from '../shared/components';
 import { addToast } from '../shared/components/toastStore';
 import { CustomS3Form } from './storage/CustomS3Form';
@@ -10,6 +10,97 @@ import { can } from '../shared/permissions';
 
 function formatGB(bytes: number): string {
   return (bytes / (1024 * 1024 * 1024)).toFixed(bytes > 0 && bytes < 1024 * 1024 * 1024 ? 2 : 0);
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+const ENTITY_LABELS: Record<string, string> = {
+  TICKET: 'Tickets', CONTACT: 'Contacts', DEAL: 'Deals', LEAD: 'Leads', ACCOUNT: 'Accounts',
+  CHANGE_REQUEST: 'Change requests', QUOTE: 'Quotes', ASSET: 'Assets', CAMPAIGN: 'Campaigns',
+  EMPLOYEE: 'Employees', TASK: 'Tasks', APPROVAL_REQUEST: 'Approvals', DEPARTMENT: 'Departments', INVOICE: 'Invoices',
+};
+const PROVIDER_LABELS: Record<string, string> = {
+  HOSTED_S3: 'Hosted storage (counts toward quota)', GOOGLE_DRIVE: 'Your Google Drive', CUSTOM_S3: 'Your S3 bucket',
+};
+
+/**
+ * The storage calculator: what the org's files actually occupy, split by
+ * record type and by provider, with quota headroom and a "roughly N more
+ * typical files fit" projection based on this org's own average file size.
+ */
+function StorageCalculator() {
+  const { data: usage } = useStorageUsage();
+  if (!usage) return null;
+
+  const pct = usage.quotaBytes > 0 ? Math.min(100, (usage.hostedUsedBytes / usage.quotaBytes) * 100) : 0;
+  const barColor = pct > 90 ? 'bg-danger' : pct > 70 ? 'bg-warning' : 'bg-accent';
+
+  return (
+    <Card className="mt-4 space-y-4 animate-fade-in">
+      <div>
+        <h3 className="text-sm font-semibold text-fg flex items-center gap-1.5"><Database size={14} /> Storage calculator</h3>
+        <p className="text-xs text-fg-subtle mt-0.5">
+          {usage.totalFiles} file{usage.totalFiles === 1 ? '' : 's'} attached across your records · {formatSize(usage.totalBytes)} total
+          {usage.avgFileBytes > 0 && <> · average file {formatSize(usage.avgFileBytes)}</>}
+        </p>
+      </div>
+
+      {usage.quotaBytes > 0 && (
+        <div>
+          <div className="flex justify-between text-xs mb-1">
+            <span className="text-fg-muted">Hosted quota</span>
+            <span className="text-fg tabular-nums">{formatSize(usage.hostedUsedBytes)} / {formatSize(usage.quotaBytes)}</span>
+          </div>
+          <div className="h-2 rounded-full bg-surface-sunken overflow-hidden">
+            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+          </div>
+          <p className="text-xs text-fg-subtle mt-1.5">
+            {formatSize(usage.remainingBytes)} remaining
+            {usage.estRemainingFiles !== null && <> — room for roughly <strong className="text-fg">{usage.estRemainingFiles.toLocaleString()}</strong> more files of your typical size</>}
+            . Files on your own Google Drive or S3 bucket never count toward this quota.
+          </p>
+        </div>
+      )}
+
+      {usage.byEntity.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-fg-muted uppercase tracking-wide mb-1.5">Where the space goes</p>
+          <div className="space-y-1">
+            {usage.byEntity.map(e => (
+              <div key={e.entityType} className="flex items-center justify-between text-xs">
+                <span className="text-fg-muted">{ENTITY_LABELS[e.entityType] ?? e.entityType} <span className="text-fg-subtle">· {e.files} file{e.files === 1 ? '' : 's'}</span></span>
+                <span className="text-fg tabular-nums">{formatSize(e.bytes)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {usage.byProvider.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-fg-muted uppercase tracking-wide mb-1.5">By storage location</p>
+          <div className="space-y-1">
+            {usage.byProvider.map(p => (
+              <div key={p.provider} className="flex items-center justify-between text-xs">
+                <span className="text-fg-muted">{PROVIDER_LABELS[p.provider] ?? p.provider}</span>
+                <span className="text-fg tabular-nums">{formatSize(p.bytes)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-fg-subtle border-t border-line-subtle pt-3">
+        Org data: {usage.records.contacts} contacts · {usage.records.tickets} tickets · {usage.records.deals} deals · {usage.records.leads} leads.
+        Record data itself lives in the database and does not count toward file storage.
+      </p>
+    </Card>
+  );
 }
 
 export default function StoragePage() {
@@ -244,6 +335,9 @@ export default function StoragePage() {
           )}
         </Card>
       )}
+
+      {/* ── Storage calculator ── */}
+      {!isLoading && !forbidden && !error && <StorageCalculator />}
       </PageBody>
     </div>
   );

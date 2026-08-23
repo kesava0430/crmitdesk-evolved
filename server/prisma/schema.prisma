@@ -1036,6 +1036,14 @@ model Subscription {
   currentPeriodEnd     DateTime?    @map("current_period_end")
   cancelAtPeriodEnd    Boolean      @default(false) @map("cancel_at_period_end")
   seats                Int          @default(5)
+  /// Per-org hosted-storage quota override in GB, set by the platform
+  /// operator in the license editor. Null = the plan's default quota
+  /// (PLANS.storageQuotaGB) applies. See utils/licensing.ts.
+  storageQuotaOverrideGb Int?       @map("storage_quota_override_gb")
+  /// Monthly AI token allowance for this org, set by the platform operator.
+  /// Null = unlimited (only the org's own USD budget applies). Enforced as a
+  /// hard cap in utils/aiGateway.ts checkBudget().
+  aiTokenLimitMonthly    Int?       @map("ai_token_limit_monthly")
   createdAt            DateTime     @default(now()) @map("created_at")
   updatedAt            DateTime     @updatedAt @map("updated_at")
   org                  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)

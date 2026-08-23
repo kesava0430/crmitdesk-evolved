@@ -66,6 +66,31 @@ export function useStorageStatus(enabled = true) {
   });
 }
 
+export interface StorageUsage {
+  quotaBytes: number;
+  hostedUsedBytes: number;
+  remainingBytes: number;
+  totalBytes: number;
+  totalFiles: number;
+  avgFileBytes: number;
+  /** "Roughly N more typical files fit in the hosted quota." Null when there
+   *  is no quota or no files yet to average from. */
+  estRemainingFiles: number | null;
+  byEntity: { entityType: string; files: number; bytes: number }[];
+  byProvider: { provider: string; files: number; bytes: number }[];
+  records: { contacts: number; tickets: number; deals: number; leads: number };
+}
+
+/** GET /storage/usage — the storage calculator (MANAGERS-only, like status). */
+export function useStorageUsage(enabled = true) {
+  return useQuery<StorageUsage>({
+    queryKey: ['storage-usage'],
+    enabled,
+    queryFn: () => api.get('/storage/usage').then(r => r.data),
+    retry: (count, err: any) => (err?.response?.status === 403 ? false : count < 2),
+  });
+}
+
 export function useConnectGoogleDrive() {
   return useMutation({
     mutationFn: () => api.get('/storage/google/connect').then(r => r.data),

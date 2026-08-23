@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
-import { Paperclip, Download, Trash2, Upload, FileText, Image, FileArchive, File as FileIcon } from 'lucide-react';
+import { Paperclip, Download, Trash2, Upload, FileText, Image, FileArchive, File as FileIcon, Eye } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { IconButton, Spinner, FormError } from './index';
 import { can } from '../permissions';
@@ -42,6 +42,18 @@ function iconFor(mimeType: string) {
 function extensionOf(name: string): string {
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(dot).toLowerCase() : '';
+}
+
+/** Types a browser can render directly in a tab — these get a View action
+ *  alongside Download; everything else (zip, docx, …) downloads only. */
+function isViewable(mimeType: string): boolean {
+  return (
+    mimeType.startsWith('image/') ||
+    mimeType === 'application/pdf' ||
+    mimeType.startsWith('text/') ||
+    mimeType.startsWith('video/') ||
+    mimeType.startsWith('audio/')
+  );
 }
 
 /**
@@ -161,6 +173,39 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
     }
   }
 
+  /** Opens the file in a new tab for in-browser viewing (images, PDFs, text,
+   *  audio/video). The tab must be opened synchronously — before the awaited
+   *  fetch — or popup blockers kill it; its location is then pointed at the
+   *  authenticated blob once the bytes arrive. */
+  async function view(a: any) {
+    const tab = window.open('', '_blank');
+    if (tab) tab.document.write('Loading ' + a.fileName.replace(/[<>&]/g, '') + '…');
+    setBusyId(a.id);
+    setError('');
+    try {
+      const res = await api.get(`/attachments/${a.id}/download`, { responseType: 'blob' });
+      // Re-wrap so the blob's type is the attachment's real mime type — that
+      // is what makes the browser render it instead of downloading it.
+      const blob = new Blob([res.data], { type: a.mimeType });
+      const url = URL.createObjectURL(blob);
+      if (tab) tab.location.href = url;
+      else window.open(url, '_blank'); // popup was blocked; try direct
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err: any) {
+      if (tab) tab.close();
+      let message = 'Could not open that file.';
+      const body = err?.response?.data;
+      if (body instanceof Blob) {
+        try { message = JSON.parse(await body.text())?.error || message; } catch { /* keep default */ }
+      } else if (body?.error) {
+        message = body.error;
+      }
+      setError(message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     const rejected: string[] = [];
@@ -206,6 +251,15 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
                     {formatSize(a.fileSize)} · {a.uploader?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
                   </p>
                 </div>
+                {isViewable(a.mimeType) && (
+                  <IconButton
+                    label={`View ${a.fileName}`}
+                    icon={<Eye size={14} />}
+                    size="xs"
+                    disabled={busy}
+                    onClick={() => view(a)}
+                  />
+                )}
                 <IconButton
                   label={`Download ${a.fileName}`}
                   icon={<Download size={14} />}

@@ -408,3 +408,69 @@ export async function connectCustomS3(req: AuthRequest, res: Response, next: Nex
     res.json({ message: `Connected. New attachments will upload to ${data.bucket}.` });
   } catch (err) { next(err); }
 }
+
+// ─── Usage calculator ────────────────────────────────────────────────────────
+
+/**
+ * GET /api/storage/usage — the storage calculator behind Settings → Storage.
+ *
+ * Answers three questions an admin actually asks: how much space is my data
+ * using (total and split by record type and by provider), how much of my
+ * hosted quota is left, and roughly how many more typical files fit. The
+ * projection is deliberately simple — remaining quota ÷ this org's own
+ * average file size — because that is the number people can reason about.
+ */
+export async function getUsageBreakdown(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+
+    const [byEntity, byProvider, quotaBytes, recordCounts] = await Promise.all([
+      prisma.attachment.groupBy({
+        by: ['entityType'],
+        where: { uploader: { orgId } },
+        _sum: { fileSize: true },
+        _count: { _all: true },
+      }),
+      prisma.attachment.groupBy({
+        by: ['provider'],
+        where: { uploader: { orgId } },
+        _sum: { fileSize: true },
+        _count: { _all: true },
+      }),
+      getStorageQuotaBytes(orgId),
+      prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { _count: { select: { contacts: true, tickets: true, deals: true, leads: true } } },
+      }),
+    ]);
+
+    const totalBytes = byProvider.reduce((n, p) => n + (p._sum.fileSize ?? 0), 0);
+    const totalFiles = byProvider.reduce((n, p) => n + p._count._all, 0);
+    const hostedUsedBytes = byProvider.find(p => p.provider === 'HOSTED_S3')?._sum.fileSize ?? 0;
+    const avgFileBytes = totalFiles > 0 ? Math.round(totalBytes / totalFiles) : 0;
+    const remainingBytes = Math.max(0, quotaBytes - hostedUsedBytes);
+
+    res.json({
+      // Quota applies to HOSTED storage only — Drive/own-bucket files are the
+      // customer's own space and count toward totals but never toward quota.
+      quotaBytes,
+      hostedUsedBytes,
+      remainingBytes,
+      totalBytes,
+      totalFiles,
+      avgFileBytes,
+      // "About how many more typical files fit in my hosted quota?" Null when
+      // the org has no files yet (no average to project from) or no quota.
+      estRemainingFiles: quotaBytes > 0 && avgFileBytes > 0
+        ? Math.floor(remainingBytes / avgFileBytes)
+        : null,
+      byEntity: byEntity
+        .map(e => ({ entityType: e.entityType, files: e._count._all, bytes: e._sum.fileSize ?? 0 }))
+        .sort((a, b) => b.bytes - a.bytes),
+      byProvider: byProvider
+        .map(p => ({ provider: p.provider, files: p._count._all, bytes: p._sum.fileSize ?? 0 }))
+        .sort((a, b) => b.bytes - a.bytes),
+      records: recordCounts?._count ?? { contacts: 0, tickets: 0, deals: 0, leads: 0 },
+    });
+  } catch (err) { next(err); }
+}

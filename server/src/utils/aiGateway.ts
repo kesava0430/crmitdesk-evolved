@@ -162,6 +162,15 @@ export interface BudgetState {
   limitUsd: number;
   spendUsd: number;
   percentUsed: number;
+  /** Monthly token allowance from the org's license (Subscription row), set
+   *  by the platform operator. 0 = no token limit configured. Enforced as a
+   *  HARD cap — unlike the USD budget's advisory mode, a license limit is a
+   *  commercial term, not a preference. */
+  tokenLimitMonthly: number;
+  tokensUsed: number;
+  tokenPercentUsed: number;
+  /** Which constraint blocked the call, when allowed=false. */
+  blockedBy?: 'USD_BUDGET' | 'TOKEN_LIMIT';
 }
 
 function monthWindow(now: Date): { start: Date; end: Date } {
@@ -181,27 +190,40 @@ function monthWindow(now: Date): { start: Date; end: Date } {
  */
 export async function checkBudget(orgId: string): Promise<BudgetState> {
   const { start, end } = monthWindow(new Date());
-  const budget = await prisma.aiBudget.findFirst({
-    where: { orgId, period: 'MONTHLY', periodStart: start },
-  });
-
-  if (!budget) return { allowed: true, hardStop: false, limitUsd: 0, spendUsd: 0, percentUsed: 0 };
-
-  const agg = await prisma.aiInteractionLog.aggregate({
-    where: { orgId, createdAt: { gte: start, lt: end } },
-    _sum: { costUsd: true },
-  });
+  const [budget, subscription, agg] = await Promise.all([
+    prisma.aiBudget.findFirst({ where: { orgId, period: 'MONTHLY', periodStart: start } }),
+    prisma.subscription.findUnique({ where: { orgId } }),
+    prisma.aiInteractionLog.aggregate({
+      where: { orgId, createdAt: { gte: start, lt: end } },
+      _sum: { costUsd: true, totalTokens: true },
+    }),
+  ]);
 
   const spend = Number(agg._sum.costUsd ?? 0);
-  const limit = Number(budget.limitUsd);
+  const tokensUsed = Number(agg._sum.totalTokens ?? 0);
+  const limit = budget ? Number(budget.limitUsd) : 0;
   const pct = limit > 0 ? (spend / limit) * 100 : 0;
 
+  // License-level token allowance (platform operator sets it on the org's
+  // subscription). Independent of, and checked alongside, the org's own USD
+  // budget: the USD budget is the customer's self-imposed guardrail, the
+  // token limit is the platform's commercial term — either can block.
+  const tokenLimitMonthly = Number((subscription as any)?.aiTokenLimitMonthly ?? 0) || 0;
+  const tokenPct = tokenLimitMonthly > 0 ? (tokensUsed / tokenLimitMonthly) * 100 : 0;
+
+  const usdBlocked = !!budget && budget.hardStop && spend >= limit;
+  const tokenBlocked = tokenLimitMonthly > 0 && tokensUsed >= tokenLimitMonthly;
+
   return {
-    allowed: !budget.hardStop || spend < limit,
-    hardStop: budget.hardStop,
+    allowed: !usdBlocked && !tokenBlocked,
+    hardStop: budget?.hardStop ?? false,
     limitUsd: limit,
     spendUsd: spend,
     percentUsed: Math.round(pct * 10) / 10,
+    tokenLimitMonthly,
+    tokensUsed,
+    tokenPercentUsed: Math.round(tokenPct * 10) / 10,
+    blockedBy: tokenBlocked ? 'TOKEN_LIMIT' : usdBlocked ? 'USD_BUDGET' : undefined,
   };
 }
 
@@ -270,7 +292,9 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
       costUsd: 0,
       latencyMs: 0,
       status: 'BUDGET_EXCEEDED',
-      errorMessage: `Monthly AI budget of $${budget.limitUsd} exhausted ($${budget.spendUsd.toFixed(2)} spent)`,
+      errorMessage: budget.blockedBy === 'TOKEN_LIMIT'
+        ? `Monthly AI token allowance of ${budget.tokenLimitMonthly.toLocaleString()} tokens exhausted (${budget.tokensUsed.toLocaleString()} used) — set by your license`
+        : `Monthly AI budget of $${budget.limitUsd} exhausted ($${budget.spendUsd.toFixed(2)} spent)`,
       responsePreview: null,
     });
     return {

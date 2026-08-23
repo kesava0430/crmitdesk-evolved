@@ -126,6 +126,17 @@ export async function changeStatus(req: AuthRequest, res: Response, next: NextFu
 
 export async function remove(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    // A PAID invoice is a financial record — update() already refuses to edit
+    // one, but delete had no matching guard, so a paid invoice could vanish
+    // without a trace (found by the deletion-verification sweep, 2026-08).
+    // Void keeps the numbered record while marking it dead; deletion stays
+    // available for drafts and mistakes that never reached "paid".
+    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    if (!invoice) throw new AppError(404, 'Invoice not found');
+    if (invoice.status === 'PAID') {
+      throw new AppError(400, 'A paid invoice cannot be deleted — void it instead to keep the financial record.');
+    }
+
     const { count } = await prisma.invoice.deleteMany({ where: { id: req.params.id, orgId: req.user!.orgId } });
     // Comments, attachments and tasks hang off this record by a loose
     // entityType/entityId pair, so the database cannot cascade them.

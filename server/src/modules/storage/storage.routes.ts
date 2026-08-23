@@ -15,6 +15,9 @@ storageRouter.use(authenticate);
 // change it — connecting an OAuth integration is a significant trust
 // decision, same level as billing.
 storageRouter.get('/status',           requireRole(...MANAGERS), c.getStatus);
+// The storage calculator — usage totals, per-record-type breakdown, quota
+// headroom and a "roughly N more files fit" projection.
+storageRouter.get('/usage',            requireRole(...MANAGERS), c.getUsageBreakdown);
 storageRouter.get('/google/connect',   requireRole(...ADMIN),    c.connectGoogleDrive);
 storageRouter.post('/hosted/connect',  requireRole(...ADMIN),    c.connectHosted);
 // Bring-your-own S3-compatible bucket. The preset list is harmless reference

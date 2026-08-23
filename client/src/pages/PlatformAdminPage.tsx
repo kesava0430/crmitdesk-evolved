@@ -186,6 +186,14 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
   const [seats, setSeats] = useState(org.subscription?.seats ?? 5);
   const [status, setStatus] = useState(org.subscription?.status ?? 'active');
   const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(org.subscription?.cancelAtPeriodEnd ?? false);
+  // License limits set here beat plan defaults. Kept as strings in the form
+  // so an emptied input round-trips as null ("no override") rather than 0.
+  const [storageOverrideGb, setStorageOverrideGb] = useState<string>(
+    (org.subscription as any)?.storageQuotaOverrideGb != null ? String((org.subscription as any).storageQuotaOverrideGb) : ''
+  );
+  const [aiTokenLimit, setAiTokenLimit] = useState<string>(
+    (org.subscription as any)?.aiTokenLimitMonthly != null ? String((org.subscription as any).aiTokenLimitMonthly) : ''
+  );
   const mutation = useUpdatePlatformSubscription();
 
   const startEdit = () => {
@@ -193,6 +201,8 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
     setSeats(org.subscription?.seats ?? 5);
     setStatus(org.subscription?.status ?? 'active');
     setCancelAtPeriodEnd(org.subscription?.cancelAtPeriodEnd ?? false);
+    setStorageOverrideGb((org.subscription as any)?.storageQuotaOverrideGb != null ? String((org.subscription as any).storageQuotaOverrideGb) : '');
+    setAiTokenLimit((org.subscription as any)?.aiTokenLimitMonthly != null ? String((org.subscription as any).aiTokenLimitMonthly) : '');
     setEditing(true);
   };
 
@@ -205,7 +215,11 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
             onEdit={startEdit}
             onCancel={() => setEditing(false)}
             saving={mutation.isPending}
-            onSave={() => mutation.mutate({ id: org.id, plan: plan as 'FREE' | 'PRO' | 'ENTERPRISE', seats, status, cancelAtPeriodEnd }, { onSuccess: () => setEditing(false) })}
+            onSave={() => mutation.mutate({
+              id: org.id, plan: plan as 'FREE' | 'PRO' | 'ENTERPRISE', seats, status, cancelAtPeriodEnd,
+              storageQuotaOverrideGb: storageOverrideGb.trim() === '' ? null : Number(storageOverrideGb),
+              aiTokenLimitMonthly: aiTokenLimit.trim() === '' ? null : Number(aiTokenLimit),
+            } as any, { onSuccess: () => setEditing(false) })}
           />
         }
       >
@@ -235,6 +249,14 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
             checked={cancelAtPeriodEnd}
             onChange={e => setCancelAtPeriodEnd(e.target.checked)}
           />
+          <Field label="Storage quota override (GB)" hint="Blank = plan default. 0 removes hosted storage for this org entirely.">
+            <Input type="number" min={0} placeholder="plan default" value={storageOverrideGb}
+              onChange={e => setStorageOverrideGb(e.target.value)} />
+          </Field>
+          <Field label="AI tokens / month" hint="Blank = unlimited. Hard cap — AI calls are refused once the org uses this many tokens in a month.">
+            <Input type="number" min={0} placeholder="unlimited" value={aiTokenLimit}
+              onChange={e => setAiTokenLimit(e.target.value)} />
+          </Field>
         </Card>
       ) : (
         <Card tone="sunken" padding="sm" flat className="text-sm space-y-1">
@@ -243,6 +265,11 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
           <div className="flex justify-between"><span className="text-fg-muted">Seats</span><span className="font-medium text-fg tabular-nums">{org.subscription?.seats ?? '—'}</span></div>
           <div className="flex justify-between"><span className="text-fg-muted">Renews</span><span className="font-medium text-fg tabular-nums">{org.subscription?.currentPeriodEnd ? new Date(org.subscription.currentPeriodEnd).toLocaleDateString() : '—'}{org.subscription?.cancelAtPeriodEnd ? ' (cancelling)' : ''}</span></div>
           <div className="flex justify-between gap-3"><span className="text-fg-muted shrink-0">Stripe customer</span><span className="font-mono text-xs text-fg-muted truncate" title={org.subscription?.stripeCustomerId ?? undefined}>{org.subscription?.stripeCustomerId ?? 'not connected'}</span></div>
+          <div className="flex justify-between"><span className="text-fg-muted">Storage quota</span><span className="font-medium text-fg tabular-nums">{(org.subscription as any)?.storageQuotaOverrideGb != null ? `${(org.subscription as any).storageQuotaOverrideGb} GB (override)` : 'plan default'}</span></div>
+          <div className="flex justify-between"><span className="text-fg-muted">AI tokens / month</span><span className="font-medium text-fg tabular-nums">{(org.subscription as any)?.aiTokenLimitMonthly != null ? (org.subscription as any).aiTokenLimitMonthly.toLocaleString() : 'unlimited'}</span></div>
+          {(org as any).aiUsage && (
+            <div className="flex justify-between"><span className="text-fg-muted">AI tokens used (month)</span><span className="font-medium text-fg tabular-nums">{((org as any).aiUsage.tokensUsedThisMonth ?? 0).toLocaleString()}{(org as any).aiUsage.tokenLimitMonthly ? ` / ${(org as any).aiUsage.tokenLimitMonthly.toLocaleString()}` : ''}</span></div>
+          )}
         </Card>
       )}
     </section>

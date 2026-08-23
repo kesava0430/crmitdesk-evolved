@@ -115,6 +115,20 @@ export async function purgeEntityChildren(
       where: { entityType: entityType as any, entityId, author: { orgId } },
     });
 
+    // Custom-field values and tag links hang off records by the same loose
+    // entityId pairing as comments — the database can't cascade them either.
+    // Without this, every deleted ticket/deal/contact/lead left its saved
+    // custom-field values and record-tag rows behind as permanent orphans
+    // (found by the deletion-verification sweep, 2026-08). Both deletes are
+    // org-scoped the same way the reads are: values through the field's org,
+    // tag links through their own orgId column.
+    await prisma.customFieldValue.deleteMany({
+      where: { entityId, field: { orgId } },
+    }).catch(() => { /* table applies to TICKET/CONTACT/DEAL/LEAD only — best-effort for the rest */ });
+    await prisma.recordTag.deleteMany({
+      where: { entityType: entityType as any, entityId, orgId },
+    }).catch(() => { /* enum narrower than EntityType for some callers — best-effort */ });
+
     return {
       attachments: result.attachments + dropped.deleted,
       comments: result.comments + comments.count,

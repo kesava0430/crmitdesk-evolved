@@ -71,6 +71,9 @@ export interface PlatformOrgSummary {
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
     stripeCustomerId: string | null;
+    /** Per-org license limits set by the platform operator; null = plan default / unlimited. */
+    storageQuotaOverrideGb: number | null;
+    aiTokenLimitMonthly: number | null;
   } | null;
   branding: { companyName: string; logoUrl: string | null; primaryColor: string; supportEmail: string | null } | null;
   emailSending: { connected: boolean; email: string | null; smtpHost: string | null; lastSyncAt: string | null };
@@ -129,7 +132,7 @@ export const useUpdatePlatformOrg = () => {
 export const useUpdatePlatformSubscription = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; plan?: string; seats?: number; status?: string; cancelAtPeriodEnd?: boolean }) =>
+    mutationFn: ({ id, ...data }: { id: string; plan?: string; seats?: number; status?: string; cancelAtPeriodEnd?: boolean; storageQuotaOverrideGb?: number | null; aiTokenLimitMonthly?: number | null }) =>
       api.patch(`/platform/orgs/${id}/subscription`, data).then(r => r.data),
     onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: ['platform-orgs'] });

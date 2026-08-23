@@ -106,6 +106,14 @@ function planStorageQuotaGB(plan: string): number {
 
 export async function getStorageQuotaBytes(orgId: string): Promise<number> {
   const sub = await getOrCreateSubscription(orgId);
+  // A per-org override set by the platform operator in the license editor
+  // beats the plan default — this is how a specific customer gets more (or
+  // less) hosted storage than their tier normally includes, without moving
+  // them to a different plan. Null/undefined = plan default applies.
+  const overrideGb = (sub as any).storageQuotaOverrideGb;
+  if (overrideGb !== null && overrideGb !== undefined) {
+    return overrideGb * 1024 * 1024 * 1024;
+  }
   return planStorageQuotaGB(sub.plan) * 1024 * 1024 * 1024;
 }
 

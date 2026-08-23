@@ -91,7 +91,10 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
 
     res.json(orgs.map((o, i) => {
       const plan = o.subscription?.plan ?? o.plan;
-      const quotaBytes = storageQuotaBytesForPlan(plan);
+      const overrideGb = (o.subscription as any)?.storageQuotaOverrideGb;
+      const quotaBytes = overrideGb !== null && overrideGb !== undefined
+        ? overrideGb * 1024 * 1024 * 1024
+        : storageQuotaBytesForPlan(plan);
       return {
         id: o.id,
         name: o.name,
@@ -106,6 +109,8 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
               currentPeriodEnd: o.subscription.currentPeriodEnd,
               cancelAtPeriodEnd: o.subscription.cancelAtPeriodEnd,
               stripeCustomerId: o.subscription.stripeCustomerId,
+              storageQuotaOverrideGb: (o.subscription as any).storageQuotaOverrideGb ?? null,
+              aiTokenLimitMonthly: (o.subscription as any).aiTokenLimitMonthly ?? null,
             }
           : null,
         branding: o.branding
@@ -169,13 +174,33 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
     });
     if (!org) throw new AppError(404, 'Organization not found');
 
-    const quotaBytes = storageQuotaBytesForPlan(org.subscription?.plan ?? org.plan);
-    const [usedBytes, sendCounts] = await Promise.all([
+    const overrideGb = (org.subscription as any)?.storageQuotaOverrideGb;
+    const quotaBytes = overrideGb !== null && overrideGb !== undefined
+      ? overrideGb * 1024 * 1024 * 1024
+      : storageQuotaBytesForPlan(org.subscription?.plan ?? org.plan);
+    // Current-month AI token usage, shown next to the license's token
+    // allowance in the org detail panel.
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    const [usedBytes, sendCounts, tokenAgg] = await Promise.all([
       getHostedStorageUsageBytes(org.id), // real even without an explicit StorageConfig row — see the fallback in storage.ts
       getSendCounts(org.id),
+      prisma.aiInteractionLog.aggregate({
+        where: { orgId: org.id, createdAt: { gte: monthStart } },
+        _sum: { totalTokens: true },
+        _count: { _all: true },
+      }),
     ]);
 
-    res.json({ ...org, storageLicense: { quotaBytes, usedBytes }, sendCounts });
+    res.json({
+      ...org,
+      storageLicense: { quotaBytes, usedBytes },
+      sendCounts,
+      aiUsage: {
+        tokensUsedThisMonth: tokenAgg._sum.totalTokens ?? 0,
+        callsThisMonth: tokenAgg._count._all,
+        tokenLimitMonthly: (org.subscription as any)?.aiTokenLimitMonthly ?? null,
+      },
+    });
   } catch (err) { next(err); }
 }
 
@@ -197,6 +222,13 @@ const UpdateSubscriptionSchema = z.object({
   seats: z.number().int().positive().optional(),
   status: z.string().min(1).optional(),
   cancelAtPeriodEnd: z.boolean().optional(),
+  /** Hosted-storage quota override in GB. null clears the override (plan
+   *  default applies again); 0 is meaningful — it removes hosted storage
+   *  from this org entirely. */
+  storageQuotaOverrideGb: z.number().int().min(0).max(10000).nullable().optional(),
+  /** Monthly AI token allowance. null or 0 = no token limit (only the org's
+   *  own USD budget applies). Enforced as a hard cap by the AI gateway. */
+  aiTokenLimitMonthly: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
 });
 
 /**
