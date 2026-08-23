@@ -60,10 +60,19 @@ export default function CustomFieldsPage() {
   // While false, the API name mirrors the label; a manual edit takes over.
   const [keyTouched, setKeyTouched] = useState(false);
 
-  const { data: fields = [], isLoading } = useQuery<CustomField[]>({
-    queryKey: ['custom-fields', entityType],
-    queryFn: () => api.get(`/custom-fields?entityType=${entityType}`).then(r => Array.isArray(r.data) ? r.data : (r.data.data ?? [])),
+  /* ALL entities' fields in one query. The table filters to the active tab
+     below; the visibility-rule pickers filter to the FORM's chosen entity —
+     which can differ from the tab (the Entity dropdown in the create modal).
+     When they differed, the old per-tab query fed the "Show this field only
+     when" list parents from the wrong entity: an admin creating a Contact
+     field from the Tickets tab was offered ticket parents (which the server
+     then rightly rejected as cross-entity) and never saw the contact fields
+     that would actually work — reading as "unable to set the condition". */
+  const { data: allFields = [], isLoading } = useQuery<CustomField[]>({
+    queryKey: ['custom-fields', 'all'],
+    queryFn: () => api.get('/custom-fields').then(r => Array.isArray(r.data) ? r.data : (r.data.data ?? [])),
   });
+  const fields = allFields.filter(f => f.entityType === entityType);
 
   const save = useMutation({
     mutationFn: (body: object) =>
@@ -122,13 +131,14 @@ export default function CustomFieldsPage() {
      that already depends on this one, which would close a loop. Mirrors the
      checks in customfields.controller.ts so an admin never gets to submit a
      rule the server will reject. */
-  const parentOptions = fields
+  const parentOptions = allFields
+    .filter(f => f.entityType === form.entityType)
     .filter(f => PARENT_TYPES.includes(f.fieldType))
     .filter(f => f.id !== editing?.id)
     .filter(f => !editing || f.dependsOnFieldId !== editing.id)
     .map(f => ({ value: f.id, label: `${f.label} (${TYPE_LABELS[f.fieldType]})` }));
 
-  const parentField = fields.find(f => f.id === form.dependsOnFieldId);
+  const parentField = allFields.find(f => f.id === form.dependsOnFieldId);
   const parentValueOptions = !parentField
     ? []
     : parentField.fieldType === 'BOOLEAN'
@@ -287,7 +297,10 @@ export default function CustomFieldsPage() {
                   <SearchableSelect ariaLabel="Type" value={form.fieldType} onChange={val => setForm(f => ({ ...f, fieldType: val }))} required options={FIELD_TYPES.map(t => ({ value: t, label: TYPE_LABELS[t] }))} />
                 </Field>
                 <Field label="Entity">
-                  <SearchableSelect ariaLabel="Entity" value={form.entityType} onChange={val => setForm(f => ({ ...f, entityType: val }))} required options={ENTITY_TYPES.map(t => ({ value: t, label: t[0] + t.slice(1).toLowerCase() + 's' }))} />
+                  {/* Switching entity clears any visibility rule — a parent
+                      from the old entity could never be satisfied on the new
+                      one, and the server would reject it anyway. */}
+                  <SearchableSelect ariaLabel="Entity" value={form.entityType} onChange={val => setForm(f => ({ ...f, entityType: val, dependsOnFieldId: '', dependsOnValues: [] }))} required options={ENTITY_TYPES.map(t => ({ value: t, label: t[0] + t.slice(1).toLowerCase() + 's' }))} />
                 </Field>
               </FormGrid>
               {form.fieldType === 'SELECT' && (
@@ -361,7 +374,7 @@ export default function CustomFieldsPage() {
                   value={form.dependsOnFieldId}
                   onChange={val => setForm(f => ({ ...f, dependsOnFieldId: val, dependsOnValues: [] }))}
                   placeholder="— always show —"
-                  options={[{ value: '', label: '— always show —' }, ...parentOptions]}
+                  options={parentOptions}
                 />
               </Field>
 
