@@ -133,7 +133,11 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
                   {aiDupes.data.duplicates.map((d: any) => (
                     <p key={d.id}>
                       <span className="font-semibold">Possible duplicate:</span> {d.title}{' '}
-                      <span className="opacity-80">({Math.round(d.confidence * 100)}% similar)</span>
+                      {/* The model returns confidence on a 0-100 scale (see
+                          detectDuplicates in utils/ai.ts) — an older provider
+                          returned 0-1, so tolerate both instead of showing
+                          "8800% similar". */}
+                      <span className="opacity-80">({Math.round(d.confidence > 1 ? d.confidence : d.confidence * 100)}% similar)</span>
                     </p>
                   ))}
                 </div>

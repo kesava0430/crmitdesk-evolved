@@ -1089,8 +1089,356 @@ async function buildOrg(preset: VerticalPreset) {
     isActive: true, runCount: 0,
   } });
 
+  // ── AI showcase layer ──────────────────────────────────────────────────────
+  // Bulk, purpose-built records so every AI feature has visible material in a
+  // demo — duplicate clusters for the duplicate detector, a long thread for
+  // summarisation, a resolved thread for KB generation, a scoring ladder for
+  // leads, stale deals for pipeline health, an inactive account for churn
+  // risk, and 90 days of ticket/deal history so the analytics charts have a
+  // real shape. Best-effort: a failure here must never cost the demo org.
+  try {
+    await buildAiShowcase({ org, admin, crmMgr, salesRep, itMgr, itAgent, categories, pipeline, preset, accounts, contacts });
+  } catch (err) {
+    console.error(`[seed] ${preset.slug}: AI showcase layer skipped — ${(err as Error).message}`);
+  }
+
   console.log(`[seed] ${preset.orgName} (${preset.slug}) seeded — login as ${loginEmailFor(preset.slug)} / Admin@123`);
   return org;
+}
+
+// ─── AI showcase layer ────────────────────────────────────────────────────────
+// Everything in here exists to make one specific AI feature demonstrable.
+// The "why this record exists" comments are the demo script.
+
+async function buildAiShowcase(ctx: {
+  org: { id: string }; admin: { id: string }; crmMgr: { id: string }; salesRep: { id: string };
+  itMgr: { id: string }; itAgent: { id: string };
+  categories: Record<string, { id: string }>; pipeline: { id: string };
+  preset: VerticalPreset; accounts: { id: string }[]; contacts: { id: string; name: string | null; email: string | null }[];
+}) {
+  const { org, admin, crmMgr, salesRep, itMgr, itAgent, categories, pipeline, preset } = ctx;
+  const orgId = org.id;
+  const cat = (n: string) => categories[n]?.id;
+  const hourAgo = (h: number) => new Date(Date.now() - h * 3600_000);
+  const hoursFromNow = (h: number) => new Date(Date.now() + h * 3600_000);
+
+  // ── 1. Duplicate-detector clusters (AI: ticket.duplicate) ─────────────────
+  // Three families of OPEN tickets phrased differently but describing the
+  // same problem. Typing a fourth variation into "New Ticket" makes the
+  // duplicate warning fire with high confidence.
+  const dupClusters: { category: string; priority: TicketPriority; titles: [string, string][] }[] = [
+    { category: 'Network & Connectivity', priority: TicketPriority.HIGH, titles: [
+      ['VPN disconnects every few minutes', 'Working from home, the VPN drops roughly every 10 minutes and I have to reconnect manually.'],
+      ['VPN connection keeps dropping on my laptop', 'Since Monday the VPN tunnel dies whenever my laptop sleeps or switches networks.'],
+      ['Cannot stay connected to the VPN from home office', 'The client connects fine but disconnects after a short while. Ethernet and Wi-Fi both affected.'],
+    ]},
+    { category: 'Software', priority: TicketPriority.MEDIUM, titles: [
+      ['Outlook stopped syncing new emails', 'Outlook shows "Trying to connect…" and no new mail arrives since this morning. Webmail works fine.'],
+      ['Emails not coming through in Outlook desktop', 'Colleagues say they sent me mail but nothing lands in the desktop client. Phone gets them instantly.'],
+    ]},
+    { category: 'Access & Permissions', priority: TicketPriority.MEDIUM, titles: [
+      ['Locked out of my account after password change', 'Changed my password yesterday, now every login says "account locked". Need access urgently.'],
+      ['Account keeps locking after the password reset', 'Reset via the portal, but I get locked out again within the hour — probably an old session retrying.'],
+    ]},
+  ];
+  for (const c of dupClusters) {
+    // Sequential — modest batches keep pooled Neon connections happy.
+    for (const [title, body] of c.titles) {
+      await prisma.ticket.create({ data: {
+        orgId, title, body, categoryId: cat(c.category), priority: c.priority,
+        status: TicketStatus.OPEN, requesterId: salesRep.id, assignedTo: itAgent.id,
+        sentiment: 'NEUTRAL', slaDueAt: daysFromNow(1), createdAt: daysAgo(Math.ceil(Math.random() * 0) + 2),
+      }});
+    }
+  }
+
+  // ── 2. The "story" ticket (AI: thread summary + resolution estimate) ──────
+  // One long, realistic investigation thread. "Summarize" compresses nine
+  // messages into four lines — the single most convincing AI moment on a
+  // busy ticket.
+  const story = await prisma.ticket.create({ data: {
+    orgId, title: 'CRM dashboard extremely slow every morning 9-10am',
+    body: 'Every weekday between 9 and 10am the dashboard takes 30+ seconds to load and sometimes times out entirely. Fine the rest of the day. Whole sales team affected.',
+    categoryId: cat('Software'), priority: TicketPriority.HIGH, status: TicketStatus.IN_PROGRESS,
+    requesterId: crmMgr.id, assignedTo: itMgr.id, sentiment: 'NEGATIVE', slaDueAt: hoursFromNow(6), createdAt: daysAgo(4),
+  }});
+  const storyThread: [string, string][] = [
+    [itMgr.id,  'Acknowledged — the 9-10am window suggests load-related. Pulling APM traces for that period now.'],
+    [crmMgr.id, 'Thanks. To add: exports also fail during that window with a 504 error. Team is starting the day 30 minutes late because of this.'],
+    [itMgr.id,  'Traces show the reporting queries pinning the database CPU at 97% between 8:55 and 10:05. Overnight aggregation job appears to still be running into business hours.'],
+    [itAgent.id, 'Confirmed — the nightly aggregation job started taking 4+ hours after the last data import doubled row counts. It used to finish by 6am.'],
+    [itMgr.id,  'Two-part plan: (1) move the aggregation window to 2am and add an index on report_events(org_id, created_at); (2) longer term, move aggregation to a read replica.'],
+    [crmMgr.id, 'Whatever gets us usable dashboards by tomorrow morning works for me.'],
+    [itAgent.id, 'Index created in staging — aggregation runtime dropped from 4h10m to 38 minutes. Rolling to production tonight with the 2am schedule.'],
+    [itMgr.id,  'Production change applied at 01:50. Will monitor tomorrow between 9 and 10 before we call it fixed.'],
+    [crmMgr.id, 'This morning: dashboard loaded in under 3 seconds at 9:15. Huge improvement — keep it monitored this week please.'],
+  ];
+  for (let i = 0; i < storyThread.length; i++) {
+    await prisma.comment.create({ data: { authorId: storyThread[i][0], entityType: 'TICKET', entityId: story.id, body: storyThread[i][1], createdAt: hourAgo((storyThread.length - i) * 7) } });
+  }
+
+  // ── 3. Resolved ticket with a clean fix thread (AI: KB article generator) ─
+  // "Generate KB Article" on this one produces a genuinely publishable
+  // article, because the thread already contains symptoms, cause, and fix.
+  const kbSource = await prisma.ticket.create({ data: {
+    orgId, title: 'Shared drive not mounting after the latest OS update',
+    body: 'After last night\'s OS update my shared S: drive no longer appears. "Network path not found" when I try to map it manually.',
+    categoryId: cat('Network & Connectivity'), priority: TicketPriority.MEDIUM, status: TicketStatus.RESOLVED,
+    requesterId: admin.id, assignedTo: itAgent.id, sentiment: 'NEUTRAL', slaDueAt: daysAgo(1), createdAt: daysAgo(6), resolvedAt: daysAgo(5),
+  }});
+  const kbThread: [string, string][] = [
+    [itAgent.id, 'The update resets SMB protocol settings. Can you run "winver" and tell me the build number?'],
+    [admin.id,   'Build 26100.2033.'],
+    [itAgent.id, 'That build disables SMB1 and resets credential caching. Fix: (1) open Credential Manager and remove the stale entry for the file server; (2) reconnect with net use S: \\\\fileserver\\shared /persistent:yes; (3) re-enter domain credentials when prompted.'],
+    [admin.id,   'Followed all three steps — drive is back and survives a reboot. Thank you!'],
+    [itAgent.id, 'Resolving. Note for the team: expect a wave of these after each OS rollout wave — the fix takes two minutes per user.'],
+  ];
+  for (let i = 0; i < kbThread.length; i++) {
+    await prisma.comment.create({ data: { authorId: kbThread[i][0], entityType: 'TICKET', entityId: kbSource.id, body: kbThread[i][1], createdAt: daysAgo(6 - i * 0.1) } });
+  }
+
+  // ── 4. Sentiment + SLA-risk spread (AI: ticket.sentiment / ticket.slaRisk) ─
+  const moodTickets: { title: string; body: string; sentiment: string; priority: TicketPriority; status: TicketStatus; category: string; slaInH: number }[] = [
+    { title: 'THIRD time reporting this — laptop still overheating', body: 'This is the third ticket about the same laptop. It shuts down mid-presentation. Completely unacceptable — I need a replacement TODAY, not another troubleshooting call.', sentiment: 'NEGATIVE', priority: TicketPriority.CRITICAL, status: TicketStatus.OPEN, category: 'Hardware', slaInH: 2 },
+    { title: 'Still waiting a week for software approval', body: 'Requested the design software licence a week ago. Every day of delay pushes the client deliverable. Extremely frustrated with how long this takes.', sentiment: 'NEGATIVE', priority: TicketPriority.HIGH, status: TicketStatus.OPEN, category: 'Software', slaInH: -3 },
+    { title: 'Projector in the main meeting room flickering', body: 'Not urgent, but the projector flickers every few minutes. A client demo runs there Thursday, would be good to fix before then.', sentiment: 'NEUTRAL', priority: TicketPriority.LOW, status: TicketStatus.OPEN, category: 'Hardware', slaInH: 70 },
+    { title: 'Thanks for the fast headset replacement!', body: 'New headset arrived the next morning and works perfectly. Just wanted to say the turnaround was brilliant — thank you.', sentiment: 'POSITIVE', priority: TicketPriority.LOW, status: TicketStatus.RESOLVED, category: 'Hardware', slaInH: -30 },
+    { title: 'Access request for the finance reporting folder', body: 'Starting the quarterly close next week — please grant read access to the finance reporting folder for me and my two analysts.', sentiment: 'NEUTRAL', priority: TicketPriority.MEDIUM, status: TicketStatus.IN_PROGRESS, category: 'Access & Permissions', slaInH: 20 },
+    { title: 'Guest Wi-Fi drops during client meetings', body: 'Guests keep losing Wi-Fi in the boardroom. Slightly embarrassing in front of clients — can we look at coverage there?', sentiment: 'NEGATIVE', priority: TicketPriority.MEDIUM, status: TicketStatus.OPEN, category: 'Network & Connectivity', slaInH: 30 },
+  ];
+  for (const t of moodTickets) {
+    await prisma.ticket.create({ data: {
+      orgId, title: t.title, body: t.body, categoryId: cat(t.category), priority: t.priority,
+      status: t.status, requesterId: crmMgr.id, assignedTo: t.priority === TicketPriority.CRITICAL ? itMgr.id : itAgent.id,
+      sentiment: t.sentiment, slaDueAt: hoursFromNow(t.slaInH), createdAt: daysAgo(1),
+      resolvedAt: t.status === TicketStatus.RESOLVED ? hourAgo(20) : undefined,
+    }});
+  }
+
+  // ── 5. Ninety days of closed history (analytics + NL query + CSAT) ────────
+  // Volume/aging charts need a backlog with shape: heavier recent weeks, a
+  // mix of categories, real resolution times, and CSAT ratings that average
+  // believably (mostly 4-5 with a few stinkers).
+  const historyTitles = [
+    ['Monitor flickering at dock', 'Hardware'], ['Password reset for new starter', 'Access & Permissions'],
+    ['Slack notifications delayed', 'Software'], ['Printer out of toner - floor 2', 'Hardware'],
+    ['New keyboard request', 'Hardware'], ['Cannot open shared calendar', 'Software'],
+    ['Wi-Fi weak in east wing', 'Network & Connectivity'], ['Billing portal login fails', 'Billing & Accounts'],
+    ['Laptop battery draining fast', 'Hardware'], ['Excel crashing on large files', 'Software'],
+    ['Badge reader not working', 'Access & Permissions'], ['Invoice PDF export blank', 'Billing & Accounts'],
+    ['Second monitor not detected', 'Hardware'], ['Teams mic not working', 'Software'],
+    ['Duplicate charge on subscription', 'Billing & Accounts'], ['Onboarding accounts for 3 hires', 'Access & Permissions'],
+    ['Server room temperature alert', 'Hardware'], ['CRM export missing columns', 'Software'],
+  ] as const;
+  const closedTickets: { id: string }[] = [];
+  for (let i = 0; i < historyTitles.length; i++) {
+    const created = daysAgo(4 + Math.round(i * 4.7));           // spread across ~90 days
+    const resolveHours = 3 + ((i * 7) % 46);                    // varied resolution times
+    const t = await prisma.ticket.create({ data: {
+      orgId, title: historyTitles[i][0], body: `${historyTitles[i][0]} — resolved by the IT desk.`,
+      categoryId: cat(historyTitles[i][1]), priority: [TicketPriority.LOW, TicketPriority.MEDIUM, TicketPriority.MEDIUM, TicketPriority.HIGH][i % 4],
+      status: i % 3 === 0 ? TicketStatus.CLOSED : TicketStatus.RESOLVED,
+      requesterId: [admin.id, crmMgr.id, salesRep.id][i % 3], assignedTo: i % 2 ? itAgent.id : itMgr.id,
+      sentiment: 'NEUTRAL', createdAt: created,
+      slaDueAt: new Date(created.getTime() + 48 * 3600_000),
+      resolvedAt: new Date(created.getTime() + resolveHours * 3600_000),
+      closedAt: i % 3 === 0 ? new Date(created.getTime() + (resolveHours + 24) * 3600_000) : undefined,
+    }});
+    closedTickets.push(t);
+  }
+  const csatRatings = [5, 5, 4, 5, 3, 5, 4, 2, 5, 4];
+  for (let i = 0; i < csatRatings.length; i++) {
+    await prisma.csatResponse.create({ data: {
+      orgId, ticketId: closedTickets[i].id, rating: csatRatings[i],
+      comment: csatRatings[i] >= 4 ? 'Quick and clear, thanks!' : csatRatings[i] === 3 ? 'Solved, but took longer than expected.' : 'Had to chase twice before anyone replied.',
+    }});
+  }
+
+  // ── 6. Knowledge base depth (AI: reply suggestions + KB deflection) ───────
+  // Enough published coverage that (a) typing a new request surfaces a
+  // relevant "might already be solved" card and (b) the reply-suggestion AI
+  // has real material to ground its answer in.
+  const kbArticles: { title: string; body: string; category: string }[] = [
+    { title: 'Fixing VPN connections that keep dropping', category: 'Network & Connectivity',
+      body: '## Symptoms\nVPN connects but drops every few minutes, especially after sleep or a network switch.\n\n## Fix\n1. Update the VPN client to the latest version from the software portal.\n2. In the client settings, disable "IPv6 tunneling" (known conflict with home routers).\n3. Windows: Power Options → Network adapter → disable "Allow the computer to turn off this device".\n4. If on Wi-Fi, forget and re-join the network to refresh DNS.\n\n## Still dropping?\nCollect the client log (Help → Export logs) and attach it to your ticket.' },
+    { title: 'Outlook not syncing — the 5-minute fix', category: 'Software',
+      body: '## Quick checks\n1. Bottom bar says "Working Offline"? Send/Receive tab → toggle Work Offline off.\n2. File → Account Settings → Repair. Completes in ~2 minutes and fixes most sync stalls.\n3. Still stuck: close Outlook, delete the .ost cache file (File → Account Settings → Data Files shows its path) and restart Outlook — it rebuilds automatically.\n\nWebmail always shows the true state of your mailbox while the desktop client rebuilds.' },
+    { title: 'Account locked out — how to self-recover', category: 'Access & Permissions',
+      body: 'After a password change, saved sessions on phones and other devices retry the OLD password and re-lock the account.\n\n1. Update the saved password on every signed-in device (especially mobile mail).\n2. Wait 15 minutes — lockouts clear automatically.\n3. Use the self-service portal ("Forgot password") rather than asking IT — it is faster and audited.\n\nIf you get locked again within the hour, some device is still retrying: turn each device\'s Wi-Fi off one at a time to find it.' },
+    { title: 'Mapping a shared network drive (and making it stick)', category: 'Network & Connectivity',
+      body: '1. Remove stale credentials: Credential Manager → Windows Credentials → remove the file-server entry.\n2. Map with persistence: `net use S: \\\\fileserver\\shared /persistent:yes`.\n3. Re-enter your domain credentials when prompted and tick "Remember me".\n\nOS updates can reset SMB settings — if a drive vanishes after an update, repeat steps 1-2.' },
+    { title: 'Setting up multi-factor authentication (MFA)', category: 'Access & Permissions',
+      body: '1. Install the authenticator app from your phone\'s store.\n2. Visit the security portal → "Set up MFA" and scan the QR code.\n3. Store the backup codes somewhere safe (password manager, not a sticky note).\n\nLost phone? The service desk can issue a temporary bypass code after identity verification — allow 15 minutes.' },
+    { title: 'Requesting new software or licences', category: 'Software',
+      body: '1. Check the software portal first — most common tools are pre-approved for self-install.\n2. Anything else: raise a ticket in "Software" with the business justification and cost centre.\n3. Approval SLA: 2 business days for pre-vetted vendors, up to 5 for new vendors (security review).\n\nTip: licence renewals are automatic; you only need a ticket for NEW software.' },
+    { title: 'Laptop running hot or battery draining fast', category: 'Hardware',
+      body: '1. Reboot weekly — uptime over 7 days is the top cause of runaway background processes.\n2. Check Task Manager for a single app pinning CPU; browser tabs with video are the usual suspect.\n3. Use the official charger — third-party USB-C chargers throttle charging and run hot.\n4. If the fan is loud even when idle after these steps, book a hardware check; dust cleaning takes one business day.' },
+    { title: 'Guest Wi-Fi: getting visitors online', category: 'Network & Connectivity',
+      body: 'Network: **Guest** · Password: rotates monthly, shown on the reception screen.\n\nGuests accept the terms page and get 8 hours of access. For all-day events, request an event code one day ahead — it supports up to 50 devices and skips the terms page.' },
+  ];
+  for (const k of kbArticles) {
+    await prisma.knowledgeArticle.create({ data: { orgId, authorId: itMgr.id, title: k.title, body: k.body, categoryId: cat(k.category), status: ArticleStatus.PUBLISHED, publishedAt: daysAgo(15) } });
+  }
+
+  // ── 7. CRM side: accounts & contacts to host the ladder ───────────────────
+  const showAccounts = await Promise.all([
+    ['Northwind Logistics', 'Transportation', 'https://northwind.example.com'],
+    ['Meridian Retail Group', 'Retail', 'https://meridian.example.com'],       // ← churn-risk account
+    ['Apex Financial Services', 'Finance', 'https://apexfs.example.com'],
+    ['BlueSky Healthcare', 'Healthcare', 'https://bluesky.example.com'],
+    ['Vertex Manufacturing', 'Manufacturing', 'https://vertexmfg.example.com'],
+    ['Luna Media Labs', 'Media', 'https://lunamedia.example.com'],
+  ].map(([name, industry, website], i) =>
+    prisma.account.create({ data: { orgId, name, industry, website, phone: `+1-555-09${10 + i}`, address: `${100 + i * 7} Commerce Park`, ownerId: i % 2 ? salesRep.id : crmMgr.id } })
+  ));
+  const personas: [string, string, string, number][] = [
+    // name, jobTitle, source, accountIdx — titles/sources chosen so the AI
+    // scoring ladder below has real signals to cite.
+    ['Priya Raman', 'Chief Technology Officer', 'Referral', 0],
+    ['Marcus Webb', 'VP of Operations', 'Webinar', 2],
+    ['Elena Sokolova', 'Head of IT', 'Website', 3],
+    ['Tom Barrett', 'Procurement Lead', 'Trade Show', 4],
+    ['Aisha Khan', 'Operations Manager', 'Webinar', 0],
+    ['Diego Fuentes', 'IT Administrator', 'Website', 4],
+    ['Grace Liu', 'Office Manager', 'Cold Call', 5],
+    ['Ryan Novak', 'Student', 'Website', 5],
+    ['Fatima Al-Sayed', 'Director of Customer Success', 'Referral', 3],
+    ['Ben Carter', 'Intern', 'Website', 1],
+    ['Sofia Marino', 'CFO', 'Event', 2],
+    ['Jack Reilly', 'Facilities Coordinator', 'Cold Call', 1],
+  ];
+  const showContacts = await Promise.all(personas.map(([name, jobTitle, source, accIdx], i) =>
+    prisma.contact.create({ data: {
+      orgId, ownerId: i % 2 ? salesRep.id : crmMgr.id, name,
+      email: `${name.toLowerCase().replace(/[^a-z]+/g, '.')}@${['northwind','meridian','apexfs','bluesky','vertexmfg','lunamedia'][accIdx]}.example.com`,
+      phone: `+1-555-2${100 + i}`, jobTitle, accountId: showAccounts[accIdx].id, source,
+    }})
+  ));
+
+  // ── 8. Lead scoring ladder (AI: lead.score) ───────────────────────────────
+  // Pre-scored hot/warm/cold rows show the spread at a glance; the two
+  // UNSCORED leads are the live-demo material — hit "Score" on Priya (every
+  // buying signal present) and on Ryan (none) and let the contrast talk.
+  const leadRows: { c: number; status: LeadStatus; notes: string; score: number | null; reason: string | null }[] = [
+    { c: 0, status: LeadStatus.QUALIFIED, score: null, reason: null,
+      notes: 'CTO, came via customer referral. Evaluating platforms for a 200-seat rollout, budget approved this quarter, asked for security docs and a technical deep-dive next week. Current contract with competitor expires in 6 weeks.' },
+    { c: 7, status: LeadStatus.NEW, score: null, reason: null,
+      notes: 'Downloaded one whitepaper. University email address, no company, no phone. No reply to two follow-up emails over three weeks.' },
+    { c: 1, status: LeadStatus.QUALIFIED, score: 91, reason: 'VP-level decision maker, attended product webinar, confirmed budget and Q4 timeline, competitor contract ending.',
+      notes: 'VP Ops. Asked detailed integration questions on the webinar. Wants a pilot for one region before global rollout.' },
+    { c: 8, status: LeadStatus.QUALIFIED, score: 84, reason: 'Director-level referral with an active project and named stakeholders; timeline dependent on budget cycle.',
+      notes: 'Referred by an existing customer. Building the business case for replacing their current helpdesk in Q1.' },
+    { c: 10, status: LeadStatus.CONTACTED, score: 76, reason: 'CFO engaged at an event; strong authority but early-stage discovery, no confirmed budget yet.',
+      notes: 'Met at the finance-sector event. Interested in consolidating three tools into one; asked for a TCO comparison.' },
+    { c: 2, status: LeadStatus.CONTACTED, score: 68, reason: 'Head of IT actively comparing vendors; mid-size opportunity, timeline unclear.',
+      notes: 'Running a spreadsheet comparison of four vendors. We are shortlisted; demo scheduled.' },
+    { c: 3, status: LeadStatus.CONTACTED, score: 55, reason: 'Procurement contact without technical sponsor; interest is price-driven at this stage.',
+      notes: 'Asked only about per-seat pricing and discount tiers. No technical evaluation started.' },
+    { c: 5, status: LeadStatus.NEW, score: 42, reason: 'IT admin researching options; no budget authority, no stated timeline.',
+      notes: 'Signed up for the newsletter, asked one question about API limits.' },
+    { c: 6, status: LeadStatus.NEW, score: 31, reason: 'Cold-call contact, small office, exploring casually; no decision authority identified.',
+      notes: 'Polite but non-committal on the call. Asked to be contacted again "sometime next year".' },
+    { c: 9, status: LeadStatus.UNQUALIFIED, score: 12, reason: 'Intern doing market research; no purchase intent.',
+      notes: 'Collecting information for a college assignment on CRM tools.' },
+  ];
+  const showLeads: { id: string }[] = [];
+  for (const l of leadRows) {
+    showLeads.push(await prisma.lead.create({ data: {
+      orgId, contactId: showContacts[l.c].id, source: personas[l.c][2], status: l.status,
+      assignedTo: l.c % 2 ? salesRep.id : crmMgr.id, notes: l.notes, aiScore: l.score, aiScoreReason: l.reason,
+    }}));
+  }
+
+  // ── 9. Deals: momentum vs. stalls (AI: win probability + pipeline health) ─
+  const S = preset.stages.map(s => s.label);
+  const dealRows: { title: string; value: number; stage: string; prob: number; c: number; a: number; closeDays: number; status: DealStatus; staleDays?: number }[] = [
+    // Healthy movers — recent history entries below give them momentum.
+    { title: 'Northwind fleet-ops platform (200 seats)', value: 96000, stage: S[3], prob: 85, c: 0, a: 0, closeDays: 14, status: DealStatus.OPEN },
+    { title: 'Apex FS service-desk consolidation', value: 64000, stage: S[2], prob: 65, c: 10, a: 2, closeDays: 30, status: DealStatus.OPEN },
+    { title: 'BlueSky patient-support pilot', value: 28000, stage: S[1], prob: 45, c: 2, a: 3, closeDays: 45, status: DealStatus.OPEN },
+    { title: 'Vertex plant-floor asset tracking', value: 41000, stage: S[1], prob: 40, c: 3, a: 4, closeDays: 40, status: DealStatus.OPEN },
+    // Stalls — mid-stage, close date already past, last movement 45+ days
+    // ago. Pipeline-health calls these out by name.
+    { title: 'Meridian store-ops rollout', value: 52000, stage: S[2], prob: 60, c: 11, a: 1, closeDays: -12, status: DealStatus.OPEN, staleDays: 48 },
+    { title: 'Luna Media production tracker', value: 18000, stage: S[1], prob: 45, c: 6, a: 5, closeDays: -20, status: DealStatus.OPEN, staleDays: 55 },
+    { title: 'Northwind depot expansion phase 2', value: 33000, stage: S[0], prob: 20, c: 4, a: 0, closeDays: -5, status: DealStatus.OPEN, staleDays: 62 },
+    // Closed history for the win-rate and revenue charts.
+    { title: 'Apex FS compliance module', value: 22000, stage: 'Closed Won', prob: 100, c: 10, a: 2, closeDays: -25, status: DealStatus.WON },
+    { title: 'BlueSky clinic onboarding', value: 17500, stage: 'Closed Won', prob: 100, c: 2, a: 3, closeDays: -40, status: DealStatus.WON },
+    { title: 'Vertex warehouse pilot', value: 12000, stage: 'Closed Won', prob: 100, c: 5, a: 4, closeDays: -60, status: DealStatus.WON },
+    { title: 'Meridian loyalty integration', value: 26000, stage: 'Closed Lost', prob: 0, c: 11, a: 1, closeDays: -35, status: DealStatus.LOST },
+    { title: 'Luna Media archive migration', value: 9000, stage: 'Closed Lost', prob: 0, c: 6, a: 5, closeDays: -50, status: DealStatus.LOST },
+  ];
+  for (const d of dealRows) {
+    const deal = await prisma.deal.create({ data: {
+      orgId, pipelineId: pipeline.id, title: d.title, value: d.value, stage: d.stage, probability: d.prob,
+      contactId: showContacts[d.c].id, accountId: showAccounts[d.a].id,
+      assignedTo: d.c % 2 ? crmMgr.id : salesRep.id, status: d.status, closeDate: daysFromNow(d.closeDays),
+      createdAt: daysAgo(d.staleDays ?? 30),
+    }});
+    // History: stalled deals last moved 45+ days ago; healthy ones this week.
+    await prisma.dealHistory.create({ data: { dealId: deal.id, toStage: d.stage, changedBy: salesRep.id, changedAt: daysAgo(d.staleDays ?? (d.status === DealStatus.OPEN ? 3 : 30)) } });
+  }
+
+  // ── 10. Activity texture (AI: follow-up drafts + churn risk) ──────────────
+  // Recent touches on the healthy accounts; Meridian (index 1) deliberately
+  // gets NOTHING newer than 60 days — that silence is what churn-risk flags.
+  const acts: { type: ActivityType; title: string; c: number; due: number; done: boolean }[] = [
+    { type: ActivityType.CALL,    title: 'Security review call',            c: 0,  due: -2, done: true },
+    { type: ActivityType.MEETING, title: 'Technical deep-dive',             c: 0,  due: 5,  done: false },
+    { type: ActivityType.EMAIL,   title: 'Send TCO comparison',             c: 10, due: -1, done: true },
+    { type: ActivityType.MEETING, title: 'Pilot scoping workshop',          c: 2,  due: 3,  done: false },
+    { type: ActivityType.CALL,    title: 'Procurement pricing call',        c: 3,  due: -4, done: true },
+    { type: ActivityType.TASK,    title: 'Prepare integration one-pager',   c: 8,  due: 2,  done: false },
+    { type: ActivityType.EMAIL,   title: 'Webinar follow-up sequence',      c: 4,  due: -6, done: true },
+    // Meridian's most recent touch — two months old, on purpose.
+    { type: ActivityType.CALL,    title: 'Quarterly check-in (missed)',     c: 11, due: -63, done: false },
+    { type: ActivityType.EMAIL,   title: 'Renewal reminder',                c: 11, due: -70, done: true },
+  ];
+  for (const a of acts) {
+    await prisma.activity.create({ data: {
+      orgId, type: a.type, title: a.title, body: a.title,
+      contactId: showContacts[a.c].id, createdBy: a.c % 2 ? salesRep.id : crmMgr.id,
+      dueAt: daysFromNow(a.due), done: a.done, createdAt: a.due < 0 ? daysFromNow(a.due) : daysAgo(1),
+    }});
+  }
+
+  // ── 11. Finance texture (invoices for dashboards + NL queries) ────────────
+  const invoiceRows: { title: string; amount: number; status: string; dueDays: number; paidDaysAgo?: number }[] = [
+    { title: 'Apex FS compliance module — annual licence', amount: 22000, status: 'PAID', dueDays: -20, paidDaysAgo: 22 },
+    { title: 'BlueSky clinic onboarding — implementation', amount: 17500, status: 'PAID', dueDays: -35, paidDaysAgo: 33 },
+    { title: 'Vertex warehouse pilot — phase 1', amount: 12000, status: 'PAID', dueDays: -55, paidDaysAgo: 52 },
+    { title: 'Northwind fleet-ops — deposit', amount: 24000, status: 'SENT', dueDays: 12 },
+    { title: 'Luna Media retainer — August', amount: 4500, status: 'SENT', dueDays: 6 },
+    { title: 'Meridian store-ops consulting', amount: 8800, status: 'OVERDUE', dueDays: -18 },
+    { title: 'Meridian data migration — final', amount: 6200, status: 'OVERDUE', dueDays: -32 },
+    { title: 'BlueSky expansion — draft estimate', amount: 31000, status: 'DRAFT', dueDays: 30 },
+  ];
+  for (let i = 0; i < invoiceRows.length; i++) {
+    const inv = invoiceRows[i];
+    await prisma.invoice.create({ data: {
+      orgId, invoiceNumber: `INV-9${String(i + 1).padStart(3, '0')}`, title: inv.title, status: inv.status,
+      issueDate: daysAgo(Math.max(5, -inv.dueDays + 15)), dueDate: daysFromNow(inv.dueDays),
+      paidAt: inv.paidDaysAgo ? daysAgo(inv.paidDaysAgo) : undefined, createdBy: crmMgr.id,
+      lines: { create: [{ description: inv.title, quantity: 1, unitPrice: inv.amount, discount: 0 }] },
+    }});
+  }
+
+  // ── 12. Inbox texture (shared inbox demo) ─────────────────────────────────
+  const inboxRows: { name: string; email: string; subject: string; body: string; hoursAgo: number }[] = [
+    { name: personas[11][0], email: 'jack.reilly@meridian.example.com', subject: 'Frustrated — still no update on our rollout', body: 'It has been three weeks since anyone from your side contacted us about the store-ops rollout. If this is how the project phase goes, we need to rethink the renewal.', hoursAgo: 5 },
+    { name: personas[0][0], email: 'priya.raman@northwind.example.com', subject: 'Security documentation received — next steps', body: 'Thanks for the SOC2 pack, our security team is satisfied. Can we lock in the technical deep-dive for Tuesday? Bringing our head of infrastructure.', hoursAgo: 26 },
+    { name: personas[6][0], email: 'grace.liu@lunamedia.example.com', subject: 'Question about per-seat pricing', body: 'Quick one: does the per-seat price include the customer portal, or is that licensed separately?', hoursAgo: 50 },
+  ];
+  for (const m of inboxRows) {
+    const conv = await prisma.conversation.create({ data: {
+      orgId, channel: 'EMAIL', contactName: m.name, contactEmail: m.email, subject: m.subject,
+      status: 'OPEN', assignedTo: salesRep.id, lastMessageAt: hourAgo(m.hoursAgo), unreadCount: 1,
+    }});
+    await prisma.message.create({ data: { conversationId: conv.id, direction: 'INBOUND', fromAddress: m.email, toAddress: preset.supportEmail, body: m.body, sentAt: hourAgo(m.hoursAgo) } });
+  }
+
+  console.log(`[seed] ${preset.slug}: AI showcase layer added (${dupClusters.reduce((n, c) => n + c.titles.length, 0) + moodTickets.length + historyTitles.length + 2} tickets, ${kbArticles.length} KB articles, ${leadRows.length} leads, ${dealRows.length} deals, ${invoiceRows.length} invoices)`);
 }
 
 /** Seeds a single vertical (default: the original tech/SaaS demo org). Re-runnable. */
