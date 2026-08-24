@@ -87,6 +87,30 @@ export const useDeleteSLAPolicy = () => {
 export const useArticles = (params?: Record<string, string>) =>
   useQuery({ queryKey: ['articles', params], queryFn: () => api.get('/itdesk/articles', { params }).then(unwrap) });
 
+export interface ArticleSuggestion {
+  id: string;
+  title: string;
+  snippet: string;
+  body: string;
+  category: { id: string; name: string } | null;
+}
+
+/**
+ * Deflection lookup for the ticket create form. `q` should already be
+ * debounced by the caller; below 4 characters the query never fires.
+ * `placeholderData` keeps the previous suggestions on screen while the next
+ * keystroke's batch loads, so the panel doesn't flicker empty mid-typing.
+ */
+export const useArticleSuggestions = (q: string) =>
+  useQuery({
+    queryKey: ['article-suggest', q],
+    queryFn: () => api.get('/itdesk/articles/suggest', { params: { q } })
+      .then(r => r.data.suggestions as ArticleSuggestion[]),
+    enabled: q.trim().length >= 4,
+    staleTime: 60_000,
+    placeholderData: prev => prev,
+  });
+
 export const useCreateArticle = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (data: any) => api.post('/itdesk/articles', data).then(r => r.data),

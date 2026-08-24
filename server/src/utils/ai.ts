@@ -22,7 +22,14 @@ function getClient(): OpenAI | null {
     });
   }
   if (process.env.OPENAI_API_KEY) {
-    return new OpenAI({ apiKey: process.env.OPENAI_API_KEY, ...opts });
+    /* OPENAI_BASE_URL (optional) points this at an OpenAI-compatible
+       endpoint — an org proxy, LiteLLM, Ollama, vLLM — without code changes.
+       Left unset, the SDK talks to api.openai.com as before. */
+    return new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      ...opts,
+    });
   }
   return null;
 }

@@ -8,6 +8,8 @@ articlesRouter.use(authenticate);
 
 // Everyone can read KB articles
 articlesRouter.get('/',       requireRole(...ALL_USERS), c.list);
+// Registered before GET /:id — otherwise Express matches "suggest" as an :id.
+articlesRouter.get('/suggest', requireRole(...ALL_USERS), c.suggest);
 articlesRouter.get('/:id',    requireRole(...ALL_USERS), c.getOne);
 // IT staff (agents + managers) can create/edit/delete
 articlesRouter.post('/',      requireRole(...IT_STAFF),  c.create);

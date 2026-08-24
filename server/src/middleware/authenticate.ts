@@ -64,9 +64,30 @@ export function authenticate(req: AuthRequest, _res: Response, next: NextFunctio
   }
 }
 
+/* Manager/admin-tier roles. Used below to decide which requireRole() gates an
+   API key may pass: a route is "staff-level" if its allowed-roles list names
+   at least one role outside this set. */
+const ELEVATED = new Set<string>([R.SUPER_ADMIN, R.IT_MANAGER, R.CRM_MANAGER]);
+
 export function requireRole(...roles: string[]) {
   return (req: AuthRequest, _res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user) throw new AppError(403, 'Insufficient permissions');
+
+    /* X-API-Key requests carry the synthetic role 'API' (see
+       authenticateApiKey in modules/apikeys/apikeys.controller.ts), which no
+       roles list ever names. Per /api/docs, a key may use staff-level
+       endpoints (its read/write scopes were already enforced by HTTP method
+       upstream) but can never reach routes gated to manager/admin roles only
+       (billing, user management, API key management, org settings). A route
+       is staff-level when its allowed roles include at least one
+       non-manager role — e.g. CRM_STAFF lists SALES_REP, so contacts CRUD
+       is open to keys, while CRM_MANAGERS/ADMIN routes stay closed. */
+    if (req.user.role === 'API') {
+      if (roles.some(r => !ELEVATED.has(r))) return next();
+      throw new AppError(403, 'API keys cannot access admin-gated endpoints');
+    }
+
+    if (!roles.includes(req.user.role)) {
       throw new AppError(403, 'Insufficient permissions');
     }
     next();

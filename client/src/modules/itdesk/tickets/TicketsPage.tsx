@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen } from 'lucide-react';
-import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports } from '../../../api/itdesk';
+import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown } from 'lucide-react';
+import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports, useArticleSuggestions, useCreateArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
 import { useUsers } from '../../../api/users';
 import { useContacts } from '../../../api/crm';
@@ -67,6 +67,18 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.title]);
 
+  /* KB deflection — as the requester describes the problem, look for
+     published articles that might already answer it. The query string is
+     debounced 450ms so suggestions refresh once per pause, not per keystroke;
+     useArticleSuggestions itself stays idle under 4 characters. */
+  const [kbQuery, setKbQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setKbQuery(`${form.title} ${form.body}`.trim()), 450);
+    return () => clearTimeout(t);
+  }, [form.title, form.body]);
+  const kbSuggestions = useArticleSuggestions(kbQuery);
+  const [openSuggestionId, setOpenSuggestionId] = useState<string | null>(null);
+
   return (
     <form onSubmit={e => {
       e.preventDefault();
@@ -131,6 +143,42 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
           <Field label={fieldLabel('ticket', 'description', 'Description')} required>
             <Textarea aria-label={fieldLabel('ticket', 'description', 'Description')} required rows={4} value={form.body} onChange={f('body')} placeholder="Provide details about the issue, steps to reproduce, expected vs actual behaviour…" />
           </Field>
+          {(kbSuggestions.data?.length ?? 0) > 0 && (
+            <div className="rounded-card border border-accent/25 bg-accent-soft/40 overflow-hidden">
+              <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-2">
+                <BookOpen size={13} className="text-accent shrink-0" />
+                <p className="text-[12px] font-semibold text-accent-soft-fg">This might already be solved</p>
+                <span className="ml-auto text-[11px] text-fg-subtle">from your knowledge base</span>
+              </div>
+              <ul className="divide-y divide-line-subtle border-t border-line-subtle bg-surface">
+                {kbSuggestions.data!.map(s => {
+                  const open = openSuggestionId === s.id;
+                  return (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        onClick={() => setOpenSuggestionId(o => (o === s.id ? null : s.id))}
+                        className="w-full text-left px-3.5 py-2.5 hover:bg-surface-hover transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-inset"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="text-[13px] font-medium text-fg group-hover:text-accent transition-colors truncate">{s.title}</span>
+                          {s.category && <Badge variant="gray">{s.category.name}</Badge>}
+                          <ChevronDown size={13} className={`ml-auto shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+                        </span>
+                        {!open && <span className="block mt-0.5 text-[12px] text-fg-muted line-clamp-2">{s.snippet}</span>}
+                      </button>
+                      {open && (
+                        <div className="px-3.5 pb-3 text-[12.5px] leading-relaxed text-fg-muted whitespace-pre-wrap max-h-56 overflow-y-auto">
+                          {s.body}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
       <div className="form-section">
@@ -220,6 +268,12 @@ function TicketDetailModal({ id, users, categories }: any) {
   const aiEstimate = useEstimateResolution();
   const aiSlaRisk = useSlaRisk();
   const aiKb = useKbArticle();
+  const createArticle = useCreateArticle();
+  /* Which save button is in flight, and what the save produced — the panel
+     swaps its action row for a confirmation once the article exists. */
+  const [kbSavingAs, setKbSavingAs] = useState<'DRAFT' | 'PUBLISHED' | null>(null);
+  const [kbSaved, setKbSaved] = useState<{ id: string; status: string } | null>(null);
+  const [kbCopied, setKbCopied] = useState(false);
   const [suggestedReply, setSuggestedReply] = useState('');
   const [copiedReply, setCopiedReply] = useState(false);
   const [autoRouteResult, setAutoRouteResult] = useState<{ categoryName: string | null; agentName: string | null; reason: string } | null>(null);
@@ -529,24 +583,83 @@ function TicketDetailModal({ id, users, categories }: any) {
         title="Generate KB Article"
         icon={<BookOpen size={14} className="text-success" />}
         actions={
-          <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => aiKb.mutate(ticket.id)} loading={aiKb.isPending}>
-            Generate
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Sparkles size={12} />}
+            onClick={() => { setKbSaved(null); setKbCopied(false); aiKb.mutate(ticket.id); }}
+            loading={aiKb.isPending}
+          >
+            {aiKb.data ? 'Regenerate' : 'Generate'}
           </Button>
         }
       >
         <AiNote id="ticket.kbArticle" className="mb-2.5" />
         {aiKb.data && (
-          <Alert tone="success" title={aiKb.data.title}>
-            <div className="mb-1.5"><AiGeneratedTag /></div>
-            <pre className="text-xs whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto my-2 opacity-90">{aiKb.data.body}</pre>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => navigator.clipboard.writeText(`# ${aiKb.data!.title}\n\n${aiKb.data!.body}`)}
-            >
-              Copy to clipboard
-            </Button>
-          </Alert>
+          <div className="rounded-card border border-line overflow-hidden shadow-ui-sm">
+            {/* Draft header — title + provenance tag */}
+            <div className="flex items-center gap-2 px-3.5 py-2.5 bg-surface-sunken border-b border-line-subtle">
+              <BookOpen size={13} className="text-success shrink-0" />
+              <p className="text-[13px] font-semibold text-fg truncate">{aiKb.data.title}</p>
+              <span className="ml-auto shrink-0"><AiGeneratedTag /></span>
+            </div>
+            {/* Article body preview */}
+            <div className="px-3.5 py-3 max-h-52 overflow-y-auto bg-surface">
+              <pre className="text-[12.5px] whitespace-pre-wrap font-sans leading-relaxed text-fg-muted">{aiKb.data.body}</pre>
+            </div>
+            {/* Action rail — save into the knowledge base, or copy out */}
+            <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-line-subtle bg-surface-sunken">
+              {kbSaved ? (
+                <p className="flex items-center gap-1.5 text-[12px] font-medium text-success">
+                  <Check size={13} className="shrink-0" />
+                  Saved to the knowledge base as {kbSaved.status === 'PUBLISHED' ? 'a published article' : 'a draft'}
+                </p>
+              ) : (
+                <>
+                  <Button
+                    size="xs"
+                    icon={<BookOpen size={11} />}
+                    loading={kbSavingAs === 'PUBLISHED'}
+                    disabled={kbSavingAs !== null}
+                    onClick={async () => {
+                      setKbSavingAs('PUBLISHED');
+                      try {
+                        const a = await createArticle.mutateAsync({ title: aiKb.data!.title, body: aiKb.data!.body, categoryId: ticket.categoryId || undefined, status: 'PUBLISHED' });
+                        setKbSaved({ id: a.id, status: a.status });
+                      } finally { setKbSavingAs(null); }
+                    }}
+                  >
+                    Save &amp; publish
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    loading={kbSavingAs === 'DRAFT'}
+                    disabled={kbSavingAs !== null}
+                    onClick={async () => {
+                      setKbSavingAs('DRAFT');
+                      try {
+                        const a = await createArticle.mutateAsync({ title: aiKb.data!.title, body: aiKb.data!.body, categoryId: ticket.categoryId || undefined, status: 'DRAFT' });
+                        setKbSaved({ id: a.id, status: a.status });
+                      } finally { setKbSavingAs(null); }
+                    }}
+                  >
+                    Save as draft
+                  </Button>
+                </>
+              )}
+              <IconButton
+                className="ml-auto"
+                label="Copy article"
+                icon={kbCopied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                onClick={() => {
+                  navigator.clipboard.writeText(`# ${aiKb.data!.title}\n\n${aiKb.data!.body}`);
+                  setKbCopied(true);
+                  setTimeout(() => setKbCopied(false), 1600);
+                }}
+              />
+            </div>
+          </div>
         )}
       </CardSection>
 

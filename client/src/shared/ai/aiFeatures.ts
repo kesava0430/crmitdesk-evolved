@@ -290,7 +290,7 @@ export const AI_FEATURES: AiFeature[] = [
     sends: 'The full comment thread, including commenter names.',
     effect: 'advisory',
     tier: 'paid',
-    caveat: 'No article is created — you copy the draft and publish it yourself.',
+    caveat: 'Nothing is saved automatically — review the draft, then save it as a draft or publish it to the knowledge base.',
   },
   {
     id: 'ticket.autoTag',

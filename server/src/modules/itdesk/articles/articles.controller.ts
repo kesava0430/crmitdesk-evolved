@@ -62,6 +62,71 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 }
 
+/* Words too common to signal topic. Keeping this list tiny is deliberate —
+   it only needs to stop "my printer is not working" matching every article
+   containing "not", not to be a linguistics project. */
+const STOPWORDS = new Set([
+  'the','and','for','with','not','are','was','has','have','had','can','cant',
+  'this','that','when','what','how','why','does','doesnt','wont','from','into',
+  'its','all','any','but','out','get','got','new','issue','problem','error',
+  'help','need','please','working','work','after','before',
+]);
+
+/**
+ * Lightweight "you might already have the answer" lookup used by the ticket
+ * create form (deflection) — NOT a general search. Splits the draft title +
+ * description into keywords, finds PUBLISHED articles containing any of them,
+ * then ranks in JS: a keyword hit in the title counts double a hit in the
+ * body. Returns at most 5, each with a snippet around the first body match.
+ * Open to every authenticated role — the requester filing the ticket is
+ * exactly who deflection is for.
+ */
+export async function suggest(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const q = String(req.query.q ?? '').trim();
+    if (q.length < 4) return res.json({ suggestions: [] });
+
+    const words = Array.from(new Set(
+      q.toLowerCase().split(/[^a-z0-9]+/)
+        .filter(w => w.length >= 3 && !STOPWORDS.has(w)),
+    )).slice(0, 10);
+    if (!words.length) return res.json({ suggestions: [] });
+
+    const candidates = await prisma.knowledgeArticle.findMany({
+      where: {
+        orgId: req.user!.orgId,
+        status: 'PUBLISHED',
+        OR: words.flatMap(w => [
+          { title: { contains: w, mode: 'insensitive' as const } },
+          { body:  { contains: w, mode: 'insensitive' as const } },
+        ]),
+      },
+      include: { category: { select: { id: true, name: true } } },
+      take: 25,
+    });
+
+    const scored = candidates.map(a => {
+      const title = a.title.toLowerCase();
+      const body = a.body.toLowerCase();
+      let score = 0;
+      let firstBodyHit = -1;
+      for (const w of words) {
+        if (title.includes(w)) score += 2;
+        const i = body.indexOf(w);
+        if (i >= 0) { score += 1; if (firstBodyHit < 0 || i < firstBodyHit) firstBodyHit = i; }
+      }
+      // Snippet: a window around the first body match, else the opening line.
+      const from = firstBodyHit < 0 ? 0 : Math.max(0, firstBodyHit - 40);
+      const raw = a.body.slice(from, from + 180).replace(/\s+/g, ' ').trim();
+      const snippet = (from > 0 ? '…' : '') + raw + (from + 180 < a.body.length ? '…' : '');
+      return { id: a.id, title: a.title, snippet, body: a.body, category: a.category, score };
+    }).filter(s => s.score > 0);
+
+    scored.sort((x, y) => y.score - x.score);
+    res.json({ suggestions: scored.slice(0, 5).map(({ score: _s, ...rest }) => rest) });
+  } catch (err) { next(err); }
+}
+
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);

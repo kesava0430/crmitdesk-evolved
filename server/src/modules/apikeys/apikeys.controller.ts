@@ -126,7 +126,11 @@ export async function authenticateApiKey(
   // apikeys module itself, org settings) stay out of reach of API keys
   // entirely, regardless of scope. That's a deliberate ceiling, not a gap —
   // key management itself should never be manageable by a key.
-  req.user = { id: 'api', orgId: apiKey.orgId, role: 'API' as any, email: '' };
+  /* Act as the admin who created the key (a real User row — controllers set
+     ownerId/createdBy from req.user.id, so a fake id would violate FKs), but
+     keep the synthetic 'API' role so requireRole() applies the key ceiling
+     rather than that admin's real permissions. */
+  req.user = { id: apiKey.createdBy, orgId: apiKey.orgId, role: 'API' as any, email: '' };
   (req as any).apiKeyId = apiKey.id; // for the per-key rate limiter in index.ts
   next();
 }
