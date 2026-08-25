@@ -235,9 +235,13 @@ services:
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     routes:
+      # Render substitutes the wildcard with `*` in the destination — NOT
+      # `:splat` (that's Netlify syntax, which Render forwards literally,
+      # turning every API call into "POST /api/:splat" → 404. That one
+      # character difference took down every login for two days.)
       - type: rewrite
         source: /api/*
-        destination: https://crm-itdesk-server.onrender.com/api/:splat
+        destination: https://crm-itdesk-server.onrender.com/api/*
       - type: rewrite
         source: /*
         destination: /index.html
