@@ -5,6 +5,7 @@ import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../utils/pagination';
 import { logAction } from '../../utils/auditLog';
+import { runWorkflows } from '../../utils/workflow-engine';
 import { getPermCtx, assertCan, scopedWhere } from '../../utils/permissions';
 import { requestApproval, decide, pendingForUser } from '../../utils/approvals';
 
@@ -346,6 +347,19 @@ export async function decideRequest(req: AuthRequest, res: Response, next: NextF
       decision: data.decision,
       finalized: result.finalized,
     });
+
+    /* Automation hook — fires only when the request reaches a final state
+       (a mid-chain single approval isn't a decision yet). Entity carries the
+       final status + decision fields for conditions like `status eq REJECTED`. */
+    if (result.finalized) {
+      const full = await prisma.approvalRequest.findUnique({ where: { id: req.params.id } });
+      if (full) {
+        runWorkflows({
+          trigger: 'APPROVAL_DECIDED', orgId: req.user!.orgId, entityType: 'APPROVAL', entityId: full.id,
+          entity: { ...(full as any), decision: data.decision },
+        }).catch(() => {});
+      }
+    }
 
     res.json(result);
   } catch (err) {

@@ -72,8 +72,18 @@ function envProviders(): ResolvedModel[] {
   if (process.env.OPENAI_API_KEY) {
     out.push({
       providerKey: 'openai',
+      /* OPENAI_BASE_URL (optional) points this provider at any OpenAI-
+         compatible endpoint — an org proxy, LiteLLM, or a self-hosted
+         Ollama/vLLM box — which is the "run the cheap tier on our own
+         model" path. Kept in sync with getClient() in utils/ai.ts. */
+      baseUrl: process.env.OPENAI_BASE_URL || undefined,
       apiKey: process.env.OPENAI_API_KEY,
-      model: 'gpt-4o-mini',
+      /* Model names follow the same env overrides as the Groq path, so a
+         self-hosted endpoint can name its local models (e.g.
+         AI_MODEL_FAST=qwen2.5:7b-instruct) without a code change. */
+      model: process.env.OPENAI_BASE_URL
+        ? (process.env.AI_MODEL_FAST || 'gpt-4o-mini')
+        : 'gpt-4o-mini',
       inputCostPer1k: Number(process.env.OPENAI_INPUT_COST_PER_1K ?? 0.00015),
       outputCostPer1k: Number(process.env.OPENAI_OUTPUT_COST_PER_1K ?? 0.0006),
       supportsJson: true,
@@ -88,7 +98,12 @@ function envModelFor(task: AiTaskType, base: ResolvedModel): ResolvedModel {
     if (task === 'EMBEDDING') return { ...base, model: 'text-embedding-3-small', embeddingDim: 1536 };
     return base;
   }
-  if (task === 'SMART') return { ...base, model: 'gpt-4o', inputCostPer1k: 0.0025, outputCostPer1k: 0.01 };
+  if (task === 'SMART') {
+    /* A custom-base-URL (self-hosted) provider names its own smart model via
+       AI_MODEL_SMART; the real OpenAI API keeps the priced gpt-4o default. */
+    if (base.baseUrl && process.env.AI_MODEL_SMART) return { ...base, model: process.env.AI_MODEL_SMART };
+    return { ...base, model: 'gpt-4o', inputCostPer1k: 0.0025, outputCostPer1k: 0.01 };
+  }
   if (task === 'EMBEDDING') return { ...base, model: 'text-embedding-3-small', embeddingDim: 1536, inputCostPer1k: 0.00002, outputCostPer1k: 0 };
   return base;
 }

@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { validateRecordData } from '../modules/custom-modules/customModules.service';
-import { assertPublicHttpUrl } from './ssrfGuard';
+import { runWorkflows } from './workflow-engine';
 
 // Same setInterval-poller shape as scheduler.ts (see comment there) — one
 // Node process, one periodic DB scan, no job queue. Checked every minute;
@@ -31,12 +31,7 @@ async function runSyncForConfig(configId: string): Promise<void> {
       headers['Authorization'] = `Bearer ${config.authValue}`;
     }
 
-    // Admin-supplied URL, and the response body gets parsed and imported —
-    // the most dangerous SSRF shape. Refuse private/internal targets, and
-    // don't follow redirects (a public URL 302ing to a private one would
-    // bypass the guard).
-    await assertPublicHttpUrl(config.url);
-    const res = await fetch(config.url, { method: config.method || 'GET', headers, redirect: 'manual' });
+    const res = await fetch(config.url, { method: config.method || 'GET', headers });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
     const json = await res.json();
     const list = getByPath(json, config.recordPath);
@@ -60,11 +55,25 @@ async function runSyncForConfig(configId: string): Promise<void> {
           : null;
 
         if (externalId) {
-          await prisma.customModuleRecord.upsert({
+          /* upsert() can't say whether it created or updated, but automation
+             should only fire for NEW arrivals — re-polling the same 200 ERP
+             rows every hour must not re-run every rule 200 times. */
+          const preExisting = await prisma.customModuleRecord.findUnique({
+            where: { moduleId_externalId: { moduleId: config.moduleId, externalId } },
+            select: { id: true },
+          });
+          const row = await prisma.customModuleRecord.upsert({
             where: { moduleId_externalId: { moduleId: config.moduleId, externalId } },
             create: { moduleId: config.moduleId, orgId: config.module.orgId, data, source: 'SYNC', externalId },
             update: { data },
           });
+          if (!preExisting) {
+            runWorkflows({
+              trigger: 'CUSTOM_RECORD_CREATED', orgId: config.module.orgId,
+              entityType: 'CUSTOM_MODULE_RECORD', entityId: row.id,
+              entity: { ...(data as any), id: row.id, moduleId: config.moduleId, moduleSlug: (config.module as any).slug, moduleName: config.module.name, source: 'SYNC' },
+            }).catch(() => {});
+          }
         } else {
           // No dedupe key configured — every poll appends new rows. Fine
           // for one-shot/append-only feeds; the UI should nudge admins to

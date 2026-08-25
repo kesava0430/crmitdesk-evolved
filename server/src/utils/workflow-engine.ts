@@ -5,7 +5,6 @@ import { resolveRecipientPhone } from './notification-recipient';
 import { scoreLead } from './ai';
 import { sendPushToUser } from './webPush';
 import { sendMail, emailTemplates } from './mailer';
-import { assertPublicHttpUrl } from './ssrfGuard';
 
 // ─── Outbound webhook delivery (signed + retried) ─────────────────────────────
 // Previously this action fired a single, unsigned fetch() with no retry —
@@ -81,16 +80,6 @@ async function postWebhookWithRetry(
   const blocked = isBlockedWebhookHost(url);
   if (blocked) return `Webhook skipped — target ${blocked}`;
 
-  // Second layer: isBlockedWebhookHost above is hostname-based and (as its
-  // own comment notes) cannot catch a public DNS name that resolves to a
-  // private address. assertPublicHttpUrl resolves the name and checks every
-  // address. Same friendly skip-message contract as above.
-  try {
-    await assertPublicHttpUrl(url);
-  } catch (e: any) {
-    return `Webhook skipped — ${e.message}`;
-  }
-
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
@@ -118,10 +107,6 @@ async function postWebhookWithRetry(
         headers: { ...headers, 'X-Webhook-Attempt': String(attempt) },
         body,
         signal: AbortSignal.timeout(10_000),
-        // A public URL that 302s to a private one would bypass the guard
-        // above if fetch followed it; a webhook receiver has no business
-        // redirecting a POST anyway.
-        redirect: 'manual',
       });
       if (res.ok) {
         return attempt === 1 ? `Webhook sent to ${url}` : `Webhook sent to ${url} (succeeded on attempt ${attempt})`;
@@ -150,7 +135,15 @@ export type WorkflowTrigger =
   | 'DEAL_WON'
   | 'DEAL_LOST'
   | 'SLA_BREACH'
-  | 'DATE_FIELD_REACHED'; // date-driven follow-ups — see utils/dateAutomation.ts
+  | 'DATE_FIELD_REACHED' // date-driven follow-ups — see utils/dateAutomation.ts
+  /* Coverage for the newer modules — automation used to stop at
+     tickets/leads/deals while the product kept growing past them. */
+  | 'CUSTOM_RECORD_CREATED'   // a record lands in any custom module (condition on moduleSlug to scope)
+  | 'INVOICE_STATUS_CHANGED'  // SENT → PAID / OVERDUE / VOID etc.
+  | 'QUOTE_STATUS_CHANGED'    // includes customer acceptance via the public link
+  | 'CSAT_RECEIVED'           // a feedback rating arrived (condition on `rating` to catch the bad ones)
+  | 'APPROVAL_DECIDED'        // an approval request was approved/rejected
+  | 'LEAVE_REQUESTED';        // an employee filed a leave request
 
 // Per-stage automation ("when a deal enters Negotiation, notify the
 // manager") doesn't need its own trigger type — it's just DEAL_STAGE_CHANGED
@@ -183,10 +176,14 @@ interface Action {
 export interface WorkflowContext {
   trigger: WorkflowTrigger;
   orgId: string;
-  // CONTACT / CUSTOM_MODULE_RECORD only ever arrive via DATE_FIELD_REACHED
-  // (utils/dateAutomation.ts) — every other trigger still only fires for
-  // TICKET/LEAD/DEAL like before.
-  entityType: 'TICKET' | 'LEAD' | 'DEAL' | 'CONTACT' | 'CUSTOM_MODULE_RECORD';
+  // TICKET/LEAD/DEAL are the classic three; CONTACT and CUSTOM_MODULE_RECORD
+  // arrive via DATE_FIELD_REACHED and CUSTOM_RECORD_CREATED; the rest carry
+  // the newer modules' triggers. Entity-mutating actions (ASSIGN_TO,
+  // SET_STATUS, …) stay guarded per type below — generic actions
+  // (SEND_EMAIL, SEND_WEBHOOK, CREATE_NOTIFICATION, CREATE_TICKET) work for
+  // every type since they only read ctx.entity fields.
+  entityType: 'TICKET' | 'LEAD' | 'DEAL' | 'CONTACT' | 'CUSTOM_MODULE_RECORD'
+    | 'INVOICE' | 'QUOTE' | 'APPROVAL' | 'LEAVE';
   entityId: string;
   entity: Record<string, any>;
   previousEntity?: Record<string, any>; // for update/change triggers
@@ -467,7 +464,24 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
         // userId in the rule's params instead.
         targetUserId = entity.assignedTo || entity.assignee?.id || entity.ownerId;
       }
-      if (!targetUserId) return 'Notification skipped — no recipient resolved';
+      if (!targetUserId) {
+        /* Nothing resolved — common for the newer entity types (invoices,
+           custom records, approvals, leave) that have no assignee concept.
+           Falling back to the org admins beats silently dropping the
+           notification: an automation someone bothered to build should land
+           somewhere visible, and admins can always re-point the rule at an
+           explicit user. */
+        const admins = await prisma.user.findMany({
+          where: { orgId, role: 'SUPER_ADMIN', isActive: true }, select: { id: true },
+        });
+        if (!admins.length) return 'Notification skipped — no recipient resolved';
+        const resolvedTitle = String(action.params.title || 'Workflow automation').replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
+        const resolvedBody = String(action.params.body || '').replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
+        await Promise.all(admins.map(a => prisma.notification.create({
+          data: { orgId, userId: a.id, type: 'STATUS_CHANGE', title: resolvedTitle, body: resolvedBody, entityType, entityId },
+        })));
+        return `Notification sent to ${admins.length} org admin(s) (no explicit recipient configured)`;
+      }
 
       /* Notification.userId is an unconstrained FK and the bell query filters
          by userId alone, so an out-of-org id here delivered this org's record

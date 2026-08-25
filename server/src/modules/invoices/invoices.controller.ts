@@ -6,6 +6,7 @@ import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { logAction } from '../../utils/auditLog';
 import { purgeEntityChildren } from '../../utils/entityCleanup';
+import { runWorkflows } from '../../utils/workflow-engine';
 
 const include = {
   lines: true,
@@ -120,6 +121,10 @@ export async function changeStatus(req: AuthRequest, res: Response, next: NextFu
       include,
     });
     logAction(req.user!.id, 'UPDATE', 'Invoice', invoice.id, { status });
+    // Automation hook — e.g. "notify finance when an invoice goes OVERDUE"
+    // or "webhook the ERP when an invoice is PAID". previousEntity carries
+    // the pre-change row so conditions can compare old vs new status.
+    runWorkflows({ trigger: 'INVOICE_STATUS_CHANGED', orgId: req.user!.orgId, entityType: 'INVOICE', entityId: updated.id, entity: updated as any, previousEntity: invoice as any }).catch(() => {});
     res.json(updated);
   } catch (err) { next(err); }
 }

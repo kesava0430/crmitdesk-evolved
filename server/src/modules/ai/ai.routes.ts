@@ -47,6 +47,7 @@ aiRouter.post('/ticket/:id/reply',         requireRole(...IT_STAFF),     aiAdvan
 aiRouter.post('/ticket/:id/auto-route',    requireRole(...IT_STAFF),     trackAiCall, ai.autoRouteHandler); // Free
 aiRouter.post('/ticket/check-duplicate',   requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.duplicateDetectHandler);
 aiRouter.post('/ticket/:id/kb-article',    requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.kbArticleHandler);
+aiRouter.post('/invoice/:id/reminder',     requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.invoiceReminderHandler);
 aiRouter.post('/ticket/:id/summarize',     requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.summarizeHandler);
 aiRouter.post('/ticket/:id/estimate',      requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.estimateHandler);
 aiRouter.post('/ticket/:id/sla-risk',      requireRole(...IT_STAFF),     aiAdvanced, trackAiCall, ai.slaRiskHandler);

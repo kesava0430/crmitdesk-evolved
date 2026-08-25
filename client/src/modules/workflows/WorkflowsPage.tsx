@@ -39,6 +39,14 @@ const TRIGGERS = [
   // entity depends on the rule's own dateConfig.entityType (Contact vs a
   // specific Custom Module), resolved by getEntityForTrigger() below.
   { value: 'DATE_FIELD_REACHED',   label: 'Date Reached (birthday, reminder, renewal…)', entity: 'CONTACT' },
+  // Newer-module coverage — keep in step with the trigger enum in
+  // server workflows.controller.ts and WorkflowTrigger in workflow-engine.ts.
+  { value: 'CUSTOM_RECORD_CREATED',  label: 'Custom Module Record Created', entity: 'CUSTOM_MODULE_RECORD' },
+  { value: 'INVOICE_STATUS_CHANGED', label: 'Invoice Status Changed (paid, overdue…)', entity: 'INVOICE' },
+  { value: 'QUOTE_STATUS_CHANGED',   label: 'Quote Status Changed (sent, accepted…)', entity: 'QUOTE' },
+  { value: 'CSAT_RECEIVED',          label: 'Feedback Rating Received', entity: 'TICKET' },
+  { value: 'APPROVAL_DECIDED',       label: 'Approval Request Decided', entity: 'APPROVAL' },
+  { value: 'LEAVE_REQUESTED',        label: 'Leave Requested', entity: 'LEAVE' },
 ];
 
 const CONDITION_FIELDS: Record<string, { value: string; label: string }[]> = {
@@ -58,10 +66,27 @@ const CONDITION_FIELDS: Record<string, { value: string; label: string }[]> = {
   CONTACT: [
     { value: 'source', label: 'Source' },
   ],
+  INVOICE: [
+    { value: 'status', label: 'Status (DRAFT/SENT/PAID/OVERDUE/VOID)' },
+    { value: 'invoiceNumber', label: 'Invoice number' },
+  ],
+  QUOTE: [
+    { value: 'status', label: 'Status (DRAFT/SENT/ACCEPTED/REJECTED)' },
+  ],
+  APPROVAL: [
+    { value: 'status', label: 'Final status (APPROVED/REJECTED)' },
+    { value: 'entityType', label: 'What was approved (entity type)' },
+  ],
+  LEAVE: [
+    { value: 'days', label: 'Days requested' },
+    { value: 'leaveType', label: 'Leave type name' },
+  ],
   // CUSTOM_MODULE_RECORD's fields are module-specific, so there's no fixed
-  // list here — conditions are still supported (rule.conditions just has
-  // no "add" picker for it), the field name can be typed in as free text
-  // via the condition value input elsewhere in this form.
+  // list here besides moduleSlug (scopes a rule to one module) — other field
+  // names can be typed in as free text via the condition value input.
+  CUSTOM_MODULE_RECORD: [
+    { value: 'moduleSlug', label: 'Module (slug, e.g. erp-work-orders)' },
+  ],
 };
 
 const OPERATORS = [

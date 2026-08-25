@@ -14,6 +14,7 @@ import {
   naturalLanguageQuery,
   autoRouteTicket,
   generateKbArticle,
+  generateInvoiceReminder,
   detectDuplicates,
   summarizeThread,
   estimateResolutionTime,
@@ -289,6 +290,26 @@ export async function kbArticleHandler(req: AuthRequest, res: Response, next: Ne
       { title: ticket.title, body: ticket.body, priority: ticket.priority, category: ticket.category?.name },
       comments.map(c => ({ body: c.body, author: (c as any).author?.name }))
     );
+    res.json(result);
+  } catch (err: any) { if (!handleAIError(err, res)) next(err); }
+}
+
+// ─── Invoice Payment Reminder ─────────────────────────────────────────────────
+export async function invoiceReminderHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: req.params.id, orgId },
+      include: { lines: true, deal: { select: { contact: { select: { name: true } } } }, org: { select: { name: true, currency: true } } },
+    });
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+    const subtotal = invoice.lines.reduce((sum, l) => sum + Number(l.quantity) * Number(l.unitPrice) * (1 - Number(l.discount ?? 0) / 100), 0);
+    const total = Math.round(subtotal * (1 + Number(invoice.taxRate) / 100) * 100) / 100;
+    const result = await generateInvoiceReminder({
+      invoiceNumber: invoice.invoiceNumber, title: invoice.title, total,
+      currency: (invoice as any).org?.currency, dueDate: invoice.dueDate, status: invoice.status,
+      contactName: (invoice as any).deal?.contact?.name, orgName: (invoice as any).org?.name,
+    });
     res.json(result);
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }

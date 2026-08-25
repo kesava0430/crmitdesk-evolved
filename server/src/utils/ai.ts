@@ -56,7 +56,46 @@ const AI_MODEL_SMART =
   process.env.AI_MODEL_SMART || (process.env.GROQ_API_KEY ? 'openai/gpt-oss-120b' : 'gpt-4o');
 const AI_MODEL = AI_MODEL_FAST;
 
-// ─── In-Memory Response Cache (5-min TTL) ────────────────────────────────────
+// ─── Per-feature tier routing ─────────────────────────────────────────────────
+//
+// The hybrid-hosting knob: which features deserve the SMART (large/paid) model
+// and which run fine on FAST (small/cheap — possibly a self-hosted Ollama/vLLM
+// endpoint via OPENAI_BASE_URL). Long-form writing features default to SMART
+// because users read their prose; classification-style features default to
+// FAST because their output is a score or a label nobody can tell apart.
+//
+// Override without a deploy: AI_SMART_FEATURES="ticket.kbArticle,ticket.summary"
+// replaces the default list entirely (set it to "" to force everything FAST).
+const DEFAULT_SMART_FEATURES = new Set([
+  'ticket.kbArticle', 'ticket.summary', 'ticket.reply',
+  'invoice.reminder',
+  'lead.followUp', 'deal.followUp', 'account.nurture',
+  'meeting.notes', 'pipeline.health',
+]);
+function smartFeatures(): Set<string> {
+  const env = process.env.AI_SMART_FEATURES;
+  if (env === undefined) return DEFAULT_SMART_FEATURES;
+  return new Set(env.split(',').map(s => s.trim()).filter(Boolean));
+}
+/** SMART/FAST tier for a call: the feature's routing wins; an unlabelled call
+    falls back to whatever model the call site asked for. */
+function tierFor(feature: string | undefined, requestedModel: string): 'SMART' | 'FAST' {
+  if (feature) return smartFeatures().has(feature) ? 'SMART' : 'FAST';
+  return requestedModel === AI_MODEL_SMART ? 'SMART' : 'FAST';
+}
+
+// ─── In-Memory Response Cache ─────────────────────────────────────────────────
+//
+// Deterministic features (a score, a label, a risk band for the same input)
+// cache for 30 minutes — re-opening the same lead or re-checking the same
+// title should not re-bill. Generative features keep the short 5-minute TTL:
+// long enough to absorb a double-click, short enough that "Regenerate"
+// actually regenerates.
+const DETERMINISTIC_FEATURES = new Set([
+  'ticket.duplicate', 'ticket.sentiment', 'ticket.slaRisk', 'ticket.estimate',
+  'ticket.autoRoute', 'lead.score', 'deal.winProbability', 'account.churn',
+]);
+const DETERMINISTIC_TTL_MS = 30 * 60 * 1000;
 
 const cache = new Map<string, { value: string; expires: number }>();
 
@@ -118,10 +157,10 @@ async function chat(
       orgId: ctx.orgId,
       userId: ctx.userId,
       feature: opts.feature ?? 'legacy.unlabelled',
-      // This file only ever picks between the two named models, so map back
-      // to the gateway's task tiers rather than pinning a model name — that
-      // is what lets an org's own provider config take over routing.
-      task: model === AI_MODEL_SMART ? 'SMART' : 'FAST',
+      // Tier comes from the feature's routing (see tierFor above) so ops can
+      // move features between the cheap and premium model without touching
+      // call sites — the gateway then maps the tier to the org's providers.
+      task: tierFor(opts.feature, model),
       system,
       user,
       maxTokens,
@@ -137,7 +176,7 @@ async function chat(
       throw err;
     }
 
-    setCached(key, res.text);
+    setCached(key, res.text, opts.feature && DETERMINISTIC_FEATURES.has(opts.feature) ? DETERMINISTIC_TTL_MS : undefined);
     return res.text;
   }
 
@@ -164,7 +203,7 @@ async function chat(
         ...(opts.json ? { response_format: { type: 'json_object' as const } } : {}),
       });
       const text = res.choices[0]?.message?.content?.trim() || '';
-      setCached(key, text);
+      setCached(key, text, opts.feature && DETERMINISTIC_FEATURES.has(opts.feature) ? DETERMINISTIC_TTL_MS : undefined);
       return text;
     } catch (err: any) {
       lastErr = err;
@@ -419,6 +458,33 @@ export async function generateKbArticle(ticket: {
   return {
     title: str(parsed?.title, 200) ?? ticket.title,
     body: str(parsed?.body, 20000) ?? str(reply, 20000) ?? '',
+  };
+}
+
+// ─── Invoice Payment Reminder ─────────────────────────────────────────────────
+
+/**
+ * Drafts a payment-reminder email for an unpaid/overdue invoice. Tone scales
+ * with lateness: friendly nudge before the due date, firmer past it, and a
+ * final-notice register beyond 30 days late — that judgment is the reason
+ * this is an AI feature rather than a mail-merge template.
+ */
+export async function generateInvoiceReminder(invoice: {
+  invoiceNumber: string; title: string; total: number; currency?: string;
+  dueDate?: Date | null; status: string; contactName?: string | null; orgName?: string | null;
+}): Promise<{ subject: string; body: string }> {
+  const client = getClient();
+  if (!client) return { subject: `Payment reminder — ${invoice.invoiceNumber}`, body: 'AI not configured.' };
+  const daysLate = invoice.dueDate ? Math.floor((Date.now() - invoice.dueDate.getTime()) / 86400000) : 0;
+  const reply = await chat(client,
+    'You draft professional accounts-receivable emails. Given an invoice, write a payment reminder whose firmness matches how overdue it is: not yet due = friendly heads-up; up to 30 days late = polite but direct; more than 30 days = firm final notice mentioning next steps. Keep it under 150 words, no legal threats. Respond ONLY with valid JSON: {"subject": "...", "body": "..."}',
+    `Invoice ${invoice.invoiceNumber}: "${invoice.title}"\nAmount: ${invoice.currency ?? 'USD'} ${invoice.total}\nStatus: ${invoice.status}\nDays past due: ${daysLate}\nCustomer: ${invoice.contactName ?? 'the customer'}\nFrom: ${invoice.orgName ?? 'our company'}`,
+    { feature: 'invoice.reminder', model: AI_MODEL_SMART, maxTokens: 400, json: true }
+  );
+  const parsed = safeJson(reply);
+  return {
+    subject: str(parsed?.subject, 200) ?? `Payment reminder — ${invoice.invoiceNumber}`,
+    body: str(parsed?.body, 4000) ?? str(reply, 4000) ?? '',
   };
 }
 

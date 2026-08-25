@@ -5,6 +5,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { logAction } from '../../utils/auditLog';
+import { runWorkflows } from '../../utils/workflow-engine';
 import { parsePagination, paginate } from '../../utils/pagination';
 import { FIELD_TYPES, slugify, validateRecordData, recordTitle, MODULE_TEMPLATES, getModuleTemplate } from './customModules.service';
 
@@ -240,6 +241,14 @@ export async function createRecord(req: AuthRequest, res: Response, next: NextFu
       data: { moduleId: module_.id, orgId, data: data as Prisma.InputJsonValue, source: 'MANUAL', createdBy: req.user!.id },
     });
     logAction(req.user!.id, 'CREATE', module_.name, record.id, { moduleId: module_.id });
+    /* Automation hook — the record's own fields are spread flat so rule
+       conditions address them directly (e.g. `amount gt 5000`); moduleSlug
+       lets one rule scope itself to one module ("moduleSlug eq erp-work-orders")
+       since CUSTOM_RECORD_CREATED fires for every module in the org. */
+    runWorkflows({
+      trigger: 'CUSTOM_RECORD_CREATED', orgId, entityType: 'CUSTOM_MODULE_RECORD', entityId: record.id,
+      entity: { ...(data as any), id: record.id, moduleId: module_.id, moduleSlug: module_.slug, moduleName: module_.name },
+    }).catch(() => {});
     res.status(201).json(record);
   } catch (err) { next(err); }
 }

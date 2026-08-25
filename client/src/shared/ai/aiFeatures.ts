@@ -293,6 +293,15 @@ export const AI_FEATURES: AiFeature[] = [
     caveat: 'Nothing is saved automatically — review the draft, then save it as a draft or publish it to the knowledge base.',
   },
   {
+    id: 'invoice.reminder',
+    name: 'Payment reminder draft',
+    does: 'Drafts a payment-reminder email for a sent or overdue invoice, matching its tone to how late the payment is.',
+    sends: 'Invoice number, title, amount, due date and the linked contact name.',
+    effect: 'advisory',
+    tier: 'paid',
+    caveat: 'Nothing is sent automatically — you copy the draft into your own email.',
+  },
+  {
     id: 'ticket.autoTag',
     name: 'Auto-tag',
     does: 'Suggests three to six keyword tags for the ticket.',

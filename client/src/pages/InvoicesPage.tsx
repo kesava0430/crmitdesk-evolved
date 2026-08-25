@@ -5,7 +5,9 @@ import {
   RowActions, EmptyState, StatusBadge, PageHeader, PageBody, Button, IconButton, Modal, Card,
   Field, Input, Textarea, FormGrid, SkeletonCard, invoiceStatusVariant, AccessDenied,
 } from '../shared/components';
-import { Receipt, Plus, Pencil, Trash2, Link2, Check as CheckIcon, Send } from 'lucide-react';
+import { Receipt, Plus, Pencil, Trash2, Link2, Check as CheckIcon, Send, Sparkles, Copy } from 'lucide-react';
+import { useInvoiceReminder } from '../api/ai';
+import { AiGeneratedTag } from '../shared/components';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
@@ -28,6 +30,11 @@ function lineTotal(l: InvoiceLine) {
 export default function InvoicesPage() {
   const qc = useQueryClient();
   const { money, date } = useFormat();
+  /* AI payment-reminder draft — which invoice it was generated for, plus the
+     result, so the draft renders inline under that invoice's card. */
+  const aiReminder = useInvoiceReminder();
+  const [reminderFor, setReminderFor] = useState<string | null>(null);
+  const [reminderCopied, setReminderCopied] = useState(false);
   const { user } = useAuth();
   /* /invoices is CRM_STAFF-only on the server. */
   const canReadInvoices = can.readQuotesInvoices(user?.role);
@@ -189,12 +196,44 @@ export default function InvoicesPage() {
                       {copiedId === inv.id ? 'Copied' : 'Copy customer link'}
                     </Button>
                   )}
+                  {(inv.status === 'SENT' || inv.status === 'OVERDUE') && (
+                    <Button size="xs" variant="secondary" icon={<Sparkles size={12} />}
+                      loading={aiReminder.isPending && reminderFor === inv.id}
+                      onClick={() => { setReminderFor(inv.id); setReminderCopied(false); aiReminder.mutate(inv.id); }}>
+                      Draft reminder
+                    </Button>
+                  )}
                   <RowActions items={[
                     { label: 'Edit invoice', icon: <Pencil size={14} />, onClick: () => openEdit(inv), hidden: inv.status === 'PAID' || inv.status === 'VOID' },
                     { label: 'Void invoice', icon: <Trash2 size={14} />, onClick: () => changeStatus.mutate({ id: inv.id, status: 'VOID' }), hidden: inv.status === 'PAID' || inv.status === 'VOID' },
                     { label: 'Delete invoice', icon: <Trash2 size={14} />, onClick: () => { if (confirm('Delete this invoice?')) remove.mutate(inv.id); }, variant: 'danger' },
                   ]} />
                 </div>
+
+                {/* AI payment-reminder draft — tone matches how overdue the
+                    invoice is (friendly nudge vs. firm final notice). */}
+                {reminderFor === inv.id && aiReminder.data && (
+                  <div className="mt-3 rounded-card border border-line overflow-hidden shadow-ui-sm">
+                    <div className="flex items-center gap-2 px-3.5 py-2.5 bg-surface-sunken border-b border-line-subtle">
+                      <Send size={13} className="text-accent shrink-0" />
+                      <p className="text-[13px] font-semibold text-fg truncate">{aiReminder.data.subject}</p>
+                      <span className="ml-auto shrink-0"><AiGeneratedTag /></span>
+                    </div>
+                    <div className="px-3.5 py-3 bg-surface">
+                      <pre className="text-[12.5px] whitespace-pre-wrap font-sans leading-relaxed text-fg-muted">{aiReminder.data.body}</pre>
+                    </div>
+                    <div className="flex items-center gap-2 px-3.5 py-2 border-t border-line-subtle bg-surface-sunken">
+                      <p className="text-[11.5px] text-fg-subtle">Review, then paste into your email client.</p>
+                      <IconButton className="ml-auto" label="Copy reminder"
+                        icon={reminderCopied ? <CheckIcon size={13} className="text-success" /> : <Copy size={13} />}
+                        onClick={() => {
+                          navigator.clipboard.writeText(`Subject: ${aiReminder.data!.subject}\n\n${aiReminder.data!.body}`);
+                          setReminderCopied(true);
+                          setTimeout(() => setReminderCopied(false), 1600);
+                        }} />
+                    </div>
+                  </div>
+                )}
               </Card>
             );
           })

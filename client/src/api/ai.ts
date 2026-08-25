@@ -37,6 +37,9 @@ export const useNLQuery = () =>
 export const useKbArticle = () =>
   useMutation({ mutationFn: (id: string) => api.post(`/ai/ticket/${id}/kb-article`).then(r => r.data as { title: string; body: string }) });
 
+export const useInvoiceReminder = () =>
+  useMutation({ mutationFn: (id: string) => api.post(`/ai/invoice/${id}/reminder`).then(r => r.data as { subject: string; body: string }) });
+
 export const useDetectDuplicates = () =>
   useMutation({ mutationFn: (data: { title: string; body?: string }) => api.post('/ai/ticket/check-duplicate', data).then(r => r.data as { duplicates: Array<{ id: string; title: string; confidence: number; reason: string }> }) });
 

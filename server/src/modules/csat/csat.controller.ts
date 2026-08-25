@@ -1,6 +1,7 @@
 import { Response, NextFunction, Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
+import { runWorkflows } from '../../utils/workflow-engine';
 import { AuthRequest } from '../../middleware/authenticate';
 import { notifyOrgAdmins } from '../notifications/notifications.controller';
 
@@ -103,7 +104,7 @@ export async function submitRating(req: Request, res: Response, next: NextFuncti
     const { ticketId } = req.params;
     const { rating, comment } = SubmitSchema.parse(req.body);
 
-    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId }, select: { id: true, orgId: true } });
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) { res.status(404).send(invalidLinkPage()); return; }
 
     const existing = await prisma.csatResponse.findFirst({ where: { ticketId } });
@@ -124,6 +125,14 @@ export async function submitRating(req: Request, res: Response, next: NextFuncti
         body: comment ? `"${comment}"` : undefined,
         entityType: 'TICKET',
         entityId: ticketId,
+      }).catch(() => {});
+
+      /* Automation hook — entityType stays TICKET (the record staff act on),
+         with the rating/comment merged into the entity so a rule can filter
+         `rating lt 3` and, say, open a follow-up ticket or page a manager. */
+      runWorkflows({
+        trigger: 'CSAT_RECEIVED', orgId: ticket.orgId, entityType: 'TICKET', entityId: ticketId,
+        entity: { ...(ticket as any), rating, comment: comment || '' },
       }).catch(() => {});
     }
 

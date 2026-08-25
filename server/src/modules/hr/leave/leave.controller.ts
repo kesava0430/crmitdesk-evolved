@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
+import { runWorkflows } from '../../../utils/workflow-engine';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
 import { sseManager, SSEEvent } from '../../../utils/sse';
 import { notifyOrgAdmins } from '../../notifications/notifications.controller';
@@ -142,6 +143,13 @@ export async function createRequest(req: AuthRequest, res: Response, next: NextF
       ...emailTemplates.leaveRequested(m.email, m.name, request.user.name, leaveType.name, fmt(startDate), fmt(endDate), days),
       orgId,
     }).catch(() => {}));
+
+    /* Automation hook — e.g. "when anyone requests more than 5 days,
+       notify HR ops" (condition: days gt 5) or webhook a payroll system. */
+    runWorkflows({
+      trigger: 'LEAVE_REQUESTED', orgId, entityType: 'LEAVE', entityId: request.id,
+      entity: { ...(request as any), leaveType: leaveType.name, employeeName: (request as any).user?.name },
+    }).catch(() => {});
 
     res.status(201).json(request);
   } catch (err) { next(err); }
