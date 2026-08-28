@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import crypto from 'crypto';
 import { getAiContext } from './aiContext';
 import { complete } from './aiGateway';
 
@@ -115,7 +116,13 @@ function setCached(key: string, value: string, ttlMs = 5 * 60 * 1000) {
 }
 
 function cacheKey(...parts: any[]): string {
-  return parts.map(p => (typeof p === 'object' ? JSON.stringify(p) : String(p))).join('|').slice(0, 500);
+  /* Hash, don't truncate. The old `.slice(0, 500)` meant any feature whose
+     system prompt alone exceeded ~500 chars (the action planner, the chat
+     router) produced ONE key for every call — so for five minutes, every
+     user got the first user's cached answer. A digest keys on the full
+     content, whatever its length. */
+  const raw = parts.map(p => (typeof p === 'object' ? JSON.stringify(p) : String(p))).join('|');
+  return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
 // ─── Chat with Retry + Caching ────────────────────────────────────────────────
@@ -458,6 +465,44 @@ export async function generateKbArticle(ticket: {
   return {
     title: str(parsed?.title, 200) ?? ticket.title,
     body: str(parsed?.body, 20000) ?? str(reply, 20000) ?? '',
+  };
+}
+
+// ─── Chat Copilot Router ──────────────────────────────────────────────────────
+
+/**
+ * The cheap first hop of the chat copilot: reads the running conversation and
+ * classifies the latest user turn. Returns:
+ *   mode 'action' — the user wants something DONE; `command` is the request
+ *                   rewritten as one standalone imperative sentence (the plan
+ *                   endpoint needs no chat history).
+ *   mode 'query'  — a question about org data; `command` is the standalone question.
+ *   mode 'reply'  — smalltalk/clarification; `reply` is the assistant's answer.
+ * Deliberately FAST-tier: it's a three-way classifier plus a sentence rewrite,
+ * called on every chat turn — exactly the traffic to keep off the big model.
+ */
+export async function routeChatTurn(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  contextNote?: string,
+): Promise<{ mode: 'action' | 'query' | 'reply'; command?: string; reply?: string }> {
+  const client = getClient();
+  if (!client) return { mode: 'reply', reply: 'AI not configured.' };
+  const thread = messages.slice(-12).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
+  const raw = await chat(client,
+    'You route messages in a CRM/helpdesk chat assistant. Classify the LATEST user message given the conversation. ' +
+    'Respond ONLY with valid JSON: {"mode": "action"|"query"|"reply", "command": "...", "reply": "..."}. ' +
+    'Use "action" when the user wants something created or changed (ticket, lead, note, assignment, status, leave request or approval, reminder…) — set "command" to ONE standalone imperative sentence carrying every detail from the conversation (names, priorities, dates). ' +
+    'Use "query" for questions about their business data (counts, forecasts, workloads) — set "command" to the standalone question. ' +
+    'Use "reply" for greetings, thanks, or when you must ask a clarifying question — set "reply" to a short helpful answer.',
+    `${contextNote ? `Context: the user has ${contextNote} open.\n` : ''}Conversation:\n${thread}`,
+    { feature: 'chat.copilot', maxTokens: 300, json: true }
+  );
+  const parsed = safeJson(raw);
+  const mode = parsed?.mode === 'action' || parsed?.mode === 'query' ? parsed.mode : 'reply';
+  return {
+    mode,
+    command: str(parsed?.command, 1000) ?? undefined,
+    reply: str(parsed?.reply, 1500) ?? undefined,
   };
 }
 

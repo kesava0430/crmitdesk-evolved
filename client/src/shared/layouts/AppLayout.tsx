@@ -16,6 +16,7 @@ import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { NotificationBell } from "../components/NotificationBell";
 import { AiCommandBar } from "../components/AiCommandBar";
+import { ChatCopilot } from "../components/ChatCopilot";
 import { ThemePicker } from "../components/ThemePicker";
 import { useLabels, type LabelEntityKey } from "../../hooks/useLabels";
 import { can } from "../permissions";
@@ -554,6 +555,9 @@ export function AppLayout() {
       </div>
 
       <AiCommandBar open={aiBarOpen} onClose={() => setAiBarOpen(false)} />
+      {/* Floating chat copilot — chat that answers questions and executes
+          confirmed actions (tickets, leads, notes, leave, assignments). */}
+      <ChatCopilot />
     </div>
   );
 }

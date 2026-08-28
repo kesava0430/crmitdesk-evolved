@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { BookOpen, Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import { useArticles, useCreateArticle, useUpdateArticle, useDeleteArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
-import { PageHeader, PageBody, Toolbar, Button, Modal, Badge, EmptyState, SearchInput, SearchableSelect, RowActions, Card, Field, Input, Textarea, Select, SkeletonCard } from '../../../shared/components';
+import { PageHeader, PageBody, Toolbar, Button, Modal, Badge, EmptyState, SearchInput, SearchableSelect, RowActions, Card, Field, Input, Select, SkeletonCard, RichText, RichTextEditor } from '../../../shared/components';
 import { articleStatusVariant } from '../../../shared/components/Badge';
 import { formatDistanceToNow } from 'date-fns';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
@@ -31,7 +31,14 @@ function ArticleForm({ initial, categories, onSubmit, loading, aiPrefill }: any)
       <div className="form-section">
         <p className="form-section-title">Content <span className="req">*</span></p>
         <Field hint="Markdown formatting is supported">
-          <Textarea required rows={10} className="font-mono text-xs" aria-label="Body" value={form.body} onChange={f('body')} placeholder="Write your article content here… (Markdown supported)" />
+          <RichTextEditor
+            ariaLabel="Body"
+            variant="full"
+            value={form.body}
+            onChange={html => setForm((p: any) => ({ ...p, body: html }))}
+            placeholder="Write your article content here — headings, lists, images and links all work…"
+            minHeight={220}
+          />
         </Field>
       </div>
       <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{initial ? 'Save Changes' : 'Create Article'}</Button></div>
@@ -47,8 +54,8 @@ function ArticleView({ article }: any) {
         {article.category && <Badge variant="blue">{article.category.name}</Badge>}
         <span className="text-xs text-fg-subtle">by {article.author?.name} · {formatDistanceToNow(new Date(article.createdAt), { addSuffix: true })}</span>
       </div>
-      <div className="prose prose-sm dark:prose-invert max-w-none bg-surface-sunken border border-line-subtle rounded-card p-4 text-fg whitespace-pre-wrap font-mono text-xs leading-relaxed">
-        {article.body}
+      <div className="bg-surface-sunken border border-line-subtle rounded-card p-4">
+        <RichText content={article.body} />
       </div>
     </div>
   );

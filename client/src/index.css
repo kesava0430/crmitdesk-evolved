@@ -1093,3 +1093,67 @@ html.dark .skeleton {
   }
   .no-print { display: none !important; }
 }
+
+/* ─── Rich text (editor content + rendered output) ─────────────────────────
+   One ruleset styles both the TipTap editing surface and the read-only
+   RichText renderer, so what you type is exactly what readers see. Token-
+   driven throughout — inherits every theme and dark mode for free. */
+.rich-text {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: rgb(var(--ui-fg));
+  word-break: break-word;
+}
+.rich-text p { margin: 0 0 0.5em; }
+.rich-text p:last-child { margin-bottom: 0; }
+.rich-text strong { font-weight: 600; }
+.rich-text h1, .rich-text h2 { font-size: 1.15em; font-weight: 600; margin: 0.9em 0 0.35em; }
+.rich-text h3, .rich-text h4 { font-size: 1.05em; font-weight: 600; margin: 0.8em 0 0.3em; }
+.rich-text h1:first-child, .rich-text h2:first-child, .rich-text h3:first-child { margin-top: 0; }
+.rich-text ul, .rich-text ol { margin: 0.35em 0 0.6em; padding-left: 1.4em; }
+.rich-text ul { list-style: disc; }
+.rich-text ol { list-style: decimal; }
+.rich-text li { margin: 0.15em 0; }
+.rich-text li > p { margin: 0; }
+.rich-text blockquote {
+  margin: 0.5em 0; padding: 0.25em 0.9em;
+  border-left: 3px solid rgb(var(--ui-accent) / 0.4);
+  color: rgb(var(--ui-fg-muted));
+}
+.rich-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  background: rgb(var(--ui-surface-sunken));
+  border: 1px solid rgb(var(--ui-line-subtle));
+  border-radius: 4px;
+  padding: 0.08em 0.35em;
+}
+.rich-text pre {
+  background: rgb(var(--ui-surface-sunken));
+  border: 1px solid rgb(var(--ui-line-subtle));
+  border-radius: var(--ui-card-radius);
+  padding: 0.7em 0.9em; margin: 0.5em 0;
+  overflow-x: auto;
+}
+.rich-text pre code { background: none; border: none; padding: 0; font-size: 12.5px; }
+.rich-text a { color: rgb(var(--ui-accent)); text-decoration: underline; text-underline-offset: 2px; }
+.rich-text img {
+  max-width: 100%; height: auto;
+  border-radius: var(--ui-card-radius);
+  border: 1px solid rgb(var(--ui-line-subtle));
+  margin: 0.4em 0;
+  display: block;
+}
+.rich-text hr { border: none; border-top: 1px solid rgb(var(--ui-line)); margin: 0.9em 0; }
+.rich-text table { border-collapse: collapse; margin: 0.5em 0; width: 100%; font-size: 0.95em; }
+.rich-text th, .rich-text td { border: 1px solid rgb(var(--ui-line)); padding: 0.35em 0.6em; text-align: left; }
+.rich-text th { background: rgb(var(--ui-surface-sunken)); font-weight: 600; }
+
+/* TipTap placeholder */
+.rich-text p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left; height: 0; pointer-events: none;
+  color: rgb(var(--ui-fg-subtle));
+}
+/* Selected image outline while editing */
+.rich-text img.ProseMirror-selectednode { outline: 2px solid rgb(var(--ui-accent)); }

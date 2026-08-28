@@ -9,8 +9,8 @@ import { useTicketReply, useTicketSentiment, useSummarizeThread, useEstimateReso
 import {
   PageHeader, PageBody, Toolbar, Button, IconButton, Modal, Badge, EmptyState, SearchInput, SearchableSelect,
   CustomFieldsFormFields, CustomFieldsDisplay, RecordTemplatePicker, ScheduleReminderPanel,
-  Card, CardSection, StatTile, Alert, Tabs, DataTable, Field, Input, Textarea, Select,
-  AiInfo, AiNote, AiGeneratedTag, SkeletonStats,
+  Card, CardSection, StatTile, Alert, Tabs, DataTable, Field, Input, Select,
+  AiInfo, AiNote, AiGeneratedTag, SkeletonStats, RichText, RichTextEditor,
   type Column, RecordTasks, RecordTags} from '../../../shared/components';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
 import { Comments } from '../../../shared/components/Comments';
@@ -145,7 +145,13 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
             )}
           </Field>
           <Field label={fieldLabel('ticket', 'description', 'Description')} required>
-            <Textarea aria-label={fieldLabel('ticket', 'description', 'Description')} required rows={4} value={form.body} onChange={f('body')} placeholder="Provide details about the issue, steps to reproduce, expected vs actual behaviour…" />
+            <RichTextEditor
+              ariaLabel={fieldLabel('ticket', 'description', 'Description')}
+              value={form.body}
+              onChange={html => setForm((p: any) => ({ ...p, body: html }))}
+              placeholder="Provide details about the issue, steps to reproduce, expected vs actual behaviour…"
+              minHeight={96}
+            />
           </Field>
           {(kbSuggestions.data?.length ?? 0) > 0 && (
             <div className="rounded-card border border-accent/25 bg-accent-soft/40 overflow-hidden">
@@ -173,8 +179,8 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
                         {!open && <span className="block mt-0.5 text-[12px] text-fg-muted line-clamp-2">{s.snippet}</span>}
                       </button>
                       {open && (
-                        <div className="px-3.5 pb-3 text-[12.5px] leading-relaxed text-fg-muted whitespace-pre-wrap max-h-56 overflow-y-auto">
-                          {s.body}
+                        <div className="px-3.5 pb-3 max-h-56 overflow-y-auto">
+                          <RichText content={s.body} className="text-[12.5px] text-fg-muted" />
                         </div>
                       )}
                     </li>
@@ -230,7 +236,7 @@ function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
         <Input aria-label="Edit title" value={form.title} onChange={f('title')} />
       </Field>
       <Field label="Description">
-        <Textarea aria-label="Edit description" rows={3} value={form.body} onChange={f('body')} />
+        <RichTextEditor ariaLabel="Edit description" value={form.body} onChange={html => setForm(p => ({ ...p, body: html }))} minHeight={80} />
       </Field>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Category">
@@ -416,7 +422,7 @@ function TicketDetailModal({ id, users, categories }: any) {
           {editingDetails ? (
             <TicketEditForm ticket={ticket} categories={categories} onSaved={() => setEditingDetails(false)} onCancel={() => setEditingDetails(false)} />
           ) : (
-            <p className="text-fg-muted text-sm leading-relaxed whitespace-pre-wrap">{ticket.body}</p>
+            <RichText content={ticket.body} className="text-sm text-fg-muted" />
           )}
         </div>
       </div>
@@ -490,7 +496,7 @@ function TicketDetailModal({ id, users, categories }: any) {
             }
           >
             <div className="mb-1.5"><AiGeneratedTag /></div>
-            <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto">{suggestedReply}</pre>
+            <div className="max-h-40 overflow-y-auto"><RichText content={suggestedReply} className="text-sm" /></div>
           </Alert>
         )}
       </CardSection>
@@ -609,7 +615,7 @@ function TicketDetailModal({ id, users, categories }: any) {
             </div>
             {/* Article body preview */}
             <div className="px-3.5 py-3 max-h-52 overflow-y-auto bg-surface">
-              <pre className="text-[12.5px] whitespace-pre-wrap font-sans leading-relaxed text-fg-muted">{aiKb.data.body}</pre>
+              <RichText content={aiKb.data.body} className="text-[12.5px] text-fg-muted" />
             </div>
             {/* Action rail — save into the knowledge base, or copy out */}
             <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-line-subtle bg-surface-sunken">

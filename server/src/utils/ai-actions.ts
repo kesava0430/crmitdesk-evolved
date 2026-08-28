@@ -72,6 +72,90 @@ async function assertOwnedByOrg(entityType: 'TICKET' | 'DEAL' | 'CONTACT', entit
 }
 
 export const AI_ACTIONS: AiActionDefinition[] = [
+  // ── Create a ticket ────────────────────────────────────────────────────
+  // The chat copilot's workhorse: "the printer in the boardroom is jammed
+  // again, file a ticket" — or filing a whole WhatsApp/email conversation
+  // as a ticket in one step. Fires TICKET_CREATED workflows exactly like
+  // the hand-written controller, so auto-assignment rules still apply.
+  {
+    name: 'CREATE_TICKET',
+    label: 'Create a ticket',
+    description: 'Creates a new support/help-desk ticket (e.g. "create a high priority ticket: VPN down for the sales team"). Use categoryName only if the user names a matching category.',
+    example: 'Create a high priority ticket: projector in the boardroom is flickering',
+    paramsHint: '{ title: string, body: string, priority?: "LOW"|"MEDIUM"|"HIGH"|"CRITICAL", categoryName?: string }',
+    allowedRoles: ALL_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({
+      title: z.string().min(3).max(200),
+      body: z.string().min(1).max(5000),
+      priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
+      categoryName: z.string().optional(),
+    }),
+    handler: async (params, ctx) => {
+      const category = params.categoryName
+        ? await prisma.category.findFirst({ where: { orgId: ctx.orgId, name: { equals: params.categoryName, mode: 'insensitive' } }, select: { id: true } })
+        : null;
+      const ticket = await prisma.ticket.create({
+        data: {
+          orgId: ctx.orgId, title: params.title, body: params.body,
+          priority: (params.priority ?? 'MEDIUM') as any,
+          categoryId: category?.id, requesterId: ctx.userId,
+        },
+        include: { category: { select: { name: true } } },
+      });
+      runWorkflows({ trigger: 'TICKET_CREATED', orgId: ctx.orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any }).catch(() => {});
+      return { summary: `Created ${ticket.priority} ticket "${ticket.title}"${category ? ` in ${params.categoryName}` : ''}.`, data: ticket };
+    },
+  },
+
+  // ── Create a lead ──────────────────────────────────────────────────────
+  // Matches an existing contact by email, then name; creates one when the
+  // person is new. Fires LEAD_CREATED, so the seeded "score new leads
+  // automatically" rule kicks in without a second step.
+  {
+    name: 'CREATE_LEAD',
+    label: 'Create a lead',
+    description: 'Creates a sales lead for a person (e.g. "add a lead for Maria Gomez at Initech, met her at the expo, interested in the CRM"). Reuses the org contact if the email or exact name already exists.',
+    example: 'Add a lead for Maria Gomez from Initech — met at the expo, wants a demo',
+    paramsHint: '{ contactName: string, contactEmail?: string, company?: string, notes?: string, source?: string }',
+    allowedRoles: CRM_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({
+      contactName: z.string().min(2).max(120),
+      contactEmail: z.string().email().optional(),
+      company: z.string().max(120).optional(),
+      notes: z.string().max(2000).optional(),
+      source: z.string().max(60).optional(),
+    }),
+    handler: async (params, ctx) => {
+      let contact = params.contactEmail
+        ? await prisma.contact.findFirst({ where: { orgId: ctx.orgId, email: { equals: params.contactEmail, mode: 'insensitive' } } })
+        : null;
+      if (!contact) {
+        contact = await prisma.contact.findFirst({ where: { orgId: ctx.orgId, name: { equals: params.contactName, mode: 'insensitive' } } });
+      }
+      let createdContact = false;
+      if (!contact) {
+        /* Contact has no company column — an org Account is the nearest
+           concept; match one by name when given, else leave unlinked. */
+        const account = params.company
+          ? await prisma.account.findFirst({ where: { orgId: ctx.orgId, name: { contains: params.company, mode: 'insensitive' } }, select: { id: true } })
+          : null;
+        contact = await prisma.contact.create({ data: {
+          orgId: ctx.orgId, ownerId: ctx.userId, name: params.contactName,
+          email: params.contactEmail, accountId: account?.id, source: params.source ?? 'Chat',
+        }});
+        createdContact = true;
+      }
+      const lead = await prisma.lead.create({ data: {
+        orgId: ctx.orgId, contactId: contact.id, source: params.source ?? 'Chat',
+        notes: params.notes, assignedTo: ctx.userId,
+      }});
+      runWorkflows({ trigger: 'LEAD_CREATED', orgId: ctx.orgId, entityType: 'LEAD', entityId: lead.id, entity: lead as any }).catch(() => {});
+      return { summary: `Created a lead for ${contact.name}${createdContact ? ' (new contact)' : ' (existing contact)'}${params.source ? ` from ${params.source}` : ''}.`, data: lead };
+    },
+  },
+
   // ── Move a deal to a different pipeline stage ──────────────────────────
   {
     name: 'MOVE_DEAL_STAGE',

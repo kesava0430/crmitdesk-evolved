@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { sanitizeRichText } from '../../../utils/sanitizeHtml';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
@@ -46,6 +47,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.parse(req.body);
+    data.body = sanitizeRichText(data.body);
     const article = await prisma.knowledgeArticle.create({
       data: { ...data, orgId: req.user!.orgId, authorId: req.user!.id, publishedAt: data.status === 'PUBLISHED' ? new Date() : undefined },
       include
@@ -107,7 +109,15 @@ export async function suggest(req: AuthRequest, res: Response, next: NextFunctio
 
     const scored = candidates.map(a => {
       const title = a.title.toLowerCase();
-      const body = a.body.toLowerCase();
+      /* Articles may now be rich HTML — match and snippet against the plain
+         text so tags don't break keyword hits and the collapsed preview
+         doesn't show "<p>" fragments or a base64 image dump. */
+      const plain = a.body
+        .replace(/<img[^>]*>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const body = plain.toLowerCase();
       let score = 0;
       let firstBodyHit = -1;
       for (const w of words) {
@@ -117,8 +127,8 @@ export async function suggest(req: AuthRequest, res: Response, next: NextFunctio
       }
       // Snippet: a window around the first body match, else the opening line.
       const from = firstBodyHit < 0 ? 0 : Math.max(0, firstBodyHit - 40);
-      const raw = a.body.slice(from, from + 180).replace(/\s+/g, ' ').trim();
-      const snippet = (from > 0 ? '…' : '') + raw + (from + 180 < a.body.length ? '…' : '');
+      const raw = plain.slice(from, from + 180).trim();
+      const snippet = (from > 0 ? '…' : '') + raw + (from + 180 < plain.length ? '…' : '');
       return { id: a.id, title: a.title, snippet, body: a.body, category: a.category, score };
     }).filter(s => s.score > 0);
 
@@ -130,6 +140,7 @@ export async function suggest(req: AuthRequest, res: Response, next: NextFunctio
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    if (data.body) data.body = sanitizeRichText(data.body);
     await prisma.knowledgeArticle.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data: { ...data, publishedAt: data.status === 'PUBLISHED' ? new Date() : undefined } });
     const article = await prisma.knowledgeArticle.findUnique({ where: { id: req.params.id }, include });
     res.json(article);

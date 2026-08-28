@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { runAiRules } from '../../../utils/ai-rules';
 import { z } from 'zod';
+import { sanitizeRichText } from '../../../utils/sanitizeHtml';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
@@ -131,6 +132,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    if (data.body) data.body = sanitizeRichText(data.body);
     const orgId = req.user!.orgId;
     const existing = await prisma.ticket.findFirst({ where: { id: req.params.id, orgId } });
     if (!existing) throw new AppError(404, 'Ticket not found');

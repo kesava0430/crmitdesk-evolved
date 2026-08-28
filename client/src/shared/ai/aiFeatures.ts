@@ -293,6 +293,15 @@ export const AI_FEATURES: AiFeature[] = [
     caveat: 'Nothing is saved automatically — review the draft, then save it as a draft or publish it to the knowledge base.',
   },
   {
+    id: 'chat.copilot',
+    name: 'Chat assistant',
+    does: 'Routes each chat message: answers data questions, proposes whitelisted actions (create ticket/lead, notes, assignments, leave), or replies conversationally.',
+    sends: 'The recent chat messages you typed, and org record names/ids needed to match your request.',
+    effect: 'advisory',
+    tier: 'paid',
+    caveat: 'Actions never run automatically — every one shows a confirm card first, and role permissions are re-checked on execution.',
+  },
+  {
     id: 'invoice.reminder',
     name: 'Payment reminder draft',
     does: 'Drafts a payment-reminder email for a sent or overdue invoice, matching its tone to how late the payment is.',

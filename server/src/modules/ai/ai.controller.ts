@@ -28,6 +28,7 @@ import {
   checkEmailTone,
   parseNaturalLanguageCommand,
   planAiAction,
+  routeChatTurn,
 } from '../../utils/ai';
 import { getAiAction, actionMenuForPrompt, listActionsForRole } from '../../utils/ai-actions';
 import { logAction } from '../../utils/auditLog';
@@ -718,10 +719,14 @@ export async function listActionsHandler(req: AuthRequest, res: Response, next: 
 // than the 5-entity create/update flow. This endpoint never writes anything
 // — it only asks the model to pick an action + params, which the client then
 // shows to the user to confirm before calling executeActionHandler below.
-export async function planActionHandler(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const { command } = z.object({ command: z.string().min(3).max(500) }).parse(req.body);
-    const orgId = req.user!.orgId;
+/**
+ * Shared plan builder — gathers the org context menu (deals, tickets, users,
+ * leave requests, …) and asks the model to pick one whitelisted action.
+ * Called by planActionHandler (command bar), chatCopilotHandler (chat), and
+ * conversationPlanHandler (file-a-conversation) so all three surfaces agree.
+ */
+async function buildActionPlanForOrg(orgId: string, role: string, command: string) {
+  {
 
     const [
       deals, tickets, leads, rules, contacts, modules, assignableUsers,
@@ -788,14 +793,99 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
     // Filter to what this user's role is actually allowed to run, so the
     // confirm card never shows an action the execute step will just reject.
     const actionDef = plan.action ? getAiAction(plan.action) : undefined;
-    const allowed = actionDef ? actionDef.allowedRoles.includes(req.user!.role as any) : true;
+    const allowed = actionDef ? actionDef.allowedRoles.includes(role as any) : true;
 
-    res.json({
+    return {
       ...plan,
       allowed,
       label: actionDef?.label,
       requiresConfirmation: actionDef?.requiresConfirmation ?? true,
+    };
+  }
+}
+
+export async function planActionHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { command } = z.object({ command: z.string().min(3).max(500) }).parse(req.body);
+    const plan = await buildActionPlanForOrg(req.user!.orgId, req.user!.role, command);
+    res.json(plan);
+  } catch (err: any) { if (!handleAIError(err, res)) next(err); }
+}
+
+// ─── Chat Copilot — multi-turn chat that can answer or act ───────────────────
+// One endpoint powers the floating chat: a cheap router model reads the
+// conversation and decides whether the latest turn is (a) a question about
+// the org's data, (b) a command to execute, or (c) plain conversation.
+// Actions come back as a plan the client must confirm — this endpoint never
+// mutates anything itself; execution still goes through executeActionHandler
+// with its role re-checks.
+export async function chatCopilotHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { messages, context } = z.object({
+      messages: z.array(z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().min(1).max(2000),
+      })).min(1).max(20),
+      /** Optional record the chat was opened on, e.g. "TICKET cmt123 — VPN down". */
+      context: z.string().max(300).optional(),
+    }).parse(req.body);
+    const orgId = req.user!.orgId;
+
+    const route = await routeChatTurn(messages, context);
+
+    if (route.mode === 'action' && route.command) {
+      const plan = await buildActionPlanForOrg(orgId, req.user!.role, route.command.slice(0, 500));
+      return res.json({ type: 'plan', plan, text: route.reply || 'Here\u2019s what I\u2019ll do — confirm to run it.' });
+    }
+
+    if (route.mode === 'query' && route.command) {
+      // Same org snapshot the dashboard's Ask-AI uses.
+      const [totalDeals, openDeals, wonDeals, lostDeals, totalContacts, totalTickets, openTickets, resolvedTickets, totalLeads, activeLeads] = await Promise.all([
+        prisma.deal.count({ where: { orgId } }),
+        prisma.deal.count({ where: { orgId, status: 'OPEN' } }),
+        prisma.deal.count({ where: { orgId, status: 'WON' } }),
+        prisma.deal.count({ where: { orgId, status: 'LOST' } }),
+        prisma.contact.count({ where: { orgId } }),
+        prisma.ticket.count({ where: { orgId } }),
+        prisma.ticket.count({ where: { orgId, status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
+        prisma.ticket.count({ where: { orgId, status: 'RESOLVED' } }),
+        prisma.lead.count({ where: { orgId } }),
+        prisma.lead.count({ where: { orgId, status: { notIn: ['CONVERTED', 'UNQUALIFIED'] } } }),
+      ]);
+      const openDealData = await prisma.deal.findMany({ where: { orgId, status: 'OPEN' }, select: { value: true, probability: true } });
+      const forecastRevenue = Math.round(openDealData.reduce((sum, d) => sum + (Number(d.value) * d.probability / 100), 0));
+      const answer = await naturalLanguageQuery(route.command, { totalDeals, openDeals, wonDeals, lostDeals, totalContacts, totalTickets, openTickets, resolvedTickets, totalLeads, activeLeads, forecastRevenue });
+      return res.json({ type: 'reply', text: answer });
+    }
+
+    res.json({ type: 'reply', text: route.reply || 'How can I help? I can create tickets and leads, add notes, assign work, file or approve leave, and answer questions about your data.' });
+  } catch (err: any) { if (!handleAIError(err, res)) next(err); }
+}
+
+// ─── File a whole conversation with AI ───────────────────────────────────────
+// Reads an Inbox conversation (email, WhatsApp, portal chat — any channel)
+// and proposes the single best action: usually CREATE_TICKET, CREATE_LEAD,
+// or ADD_NOTE on the record it already relates to. Same confirm-then-execute
+// contract as every other plan.
+export async function conversationPlanHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const conversation = await prisma.conversation.findFirst({
+      where: { id: req.params.id, orgId },
+      include: { messages: { orderBy: { sentAt: 'asc' }, take: 30 } },
     });
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    const transcript = conversation.messages
+      .map(m => `${m.direction === 'INBOUND' ? (conversation.contactName || 'Customer') : 'Staff'}: ${m.body}`)
+      .join('\n').slice(0, 6000);
+    const command =
+      `Based on this ${conversation.channel} conversation with ${conversation.contactName || 'a customer'} ` +
+      `(subject: ${conversation.subject || 'none'}), decide the single most useful action to take in the CRM ` +
+      `and fill its params from the conversation content:\n\n${transcript}`;
+
+    const plan = await buildActionPlanForOrg(orgId, req.user!.role, command.slice(0, 500 * 20));
+    res.json({ plan, transcriptPreview: transcript.slice(0, 400) });
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
 

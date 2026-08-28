@@ -73,6 +73,10 @@ aiRouter.get('/actions',          requireRole(...ALL_STAFF), ai.listActionsHandl
 aiRouter.post('/actions/plan',    requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.planActionHandler);
 aiRouter.post('/actions/execute', requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.executeActionHandler);
 
+// ── Chat Copilot (multi-turn chat that answers or proposes actions) ─────────
+aiRouter.post('/chat',                     requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.chatCopilotHandler);
+aiRouter.post('/conversation/:id/plan',    requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.conversationPlanHandler);
+
 // ── AI Feature Builder (custom rules) ────────────────────────────────────────
 // List stays open (grandfathered rules from a since-downgraded plan remain
 // visible/readable); creating, editing, deleting, or running one is gated.

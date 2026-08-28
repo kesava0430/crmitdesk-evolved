@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Mail, MessageCircle, Settings, RefreshCw, Send, Check,
   MailOpen, Inbox, Wifi, WifiOff,
-  CheckCheck, Phone, MessageSquareText, ChevronLeft
+  CheckCheck, Phone, MessageSquareText, ChevronLeft, Sparkles
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -16,6 +16,9 @@ import {
   Alert, Badge, EmptyState, AccessDenied,
 } from '../../shared/components';
 import { useFormat } from '../../hooks/useFormat';
+import { useMutation } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { useExecuteAiAction, type AiActionPlan } from '../../api/ai';
 import { useAuth } from '../../contexts/AuthContext';
 import { can } from '../../shared/permissions';
 
@@ -363,6 +366,19 @@ export function InboxPage() {
     status: statusFilter !== 'ALL' ? statusFilter : undefined,
   }, canReadInbox);
   const { data: conversation, isLoading: convLoading } = useConversation(selectedId);
+
+  /* "File with AI" — the model reads the whole thread (email, WhatsApp or
+     portal chat alike) and proposes one action: usually create a ticket or
+     lead from it, or add a note to the record it already concerns. Nothing
+     runs until the user confirms the plan card. */
+  const executeAi = useExecuteAiAction();
+  const [aiPlan, setAiPlan] = useState<AiActionPlan | null>(null);
+  const [aiPlanState, setAiPlanState] = useState<'idle' | 'done' | 'error'>('idle');
+  const [aiResult, setAiResult] = useState('');
+  const planConversation = useMutation({
+    mutationFn: (id: string) => api.post(`/ai/conversation/${id}/plan`).then(r => r.data as { plan: AiActionPlan }),
+    onSuccess: d => { setAiPlan(d.plan); setAiPlanState('idle'); setAiResult(''); },
+  });
   const { data: settings } = useInboxSettings(canReadSettings);
 
   const sendReply = useSendReply();
@@ -541,6 +557,11 @@ export function InboxPage() {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                <Button size="sm" variant="secondary" icon={<Sparkles size={12} />}
+                  loading={planConversation.isPending}
+                  onClick={() => planConversation.mutate(conversation.id)}>
+                  File with AI
+                </Button>
                 <Badge variant={conversationStatusVariant[conversation.status] ?? 'gray'}>
                   {conversation.status}
                 </Badge>
@@ -558,6 +579,48 @@ export function InboxPage() {
                 )}
               </div>
             </div>
+
+            {/* AI filing proposal */}
+            {aiPlan && (
+              <div className="mx-3 sm:mx-6 mt-3 rounded-card border border-accent/30 bg-surface shadow-ui-sm overflow-hidden">
+                <div className="flex items-center gap-2 px-3.5 py-2 border-b border-line-subtle bg-accent-soft/50">
+                  <Sparkles size={13} className="text-accent shrink-0" />
+                  <p className="text-[12.5px] font-semibold text-accent-soft-fg">{aiPlan.label || aiPlan.action || 'No action suggested'}</p>
+                  <button type="button" aria-label="Dismiss suggestion" className="ml-auto text-fg-subtle hover:text-fg"
+                    onClick={() => setAiPlan(null)}>×</button>
+                </div>
+                <div className="px-3.5 py-2 space-y-0.5">
+                  {Object.entries(aiPlan.params || {}).map(([k, v]) => (
+                    <p key={k} className="text-[12px] text-fg-muted"><span className="font-medium text-fg">{k}:</span> {(typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 180) + ((typeof v === 'object' ? JSON.stringify(v) : String(v)).length > 180 ? '…' : '')}</p>
+                  ))}
+                  {aiPlan.explanation && <p className="text-[11.5px] text-fg-subtle pt-0.5">{aiPlan.explanation}</p>}
+                </div>
+                <div className="flex items-center gap-2 px-3.5 py-2 border-t border-line-subtle bg-surface-sunken">
+                  {aiPlanState === 'done' ? (
+                    <p className="flex items-center gap-1.5 text-[12px] font-medium text-success"><Check size={13} /> {aiResult}</p>
+                  ) : aiPlanState === 'error' ? (
+                    <p className="text-[12px] font-medium text-danger">{aiResult}</p>
+                  ) : !aiPlan.action ? (
+                    <p className="text-[12px] text-fg-subtle">The AI couldn't map this thread to an action.</p>
+                  ) : !aiPlan.allowed ? (
+                    <p className="text-[12px] text-fg-subtle">Your role can't run this action.</p>
+                  ) : (
+                    <>
+                      <Button size="xs" loading={executeAi.isPending}
+                        onClick={async () => {
+                          try {
+                            const r = await executeAi.mutateAsync({ action: aiPlan.action!, params: aiPlan.params });
+                            setAiPlanState('done'); setAiResult(r.summary);
+                          } catch (e: any) { setAiPlanState('error'); setAiResult(e?.response?.data?.error || 'Action failed.'); }
+                        }}>
+                        Run it
+                      </Button>
+                      <Button size="xs" variant="ghost" onClick={() => setAiPlan(null)}>Dismiss</Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3 bg-canvas">

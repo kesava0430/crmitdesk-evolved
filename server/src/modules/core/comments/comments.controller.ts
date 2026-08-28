@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { sanitizeRichText } from '../../../utils/sanitizeHtml';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
@@ -32,7 +33,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     await assertEntityInOrg(entityType, entityId, req.user!.orgId);
     const { body } = z.object({ body: z.string().min(1) }).parse(req.body);
     const comment = await prisma.comment.create({
-      data: { entityType: entityType as any, entityId, body, authorId: req.user!.id },
+      data: { entityType: entityType as any, entityId, body: sanitizeRichText(body), authorId: req.user!.id },
       include,
     });
     res.status(201).json(comment);
@@ -46,7 +47,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     if (!comment) throw new AppError(404, 'Comment not found');
     await assertEntityInOrg(comment.entityType, comment.entityId, req.user!.orgId);
     if (comment.authorId !== req.user!.id) throw new AppError(403, 'Not your comment');
-    const updated = await prisma.comment.update({ where: { id: req.params.id }, data: { body }, include });
+    const updated = await prisma.comment.update({ where: { id: req.params.id }, data: { body: sanitizeRichText(body) }, include });
     res.json(updated);
   } catch (err) { next(err); }
 }

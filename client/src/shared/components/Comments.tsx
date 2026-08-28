@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { RichText } from './RichText';
+import { RichTextEditor } from './RichTextEditor';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
@@ -71,7 +73,7 @@ export function Comments({ entityType, entityId }: CommentsProps) {
                   )}
                 </div>
               </div>
-              <p className="text-sm text-fg-muted mt-0.5 whitespace-pre-wrap">{c.body}</p>
+              <RichText content={c.body} className="text-sm text-fg-muted mt-0.5" />
             </div>
           </div>
         ))}
@@ -86,7 +88,12 @@ export function Comments({ entityType, entityId }: CommentsProps) {
               value=""
               onChange={val => {
                 const template = replyTemplates?.find(t => t.id === val);
-                if (template) setBody(prev => (prev.trim() ? `${prev}\n\n${template.body}` : template.body));
+                if (template) {
+                  // Editor state is HTML — wrap the plain-text template in
+                  // paragraphs so its line breaks survive setContent().
+                  const html = template.body.split(/\n{2,}/).map(p2 => `<p>${p2.replace(/\n/g, '<br>')}</p>`).join('');
+                  setBody(prev => (prev.trim() ? `${prev}${html}` : html));
+                }
               }}
               options={(replyTemplates ?? []).map(t => ({ value: t.id, label: t.name }))}
               placeholder="Insert canned response…"
@@ -99,14 +106,16 @@ export function Comments({ entityType, entityId }: CommentsProps) {
           {user?.name?.[0]?.toUpperCase()}
         </div>
         <div className="flex-1 flex gap-2">
-          <textarea
-            value={body}
-            onChange={e => setBody(e.target.value)}
-            placeholder="Add a comment..."
-            rows={2}
-            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && body.trim()) create.mutate(); }}
-            className="ui-input flex-1 resize-none"
-          />
+          <div className="flex-1">
+            <RichTextEditor
+              value={body}
+              onChange={setBody}
+              placeholder="Add a comment…"
+              minHeight={56}
+              ariaLabel="Add a comment"
+              onSubmitShortcut={() => body.trim() && create.mutate()}
+            />
+          </div>
           <button
             onClick={() => body.trim() && create.mutate()}
             disabled={!body.trim() || create.isPending}
