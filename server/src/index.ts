@@ -26,6 +26,7 @@ import { orgRouter } from './modules/core/org/org.routes';
 import { aiRouter } from './modules/ai/ai.routes';
 import { inboxRouter } from './modules/inbox/inbox.routes';
 import { workflowsRouter } from './modules/workflows/workflows.routes';
+import { chatRouter } from './modules/chat/chat.routes';
 import { portalRouter } from './modules/portal/portal.routes';
 import { portalUsersRouter } from './modules/portal/portalUsers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
@@ -119,7 +120,13 @@ app.use(helmet({
 }));
 
 // ─── Compression ─────────────────────────────────────────────────────────────
-app.use(compression());
+app.use(compression({
+  /* Never compress the SSE stream: compression buffers output until it has a
+     full chunk, which silently swallows every real-time event for any client
+     that sends Accept-Encoding — i.e. every browser. This is why live
+     updates worked in curl but never in the UI. */
+  filter: (req, res) => !req.originalUrl.startsWith('/api/events') && compression.filter(req, res),
+}));
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
 app.use(cors({
@@ -266,6 +273,7 @@ app.use('/api/org', orgRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/inbox', inboxRouter);
 app.use('/api/workflows', workflowsRouter);
+app.use('/api/chat', chatRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/portal-users', portalUsersRouter);
 app.use('/api/billing', billingRouter);

@@ -46,6 +46,7 @@ const UsersPage        = lazy(() => import('./pages/UsersPage').then(m => ({ def
 const ReportsPage      = lazy(() => import('./pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const InboxPage        = lazy(() => import('./modules/inbox/InboxPage').then(m => ({ default: m.InboxPage })));
 const WorkflowsPage    = lazy(() => import('./modules/workflows/WorkflowsPage').then(m => ({ default: m.WorkflowsPage })));
+const TeamChatPage     = lazy(() => import('./pages/TeamChatPage'));
 const PortalUsersPage  = lazy(() => import('./modules/portal/PortalUsersPage').then(m => ({ default: m.PortalUsersPage })));
 const BillingPage      = lazy(() => import('./pages/BillingPage').then(m => ({ default: m.BillingPage })));
 const AnalyticsPage    = lazy(() => import('./pages/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })));
@@ -179,6 +180,7 @@ export default function App() {
             <Route path="itdesk/categories" element={<CategoriesPage />} />
             <Route path="itdesk/articles" element={<ArticlesPage />} />
             <Route path="inbox" element={<InboxPage />} />
+            <Route path="chat" element={<TeamChatPage />} />
             <Route path="workflows" element={<WorkflowsPage />} />
             <Route path="portal-users" element={<PortalUsersPage />} />
             <Route path="billing" element={<BillingPage />} />

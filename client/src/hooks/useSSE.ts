@@ -12,6 +12,7 @@ export type SSEEventType =
   | 'lead:created'
   | 'deal:updated'
   | 'notification'
+  | 'chat:message'
   | 'ping';
 
 type Handler = (data: any) => void;
@@ -69,6 +70,10 @@ export function useSSE() {
       'notification': (data) => {
         qc.invalidateQueries({ queryKey: ['notifications'] });
         globalToastHandler?.('notification', data);
+      },
+      'chat:message': (data) => {
+        qc.invalidateQueries({ queryKey: ['chat-threads'] });
+        if (data.threadId) qc.invalidateQueries({ queryKey: ['chat-messages', data.threadId] });
       },
     };
 

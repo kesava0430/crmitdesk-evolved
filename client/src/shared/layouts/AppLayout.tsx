@@ -64,6 +64,8 @@ export const NAV_SECTIONS: NavSection[] = [
       // /inbox/conversations is ALL_STAFF on the server; without this an
       // EMPLOYEE saw the link and the entire page failed to load.
       { to: "/inbox",        label: "Inbox",       icon: Inbox, tint: "text-sky-500",     roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER', 'IT_AGENT', 'SALES_REP'] },
+      // Team chat is for every org member — employees included.
+      { to: "/chat",         label: "Chat",        icon: MessageSquare, tint: "text-violet-500" },
       { to: "/workflows",    label: "Automation",  icon: Zap,   tint: "text-amber-500",   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/portal-users", label: "Portal",      icon: Globe, tint: "text-cyan-500",    roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
       { to: "/ai-builder",   label: "AI Builder",  icon: Wand2, tint: "text-fuchsia-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
@@ -156,6 +158,7 @@ const CUSTOM_MODULE_ICONS: Record<string, React.ElementType> = {
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":         "Dashboard",
   "/inbox":             "Inbox",
+  "/chat":              "Team Chat",
   "/workflows":         "Automation",
   "/portal-users":      "Customer Portal",
   "/crm/contacts":      "Contacts",

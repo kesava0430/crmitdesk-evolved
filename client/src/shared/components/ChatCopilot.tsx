@@ -50,10 +50,35 @@ export function ChatCopilot() {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, open]);
 
+  /* People type their confirmations — "yes", "confirm", "go ahead" — at
+     least as often as they click buttons. If the previous assistant message
+     holds a pending plan, treat an affirmation as pressing "Run it" and a
+     negation as "Dismiss", instead of routing the word through the model
+     as a brand-new command (which used to re-plan "yes confirm" into
+     nonsense). */
+  const AFFIRM = /^(yes|yes[,!. ]*(please|confirm|do it)?|confirm|ok(ay)?|sure|go ahead|do it|run( it)?|proceed|please do)[.! ]*$/i;
+  const NEGATE = /^(no|cancel|dismiss|stop|don'?t|nevermind|never mind)[.! ]*$/i;
+
   async function send(text?: string) {
     const content = (text ?? input).trim();
     if (!content || chat.isPending) return;
     setInput('');
+
+    const pendingIdx = messages.reduce((acc, m, i) => (m.plan && !m.planState ? i : acc), -1);
+    if (pendingIdx >= 0 && AFFIRM.test(content)) {
+      setMessages(m => [...m, { role: 'user', content }]);
+      await runPlan(pendingIdx);
+      return;
+    }
+    if (pendingIdx >= 0 && NEGATE.test(content)) {
+      setMessages(m => [
+        ...m.map((x, i) => (i === pendingIdx ? { ...x, planState: 'dismissed' as const } : x)),
+        { role: 'user', content },
+        { role: 'assistant', content: 'Okay, dismissed — nothing was run.' },
+      ]);
+      return;
+    }
+
     const next: ChatMsg[] = [...messages, { role: 'user', content }];
     setMessages(next);
     try {

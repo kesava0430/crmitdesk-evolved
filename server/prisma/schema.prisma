@@ -107,6 +107,7 @@ model Organization {
   aiBudgets         AiBudget[]
 
   @@map("organizations")
+  chatThreads       ChatThread[]
 }
 
 // Lightweight per-event usage log — currently AI_CALL, WHATSAPP_SEND, and
@@ -302,6 +303,8 @@ model User {
   aiInteractionLogs      AiInteractionLog[] @relation("AiLogUser")
 
   @@map("users")
+  chatParticipants ChatParticipant[]
+  chatMessages     ChatMessage[]
 }
 
 // Staff forgot-password flow. tokenHash is SHA-256 of the raw token emailed
@@ -3093,4 +3096,62 @@ model AiBudget {
   @@unique([orgId, period, periodStart])
   @@index([orgId])
   @@map("ai_budgets")
+}
+
+// ─── Team Chat ────────────────────────────────────────────────────────────────
+// Real-time human-to-human chat: direct messages between two org members
+// (kind=DM, dmKey = the two user ids sorted and joined with ':') and a live
+// thread attached to any record (kind=RECORD, entityType+entityId). Delivery
+// rides the existing SSE layer; DM events go only to the two participants
+// (sseManager.sendToUsers), never org-wide.
+
+model ChatThread {
+  id            String            @id @default(cuid())
+  orgId         String            @map("org_id")
+  kind          String            // 'DM' | 'RECORD'
+  dmKey         String?           @map("dm_key")
+  entityType    String?           @map("entity_type")
+  entityId      String?           @map("entity_id")
+  lastMessageAt DateTime?         @map("last_message_at")
+  // The @ai assistant's proposed action awaiting an in-thread "@ai confirm".
+  pendingPlan   Json?             @map("pending_plan")
+  pendingPlanBy String?           @map("pending_plan_by")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  org           Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  messages      ChatMessage[]
+  participants  ChatParticipant[]
+
+  @@unique([orgId, dmKey])
+  @@unique([orgId, entityType, entityId])
+  @@index([orgId, lastMessageAt])
+  @@map("chat_threads")
+}
+
+model ChatParticipant {
+  id         String     @id @default(cuid())
+  threadId   String     @map("thread_id")
+  userId     String     @map("user_id")
+  lastReadAt DateTime?  @map("last_read_at")
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@index([userId])
+  @@map("chat_participants")
+}
+
+model ChatMessage {
+  id          String     @id @default(cuid())
+  threadId    String     @map("thread_id")
+  // Null author = the @ai assistant speaking in the thread.
+  authorId    String?    @map("author_id")
+  isAssistant Boolean    @default(false) @map("is_assistant")
+  body        String
+  createdAt   DateTime   @default(now()) @map("created_at")
+  thread      ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author      User?      @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+  @@map("chat_messages")
 }

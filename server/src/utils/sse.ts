@@ -47,6 +47,20 @@ class SSEManager {
     this.broadcast(orgId, event, data);
   }
 
+  /** Send an event to specific users only — required for DM chat, where an
+      org-wide broadcast of message content would leak private conversations
+      to every connected employee. */
+  sendToUsers(orgId: string, userIds: string[], event: string, data: any) {
+    const org = this.clients.get(orgId);
+    if (!org) return;
+    const targets = new Set(userIds);
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const client of org) {
+      if (!targets.has(client.userId)) continue;
+      try { client.res.write(payload); } catch { org.delete(client); }
+    }
+  }
+
   connectedCount(orgId: string) {
     return this.clients.get(orgId)?.size ?? 0;
   }
@@ -84,5 +98,7 @@ export const SSEEvent = {
   NOTIFICATION:       'notification',
   ATTENDANCE_UPDATED: 'attendance:updated',
   LEAVE_UPDATED:      'leave:updated',
+  CHAT_MESSAGE:       'chat:message',
+  CHAT_THREAD:        'chat:thread',
   PING:               'ping',
 } as const;

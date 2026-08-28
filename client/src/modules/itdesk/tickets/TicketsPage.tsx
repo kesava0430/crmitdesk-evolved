@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown } from 'lucide-react';
+import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown, MessageCircleMore } from 'lucide-react';
 import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports, useArticleSuggestions, useCreateArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
 import { useUsers } from '../../../api/users';
@@ -16,6 +16,8 @@ import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '.
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { TimeTrackingPanel } from './TimeTrackingPanel';
+import { ChatThreadView } from '../../../shared/components/ChatThreadView';
+import { useRecordThread } from '../../../api/chat';
 import { api } from '../../../api/client';
 import { ticketStatusVariant, priorityVariant, humanise } from '../../../shared/components/Badge';
 import { formatDistanceToNow } from 'date-fns';
@@ -290,6 +292,9 @@ function TicketDetailModal({ id, users, categories }: any) {
   const [autoRouting, setAutoRouting] = useState(false);
   const [autoRouteError, setAutoRouteError] = useState<string | null>(null);
   const [tab, setTab] = useState<'details' | 'history'>('details');
+  /* Live team-chat thread pinned to this ticket — created lazily server-side
+     the first time anyone opens the panel. */
+  const recordThread = useRecordThread('TICKET', id);
   const [editingDetails, setEditingDetails] = useState(false);
 
   if (isLoading || !ticket) {
@@ -671,6 +676,14 @@ function TicketDetailModal({ id, users, categories }: any) {
             </div>
           </div>
         )}
+      </CardSection>
+
+      {/* Live technician chat on this ticket — real-time via SSE, and
+          "@ai …" summons the assistant for everyone in the thread. */}
+      <CardSection title="Team Chat" icon={<MessageCircleMore size={14} className="text-violet-500" />}>
+        <div className="rounded-card border border-line-subtle overflow-hidden">
+          <ChatThreadView threadId={recordThread.data?.id} compact />
+        </div>
       </CardSection>
 
       <TimeTrackingPanel ticketId={ticket.id} />

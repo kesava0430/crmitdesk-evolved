@@ -725,7 +725,7 @@ export async function listActionsHandler(req: AuthRequest, res: Response, next: 
  * Called by planActionHandler (command bar), chatCopilotHandler (chat), and
  * conversationPlanHandler (file-a-conversation) so all three surfaces agree.
  */
-async function buildActionPlanForOrg(orgId: string, role: string, command: string) {
+export async function buildActionPlanForOrg(orgId: string, role: string, command: string) {
   {
 
     const [
@@ -835,6 +835,18 @@ export async function chatCopilotHandler(req: AuthRequest, res: Response, next: 
 
     if (route.mode === 'action' && route.command) {
       const plan = await buildActionPlanForOrg(orgId, req.user!.role, route.command.slice(0, 500));
+      /* No matched action must NOT say "confirm to run it" — there is
+         nothing to confirm, and that phrasing strands the user (they type
+         "yes" at a card that never appeared). Surface the planner's own
+         explanation of what it needs instead. */
+      if (!plan.action) {
+        return res.json({
+          type: 'reply',
+          text: plan.explanation
+            ? `I couldn't set that up: ${plan.explanation}`
+            : 'I couldn\u2019t match that to an action I can run. Try including the specifics — e.g. "Request 2 days of Annual Leave starting next Monday" or "Create a high priority ticket: VPN down".',
+        });
+      }
       return res.json({ type: 'plan', plan, text: route.reply || 'Here\u2019s what I\u2019ll do — confirm to run it.' });
     }
 
