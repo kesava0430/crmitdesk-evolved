@@ -360,15 +360,6 @@ export const AI_FEATURES: AiFeature[] = [
     tier: 'paid',
   },
   {
-    id: 'studio.generateSetup',
-    name: 'Generate setup',
-    does: 'Proposes renamed terminology and a few draft automation rules that fit your industry.',
-    sends: 'Your industry and company description.',
-    effect: 'advisory',
-    tier: 'paid',
-    caveat: 'Nothing changes until you review each item and click Apply.',
-  },
-  {
     id: 'studio.function',
     name: 'Custom AI function',
     does: 'Runs an AI function your team wrote, against the inputs you give it.',

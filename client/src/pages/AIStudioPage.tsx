@@ -1,24 +1,23 @@
 import { useState } from 'react';
 import {
-  Brain, Building2, Zap, Code2, Plus, Trash2, Play, Save,
+  Building2, Zap, Code2, Plus, Trash2, Play, Save,
   CheckCircle2, XCircle,
   Pencil, ToggleLeft, ToggleRight, X,
 } from 'lucide-react';
 import {
   AiGeneratedTag, AiInfo,
-  Alert, Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Input, Modal,
-  PageBody, PageHeader, SectionHeader, Select, SkeletonCard, Tabs, Textarea, Toolbar,
+  Alert, Badge, Button, Card, EmptyState, Field, IconButton, Input, Modal,
+  PageBody, PageHeader, Select, SkeletonCard, Tabs, Textarea, Toolbar,
   AccessDenied,
 } from '../shared/components';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { Link } from 'react-router-dom';
 import {
   useBusinessContext, useSaveBusinessContext,
-  useGenerateSetup, useApplySetup,
   useCustomFunctions, useCreateFunction, useUpdateFunction, useDeleteFunction, useRunFunction,
   useCustomScripts, useCreateScript, useUpdateScript, useDeleteScript, useValidateScript,
   type CustomAIFunction, type CustomScript, type InputField,
-  type LabelOverrides, type DraftWorkflowRule,
 } from '../api/aiStudio';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -59,258 +58,11 @@ if (context.entity.title?.toLowerCase().includes('urgent')) {
     while following the theme. */
 const CODE_SURFACE = 'font-mono !bg-surface-sunken text-fg';
 
-// ─── Generate Setup (labels + draft workflow rules from Business Context) ─────
-// Two-step propose/confirm: generateSetup only reads context and calls the
-// model (nothing persisted yet); this component lets the org admin review
-// and edit the result before applySetup actually writes anything. Same
-// pattern as the AI Command Bar's propose-then-confirm action cards.
-
-const ENTITY_DISPLAY: Record<string, string> = {
-  ticket: 'Ticket', deal: 'Deal', lead: 'Lead', contact: 'Contact',
-};
-const FIELD_DISPLAY: Record<string, Record<string, string>> = {
-  ticket:  { title: 'Title', priority: 'Priority', status: 'Status', description: 'Description' },
-  deal:    { title: 'Title', value: 'Value', stage: 'Stage' },
-  lead:    { name: 'Name', status: 'Status', source: 'Source' },
-  contact: { name: 'Name', email: 'Email', phone: 'Phone', jobTitle: 'Job Title' },
-};
-
-function GenerateSetupSection({ hasContext }: { hasContext: boolean }) {
-  const generate = useGenerateSetup();
-  const apply = useApplySetup();
-
-  const [labels, setLabels] = useState<LabelOverrides | null>(null);
-  const [enabledEntities, setEnabledEntities] = useState<Set<string>>(new Set());
-  const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set()); // "entity.field"
-  const [rules, setRules] = useState<DraftWorkflowRule[]>([]);
-  const [enabledRules, setEnabledRules] = useState<Set<string>>(new Set());
-  // Per-rule fill-ins for params the AI intentionally left blank (userId/to/url)
-  const [ruleInputs, setRuleInputs] = useState<Record<string, Record<string, string>>>({});
-
-  async function handleGenerate() {
-    const result = await generate.mutateAsync();
-    setLabels(result.labelOverrides);
-    setEnabledEntities(new Set(Object.keys(result.labelOverrides.entities ?? {})));
-    setEnabledFields(new Set(
-      Object.entries(result.labelOverrides.fields ?? {}).flatMap(([entity, fields]) =>
-        Object.keys(fields as object).map(f => `${entity}.${f}`))
-    ));
-    setRules(result.workflowRules);
-    setEnabledRules(new Set(result.workflowRules.map(r => r._draftId)));
-    setRuleInputs({});
-  }
-
-  function updateEntityLabel(entity: string, form: 'singular' | 'plural', value: string) {
-    setLabels(prev => prev && ({
-      ...prev,
-      entities: { ...prev.entities, [entity]: { ...(prev.entities as any)?.[entity], [form]: value } },
-    }));
-  }
-
-  function updateFieldLabel(entity: string, field: string, value: string) {
-    setLabels(prev => prev && ({
-      ...prev,
-      fields: { ...prev.fields, [entity]: { ...(prev.fields as any)?.[entity], [field]: value } },
-    }));
-  }
-
-  function toggle(set: Set<string>, setSet: (s: Set<string>) => void, key: string) {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    setSet(next);
-  }
-
-  /** Merges any admin-filled ruleInputs into a rule's action params. */
-  function resolveRule(rule: DraftWorkflowRule): DraftWorkflowRule {
-    const fills = ruleInputs[rule._draftId] ?? {};
-    return {
-      ...rule,
-      actions: rule.actions.map(a => {
-        const filled = { ...a.params };
-        for (const need of rule.needsInput) {
-          const [type, key] = need.split('.');
-          if (a.type === type && fills[need]) filled[key] = fills[need];
-        }
-        return { ...a, params: filled };
-      }),
-    };
-  }
-
-  function stillNeedsInput(rule: DraftWorkflowRule): string[] {
-    const fills = ruleInputs[rule._draftId] ?? {};
-    return rule.needsInput.filter(need => !fills[need]?.trim());
-  }
-
-  async function handleApply() {
-    const selectedLabels: LabelOverrides = { entities: {}, fields: {} };
-    for (const entity of enabledEntities) {
-      if ((labels?.entities as any)?.[entity]) (selectedLabels.entities as any)[entity] = (labels!.entities as any)[entity];
-    }
-    for (const key of enabledFields) {
-      const [entity, field] = key.split('.');
-      const val = (labels?.fields as any)?.[entity]?.[field];
-      if (val === undefined) continue;
-      (selectedLabels.fields as any)[entity] = { ...(selectedLabels.fields as any)[entity], [field]: val };
-    }
-
-    const selectedRules = rules
-      .filter(r => enabledRules.has(r._draftId))
-      .map(resolveRule)
-      .filter(r => stillNeedsInput(r).length === 0); // server would drop these anyway — filter client-side so the result count is honest
-
-    await apply.mutateAsync({ labelOverrides: selectedLabels, workflowRules: selectedRules });
-    setLabels(null);
-    setRules([]);
-  }
-
-  const hasEntityLabels = labels && Object.keys(labels.entities ?? {}).length > 0;
-  const hasFieldLabels = labels && Object.keys(labels.fields ?? {}).length > 0;
-
-  return (
-    <div className="pt-6 mt-6 border-t border-line-subtle space-y-3">
-      <SectionHeader
-        title={<span className="inline-flex items-center gap-1">Generate Setup <AiInfo id="studio.generateSetup" /></span>}
-        subtitle={'Uses your industry and company description above to propose relabeled terminology (e.g. "Tickets" → "Cases") and a handful of draft automation rules tailored to your business — nothing changes until you review and apply.'}
-      />
-
-      {!hasContext && (
-        <Alert tone="warning">
-          Fill in and save your industry and company description above first.
-        </Alert>
-      )}
-
-      {!labels && !rules.length && (
-        <Button
-          variant="outline"
-          icon={<Brain size={16} />}
-          onClick={handleGenerate}
-          disabled={!hasContext}
-          loading={generate.isPending}
-        >
-          {generate.isPending ? 'Generating…' : 'Generate setup'}
-        </Button>
-      )}
-
-      {generate.isError && (
-        <Alert tone="danger">
-          {(generate.error as any)?.response?.data?.error || 'Could not generate a setup — try again.'}
-        </Alert>
-      )}
-
-      {(hasEntityLabels || hasFieldLabels) && labels && (
-        <div className="mt-4 space-y-4">
-          <div>
-            <p className="text-sm font-semibold text-fg mb-2">Suggested terminology</p>
-            <div className="space-y-2">
-              {Object.entries(labels.entities ?? {}).map(([entity, names]) => (
-                <Card key={entity} padding="sm" flat>
-                  <Checkbox
-                    className="mb-2"
-                    checked={enabledEntities.has(entity)}
-                    onChange={() => toggle(enabledEntities, setEnabledEntities, entity)}
-                    label={<span className="font-medium">{ENTITY_DISPLAY[entity] ?? entity} → {(names as any).plural}</span>}
-                  />
-                  <div className="grid grid-cols-2 gap-2 pl-6 mb-2">
-                    <Input inputSize="sm" value={(names as any).singular} placeholder="Singular"
-                      aria-label={`${ENTITY_DISPLAY[entity] ?? entity} singular label`}
-                      onChange={e => updateEntityLabel(entity, 'singular', e.target.value)} />
-                    <Input inputSize="sm" value={(names as any).plural} placeholder="Plural"
-                      aria-label={`${ENTITY_DISPLAY[entity] ?? entity} plural label`}
-                      onChange={e => updateEntityLabel(entity, 'plural', e.target.value)} />
-                  </div>
-                  {(labels.fields as any)?.[entity] && (
-                    <div className="pl-6 space-y-1.5">
-                      {Object.entries((labels.fields as any)[entity] as Record<string, string>).map(([field, val]) => (
-                        <div key={field} className="flex items-center gap-2">
-                          <Checkbox
-                            checked={enabledFields.has(`${entity}.${field}`)}
-                            onChange={() => toggle(enabledFields, setEnabledFields, `${entity}.${field}`)}
-                            label={<span className="text-xs text-fg-muted">{FIELD_DISPLAY[entity]?.[field] ?? field}:</span>}
-                          />
-                          <Input
-                            inputSize="sm"
-                            className="flex-1"
-                            aria-label={`${FIELD_DISPLAY[entity]?.[field] ?? field} label`}
-                            value={val}
-                            onChange={e => updateFieldLabel(entity, field, e.target.value)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              ))}
-            </div>
-          </div>
-
-          {rules.length > 0 && (
-            <div>
-              <p className="text-sm font-semibold text-fg mb-2">Draft automation rules</p>
-              <div className="space-y-2">
-                {rules.map(rule => {
-                  const missing = stillNeedsInput(rule);
-                  return (
-                    <Card key={rule._draftId} padding="sm" flat>
-                      <Checkbox
-                        checked={enabledRules.has(rule._draftId)}
-                        onChange={() => toggle(enabledRules, setEnabledRules, rule._draftId)}
-                        label={<span className="font-medium">{rule.name}</span>}
-                        hint={
-                          <>
-                            {rule.description && <span className="block">{rule.description}</span>}
-                            <span className="block text-[11px] text-fg-subtle mt-1">
-                              Trigger: {rule.trigger} · Actions: {rule.actions.map(a => a.type).join(', ')}
-                            </span>
-                          </>
-                        }
-                      />
-                      {rule.needsInput.length > 0 && (
-                        <div className="pl-6 mt-2 space-y-1.5">
-                          {rule.needsInput.map(need => (
-                            <div key={need} className="flex items-center gap-2">
-                              <span className="text-[11px] text-fg-muted w-32 shrink-0">{need}:</span>
-                              <Input
-                                inputSize="sm"
-                                className="flex-1"
-                                aria-label={need}
-                                placeholder={need.endsWith('.userId') ? 'User ID' : need.endsWith('.to') ? 'Recipient email' : 'Webhook URL'}
-                                value={ruleInputs[rule._draftId]?.[need] ?? ''}
-                                onChange={e => setRuleInputs(p => ({ ...p, [rule._draftId]: { ...p[rule._draftId], [need]: e.target.value } }))}
-                              />
-                            </div>
-                          ))}
-                          {missing.length > 0 && (
-                            <p className="text-[11px] text-warning">Fill these in, or this rule won't be created.</p>
-                          )}
-                        </div>
-                      )}
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center gap-3">
-            <Button icon={<CheckCircle2 size={16} />} onClick={handleApply} loading={apply.isPending}>
-              Apply selected
-            </Button>
-            <Button variant="ghost" onClick={() => { setLabels(null); setRules([]); }}>
-              Discard
-            </Button>
-          </div>
-
-          {apply.isSuccess && apply.data && (
-            <Alert tone="success">
-              Applied — {apply.data.rulesCreated} rule{apply.data.rulesCreated === 1 ? '' : 's'} created
-              {apply.data.rulesSkipped > 0 ? `, ${apply.data.rulesSkipped} skipped (still missing required input)` : ''}.
-            </Alert>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+// ─── (removed) Generate Setup ────────────────────────────────────────────────
+// Superseded by the AI Solution Builder (/solution-builder), which generates
+// terminology plus whole modules, pipelines, the workspace skin and
+// automations from one description. Business Context below still feeds every
+// AI prompt and still stores the label overrides the Solution Builder writes.
 
 // ─── Tab: Business Context ────────────────────────────────────────────────────
 
@@ -453,7 +205,16 @@ function BusinessContextTab() {
         <Alert tone="success">Saved — all AI features now use this context.</Alert>
       )}
 
-      <GenerateSetupSection hasContext={!!(current.industry || current.companyDesc)} />
+      {/* The old "Generate Setup" section lived here — the Solution Builder
+          replaced it with a far bigger version of the same idea. */}
+      <div className="pt-5 mt-5 border-t border-line-subtle">
+        <Alert tone="info">
+          Want AI to design terminology, custom modules, pipelines and automations from your business
+          description? That moved to the{' '}
+          <Link to="/solution-builder" className="font-medium text-accent hover:underline">AI Solution Builder</Link>
+          {' '}— it reads the context you save here.
+        </Alert>
+      </div>
     </div>
   );
 }

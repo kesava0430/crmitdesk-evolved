@@ -21,32 +21,6 @@ export interface BusinessContext {
   tone?:           'professional' | 'casual' | 'technical';
 }
 
-export interface DraftWorkflowCondition {
-  field: string;
-  operator: 'eq' | 'neq' | 'gt' | 'lt' | 'contains' | 'in';
-  value: string | number | string[];
-}
-
-export interface DraftWorkflowAction {
-  type: 'ASSIGN_TO' | 'SET_PRIORITY' | 'SET_STATUS' | 'SEND_EMAIL' | 'SEND_WHATSAPP' | 'ADD_NOTE' | 'SEND_WEBHOOK';
-  params: Record<string, string | number>;
-}
-
-export interface DraftWorkflowRule {
-  _draftId: string;
-  name: string;
-  description?: string;
-  trigger: string;
-  conditions: DraftWorkflowCondition[];
-  actions: DraftWorkflowAction[];
-  needsInput: string[]; // e.g. "ASSIGN_TO.userId" — still needs a real value before it can be applied
-}
-
-export interface GeneratedSetup {
-  labelOverrides: LabelOverrides;
-  workflowRules: DraftWorkflowRule[];
-}
-
 export interface InputField {
   name:     string;
   type:     'text' | 'number' | 'boolean' | 'select';
@@ -203,24 +177,7 @@ export function useValidateScript() {
   });
 }
 
-// ─── AI Setup Generator (labels + workflow rules from Business Context) ───────
-
-export function useGenerateSetup() {
-  return useMutation({
-    mutationFn: () => api.post('/ai/studio/generate-setup').then(r => r.data) as Promise<GeneratedSetup>,
-  });
-}
-
-export function useApplySetup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { labelOverrides?: LabelOverrides; workflowRules: DraftWorkflowRule[] }) =>
-      api.post('/ai/studio/apply-setup', data).then(r => r.data) as
-        Promise<{ labelOverrides: LabelOverrides | null; rulesCreated: number; rulesSkipped: number }>,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['ai-studio-context'] });
-      qc.invalidateQueries({ queryKey: ['ai-studio-labels'] }); // what useLabels() actually reads
-      qc.invalidateQueries({ queryKey: ['workflows'] }); // matches api/workflows.ts's useWorkflowRules query key
-    },
-  });
-}
+// The old AI Setup Generator hooks (useGenerateSetup/useApplySetup) were
+// removed with their endpoints — the AI Solution Builder (api calls in
+// pages/SolutionBuilderPage.tsx) covers that flow, writing label overrides
+// into the same BusinessContext storage useLabelOverrides reads.

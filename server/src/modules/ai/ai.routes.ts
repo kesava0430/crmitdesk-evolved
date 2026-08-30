@@ -121,11 +121,9 @@ aiRouter.patch('/studio/scripts/:id',        requireRole(...MANAGERS),  aiAdvanc
 aiRouter.delete('/studio/scripts/:id',       requireRole(...MANAGERS),  studio.deleteScript);
 aiRouter.post('/studio/scripts/validate',    requireRole(...MANAGERS),  aiAdvanced, studio.validateScript);
 
-// AI Setup Generator — propose (plan) then apply (confirm), same pattern as
-// AI Actions above. generateSetup never writes; applySetup is the only one
-// that persists label overrides / creates workflow rules.
-aiRouter.post('/studio/generate-setup',      requireRole(...MANAGERS),  aiAdvanced, trackAiCall, studio.generateSetup);
-aiRouter.post('/studio/apply-setup',         requireRole(...MANAGERS),  aiAdvanced, studio.applySetup);
+// The old /studio/generate-setup + /studio/apply-setup endpoints were
+// removed — fully superseded by the Solution Builder routes below, which
+// cover terminology AND modules/pipelines/skin/automations in one flow.
 
 // AI Solution Builder (platform Phase 3) — one description in, a whole
 // workspace out. Same propose→confirm split: generate never writes; apply
