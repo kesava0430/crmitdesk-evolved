@@ -4,6 +4,7 @@ import { authenticate, requireRole, AuthRequest,
          MANAGERS, ALL_STAFF, ALL_USERS } from '../../middleware/authenticate';
 import * as ai from './ai.controller';
 import * as studio from './aiStudio.controller';
+import * as solution from './solutionBuilder.controller';
 import { recordUsage } from '../../utils/usageTracking';
 import { requireFeature } from '../../utils/licensing';
 
@@ -125,3 +126,20 @@ aiRouter.post('/studio/scripts/validate',    requireRole(...MANAGERS),  aiAdvanc
 // that persists label overrides / creates workflow rules.
 aiRouter.post('/studio/generate-setup',      requireRole(...MANAGERS),  aiAdvanced, trackAiCall, studio.generateSetup);
 aiRouter.post('/studio/apply-setup',         requireRole(...MANAGERS),  aiAdvanced, studio.applySetup);
+
+// AI Solution Builder (platform Phase 3) — one description in, a whole
+// workspace out. Same propose→confirm split: generate never writes; apply
+// re-validates the blueprint and creates modules/skin/labels/rules.
+aiRouter.post('/solution/generate',          requireRole(...MANAGERS),  aiAdvanced, trackAiCall, solution.generateSolutionHandler);
+// apply makes no AI call (it validates and writes config), so it carries no
+// aiAdvanced gate — stamping a template must work on AI-less plans too.
+aiRouter.post('/solution/apply',             requireRole(...MANAGERS),  solution.applySolutionHandler);
+
+// Solution templates (platform Phase 4) — snapshot this workspace as a
+// reusable blueprint, list own + shared, load one for preview, delete own.
+// No aiAdvanced gate: templates involve no AI call, and the partner stamping
+// flow must work even for orgs whose plan has no AI features at all.
+aiRouter.get('/solution/templates',          requireRole(...MANAGERS),  solution.listTemplatesHandler);
+aiRouter.post('/solution/templates',         requireRole(...MANAGERS),  solution.saveTemplateHandler);
+aiRouter.get('/solution/templates/:id',      requireRole(...MANAGERS),  solution.getTemplateHandler);
+aiRouter.delete('/solution/templates/:id',   requireRole(...MANAGERS),  solution.deleteTemplateHandler);

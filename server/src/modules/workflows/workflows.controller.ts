@@ -30,7 +30,7 @@ const RuleSchema = z.object({
     // utils/workflow-engine.ts AND the trigger picker in the client's
     // AutomationPage; a value present in only one layer either 400s on save
     // or can never fire.
-    'CUSTOM_RECORD_CREATED', 'INVOICE_STATUS_CHANGED', 'QUOTE_STATUS_CHANGED',
+    'CUSTOM_RECORD_CREATED', 'CUSTOM_RECORD_STAGE_CHANGED', 'INVOICE_STATUS_CHANGED', 'QUOTE_STATUS_CHANGED',
     'CSAT_RECEIVED', 'APPROVAL_DECIDED', 'LEAVE_REQUESTED',
   ]),
   conditions: z.array(z.object({

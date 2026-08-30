@@ -72,6 +72,10 @@ const DEFAULT_SMART_FEATURES = new Set([
   'invoice.reminder',
   'lead.followUp', 'deal.followUp', 'account.nurture',
   'meeting.notes', 'pipeline.health',
+  // Generates a whole workspace (modules, stages, relations, skin) from one
+  // business description — the highest-stakes structured output in the
+  // product, so it always deserves the large model.
+  'solution.builder',
 ]);
 function smartFeatures(): Set<string> {
   const env = process.env.AI_SMART_FEATURES;
@@ -504,6 +508,42 @@ export async function routeChatTurn(
     command: str(parsed?.command, 1000) ?? undefined,
     reply: str(parsed?.reply, 1500) ?? undefined,
   };
+}
+
+// ─── AI Solution Builder (platform Phase 3) ──────────────────────────────────
+
+/**
+ * One business description in → a complete workspace blueprint out: the
+ * product's name/skin (Phase 1 config), custom modules with fields, pipeline
+ * stages, and cross-module relations (Phase 2), core-entity relabels, and
+ * simple declarative automations. The blueprint is DATA, not actions — the
+ * apply endpoint (solutionBuilder.controller.ts) re-validates every part
+ * against the same zod schemas the manual builders use, so nothing the model
+ * emits can reach the database in a shape a human couldn't have clicked
+ * together by hand.
+ */
+export async function generateSolutionBlueprint(description: string): Promise<any> {
+  const client = getClient();
+  if (!client) return null;
+  const raw = await chat(client,
+    'You are a solution architect for a CRM + helpdesk + HR platform. Given a business description, design their whole workspace. ' +
+    'Respond ONLY with valid JSON, no prose, in exactly this shape:\n' +
+    '{"workspace":{"appName":str<=40,"sectionRenames":{section:label},"navRenames":{route:label},"hiddenSections":[section]},' +
+    '"labels":{"ticket"|"deal"|"lead"|"contact":{"singular":str,"plural":str}},' +
+    '"modules":[{"name":str,"icon":str,"description":str,"navSection":"CRM"|"IT_DESK"|"HR"|"ADMIN","fields":[{"label":str,"fieldType":str,"options":[str],"required":bool,"isPrimary":bool,"relationTo":str}],"stages":[{"key":str,"label":str,"color":str}],"listColumns":[fieldLabelsInOrder]}],' +
+    '"automations":[{"name":str,"module":str,"event":"created"|"stage_reached","stage":stageKey,"notifyTitle":str,"notifyBody":str}]}\n' +
+    'Rules: sections are exactly "CRM","HR","IT Desk","Admin","Integrations". Rename sections/entities into the business\'s own vocabulary; hide sections they clearly don\'t need (never hide "Admin"). ' +
+    'navRenames keys are routes: /itdesk/tickets /crm/deals /crm/leads /crm/contacts /itdesk/assets /itdesk/articles. ' +
+    'labels relabel the four core entities (singular AND plural). ' +
+    'Create 2-4 custom modules that capture what the business tracks that a generic CRM does not. fieldType one of TEXT,TEXTAREA,NUMBER,CURRENCY,DATE,BOOLEAN,DROPDOWN,EMAIL,PHONE,URL,RELATION. ' +
+    'A RELATION field sets "relationTo" to another module\'s exact "name" from THIS blueprint. Exactly one field per module has isPrimary:true (its display title, TEXT, required). ' +
+    'Give 3-6 stages to modules that flow through a lifecycle; stage keys are lowercase-kebab; color one of slate,blue,cyan,teal,emerald,amber,orange,rose,violet,indigo. ' +
+    'icon one of Layers,Package,Boxes,Wrench,Tag,Briefcase,ClipboardList,FileText,Building2,Monitor. ' +
+    '1-3 automations: notify the team when a record is created or reaches a stage; {{field_key}} placeholders in notifyBody interpolate record fields.',
+    `Business description:\n${description}`,
+    { feature: 'solution.builder', maxTokens: 3000, temperature: 0.4, json: true }
+  );
+  return safeJson(raw);
 }
 
 // ─── Invoice Payment Reminder ─────────────────────────────────────────────────
@@ -1044,7 +1084,14 @@ export async function planAiAction(
     leads?: Array<{ id: string; name: string }>;
     rules?: Array<{ id: string; name: string; isActive: boolean }>;
     contacts?: Array<{ id: string; name: string }>;
-    modules?: Array<{ id: string; name: string; fields: Array<{ fieldKey: string; label: string; fieldType: string }> }>;
+    modules?: Array<{
+      id: string; name: string;
+      fields: Array<{ fieldKey: string; label: string; fieldType: string }>;
+      /** Pipeline stage keys+labels, when the module has a board (Phase 5). */
+      stages?: Array<{ key: string; label: string }>;
+      /** Recent records (id/title/stage) so stage-moves can resolve a title to an id. */
+      records?: Array<{ id: string; title: string; stage: string | null }>;
+    }>;
     assignableUsers?: Array<{ id: string; name: string }>;
     quotes?: Array<{ id: string; title: string; status: string }>;
     invoices?: Array<{ id: string; invoiceNumber: string; title: string; status: string }>;
@@ -1077,7 +1124,7 @@ export async function planAiAction(
   let reply: string;
   try {
     reply = await chat(client,
-      `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module/quote/invoice/campaign/asset/leave-type/leave-request/user mentioned by name (or invoice number) to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. Pending leave requests are matched by the requester's name, not the manager's. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
+      `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module/quote/invoice/campaign/asset/leave-type/leave-request/user mentioned by name (or invoice number) to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. A module's "stages" list holds its valid stage keys: any stage param must be one of those keys, and a record named by the user should be matched to an id in that module's "records" list when it appears there. Pending leave requests are matched by the requester's name, not the manager's. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
       `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}\nQuotes: ${JSON.stringify(context.quotes ?? [])}\nInvoices: ${JSON.stringify(context.invoices ?? [])}\nCampaigns: ${JSON.stringify(context.campaigns ?? [])}\nAssets: ${JSON.stringify(context.assets ?? [])}\nLeave types: ${JSON.stringify(context.leaveTypes ?? [])}\nPending leave requests: ${JSON.stringify(context.pendingLeaveRequests ?? [])}\nOrg users (for MANUAL_ATTENDANCE_ENTRY): ${JSON.stringify(context.orgUsers ?? [])}`,
       { feature: 'command.plan', maxTokens: 500, model: AI_MODEL_SMART }
     );

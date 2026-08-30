@@ -9,9 +9,10 @@ import {
   FileText, Menu, Sparkles, Wand2, Brain, LayoutTemplate, HardDrive, Layers,
   Clock, CalendarCheck, Building2, Receipt, RefreshCw, Wallet, KeyRound,
   Package, Boxes, Wrench, Tag, Briefcase, ClipboardList,
-  CheckSquare, CheckCircle2, Network, UserSquare2, ChevronRight,
+  CheckSquare, CheckCircle2, Network, UserSquare2, ChevronRight, SlidersHorizontal, Rocket,
 } from "lucide-react";
 import { useCustomModules } from "../../api/customModules";
+import { useWorkspace } from "../../api/workspace";
 import { AISmartSearch } from "../components/AISmartSearch";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { NotificationBell } from "../components/NotificationBell";
@@ -69,6 +70,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: "/workflows",    label: "Automation",  icon: Zap,   tint: "text-amber-500",   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/portal-users", label: "Portal",      icon: Globe, tint: "text-cyan-500",    roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
       { to: "/ai-builder",   label: "AI Builder",  icon: Wand2, tint: "text-fuchsia-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      // Platform Phase 3 — describe the business, get the whole workspace.
+      { to: "/solution-builder", label: "Solution Builder", icon: Rocket, tint: "text-rose-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/ai-studio",    label: "AI Studio",   icon: Brain, tint: "text-violet-500",  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
     ],
   },
@@ -125,6 +128,10 @@ export const NAV_SECTIONS: NavSection[] = [
       // It is an org-settings screen: showing it to staff who cannot save
       // anything is a dead end, so it follows the same roles as its writes.
       { to: "/branding",      label: "Branding",      icon: Palette, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      // Workspace identity (platform Phase 1) — rename/hide anything above.
+      // Never listed as hideable in its own settings page, so admins can't
+      // strand themselves.
+      { to: "/workspace",     label: "Workspace",     icon: SlidersHorizontal, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/org-settings",  label: "Org Settings",  icon: Globe2,    roles: ['SUPER_ADMIN'] },
       { to: "/admin/roles",   label: "Roles & Permissions", icon: Shield, roles: ['SUPER_ADMIN'] },
       { to: "/admin/ai-governance", label: "AI Governance", icon: Brain, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
@@ -184,6 +191,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/custom-modules":    "Custom Modules",
   "/templates":         "Templates",
   "/branding":          "Branding",
+  "/workspace":         "Workspace Settings",
+  "/solution-builder":  "AI Solution Builder",
   "/org-settings":      "Org Settings",
   "/audit-logs":        "Audit Log",
   "/api-keys":          "API Keys",
@@ -258,6 +267,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
 }) {
   const userRole: string | undefined = user?.role;
   const { entityLabel } = useLabels();
+  const workspace = useWorkspace();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<string[]>(readCollapsed);
 
@@ -308,7 +318,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
           <img src="/logo.svg" alt="" className="w-7 h-7 shrink-0" />
           <div className="min-w-0">
             <p className="text-sidebar-fg font-semibold text-[13px] leading-tight truncate tracking-tight">
-              CRM &amp; IT Desk
+              {workspace.appName}
             </p>
             {user?.org?.name && (
               <p className="text-sidebar-heading text-[11px] truncate leading-tight mt-px">{user.org.name}</p>
@@ -322,10 +332,13 @@ function SidebarContent({ user, onLogout, onNavClick }: {
         {sections.map((section) => {
           // Hide section if user's role is not allowed
           if (section.roles && userRole && !section.roles.includes(userRole)) return null;
+          // Workspace skin: whole section hidden for this org (presentation
+          // only — routes stay reachable, same pattern as role filtering).
+          if (workspace.isSectionHidden(section.label)) return null;
 
-          // Filter items by role
+          // Filter items by role, then by the workspace skin's hidden routes
           const visibleItems = section.items.filter(
-            item => !item.roles || !userRole || item.roles.includes(userRole)
+            item => (!item.roles || !userRole || item.roles.includes(userRole)) && !workspace.isRouteHidden(item.to)
           );
           if (visibleItems.length === 0) return null;
 
@@ -343,7 +356,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
                   aria-expanded={!isCollapsed}
                   className="group/sec w-full flex items-center gap-1 px-2.5 mb-1 text-[10.5px] font-semibold text-sidebar-heading uppercase tracking-[0.08em] hover:text-sidebar-muted transition-colors"
                 >
-                  <span className="truncate">{section.label}</span>
+                  <span className="truncate">{workspace.sectionLabel(section.label)}</span>
                   <ChevronRight
                     size={11}
                     className={`shrink-0 opacity-0 group-hover/sec:opacity-100 transition-all duration-150 ${isCollapsed ? "" : "rotate-90"}`}
@@ -354,7 +367,11 @@ function SidebarContent({ user, onLogout, onNavClick }: {
                 <div className="space-y-px">
                   {visibleItems.map(item => {
                     const override = ROUTE_ENTITY[item.to];
-                    const label = override ? entityLabel(override.key, override.form, item.label) : item.label;
+                    // Workspace rename wins over the AI Studio entity label —
+                    // it's the more explicit, hand-set (or Solution Builder-
+                    // set) choice; entity labels remain the fallback.
+                    const base = override ? entityLabel(override.key, override.form, item.label) : item.label;
+                    const label = workspace.navLabel(item.to, base);
                     return <SideNavItem key={item.to} to={item.to} label={label} icon={item.icon} tint={item.tint} onClick={onNavClick} />;
                   })}
                 </div>
@@ -436,6 +453,7 @@ export function AppLayout() {
   }
 
   const { entityLabel } = useLabels();
+  const workspace = useWorkspace();
   const routeOverride = ROUTE_ENTITY[location.pathname];
   // /modules/:slug has no static PAGE_TITLES entry (one per org-defined
   // module, can't be hardcoded) — fall back to that module's own name if the
@@ -445,17 +463,29 @@ export function AppLayout() {
   const moduleTitleMatch = location.pathname.startsWith("/modules/")
     ? customModulesForTitle?.find((m: any) => `/modules/${m.slug}` === location.pathname)?.name
     : undefined;
-  const pageTitle = routeOverride
+  const baseTitle = routeOverride
     ? entityLabel(routeOverride.key, routeOverride.form, PAGE_TITLES[location.pathname] ?? "")
-    : (PAGE_TITLES[location.pathname] ?? moduleTitleMatch ?? "CRM & IT Desk");
+    : (PAGE_TITLES[location.pathname] ?? moduleTitleMatch ?? workspace.appName);
+  // Workspace skin rename (keyed by route) wins over everything else.
+  const pageTitle = workspace.navLabel(location.pathname, baseTitle);
+
+  // Browser tab mirrors the workspace identity — a reskinned org's users see
+  // "Service Jobs · DealerTrack Pro", never the underlying product name.
+  useEffect(() => {
+    document.title = pageTitle && pageTitle !== workspace.appName
+      ? `${pageTitle} · ${workspace.appName}`
+      : workspace.appName;
+  }, [pageTitle, workspace.appName]);
 
   // "CRM / Leads" style context for the top bar — which section owns the route
   const sectionLabel = useMemo(() => {
     for (const s of NAV_SECTIONS) {
-      if (s.label && s.items.some(i => location.pathname.startsWith(i.to))) return s.label;
+      if (s.label && s.items.some(i => location.pathname.startsWith(i.to))) {
+        return workspace.sectionLabel(s.label);
+      }
     }
     return null;
-  }, [location.pathname]);
+  }, [location.pathname, workspace.config]);
 
   return (
     <div className="flex h-screen bg-canvas overflow-hidden">

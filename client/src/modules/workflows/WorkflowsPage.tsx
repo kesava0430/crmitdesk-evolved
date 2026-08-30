@@ -42,6 +42,7 @@ const TRIGGERS = [
   // Newer-module coverage — keep in step with the trigger enum in
   // server workflows.controller.ts and WorkflowTrigger in workflow-engine.ts.
   { value: 'CUSTOM_RECORD_CREATED',  label: 'Custom Module Record Created', entity: 'CUSTOM_MODULE_RECORD' },
+  { value: 'CUSTOM_RECORD_STAGE_CHANGED', label: 'Custom Module Stage Changed (board move)', entity: 'CUSTOM_MODULE_RECORD' },
   { value: 'INVOICE_STATUS_CHANGED', label: 'Invoice Status Changed (paid, overdue…)', entity: 'INVOICE' },
   { value: 'QUOTE_STATUS_CHANGED',   label: 'Quote Status Changed (sent, accepted…)', entity: 'QUOTE' },
   { value: 'CSAT_RECEIVED',          label: 'Feedback Rating Received', entity: 'TICKET' },
@@ -86,6 +87,9 @@ const CONDITION_FIELDS: Record<string, { value: string; label: string }[]> = {
   // names can be typed in as free text via the condition value input.
   CUSTOM_MODULE_RECORD: [
     { value: 'moduleSlug', label: 'Module (slug, e.g. erp-work-orders)' },
+    // Stage-change events carry both sides of the move.
+    { value: 'stage', label: 'Stage (new stage key)' },
+    { value: 'previousStage', label: 'Previous stage key' },
   ],
 };
 

@@ -139,6 +139,7 @@ export type WorkflowTrigger =
   /* Coverage for the newer modules — automation used to stop at
      tickets/leads/deals while the product kept growing past them. */
   | 'CUSTOM_RECORD_CREATED'   // a record lands in any custom module (condition on moduleSlug to scope)
+  | 'CUSTOM_RECORD_STAGE_CHANGED' // a record moves on a module's pipeline board (entity carries stage + previousStage)
   | 'INVOICE_STATUS_CHANGED'  // SENT → PAID / OVERDUE / VOID etc.
   | 'QUOTE_STATUS_CHANGED'    // includes customer acceptance via the public link
   | 'CSAT_RECEIVED'           // a feedback rating arrived (condition on `rating` to catch the bad ones)

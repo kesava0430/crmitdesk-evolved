@@ -72,9 +72,53 @@ export const useRemoveModuleField = () => {
 export const useModuleRecords = (moduleId?: string, enabled = true) =>
   useQuery({ queryKey: ['custom-module-records', moduleId], queryFn: () => api.get(`/custom-modules/${moduleId}/records`, { params: { limit: 100 } }).then(unwrap), enabled: !!moduleId && enabled });
 
+/** Same page of records, but keeping the full envelope — the Phase 2 list
+ *  response also carries `relationTitles` (id → display title for every
+ *  RELATION value on the page), which `unwrap` would throw away. */
+export const useModuleRecordsFull = (moduleId?: string, enabled = true) =>
+  useQuery({
+    queryKey: ['custom-module-records', moduleId, 'full'],
+    queryFn: () => api.get(`/custom-modules/${moduleId}/records`, { params: { limit: 100 } })
+      .then(r => ({ rows: (r.data?.data ?? []) as any[], relationTitles: (r.data?.relationTitles ?? {}) as Record<string, string> })),
+    enabled: !!moduleId && enabled,
+  });
+
+/** The module dashboard row (Phase 5): totals, weekly inflow, stage distribution, currency sums. */
+export const useModuleStats = (moduleId?: string, enabled = true) =>
+  useQuery({
+    queryKey: ['custom-module-stats', moduleId],
+    queryFn: () => api.get(`/custom-modules/${moduleId}/stats`).then(r => r.data as {
+      total: number; createdLast7d: number;
+      byStage: { key: string; label: string; color?: string; count: number }[];
+      currencySums: { fieldKey: string; label: string; sum: number }[];
+    }),
+    enabled: !!moduleId && enabled,
+    staleTime: 30_000,
+  });
+
+/** Kanban drag — moves a record to another pipeline stage (fires CUSTOM_RECORD_STAGE_CHANGED workflows server-side). */
+export const useSetRecordStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ moduleId, recordId, stage }: { moduleId: string; recordId: string; stage: string }) =>
+      api.patch(`/custom-modules/${moduleId}/records/${recordId}/stage`, { stage }).then(r => r.data),
+    onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ['custom-module-records', vars.moduleId] }),
+  });
+};
+
+/** Records elsewhere that point AT this record (reverse relations), grouped by module + field. */
+export const useRelatedRecords = (moduleId?: string, recordId?: string, enabled = true) =>
+  useQuery({
+    queryKey: ['custom-module-related', moduleId, recordId],
+    queryFn: () => api.get(`/custom-modules/${moduleId}/records/${recordId}/related`).then(r => r.data as {
+      groups: { module: { id: string; name: string; slug: string }; viaField: string; records: { id: string; stage: string | null; title: string }[] }[];
+    }),
+    enabled: !!moduleId && !!recordId && enabled,
+  });
+
 export const useCreateModuleRecord = () => {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: ({ moduleId, data }: any) => api.post(`/custom-modules/${moduleId}/records`, { data }).then(r => r.data),
+  return useMutation({ mutationFn: ({ moduleId, data, stage }: any) => api.post(`/custom-modules/${moduleId}/records`, { data, ...(stage ? { stage } : {}) }).then(r => r.data),
     onSuccess: (_d, vars: any) => { qc.invalidateQueries({ queryKey: ['custom-module-records', vars.moduleId] }); qc.invalidateQueries({ queryKey: ['custom-modules'] }); } });
 };
 export const useUpdateModuleRecord = () => {

@@ -744,7 +744,9 @@ export async function buildActionPlanForOrg(orgId: string, role: string, command
       // module they just created via CREATE_CUSTOM_MODULE.
       prisma.customModule.findMany({
         where: { orgId, isActive: true },
-        select: { id: true, name: true, fields: { select: { fieldKey: true, label: true, fieldType: true }, orderBy: { position: 'asc' } } },
+        // stages so the planner can name a stage key for CREATE/MOVE actions
+        // (Phase 5); isPrimary so record titles can be computed below.
+        select: { id: true, name: true, stages: true, fields: { select: { fieldKey: true, label: true, fieldType: true, isPrimary: true }, orderBy: { position: 'asc' } } },
         take: 25,
       }),
       // For ASSIGN_TICKET's name -> id resolution — same role set tickets
@@ -769,6 +771,35 @@ export async function buildActionPlanForOrg(orgId: string, role: string, command
       prisma.user.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true }, take: 50 }),
     ]);
 
+    /* Phase 5 — each module carries its recent records (id/title/stage) so
+       MOVE_CUSTOM_RECORD_STAGE can resolve "the Kia EV6" to a real id, and
+       its stage keys so both custom-record actions can name a stage. One
+       bounded query for all modules, then 8 records per module. */
+    const moduleIds = modules.map((m: any) => m.id);
+    const recentRecords = moduleIds.length
+      ? await prisma.customModuleRecord.findMany({
+          where: { moduleId: { in: moduleIds } },
+          select: { id: true, moduleId: true, stage: true, data: true },
+          orderBy: { updatedAt: 'desc' }, take: 120,
+        })
+      : [];
+    const modulesForPlan = modules.map((m: any) => {
+      const primary = m.fields.find((f: any) => f.isPrimary) ?? m.fields[0];
+      const records = recentRecords
+        .filter(r => r.moduleId === m.id).slice(0, 8)
+        .map(r => ({
+          id: r.id, stage: r.stage,
+          title: primary ? String((r.data as any)?.[primary.fieldKey] ?? r.id) : r.id,
+        }));
+      return {
+        id: m.id, name: m.name,
+        fields: m.fields.map((f: any) => ({ fieldKey: f.fieldKey, label: f.label, fieldType: f.fieldType })),
+        ...(Array.isArray(m.stages) && m.stages.length
+          ? { stages: (m.stages as any[]).map(s => ({ key: s.key, label: s.label })) } : {}),
+        ...(records.length ? { records } : {}),
+      };
+    });
+
     const plan = await planAiAction(command, {
       actions: actionMenuForPrompt(),
       deals,
@@ -776,7 +807,7 @@ export async function buildActionPlanForOrg(orgId: string, role: string, command
       leads: leads.map(l => ({ id: l.id, name: (l as any).contact?.name || 'Unknown' })),
       rules,
       contacts,
-      modules,
+      modules: modulesForPlan,
       assignableUsers,
       quotes,
       invoices,

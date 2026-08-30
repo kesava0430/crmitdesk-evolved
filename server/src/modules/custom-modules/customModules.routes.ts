@@ -22,10 +22,15 @@ customModulesRouter.patch('/:id/fields/:fieldId',      requireRole(...CRM_MANAGE
 customModulesRouter.delete('/:id/fields/:fieldId',     requireRole(...CRM_MANAGERS), c.removeField);
 
 // Records — day-to-day use, open to all staff
+// Stats power the module dashboard row (Phase 5) — read-only aggregates.
+customModulesRouter.get('/:id/stats',                  requireRole(...ALL_STAFF),    c.moduleStats);
 customModulesRouter.get('/:id/records',                requireRole(...ALL_STAFF),    c.listRecords);
 customModulesRouter.post('/:id/records',                requireRole(...ALL_STAFF),    c.createRecord);
 customModulesRouter.get('/:id/records/:recordId',       requireRole(...ALL_STAFF),    c.getRecord);
+customModulesRouter.get('/:id/records/:recordId/related', requireRole(...ALL_STAFF),  c.relatedRecords);
 customModulesRouter.patch('/:id/records/:recordId',     requireRole(...ALL_STAFF),    c.updateRecord);
+// The kanban drag — stage moves fire CUSTOM_RECORD_STAGE_CHANGED workflows.
+customModulesRouter.patch('/:id/records/:recordId/stage', requireRole(...ALL_STAFF),  c.setRecordStage);
 customModulesRouter.delete('/:id/records/:recordId',    requireRole(...CRM_MANAGERS), c.removeRecord);
 
 // External polling sync

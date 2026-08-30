@@ -12,15 +12,20 @@ import {
   DataTable, Badge, Alert, AccessDenied, type Column,
 } from '../shared/components';
 import { CustomModuleRecordsTab } from '../shared/components/CustomModuleRecords';
+import { STAGE_DOT } from '../shared/components/CustomModuleKanban';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
 
-const FIELD_TYPES = ['TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN', 'DROPDOWN', 'EMAIL', 'PHONE', 'URL'];
+const FIELD_TYPES = ['TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN', 'DROPDOWN', 'EMAIL', 'PHONE', 'URL', 'RELATION'];
 const TYPE_LABELS: Record<string, string> = {
   TEXT: 'Text', TEXTAREA: 'Long Text', NUMBER: 'Number', CURRENCY: 'Currency', DATE: 'Date',
   BOOLEAN: 'Yes/No', DROPDOWN: 'Dropdown', EMAIL: 'Email', PHONE: 'Phone', URL: 'URL',
+  RELATION: 'Relation (link to another module)',
 };
+
+/** Matches the server's STAGE_COLORS whitelist (customModules.controller.ts). */
+const STAGE_COLORS = ['slate', 'blue', 'cyan', 'teal', 'emerald', 'amber', 'orange', 'rose', 'violet', 'indigo'];
 
 // Matches AppLayout.tsx's NAV_SECTIONS labels exactly — kept as a small
 // lookup here (rather than importing from AppLayout, a layout component
@@ -155,9 +160,12 @@ function EditModuleModal({ module_, onClose }: { module_: any; onClose: () => vo
 function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field: any | null; onClose: () => void }) {
   const add = useAddModuleField();
   const update = useUpdateModuleField();
+  // For the RELATION target picker — every module in the org is a valid
+  // target, including this one (parent/child records).
+  const { data: allModules } = useCustomModules();
   const [form, setForm] = useState(field
-    ? { label: field.label, fieldType: field.fieldType, required: field.required, isPrimary: field.isPrimary, options: (field.options ?? []).join(', ') }
-    : { label: '', fieldType: 'TEXT', required: false, isPrimary: false, options: '' });
+    ? { label: field.label, fieldType: field.fieldType, required: field.required, isPrimary: field.isPrimary, options: (field.options ?? []).join(', '), relationModuleId: field.relationModuleId ?? '' }
+    : { label: '', fieldType: 'TEXT', required: false, isPrimary: false, options: '', relationModuleId: '' });
   const loading = add.isPending || update.isPending;
 
   async function submit(e: React.FormEvent) {
@@ -168,6 +176,9 @@ function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field:
       required: form.required,
       isPrimary: form.isPrimary,
       options: form.fieldType === 'DROPDOWN' ? form.options.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
+      // Only meaningful on create — the server refuses retargeting an
+      // existing relation field (records would hold dangling ids).
+      ...(!field && form.fieldType === 'RELATION' ? { relationModuleId: form.relationModuleId } : {}),
     };
     if (field) await update.mutateAsync({ moduleId, fieldId: field.id, ...payload });
     else await add.mutateAsync({ moduleId, ...payload });
@@ -186,6 +197,21 @@ function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field:
         {form.fieldType === 'DROPDOWN' && (
           <Field label="Options" hint="Comma-separated">
             <Input aria-label="Dropdown Options" value={form.options} onChange={e => setForm(p => ({ ...p, options: e.target.value }))} placeholder="Option A, Option B, Option C" />
+          </Field>
+        )}
+        {form.fieldType === 'RELATION' && (
+          <Field
+            label="Links to module"
+            hint={field ? 'The target of an existing relation field can’t be changed — delete and recreate the field to retarget it.' : 'Each record of this module can link one record of the target module.'}
+          >
+            <SearchableSelect
+              ariaLabel="Relation target module"
+              value={form.relationModuleId}
+              onChange={val => setForm(p => ({ ...p, relationModuleId: val }))}
+              options={(allModules ?? []).map((m: any) => ({ value: m.id, label: m.name }))}
+              placeholder="Pick a module…"
+              disabled={!!field}
+            />
           </Field>
         )}
         <div className="flex flex-wrap gap-4">
@@ -239,6 +265,135 @@ function FieldsTab({ module_ }: { module_: any }) {
         empty={<EmptyState compact icon={<Layers size={22} />} title="No fields yet" description="Add fields to define this module's shape." action={{ label: 'Add Field', onClick: () => setFieldModal('new') }} />}
       />
       {fieldModal && <FieldFormModal moduleId={module_.id} field={fieldModal === 'new' ? null : fieldModal} onClose={() => setFieldModal(null)} />}
+    </div>
+  );
+}
+
+/**
+ * PipelineTab (Phase 2) — define the module's stages (turning its records
+ * page into a kanban board) and pick which fields show as list columns.
+ * Stage keys are derived from the label once and then kept stable, so
+ * renaming "In Stock" to "Available" doesn't orphan records already sitting
+ * in that column.
+ */
+function PipelineTab({ module_ }: { module_: any }) {
+  const update = useUpdateCustomModule();
+  const [stages, setStages] = useState<{ key: string; label: string; color: string }[]>(
+    Array.isArray(module_.stages) ? module_.stages.map((s: any) => ({ color: 'slate', ...s })) : [],
+  );
+  const [listColumns, setListColumns] = useState<string[]>(Array.isArray(module_.listColumns) ? module_.listColumns : []);
+  const [saved, setSaved] = useState(false);
+  const fields = module_.fields ?? [];
+
+  function addStage() {
+    setStages(s => [...s, { key: '', label: '', color: STAGE_COLORS[s.length % STAGE_COLORS.length] }]);
+  }
+  function setStage(i: number, patch: Partial<{ label: string; color: string }>) {
+    setStages(s => s.map((st, j) => (j === i ? { ...st, ...patch } : st)));
+  }
+  function move(i: number, dir: -1 | 1) {
+    setStages(s => {
+      const next = [...s];
+      const j = i + dir;
+      if (j < 0 || j >= next.length) return s;
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  function toggleColumn(fieldKey: string) {
+    setListColumns(cols => cols.includes(fieldKey) ? cols.filter(c => c !== fieldKey) : [...cols, fieldKey]);
+  }
+
+  async function save() {
+    const slugKey = (label: string, i: number) =>
+      label.toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/(^-|-$)/g, '') || `stage-${i + 1}`;
+    const seen = new Set<string>();
+    const clean = stages
+      .filter(s => s.label.trim())
+      .map((s, i) => {
+        let key = s.key || slugKey(s.label, i);
+        while (seen.has(key)) key = `${key}-2`;
+        seen.add(key);
+        return { key, label: s.label.trim(), color: s.color };
+      });
+    await update.mutateAsync({
+      id: module_.id,
+      stages: clean.length ? clean : null,
+      listColumns: listColumns.length ? listColumns : null,
+    });
+    setStages(clean);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  return (
+    <div className="space-y-5">
+      <Alert tone="info" icon={null}>
+        Give this module stages and its records page gains a drag-and-drop board — moves between stages can
+        trigger automations (trigger: <code className="text-xs">CUSTOM_RECORD_STAGE_CHANGED</code>).
+        Leave the list empty for a plain table module.
+      </Alert>
+
+      <div className="form-section">
+        <p className="form-section-title">Pipeline stages</p>
+        <div className="space-y-2">
+          {stages.map((s, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${STAGE_DOT[s.color] ?? 'bg-slate-400'}`} aria-hidden />
+              <Input
+                aria-label={`Stage ${i + 1} name`}
+                value={s.label}
+                onChange={e => setStage(i, { label: e.target.value })}
+                placeholder={`Stage ${i + 1} (e.g. In Stock)`}
+                className="flex-1"
+              />
+              <SearchableSelect
+                ariaLabel={`Stage ${i + 1} color`}
+                value={s.color}
+                onChange={val => setStage(i, { color: val })}
+                options={STAGE_COLORS.map(c => ({ value: c, label: c }))}
+                className="w-28"
+              />
+              <IconButton label="Move up" icon={<span className="text-xs">↑</span>} onClick={() => move(i, -1)} />
+              <IconButton label="Move down" icon={<span className="text-xs">↓</span>} onClick={() => move(i, 1)} />
+              <IconButton label="Remove stage" tone="danger" icon={<Trash2 size={14} />} onClick={() => setStages(st => st.filter((_, j) => j !== i))} />
+            </div>
+          ))}
+          <Button size="sm" variant="secondary" icon={<Plus size={13} />} onClick={addStage} disabled={stages.length >= 12}>
+            Add stage
+          </Button>
+        </div>
+      </div>
+
+      <div className="form-section">
+        <p className="form-section-title">List columns</p>
+        <p className="form-hint mb-2 mt-0">Which fields show as table columns (in the order you pick them). None selected = first five fields.</p>
+        <div className="flex flex-wrap gap-1.5">
+          {fields.map((f: any) => {
+            const idx = listColumns.indexOf(f.fieldKey);
+            const on = idx >= 0;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggleColumn(f.fieldKey)}
+                className={`px-2.5 py-1 rounded-btn border text-[12px] transition-colors ${
+                  on ? 'border-accent bg-accent-soft text-accent-soft-fg font-medium' : 'border-line text-fg-muted hover:bg-surface-hover'
+                }`}
+              >
+                {on && <span className="mr-1 tabular-nums">{idx + 1}.</span>}{f.label}
+              </button>
+            );
+          })}
+          {!fields.length && <p className="text-[12.5px] text-fg-subtle">Add fields first.</p>}
+        </div>
+      </div>
+
+      <FormActions>
+        {saved && <span className="flex items-center gap-1 text-[12.5px] font-medium text-success"><CheckCircle2 size={14} /> Saved</span>}
+        <Button onClick={save} loading={update.isPending}>Save pipeline</Button>
+      </FormActions>
     </div>
   );
 }
@@ -400,7 +555,7 @@ export default function CustomModulesPage() {
   const deleteModule = useDeleteCustomModule();
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [tab, setTab] = useState<'fields' | 'records' | 'sync'>('records');
+  const [tab, setTab] = useState<'fields' | 'records' | 'pipeline' | 'sync'>('records');
 
   // Deep-link support — the "Manage module" link on a module's own
   // nav-linked page (CustomModuleViewPage) sends managers here pre-selected
@@ -496,7 +651,7 @@ export default function CustomModulesPage() {
                   variant="pill"
                   aria-label="Module section"
                   className="mb-4"
-                  items={(['records', 'fields', 'sync'] as const)
+                  items={(['records', 'fields', 'pipeline', 'sync'] as const)
                     // External sync is CRM_MANAGERS-only — no tab for the roles
                     // whose only possible answer from it is a refusal.
                     .filter(t => t !== 'sync' || canManageSync)
@@ -506,6 +661,7 @@ export default function CustomModulesPage() {
                 />
                 {tab === 'fields' && <FieldsTab module_={module_} />}
                 {tab === 'records' && <CustomModuleRecordsTab module_={module_} />}
+                {tab === 'pipeline' && <PipelineTab key={module_.id} module_={module_} />}
                 {tab === 'sync' && canManageSync && <SyncTab module_={module_} />}
               </>
             )}

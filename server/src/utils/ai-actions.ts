@@ -24,7 +24,7 @@ import { scoreLead as aiScoreLead } from './ai';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
 import { MANAGERS, CRM_STAFF, IT_STAFF, IT_MANAGERS, ALL_STAFF, ALL_USERS, CRM_MANAGERS } from '../middleware/authenticate';
-import { FIELD_TYPES, slugify, validateRecordData } from '../modules/custom-modules/customModules.service';
+import { FIELD_TYPES, slugify, validateRecordData, recordTitle } from '../modules/custom-modules/customModules.service';
 import { pushCalendarEvent } from './googleCalendar';
 import { notifyOrgAdmins } from '../modules/notifications/notifications.controller';
 import { sendCampaignNow } from '../modules/campaigns/campaigns.controller';
@@ -483,15 +483,23 @@ export const AI_ACTIONS: AiActionDefinition[] = [
   },
 
   // ── Create a record in a custom module ───────────────────────────────────
+  // Pipeline-aware (platform Phase 5): lands the record in a named stage (or
+  // the module's first stage), and fires CUSTOM_RECORD_CREATED workflows —
+  // exactly like the hand-written createRecord controller, so a record filed
+  // from chat triggers the same automations as one typed into the form.
   {
     name: 'CREATE_CUSTOM_MODULE_RECORD',
     label: 'Create a custom module record',
-    description: 'Creates a record in an existing custom module (e.g. "add a Vendor Contracts record for Acme Supplies worth $5,000"). Match the module by name and its fields by fieldKey from the modules context list — never invent a fieldKey that isn\'t listed for that module.',
-    example: 'Add a Vendor Contracts record for Acme Supplies worth $5,000',
-    paramsHint: '{ moduleId: string, data: { [fieldKey]: value } }',
+    description: 'Creates a record in an existing custom module (e.g. "add a Vehicle Inventory record for the 2025 Kia EV6 at $41,000, in stock"). Match the module by name and its fields by fieldKey from the modules context list — never invent a fieldKey that isn\'t listed for that module. If the module lists stages and the user names one, set stage to that stage\'s key.',
+    example: 'Add a Vehicle Inventory record for the 2025 Kia EV6 at $41,000',
+    paramsHint: '{ moduleId: string, data: { [fieldKey]: value }, stage?: string (a stage key from that module\'s stages) }',
     allowedRoles: ALL_STAFF,
     requiresConfirmation: true,
-    schema: z.object({ moduleId: z.string().min(1), data: z.record(z.union([z.string(), z.number(), z.boolean()])) }),
+    schema: z.object({
+      moduleId: z.string().min(1),
+      data: z.record(z.union([z.string(), z.number(), z.boolean()])),
+      stage: z.string().max(40).optional(),
+    }),
     handler: async (params, ctx) => {
       const module_ = await prisma.customModule.findFirst({ where: { id: params.moduleId, orgId: ctx.orgId } });
       if (!module_) throw new AppError(404, 'Custom module not found');
@@ -499,10 +507,83 @@ export const AI_ACTIONS: AiActionDefinition[] = [
       if (!fields.length) throw new AppError(400, `"${module_.name}" has no fields defined yet`);
 
       const data = validateRecordData(fields, params.data);
+      const stages = Array.isArray(module_.stages) ? (module_.stages as any[]) : [];
+      let stage: string | null = null;
+      if (stages.length) {
+        if (params.stage && !stages.some(s => s.key === params.stage)) {
+          throw new AppError(400, `"${params.stage}" is not a stage of ${module_.name} (stages: ${stages.map(s => s.key).join(', ')})`);
+        }
+        stage = params.stage ?? stages[0].key;
+      }
       const record = await prisma.customModuleRecord.create({
-        data: { moduleId: module_.id, orgId: ctx.orgId, data: data as Prisma.InputJsonValue, source: 'MANUAL', createdBy: ctx.userId },
+        data: { moduleId: module_.id, orgId: ctx.orgId, data: data as Prisma.InputJsonValue, stage, source: 'MANUAL', createdBy: ctx.userId },
       });
-      return { summary: `Created a new "${module_.name}" record.`, data: record };
+      runWorkflows({
+        trigger: 'CUSTOM_RECORD_CREATED', orgId: ctx.orgId, entityType: 'CUSTOM_MODULE_RECORD', entityId: record.id,
+        entity: { ...(data as any), id: record.id, moduleId: module_.id, moduleSlug: module_.slug, moduleName: module_.name },
+      }).catch(() => {});
+      const title = recordTitle(fields, data, record.id);
+      const stageLabel = stage ? (stages.find(s => s.key === stage)?.label ?? stage) : null;
+      return { summary: `Created "${title}" in ${module_.name}${stageLabel ? ` (${stageLabel})` : ''}.`, data: record };
+    },
+  },
+
+  // ── Move a custom-module record across its pipeline board ────────────────
+  // The chat equivalent of the kanban drag — and it fires the same
+  // CUSTOM_RECORD_STAGE_CHANGED automations the drag does.
+  {
+    name: 'MOVE_CUSTOM_RECORD_STAGE',
+    label: 'Move a record to another stage',
+    description: 'Moves a custom-module record to another pipeline stage (e.g. "move the 2025 Kia EV6 to reserved"). Match the module from context; use the record\'s id from that module\'s records list when present, else pass its title as recordTitle. stage must be one of the module\'s stage keys.',
+    example: 'Move the 2025 Kia EV6 to reserved',
+    paramsHint: '{ moduleId: string, recordId?: string, recordTitle?: string, stage: string }',
+    allowedRoles: ALL_STAFF,
+    requiresConfirmation: true,
+    schema: z.object({
+      moduleId: z.string().min(1),
+      recordId: z.string().optional(),
+      recordTitle: z.string().max(200).optional(),
+      stage: z.string().min(1).max(40),
+    }).refine(p => p.recordId || p.recordTitle, { message: 'recordId or recordTitle is required' }),
+    handler: async (params, ctx) => {
+      const module_ = await prisma.customModule.findFirst({ where: { id: params.moduleId, orgId: ctx.orgId } });
+      if (!module_) throw new AppError(404, 'Custom module not found');
+      const stages = Array.isArray(module_.stages) ? (module_.stages as any[]) : [];
+      if (!stages.length) throw new AppError(400, `"${module_.name}" has no pipeline stages`);
+      if (!stages.some(s => s.key === params.stage)) {
+        throw new AppError(400, `"${params.stage}" is not a stage of ${module_.name} (stages: ${stages.map(s => s.key).join(', ')})`);
+      }
+      const fields = await prisma.customModuleField.findMany({ where: { moduleId: module_.id }, orderBy: { position: 'asc' } });
+
+      let record = params.recordId
+        ? await prisma.customModuleRecord.findFirst({ where: { id: params.recordId, moduleId: module_.id } })
+        : null;
+      if (!record && params.recordTitle) {
+        /* Title match in JS rather than a JSON-path query: modules are small
+           (bounded fetch), and this gets case-insensitive matching for free. */
+        const candidates = await prisma.customModuleRecord.findMany({
+          where: { moduleId: module_.id, orgId: ctx.orgId }, orderBy: { updatedAt: 'desc' }, take: 200,
+        });
+        const needle = params.recordTitle.toLowerCase();
+        const matches = candidates.filter(r =>
+          recordTitle(fields, r.data as Record<string, unknown>, r.id).toLowerCase().includes(needle));
+        if (matches.length === 0) throw new AppError(404, `No ${module_.name} record matches "${params.recordTitle}"`);
+        if (matches.length > 1) throw new AppError(400, `"${params.recordTitle}" matches ${matches.length} ${module_.name} records — be more specific`);
+        record = matches[0];
+      }
+      if (!record) throw new AppError(404, 'Record not found');
+      const previousStage = record.stage;
+      const updated = await prisma.customModuleRecord.update({ where: { id: record.id }, data: { stage: params.stage } });
+      runWorkflows({
+        trigger: 'CUSTOM_RECORD_STAGE_CHANGED', orgId: ctx.orgId, entityType: 'CUSTOM_MODULE_RECORD', entityId: updated.id,
+        entity: {
+          ...(updated.data as any), id: updated.id, moduleId: module_.id, moduleSlug: module_.slug, moduleName: module_.name,
+          stage: params.stage, previousStage,
+        },
+      }).catch(() => {});
+      const title = recordTitle(fields, updated.data as Record<string, unknown>, updated.id);
+      const stageLabel = stages.find(s => s.key === params.stage)?.label ?? params.stage;
+      return { summary: `Moved "${title}" to ${stageLabel} on the ${module_.name} board.`, data: updated };
     },
   },
 

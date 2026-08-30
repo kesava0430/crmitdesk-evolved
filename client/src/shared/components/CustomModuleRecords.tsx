@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { Layers, Plus, Trash2, Pencil } from 'lucide-react';
+import { Layers, Plus, Trash2, Pencil, Link2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
-  useModuleRecords, useCreateModuleRecord, useUpdateModuleRecord, useDeleteModuleRecord,
+  useModuleRecordsFull, useCreateModuleRecord, useUpdateModuleRecord, useDeleteModuleRecord,
+  useRelatedRecords,
 } from '../../api/customModules';
 import {
   Button, Modal, Spinner, EmptyState, SearchableSelect, RowActions,
   Field, Input, Textarea, Checkbox, DataTable, Badge, FormError, type Column,
 } from './index';
+import { STAGE_DOT, type ModuleStage } from './CustomModuleKanban';
 import { useAuth } from '../../contexts/AuthContext';
 import { can } from '../permissions';
 
@@ -15,8 +18,28 @@ import { can } from '../permissions';
 // own nav-linked page (pages/CustomModuleViewPage.tsx) — day-to-day record
 // entry shouldn't require going through the admin builder UI to get there.
 
+/** RELATION input — a searchable picker over the target module's records. */
+function RelationInput({ field, value, onChange }: { field: any; value: any; onChange: (v: any) => void }) {
+  // The target module's records, titled server-side. Fine to fetch lazily
+  // per open form — it's one bounded (limit 100) list per relation field.
+  const { data } = useModuleRecordsFull(field.relationModuleId ?? undefined);
+  const options = (data?.rows ?? []).map((r: any) => ({ value: r.id, label: r.title ?? r.id }));
+  return (
+    <SearchableSelect
+      ariaLabel={field.label}
+      value={value ?? ''}
+      onChange={onChange}
+      options={options}
+      placeholder={`Link a record…`}
+    />
+  );
+}
+
 function RecordFieldInput({ field, value, onChange }: { field: any; value: any; onChange: (v: any) => void }) {
   const label = field.label;
+  if (field.fieldType === 'RELATION') {
+    return <RelationInput field={field} value={value} onChange={onChange} />;
+  }
   if (field.fieldType === 'BOOLEAN') {
     return <Checkbox label={label} checked={!!value} onChange={e => onChange(e.target.checked)} />;
   }
@@ -35,19 +58,55 @@ function RecordFieldInput({ field, value, onChange }: { field: any; value: any; 
   return <Input aria-label={label} type={field.fieldType === 'EMAIL' ? 'email' : 'text'} value={value ?? ''} onChange={e => onChange(e.target.value)} />;
 }
 
-function RecordFormModal({ module_, record, onClose }: { module_: any; record: any | null; onClose: () => void }) {
+/** Records elsewhere pointing at this one — "Service Jobs (via Vehicle): …". */
+function RelatedRecordsPanel({ moduleId, recordId }: { moduleId: string; recordId: string }) {
+  const { data } = useRelatedRecords(moduleId, recordId);
+  if (!data?.groups?.length) return null;
+  return (
+    <div className="rounded-card border border-line-subtle bg-surface-sunken/50 p-3 space-y-2">
+      <p className="flex items-center gap-1.5 text-[12px] font-semibold text-fg">
+        <Link2 size={12} className="text-accent" /> Linked records
+      </p>
+      {data.groups.map(g => (
+        <div key={`${g.module.id}:${g.viaField}`}>
+          <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wide">
+            {g.module.name} <span className="normal-case font-normal text-fg-subtle">via {g.viaField}</span>
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {g.records.map(r => (
+              <Link
+                key={r.id}
+                to={`/modules/${g.module.slug}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-btn border border-line bg-surface text-[11.5px] text-fg hover:border-line-strong hover:bg-surface-hover transition-colors"
+              >
+                {r.title}
+                {r.stage && <span className="text-fg-subtle">· {r.stage.replace(/[-_]/g, ' ')}</span>}
+              </Link>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function RecordFormModal({ module_, record, initialStage, onClose }: {
+  module_: any; record: any | null; initialStage?: string; onClose: () => void;
+}) {
   const create = useCreateModuleRecord();
   const update = useUpdateModuleRecord();
   const [data, setData] = useState<Record<string, unknown>>(record?.data ?? {});
+  const [stage, setStage] = useState<string | undefined>(record?.stage ?? initialStage);
   const [error, setError] = useState('');
   const loading = create.isPending || update.isPending;
+  const stages: ModuleStage[] = Array.isArray(module_.stages) ? module_.stages : [];
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     try {
       if (record) await update.mutateAsync({ moduleId: module_.id, recordId: record.id, data });
-      else await create.mutateAsync({ moduleId: module_.id, data });
+      else await create.mutateAsync({ moduleId: module_.id, data, stage });
       // Close on success only. Previously both calls were awaited with no
       // catch, so a rejected save (a required field the server rejects, a
       // dropped connection) surfaced as an unhandled rejection: the modal
@@ -62,6 +121,18 @@ function RecordFormModal({ module_, record, onClose }: { module_: any; record: a
     <Modal open onClose={onClose} title={record ? 'Edit Record' : `New ${module_.name} Record`}>
       <form onSubmit={submit} className="space-y-4">
         <FormError>{error}</FormError>
+        {/* New records on a pipeline module pick their starting stage here;
+            existing records move stages on the board, not in this form. */}
+        {!record && stages.length > 0 && (
+          <Field label="Stage">
+            <SearchableSelect
+              ariaLabel="Stage"
+              value={stage ?? stages[0].key}
+              onChange={v => setStage(v)}
+              options={stages.map(s => ({ value: s.key, label: s.label }))}
+            />
+          </Field>
+        )}
         {(module_.fields ?? []).map((f: any) => (
           f.fieldType === 'BOOLEAN' ? (
             <RecordFieldInput key={f.id} field={f} value={data[f.fieldKey]} onChange={v => setData(p => ({ ...p, [f.fieldKey]: v }))} />
@@ -71,6 +142,7 @@ function RecordFormModal({ module_, record, onClose }: { module_: any; record: a
             </Field>
           )
         ))}
+        {record && <RelatedRecordsPanel moduleId={module_.id} recordId={record.id} />}
         <div className="flex justify-end pt-1"><Button type="submit" loading={loading}>{record ? 'Save Changes' : 'Create Record'}</Button></div>
       </form>
     </Modal>
@@ -85,28 +157,48 @@ export function CustomModuleRecordsTab({ module_, canDelete = true }: { module_:
      ever produces a refusal. */
   const { user } = useAuth();
   const canReadRecords = can.readStaffRecords(user?.role);
-  const { data: records, isLoading } = useModuleRecords(module_.id, canReadRecords);
-
-  /* useModuleRecords already unwraps the paginated envelope: api/customModules.ts
-     runs every response through `unwrap`, which turns the server's
-     { data: [...], pagination: {...} } into the bare array. This component then
-     asked for `records.data` — and an array has no `.data`, so it resolved to
-     undefined and fell back to [] on EVERY render. The table was permanently
-     empty, which read as "the record I just added didn't save".
-
-     Accepting both shapes so the table cannot silently blank again if the
-     endpoint or the unwrap helper changes. */
-  const rows: any[] = Array.isArray(records) ? records : ((records as any)?.data ?? []);
+  const { data: full, isLoading } = useModuleRecordsFull(module_.id, canReadRecords);
+  const rows: any[] = full?.rows ?? [];
+  const relationTitles = full?.relationTitles ?? {};
   const deleteRecord = useDeleteModuleRecord();
   const [recordModal, setRecordModal] = useState<null | 'new' | any>(null);
-  const fields = (module_.fields ?? []).slice(0, 5); // keep the table readable — full record shown in the edit modal
+  const stages: ModuleStage[] = Array.isArray(module_.stages) ? module_.stages : [];
+
+  /* Column set follows the module's own listColumns config (Phase 2) when
+     set; otherwise the first 5 fields, as before. Full record in the modal. */
+  const allFields: any[] = module_.fields ?? [];
+  const configured: string[] = Array.isArray(module_.listColumns) ? module_.listColumns : [];
+  const fields = configured.length
+    ? configured.map(k => allFields.find(f => f.fieldKey === k)).filter(Boolean)
+    : allFields.slice(0, 5);
+
+  function cellValue(r: any, f: any): React.ReactNode {
+    const v = r.data[f.fieldKey];
+    if (f.fieldType === 'BOOLEAN') return v ? 'Yes' : 'No';
+    if (f.fieldType === 'RELATION') return v ? (relationTitles[String(v)] ?? '—') : '—';
+    if (f.fieldType === 'DATE' && v) return String(v).slice(0, 10);
+    return String(v ?? '—');
+  }
 
   const columns: Column<any>[] = [
     ...fields.map((f: any) => ({
       key: f.id,
       header: f.label,
-      cell: (r: any) => f.fieldType === 'BOOLEAN' ? (r.data[f.fieldKey] ? 'Yes' : 'No') : String(r.data[f.fieldKey] ?? '—'),
+      cell: (r: any) => cellValue(r, f),
     })),
+    // Pipeline modules show where each record sits, matching the board.
+    ...(stages.length ? [{
+      key: '__stage', header: 'Stage',
+      cell: (r: any) => {
+        const s = stages.find(x => x.key === r.stage) ?? stages[0];
+        return (
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-fg">
+            <span className={`w-1.5 h-1.5 rounded-full ${STAGE_DOT[s?.color ?? ''] ?? 'bg-slate-400'}`} aria-hidden />
+            {s?.label ?? '—'}
+          </span>
+        );
+      },
+    } satisfies Column<any>] : []),
     {
       key: '__source', header: 'Source',
       cell: (r: any) => <Badge variant={r.source === 'SYNC' ? 'indigo' : 'gray'}>{r.source}</Badge>,

@@ -108,6 +108,8 @@ model Organization {
 
   @@map("organizations")
   chatThreads       ChatThread[]
+  workspaceConfig   WorkspaceConfig?
+  solutionTemplates SolutionTemplate[]
 }
 
 // Lightweight per-event usage log — currently AI_CALL, WHATSAPP_SEND, and
@@ -1299,6 +1301,15 @@ model CustomModule {
   // sidebar (see AppLayout.tsx). Defaults to CRM to match this feature's
   // original (pre-picker) hardcoded placement.
   navSection  String    @default("CRM") @map("nav_section")
+  // Pipeline stages (Phase 2 of the platform play) — ordered array of
+  // { key, label, color } objects. When set, the module's records carry a
+  // `stage` and the client offers a kanban board view; when null the module
+  // is a plain table, exactly as before. Validated in customModules.controller
+  // (StagesSchema) — kept as JSON so reordering/renaming stages is one
+  // update, not a migration.
+  stages      Json?     @map("stages")
+  // Ordered fieldKeys shown as list-view columns. Null = default (first 5).
+  listColumns Json?     @map("list_columns")
   isActive    Boolean   @default(true) @map("is_active")
   createdBy   String    @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -1318,9 +1329,13 @@ model CustomModuleField {
   moduleId  String       @map("module_id")
   label     String
   fieldKey  String       @map("field_key")
-  // TEXT | TEXTAREA | NUMBER | CURRENCY | DATE | BOOLEAN | DROPDOWN | EMAIL | PHONE | URL
+  // TEXT | TEXTAREA | NUMBER | CURRENCY | DATE | BOOLEAN | DROPDOWN | EMAIL | PHONE | URL | RELATION
   fieldType String       @map("field_type")
   options   Json?        // DROPDOWN: string[] of choices
+  // RELATION fields: the CustomModule this field points at (same org; may be
+  // this module itself for parent/child links). The record stores the target
+  // record's id in data[fieldKey].
+  relationModuleId String? @map("relation_module_id")
   required  Boolean      @default(false)
   isPrimary Boolean      @default(false) @map("is_primary") // rendered as the record's title in list views
   position  Int          @default(0)
@@ -1337,6 +1352,10 @@ model CustomModuleRecord {
   moduleId   String       @map("module_id")
   orgId      String       @map("org_id")
   data       Json         // { [fieldKey]: value }
+  // Current pipeline stage key (one of the module's stages[].key), null for
+  // modules without stages or records created before stages were added —
+  // the client buckets those under the first stage on the board.
+  stage      String?      @map("stage")
   source     String       @default("MANUAL") // MANUAL | SYNC
   // Dedupe key for SYNC-sourced records — the value of the external system's
   // id field (ExternalSyncConfig.externalIdField), so re-polling upserts
@@ -1350,6 +1369,7 @@ model CustomModuleRecord {
 
   @@unique([moduleId, externalId])
   @@index([moduleId])
+  @@index([moduleId, stage])
   @@index([orgId])
   @@map("custom_module_records")
 }
@@ -3154,4 +3174,50 @@ model ChatMessage {
 
   @@index([threadId, createdAt])
   @@map("chat_messages")
+}
+
+// ─── Workspace identity (Phase 1 of the platform play) ───────────────────────
+// One row per org holding the "invisible CRM" skin: what the product is
+// called, which nav sections/items are hidden, and what everything is renamed
+// to. Kept as a single validated JSON blob (see workspace.controller.ts
+// ConfigSchema) rather than columns so Phases 2-4 (module pipelines, AI
+// Solution Builder output, solution templates) can extend the shape without
+// a migration each time. Terminology for the 4 core entities continues to
+// live in BusinessContext.labelOverrides (AI Studio) — this config is about
+// navigation & app identity, and the two compose client-side.
+model WorkspaceConfig {
+  id        String   @id @default(cuid())
+  orgId     String   @unique @map("org_id")
+  config    Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_configs")
+}
+
+// ─── Solution templates (Phase 4 of the platform play) ───────────────────────
+// A saved workspace blueprint — the exact JSON shape the AI Solution Builder
+// emits (solutionBuilder.controller.ts BlueprintSchema), captured from a
+// configured org via the snapshot endpoint. `isShared` makes it visible to
+// every org on this install: that's the white-label partner flow, where the
+// partner perfects one org and stamps the result onto each new client org.
+// Deleting the creator org cascades its templates away with it.
+model SolutionTemplate {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  name        String
+  description String?
+  isShared    Boolean  @default(false) @map("is_shared")
+  blueprint   Json
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([isShared])
+  @@map("solution_templates")
 }

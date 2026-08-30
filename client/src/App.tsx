@@ -67,6 +67,8 @@ const TemplatesPage      = lazy(() => import('./pages/TemplatesPage'));
 const BulkImportPage     = lazy(() => import('./pages/BulkImportPage'));
 const TeamsPage          = lazy(() => import('./pages/TeamsPage'));
 const BrandingPage       = lazy(() => import('./pages/BrandingPage'));
+const WorkspaceSettingsPage = lazy(() => import('./pages/WorkspaceSettingsPage'));
+const SolutionBuilderPage = lazy(() => import('./pages/SolutionBuilderPage'));
 const OrgSettingsPage    = lazy(() => import('./pages/OrgSettingsPage'));
 const StoragePage        = lazy(() => import('./pages/StoragePage'));
 const CustomModulesPage  = lazy(() => import('./pages/CustomModulesPage'));
@@ -200,6 +202,8 @@ export default function App() {
             <Route path="import" element={<BulkImportPage />} />
             <Route path="teams" element={<TeamsPage />} />
             <Route path="branding" element={<BrandingPage />} />
+            <Route path="workspace" element={<WorkspaceSettingsPage />} />
+            <Route path="solution-builder" element={<SolutionBuilderPage />} />
             <Route path="org-settings" element={<OrgSettingsPage />} />
             <Route path="storage" element={<StoragePage />} />
             <Route path="custom-modules" element={<CustomModulesPage />} />

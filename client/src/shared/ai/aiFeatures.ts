@@ -302,6 +302,15 @@ export const AI_FEATURES: AiFeature[] = [
     caveat: 'Actions never run automatically — every one shows a confirm card first, and role permissions are re-checked on execution.',
   },
   {
+    id: 'solution.builder',
+    name: 'AI Solution Builder',
+    does: 'Designs a complete workspace from your business description: product name and navigation skin, custom modules with fields, pipeline stages and relations, entity relabels, and starter automations.',
+    sends: 'Only the business description you type — no records or personal data.',
+    effect: 'advisory',
+    tier: 'paid',
+    caveat: 'Nothing is created until you review the preview and press Apply. Everything it builds is re-validated server-side against the same rules as the manual builders, and stays fully editable afterwards.',
+  },
+  {
     id: 'invoice.reminder',
     name: 'Payment reminder draft',
     does: 'Drafts a payment-reminder email for a sent or overdue invoice, matching its tone to how late the payment is.',

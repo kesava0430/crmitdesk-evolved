@@ -42,7 +42,26 @@ const FieldSchema = z.object({
   required: z.boolean().default(false),
   isPrimary: z.boolean().default(false),
   position: z.number().int().default(0),
+  // RELATION fields only: the CustomModule this field points at (must be in
+  // the same org — checked in addField, since it needs a DB lookup).
+  relationModuleId: z.string().optional(),
 });
+
+// Pipeline stages (Phase 2) — ordered, small, and keyed. Keys are what
+// records store; labels/colors are presentation. Colors are named tokens the
+// client maps to its theme palette, never raw hex, so boards stay legible in
+// dark mode.
+const STAGE_COLORS = ['slate', 'blue', 'cyan', 'teal', 'emerald', 'amber', 'orange', 'rose', 'violet', 'indigo'] as const;
+const StagesSchema = z.array(z.object({
+  key: z.string().min(1).max(40).regex(/^[a-z0-9_-]+$/, 'Stage keys: lowercase letters, numbers, - and _'),
+  label: z.string().trim().min(1).max(40),
+  color: z.enum(STAGE_COLORS).optional(),
+})).max(12)
+  .refine(st => new Set(st.map(s => s.key)).size === st.length, 'Stage keys must be unique');
+
+type Stage = z.infer<typeof StagesSchema>[number];
+const moduleStages = (m: { stages?: unknown } | null | undefined): Stage[] =>
+  Array.isArray((m as any)?.stages) ? ((m as any).stages as Stage[]) : [];
 
 // ─── Modules (admin) ────────────────────────────────────────────────────────
 
@@ -135,10 +154,25 @@ export async function getModule(req: AuthRequest, res: Response, next: NextFunct
 
 export async function updateModule(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const data = ModuleSchema.partial().extend({ isActive: z.boolean().optional() }).parse(req.body);
+    const data = ModuleSchema.partial().extend({
+      isActive: z.boolean().optional(),
+      // Pipeline config: an array to (re)define stages, or null to remove the
+      // pipeline (the board disappears; records keep their stage value inertly).
+      stages: StagesSchema.nullable().optional(),
+      // Ordered fieldKeys for list-view columns; null = default.
+      listColumns: z.array(z.string().max(50)).max(10).nullable().optional(),
+    }).parse(req.body);
     const existing = await prisma.customModule.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!existing) throw new AppError(404, 'Custom module not found');
-    const module_ = await prisma.customModule.update({ where: { id: req.params.id }, data });
+    const { stages, listColumns, ...rest } = data;
+    const module_ = await prisma.customModule.update({
+      where: { id: req.params.id },
+      data: {
+        ...rest,
+        ...(stages !== undefined && { stages: stages === null ? Prisma.JsonNull : stages }),
+        ...(listColumns !== undefined && { listColumns: listColumns === null ? Prisma.JsonNull : listColumns }),
+      },
+    });
     res.json(module_);
   } catch (err) { next(err); }
 }
@@ -169,12 +203,23 @@ export async function addField(req: AuthRequest, res: Response, next: NextFuncti
     const existing = await prisma.customModuleField.findUnique({ where: { moduleId_fieldKey: { moduleId: module_.id, fieldKey } } });
     if (existing) throw new AppError(400, `A field with key "${fieldKey}" already exists on this module`);
 
+    // RELATION fields must point at a real module in the same org (the same
+    // module is fine — parent/child links). Non-RELATION fields never carry a
+    // target, whatever the client sent.
+    let relationModuleId: string | null = null;
+    if (data.fieldType === 'RELATION') {
+      if (!data.relationModuleId) throw new AppError(400, 'Relation fields need a target module');
+      const target = await prisma.customModule.findFirst({ where: { id: data.relationModuleId, orgId } });
+      if (!target) throw new AppError(400, 'Relation target module not found in this organization');
+      relationModuleId = target.id;
+    }
+
     if (data.isPrimary) {
       await prisma.customModuleField.updateMany({ where: { moduleId: module_.id, isPrimary: true }, data: { isPrimary: false } });
     }
 
     const field = await prisma.customModuleField.create({
-      data: { moduleId: module_.id, label: data.label, fieldKey, fieldType: data.fieldType, options: data.options, required: data.required, isPrimary: data.isPrimary, position: data.position },
+      data: { moduleId: module_.id, label: data.label, fieldKey, fieldType: data.fieldType, options: data.options, required: data.required, isPrimary: data.isPrimary, position: data.position, relationModuleId },
     });
     res.status(201).json(field);
   } catch (err) { next(err); }
@@ -184,7 +229,10 @@ export async function updateField(req: AuthRequest, res: Response, next: NextFun
   try {
     const orgId = req.user!.orgId;
     const module_ = await assertModuleInOrg(req.params.id, orgId);
-    const data = FieldSchema.partial().omit({ fieldKey: true }).parse(req.body);
+    // fieldKey is immutable (records key their data by it); relationModuleId
+    // too — retargeting an existing relation field would silently turn every
+    // stored id into a dangling pointer. Delete + recreate is the honest path.
+    const data = FieldSchema.partial().omit({ fieldKey: true, relationModuleId: true }).parse(req.body);
     const field = await prisma.customModuleField.findFirst({ where: { id: req.params.fieldId, moduleId: module_.id } });
     if (!field) throw new AppError(404, 'Field not found');
 
@@ -207,18 +255,69 @@ export async function removeField(req: AuthRequest, res: Response, next: NextFun
 
 // ─── Records ───────────────────────────────────────────────────────────────────
 
+/**
+ * RELATION integrity — every relation value in `data` must be the id of a
+ * live record in that field's target module (same org). Batched per field.
+ * Runs after validateRecordData, which has already stringified the ids.
+ */
+async function verifyRelations(fields: { fieldKey: string; fieldType: string; label: string; relationModuleId: string | null }[], data: Record<string, unknown>, orgId: string) {
+  for (const f of fields) {
+    if (f.fieldType !== 'RELATION' || !f.relationModuleId) continue;
+    const v = data[f.fieldKey];
+    if (v === null || v === undefined || v === '') continue;
+    const target = await prisma.customModuleRecord.findFirst({
+      where: { id: String(v), moduleId: f.relationModuleId, orgId }, select: { id: true },
+    });
+    if (!target) throw new AppError(400, `"${f.label}" points at a record that doesn't exist`);
+  }
+}
+
+/**
+ * Resolve relation ids → display titles for a page of records, so list views
+ * and boards show "2024 Honda Civic", not a cuid. One batched query per
+ * distinct target module, not per record.
+ */
+async function resolveRelationTitles(fields: any[], records: { data: unknown }[]) {
+  const relFields = fields.filter(f => f.fieldType === 'RELATION' && f.relationModuleId);
+  if (!relFields.length) return {};
+  const idsByModule = new Map<string, Set<string>>();
+  for (const f of relFields) {
+    const set = idsByModule.get(f.relationModuleId) ?? new Set<string>();
+    for (const r of records) {
+      const v = (r.data as any)?.[f.fieldKey];
+      if (v) set.add(String(v));
+    }
+    idsByModule.set(f.relationModuleId, set);
+  }
+  const titles: Record<string, string> = {};
+  for (const [moduleId, ids] of idsByModule) {
+    if (!ids.size) continue;
+    const [targetFields, targets] = await Promise.all([
+      prisma.customModuleField.findMany({ where: { moduleId }, orderBy: { position: 'asc' } }),
+      prisma.customModuleRecord.findMany({ where: { id: { in: [...ids] }, moduleId }, select: { id: true, data: true } }),
+    ]);
+    for (const t of targets) titles[t.id] = recordTitle(targetFields, t.data as Record<string, unknown>, t.id);
+  }
+  return titles;
+}
+
 export async function listRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
     const module_ = await assertModuleInOrg(req.params.id, orgId);
     const fields = await prisma.customModuleField.findMany({ where: { moduleId: module_.id }, orderBy: { position: 'asc' } });
     const pag = parsePagination(req);
+    // Optional ?stage= filter so the board can lazily fetch one column if it
+    // ever needs to; the default board just buckets the normal page client-side.
+    const stageFilter = typeof req.query.stage === 'string' && req.query.stage ? { stage: req.query.stage } : {};
+    const where = { moduleId: module_.id, orgId, ...stageFilter };
     const [records, total] = await Promise.all([
-      prisma.customModuleRecord.findMany({ where: { moduleId: module_.id, orgId }, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
-      prisma.customModuleRecord.count({ where: { moduleId: module_.id, orgId } }),
+      prisma.customModuleRecord.findMany({ where, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
+      prisma.customModuleRecord.count({ where }),
     ]);
+    const relationTitles = await resolveRelationTitles(fields, records);
     const withTitle = records.map(r => ({ ...r, title: recordTitle(fields, r.data as Record<string, unknown>, r.id) }));
-    res.json(paginate(withTitle, total, pag));
+    res.json({ ...paginate(withTitle, total, pag), relationTitles });
   } catch (err) { next(err); }
 }
 
@@ -237,8 +336,18 @@ export async function createRecord(req: AuthRequest, res: Response, next: NextFu
     const module_ = await assertModuleInOrg(req.params.id, orgId);
     const fields = await prisma.customModuleField.findMany({ where: { moduleId: module_.id } });
     const data = validateRecordData(fields, req.body?.data ?? req.body ?? {});
+    await verifyRelations(fields as any, data, orgId);
+    // Stage: explicit value must be one of the module's stage keys; otherwise
+    // new records land in the first stage (or null for stage-less modules).
+    const stages = moduleStages(module_);
+    let stage: string | null = null;
+    if (stages.length) {
+      const requested = typeof req.body?.stage === 'string' ? req.body.stage : undefined;
+      if (requested && !stages.some(s => s.key === requested)) throw new AppError(400, 'Unknown stage');
+      stage = requested ?? stages[0].key;
+    }
     const record = await prisma.customModuleRecord.create({
-      data: { moduleId: module_.id, orgId, data: data as Prisma.InputJsonValue, source: 'MANUAL', createdBy: req.user!.id },
+      data: { moduleId: module_.id, orgId, data: data as Prisma.InputJsonValue, stage, source: 'MANUAL', createdBy: req.user!.id },
     });
     logAction(req.user!.id, 'CREATE', module_.name, record.id, { moduleId: module_.id });
     /* Automation hook — the record's own fields are spread flat so rule
@@ -261,6 +370,7 @@ export async function updateRecord(req: AuthRequest, res: Response, next: NextFu
     if (!existing) throw new AppError(404, 'Record not found');
     const fields = await prisma.customModuleField.findMany({ where: { moduleId: module_.id } });
     const partialData = validateRecordData(fields, req.body?.data ?? req.body ?? {}, { partial: true });
+    await verifyRelations(fields as any, partialData, orgId);
     const record = await prisma.customModuleRecord.update({
       where: { id: existing.id },
       data: { data: { ...(existing.data as object), ...partialData } as Prisma.InputJsonValue },
@@ -269,10 +379,135 @@ export async function updateRecord(req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err); }
 }
 
+/**
+ * PATCH /custom-modules/:id/records/:recordId/stage — the kanban drag.
+ * Its own endpoint (rather than a field on updateRecord) because it's the
+ * automation-bearing action: CUSTOM_RECORD_STAGE_CHANGED fires here with
+ * both the old and new stage, so rules like "when a Vehicle reaches
+ * `delivered`, create a follow-up service job" hang off the move itself.
+ */
+export async function setRecordStage(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const module_ = await assertModuleInOrg(req.params.id, orgId);
+    const stages = moduleStages(module_);
+    if (!stages.length) throw new AppError(400, 'This module has no pipeline stages');
+    const stage = z.string().parse(req.body?.stage);
+    if (!stages.some(s => s.key === stage)) throw new AppError(400, 'Unknown stage');
+    const existing = await prisma.customModuleRecord.findFirst({ where: { id: req.params.recordId, moduleId: module_.id } });
+    if (!existing) throw new AppError(404, 'Record not found');
+    if (existing.stage === stage) return res.json(existing);
+
+    const record = await prisma.customModuleRecord.update({ where: { id: existing.id }, data: { stage } });
+    logAction(req.user!.id, 'UPDATE', module_.name, record.id, { stage, previousStage: existing.stage });
+    runWorkflows({
+      trigger: 'CUSTOM_RECORD_STAGE_CHANGED', orgId, entityType: 'CUSTOM_MODULE_RECORD', entityId: record.id,
+      entity: {
+        ...(record.data as any), id: record.id, moduleId: module_.id, moduleSlug: module_.slug, moduleName: module_.name,
+        stage, previousStage: existing.stage,
+      },
+    }).catch(() => {});
+    res.json(record);
+  } catch (err) { next(err); }
+}
+
+/**
+ * GET /custom-modules/:id/records/:recordId/related — everything that points
+ * AT this record: for each RELATION field on any module in the org whose
+ * target is this module, the records holding this record's id. Grouped per
+ * (module, field) so the client can render "Service Jobs — via Vehicle".
+ */
+export async function relatedRecords(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const module_ = await assertModuleInOrg(req.params.id, orgId);
+    const record = await prisma.customModuleRecord.findFirst({ where: { id: req.params.recordId, moduleId: module_.id } });
+    if (!record) throw new AppError(404, 'Record not found');
+
+    const inbound = await prisma.customModuleField.findMany({
+      where: { relationModuleId: module_.id, module: { orgId, isActive: true } },
+      include: { module: { select: { id: true, name: true, slug: true, stages: true } } },
+    });
+
+    const groups = [];
+    for (const f of inbound) {
+      // Json path filter: records of f's module whose data[f.fieldKey] equals this id.
+      const rows = await prisma.customModuleRecord.findMany({
+        where: { moduleId: f.moduleId, orgId, data: { path: [f.fieldKey], equals: record.id } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      if (!rows.length) continue;
+      const fields = await prisma.customModuleField.findMany({ where: { moduleId: f.moduleId }, orderBy: { position: 'asc' } });
+      groups.push({
+        module: { id: f.module.id, name: f.module.name, slug: f.module.slug },
+        viaField: f.label,
+        records: rows.map(r => ({ id: r.id, stage: r.stage, title: recordTitle(fields, r.data as Record<string, unknown>, r.id) })),
+      });
+    }
+    res.json({ groups });
+  } catch (err) { next(err); }
+}
+
 export async function removeRecord(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const module_ = await assertModuleInOrg(req.params.id, req.user!.orgId);
     await prisma.customModuleRecord.deleteMany({ where: { id: req.params.recordId, moduleId: module_.id } });
     res.json({ message: 'Record deleted' });
+  } catch (err) { next(err); }
+}
+
+// ─── Module stats (platform Phase 5) ─────────────────────────────────────────
+
+/**
+ * GET /custom-modules/:id/stats — the numbers behind a module's dashboard
+ * row: total records, how many arrived in the last 7 days, the per-stage
+ * distribution (for pipeline modules), and a sum for each CURRENCY field.
+ * Sums are computed in JS over a bounded fetch — record data lives in JSON,
+ * and modules are org-scale (hundreds, not millions), so this stays cheap
+ * without needing raw SQL over jsonb.
+ */
+export async function moduleStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const module_ = await assertModuleInOrg(req.params.id, orgId);
+    const fields = await prisma.customModuleField.findMany({ where: { moduleId: module_.id }, orderBy: { position: 'asc' } });
+    const stages = moduleStages(module_);
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const [total, createdLast7d, stageCounts, records] = await Promise.all([
+      prisma.customModuleRecord.count({ where: { moduleId: module_.id, orgId } }),
+      prisma.customModuleRecord.count({ where: { moduleId: module_.id, orgId, createdAt: { gte: weekAgo } } }),
+      stages.length
+        ? prisma.customModuleRecord.groupBy({ by: ['stage'], where: { moduleId: module_.id, orgId }, _count: { _all: true } })
+        : Promise.resolve([] as any[]),
+      prisma.customModuleRecord.findMany({
+        where: { moduleId: module_.id, orgId }, select: { data: true }, take: 1000,
+      }),
+    ]);
+
+    const countByKey: Record<string, number> = {};
+    for (const row of stageCounts as any[]) {
+      // Records from before stages existed (stage null) belong to the first
+      // stage — same bucketing the kanban board uses.
+      const key = row.stage && stages.some(s => s.key === row.stage) ? row.stage : stages[0]?.key;
+      if (key) countByKey[key] = (countByKey[key] ?? 0) + row._count._all;
+    }
+
+    const currencyFields = fields.filter(f => f.fieldType === 'CURRENCY');
+    const currencySums = currencyFields.map(f => ({
+      fieldKey: f.fieldKey, label: f.label,
+      sum: records.reduce((acc, r) => {
+        const v = Number((r.data as any)?.[f.fieldKey]);
+        return acc + (Number.isFinite(v) ? v : 0);
+      }, 0),
+    }));
+
+    res.json({
+      total,
+      createdLast7d,
+      byStage: stages.map(s => ({ key: s.key, label: s.label, color: s.color, count: countByKey[s.key] ?? 0 })),
+      currencySums,
+    });
   } catch (err) { next(err); }
 }

@@ -3,6 +3,11 @@ import { AppError } from '../../middleware/errorHandler';
 
 export const FIELD_TYPES = [
   'TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN', 'DROPDOWN', 'EMAIL', 'PHONE', 'URL',
+  // Phase 2: points at a record of another (or the same) custom module —
+  // the field's relationModuleId names the target module, and the record
+  // stores the target record's id in data[fieldKey]. Existence of the target
+  // record is checked in the controller (needs DB access), not here.
+  'RELATION',
 ] as const;
 
 export function slugify(input: string): string {
@@ -81,7 +86,8 @@ export function validateRecordData(
         out[field.fieldKey] = String(value);
         break;
       }
-      default: // TEXT, TEXTAREA, PHONE, URL — stored as-is (stringified)
+      default: // TEXT, TEXTAREA, PHONE, URL, RELATION — stored as-is (stringified;
+        // RELATION holds the target record's id, verified in the controller)
         out[field.fieldKey] = String(value);
     }
   }
