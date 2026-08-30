@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown, MessageCircleMore } from 'lucide-react';
+import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown, MessageCircleMore, Link2 } from 'lucide-react';
 import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports, useArticleSuggestions, useCreateArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
 import { useUsers } from '../../../api/users';
@@ -17,6 +17,7 @@ import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { TimeTrackingPanel } from './TimeTrackingPanel';
 import { ChatThreadView } from '../../../shared/components/ChatThreadView';
+import { RelatedRecords } from '../../../shared/components/RelatedRecords';
 import { useRecordThread } from '../../../api/chat';
 import { api } from '../../../api/client';
 import { ticketStatusVariant, priorityVariant, humanise } from '../../../shared/components/Badge';
@@ -684,6 +685,13 @@ function TicketDetailModal({ id, users, categories }: any) {
         <div className="rounded-card border border-line-subtle overflow-hidden">
           <ChatThreadView threadId={recordThread.data?.id} compact />
         </div>
+      </CardSection>
+
+      {/* 360° view — the requester's contact record plus any custom-module
+          records (equipment, jobs, …) whose RELATION field points at this
+          ticket. Renders nothing when there are no links. */}
+      <CardSection title="Related Records" icon={<Link2 size={14} className="text-accent" />}>
+        <RelatedRecords entityType="TICKET" entityId={ticket.id} embedded />
       </CardSection>
 
       <TimeTrackingPanel ticketId={ticket.id} />

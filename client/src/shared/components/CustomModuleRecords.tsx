@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Layers, Plus, Trash2, Pencil, Link2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { api } from '../../api/client';
 import {
   useModuleRecordsFull, useCreateModuleRecord, useUpdateModuleRecord, useDeleteModuleRecord,
   useRelatedRecords,
@@ -18,12 +20,37 @@ import { can } from '../permissions';
 // own nav-linked page (pages/CustomModuleViewPage.tsx) — day-to-day record
 // entry shouldn't require going through the admin builder UI to get there.
 
-/** RELATION input — a searchable picker over the target module's records. */
+/** Bounded pickers over core records for entity-target RELATION fields. */
+const CORE_ENTITY_SOURCES: Record<string, { url: string; title: (r: any) => string }> = {
+  CONTACT: { url: '/crm/contacts', title: r => r.name },
+  ACCOUNT: { url: '/crm/accounts', title: r => r.name },
+  DEAL:    { url: '/crm/deals',    title: r => r.title },
+  TICKET:  { url: '/itdesk/tickets', title: r => r.title },
+};
+
+function useCoreEntityOptions(entity?: string) {
+  const src = entity ? CORE_ENTITY_SOURCES[entity] : undefined;
+  return useQuery({
+    queryKey: ['core-relation-options', entity],
+    queryFn: () => api.get(src!.url, { params: { limit: 100 } }).then(r => {
+      const rows: any[] = Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
+      return rows.map(row => ({ value: row.id, label: src!.title(row) ?? row.id }));
+    }),
+    enabled: !!src,
+    staleTime: 60_000,
+  });
+}
+
+/** RELATION input — a searchable picker over the target's records: another
+ *  custom module's, or a core entity's (contacts, accounts, deals, tickets). */
 function RelationInput({ field, value, onChange }: { field: any; value: any; onChange: (v: any) => void }) {
   // The target module's records, titled server-side. Fine to fetch lazily
   // per open form — it's one bounded (limit 100) list per relation field.
   const { data } = useModuleRecordsFull(field.relationModuleId ?? undefined);
-  const options = (data?.rows ?? []).map((r: any) => ({ value: r.id, label: r.title ?? r.id }));
+  const { data: coreOptions } = useCoreEntityOptions(field.relationEntity ?? undefined);
+  const options = field.relationEntity
+    ? (coreOptions ?? [])
+    : (data?.rows ?? []).map((r: any) => ({ value: r.id, label: r.title ?? r.id }));
   return (
     <SearchableSelect
       ariaLabel={field.label}

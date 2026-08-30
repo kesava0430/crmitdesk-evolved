@@ -1336,6 +1336,12 @@ model CustomModuleField {
   // this module itself for parent/child links). The record stores the target
   // record's id in data[fieldKey].
   relationModuleId String? @map("relation_module_id")
+  // OR a core entity — CONTACT | ACCOUNT | DEAL | TICKET — so custom records
+  // can hang off the CRM/desk spine ("this Vehicle's Buyer is contact X"),
+  // and the universal related view (related.controller.ts) can list them
+  // under that contact/deal/ticket. Exactly one of relationModuleId /
+  // relationEntity is set for a RELATION field.
+  relationEntity   String? @map("relation_entity")
   required  Boolean      @default(false)
   isPrimary Boolean      @default(false) @map("is_primary") // rendered as the record's title in list views
   position  Int          @default(0)

@@ -43,9 +43,42 @@ const FieldSchema = z.object({
   isPrimary: z.boolean().default(false),
   position: z.number().int().default(0),
   // RELATION fields only: the CustomModule this field points at (must be in
-  // the same org — checked in addField, since it needs a DB lookup).
+  // the same org — checked in addField, since it needs a DB lookup)…
   relationModuleId: z.string().optional(),
+  // …OR a core entity target. Exactly one of the two for RELATION fields.
+  relationEntity: z.enum(['CONTACT', 'ACCOUNT', 'DEAL', 'TICKET']).optional(),
 });
+
+// Core-entity relation plumbing — one place that knows, per entity, how to
+// check existence and how to read a display title, shared by field
+// validation, title resolution, and the universal related view.
+export const CORE_RELATION_TARGETS = {
+  CONTACT: {
+    label: 'Contact',
+    find: (id: string, orgId: string) => prisma.contact.findFirst({ where: { id, orgId }, select: { id: true, name: true } }),
+    findMany: (ids: string[], orgId: string) => prisma.contact.findMany({ where: { id: { in: ids }, orgId }, select: { id: true, name: true } }),
+    titleOf: (r: any) => r.name as string,
+  },
+  ACCOUNT: {
+    label: 'Account',
+    find: (id: string, orgId: string) => prisma.account.findFirst({ where: { id, orgId }, select: { id: true, name: true } }),
+    findMany: (ids: string[], orgId: string) => prisma.account.findMany({ where: { id: { in: ids }, orgId }, select: { id: true, name: true } }),
+    titleOf: (r: any) => r.name as string,
+  },
+  DEAL: {
+    label: 'Deal',
+    find: (id: string, orgId: string) => prisma.deal.findFirst({ where: { id, orgId }, select: { id: true, title: true } }),
+    findMany: (ids: string[], orgId: string) => prisma.deal.findMany({ where: { id: { in: ids }, orgId }, select: { id: true, title: true } }),
+    titleOf: (r: any) => r.title as string,
+  },
+  TICKET: {
+    label: 'Ticket',
+    find: (id: string, orgId: string) => prisma.ticket.findFirst({ where: { id, orgId }, select: { id: true, title: true } }),
+    findMany: (ids: string[], orgId: string) => prisma.ticket.findMany({ where: { id: { in: ids }, orgId }, select: { id: true, title: true } }),
+    titleOf: (r: any) => r.title as string,
+  },
+} as const;
+export type CoreRelationEntity = keyof typeof CORE_RELATION_TARGETS;
 
 // Pipeline stages (Phase 2) — ordered, small, and keyed. Keys are what
 // records store; labels/colors are presentation. Colors are named tokens the
@@ -203,15 +236,21 @@ export async function addField(req: AuthRequest, res: Response, next: NextFuncti
     const existing = await prisma.customModuleField.findUnique({ where: { moduleId_fieldKey: { moduleId: module_.id, fieldKey } } });
     if (existing) throw new AppError(400, `A field with key "${fieldKey}" already exists on this module`);
 
-    // RELATION fields must point at a real module in the same org (the same
-    // module is fine — parent/child links). Non-RELATION fields never carry a
-    // target, whatever the client sent.
+    // RELATION fields must point at exactly one target: a module in the same
+    // org (the same module is fine — parent/child links) OR a core entity.
+    // Non-RELATION fields never carry a target, whatever the client sent.
     let relationModuleId: string | null = null;
+    let relationEntity: string | null = null;
     if (data.fieldType === 'RELATION') {
-      if (!data.relationModuleId) throw new AppError(400, 'Relation fields need a target module');
-      const target = await prisma.customModule.findFirst({ where: { id: data.relationModuleId, orgId } });
-      if (!target) throw new AppError(400, 'Relation target module not found in this organization');
-      relationModuleId = target.id;
+      if (data.relationEntity) {
+        relationEntity = data.relationEntity;
+      } else if (data.relationModuleId) {
+        const target = await prisma.customModule.findFirst({ where: { id: data.relationModuleId, orgId } });
+        if (!target) throw new AppError(400, 'Relation target module not found in this organization');
+        relationModuleId = target.id;
+      } else {
+        throw new AppError(400, 'Relation fields need a target — another module, or a core record type (contact, account, deal, ticket)');
+      }
     }
 
     if (data.isPrimary) {
@@ -219,7 +258,7 @@ export async function addField(req: AuthRequest, res: Response, next: NextFuncti
     }
 
     const field = await prisma.customModuleField.create({
-      data: { moduleId: module_.id, label: data.label, fieldKey, fieldType: data.fieldType, options: data.options, required: data.required, isPrimary: data.isPrimary, position: data.position, relationModuleId },
+      data: { moduleId: module_.id, label: data.label, fieldKey, fieldType: data.fieldType, options: data.options, required: data.required, isPrimary: data.isPrimary, position: data.position, relationModuleId, relationEntity },
     });
     res.status(201).json(field);
   } catch (err) { next(err); }
@@ -232,7 +271,7 @@ export async function updateField(req: AuthRequest, res: Response, next: NextFun
     // fieldKey is immutable (records key their data by it); relationModuleId
     // too — retargeting an existing relation field would silently turn every
     // stored id into a dangling pointer. Delete + recreate is the honest path.
-    const data = FieldSchema.partial().omit({ fieldKey: true, relationModuleId: true }).parse(req.body);
+    const data = FieldSchema.partial().omit({ fieldKey: true, relationModuleId: true, relationEntity: true }).parse(req.body);
     const field = await prisma.customModuleField.findFirst({ where: { id: req.params.fieldId, moduleId: module_.id } });
     if (!field) throw new AppError(404, 'Field not found');
 
@@ -260,14 +299,21 @@ export async function removeField(req: AuthRequest, res: Response, next: NextFun
  * live record in that field's target module (same org). Batched per field.
  * Runs after validateRecordData, which has already stringified the ids.
  */
-async function verifyRelations(fields: { fieldKey: string; fieldType: string; label: string; relationModuleId: string | null }[], data: Record<string, unknown>, orgId: string) {
+async function verifyRelations(fields: { fieldKey: string; fieldType: string; label: string; relationModuleId: string | null; relationEntity?: string | null }[], data: Record<string, unknown>, orgId: string) {
   for (const f of fields) {
-    if (f.fieldType !== 'RELATION' || !f.relationModuleId) continue;
+    if (f.fieldType !== 'RELATION') continue;
     const v = data[f.fieldKey];
     if (v === null || v === undefined || v === '') continue;
-    const target = await prisma.customModuleRecord.findFirst({
-      where: { id: String(v), moduleId: f.relationModuleId, orgId }, select: { id: true },
-    });
+    let target: { id: string } | null = null;
+    if (f.relationModuleId) {
+      target = await prisma.customModuleRecord.findFirst({
+        where: { id: String(v), moduleId: f.relationModuleId, orgId }, select: { id: true },
+      });
+    } else if (f.relationEntity && (f.relationEntity in CORE_RELATION_TARGETS)) {
+      target = await CORE_RELATION_TARGETS[f.relationEntity as CoreRelationEntity].find(String(v), orgId);
+    } else {
+      continue;
+    }
     if (!target) throw new AppError(400, `"${f.label}" points at a record that doesn't exist`);
   }
 }
@@ -277,17 +323,20 @@ async function verifyRelations(fields: { fieldKey: string; fieldType: string; la
  * and boards show "2024 Honda Civic", not a cuid. One batched query per
  * distinct target module, not per record.
  */
-async function resolveRelationTitles(fields: any[], records: { data: unknown }[]) {
-  const relFields = fields.filter(f => f.fieldType === 'RELATION' && f.relationModuleId);
+async function resolveRelationTitles(fields: any[], records: { data: unknown }[], orgId?: string) {
+  const relFields = fields.filter(f => f.fieldType === 'RELATION' && (f.relationModuleId || f.relationEntity));
   if (!relFields.length) return {};
   const idsByModule = new Map<string, Set<string>>();
+  const idsByEntity = new Map<string, Set<string>>();
   for (const f of relFields) {
-    const set = idsByModule.get(f.relationModuleId) ?? new Set<string>();
+    const bucket = f.relationModuleId ? idsByModule : idsByEntity;
+    const key = f.relationModuleId ?? f.relationEntity;
+    const set = bucket.get(key) ?? new Set<string>();
     for (const r of records) {
       const v = (r.data as any)?.[f.fieldKey];
       if (v) set.add(String(v));
     }
-    idsByModule.set(f.relationModuleId, set);
+    bucket.set(key, set);
   }
   const titles: Record<string, string> = {};
   for (const [moduleId, ids] of idsByModule) {
@@ -297,6 +346,13 @@ async function resolveRelationTitles(fields: any[], records: { data: unknown }[]
       prisma.customModuleRecord.findMany({ where: { id: { in: [...ids] }, moduleId }, select: { id: true, data: true } }),
     ]);
     for (const t of targets) titles[t.id] = recordTitle(targetFields, t.data as Record<string, unknown>, t.id);
+  }
+  // Core-entity targets: contacts/accounts by name, deals/tickets by title.
+  for (const [entity, ids] of idsByEntity) {
+    if (!ids.size || !orgId || !(entity in CORE_RELATION_TARGETS)) continue;
+    const def = CORE_RELATION_TARGETS[entity as CoreRelationEntity];
+    const targets = await def.findMany([...ids], orgId);
+    for (const t of targets) titles[t.id] = def.titleOf(t);
   }
   return titles;
 }
@@ -315,7 +371,7 @@ export async function listRecords(req: AuthRequest, res: Response, next: NextFun
       prisma.customModuleRecord.findMany({ where, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
       prisma.customModuleRecord.count({ where }),
     ]);
-    const relationTitles = await resolveRelationTitles(fields, records);
+    const relationTitles = await resolveRelationTitles(fields, records, orgId);
     const withTitle = records.map(r => ({ ...r, title: recordTitle(fields, r.data as Record<string, unknown>, r.id) }));
     res.json({ ...paginate(withTitle, total, pag), relationTitles });
   } catch (err) { next(err); }

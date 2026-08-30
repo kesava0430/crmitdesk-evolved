@@ -49,5 +49,6 @@ export * from './RecordTasks';   // tasks attached to any record
 export * from './RecordTags';    // tags attached to any record
 export * from './AccessDenied';
 export * from './ErrorBoundary';
+export * from './RelatedRecords';  // universal "everything under this record" panel
 export * from './RichText';        // safe renderer for HTML/markdown content
 export * from './RichTextEditor';  // TipTap editor producing sanitised HTML

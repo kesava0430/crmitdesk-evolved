@@ -4,7 +4,7 @@ import {
   ArrowLeft, Mail, Phone, Briefcase, Building2, Globe,
   TrendingUp, Calendar, CheckCircle, Clock, Plus, Pencil, Sparkles, ShieldAlert,
 } from 'lucide-react';
-import { SearchableSelect, RecordTasks, RecordTags} from '../../../shared/components';
+import { SearchableSelect, RecordTasks, RecordTags, RelatedRecords } from '../../../shared/components';
 import { useContact, useUpdateContact, useAccounts, useCreateActivity } from '../../../api/crm';
 import { useChurnRisk } from '../../../api/ai';
 import {
@@ -341,6 +341,12 @@ export function ContactDetailPage() {
               </div>
             )}
           </Card>
+
+          {/* 360° view — every record linked to this contact: leads, tickets,
+              quotes/invoices via their deals, and custom-module records whose
+              RELATION field points here. Deals are excluded since the card
+              above already renders them richer. */}
+          <RelatedRecords entityType="CONTACT" entityId={contact.id} exclude={['deals']} />
 
           <CustomFieldsDisplay entityType="CONTACT" entityId={contact.id} card />
 

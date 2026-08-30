@@ -163,13 +163,17 @@ function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field:
   // For the RELATION target picker — every module in the org is a valid
   // target, including this one (parent/child records).
   const { data: allModules } = useCustomModules();
+  // Relation target encoded as one picker value: "module:<id>" or "entity:<TYPE>".
+  const initialTarget = field?.relationModuleId ? `module:${field.relationModuleId}`
+    : field?.relationEntity ? `entity:${field.relationEntity}` : '';
   const [form, setForm] = useState(field
-    ? { label: field.label, fieldType: field.fieldType, required: field.required, isPrimary: field.isPrimary, options: (field.options ?? []).join(', '), relationModuleId: field.relationModuleId ?? '' }
-    : { label: '', fieldType: 'TEXT', required: false, isPrimary: false, options: '', relationModuleId: '' });
+    ? { label: field.label, fieldType: field.fieldType, required: field.required, isPrimary: field.isPrimary, options: (field.options ?? []).join(', '), relationTarget: initialTarget }
+    : { label: '', fieldType: 'TEXT', required: false, isPrimary: false, options: '', relationTarget: '' });
   const loading = add.isPending || update.isPending;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const [targetKind, targetVal] = form.relationTarget.split(':');
     const payload: any = {
       label: form.label,
       fieldType: form.fieldType,
@@ -178,7 +182,8 @@ function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field:
       options: form.fieldType === 'DROPDOWN' ? form.options.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
       // Only meaningful on create — the server refuses retargeting an
       // existing relation field (records would hold dangling ids).
-      ...(!field && form.fieldType === 'RELATION' ? { relationModuleId: form.relationModuleId } : {}),
+      ...(!field && form.fieldType === 'RELATION' && targetKind === 'module' ? { relationModuleId: targetVal } : {}),
+      ...(!field && form.fieldType === 'RELATION' && targetKind === 'entity' ? { relationEntity: targetVal } : {}),
     };
     if (field) await update.mutateAsync({ moduleId, fieldId: field.id, ...payload });
     else await add.mutateAsync({ moduleId, ...payload });
@@ -201,15 +206,21 @@ function FieldFormModal({ moduleId, field, onClose }: { moduleId: string; field:
         )}
         {form.fieldType === 'RELATION' && (
           <Field
-            label="Links to module"
-            hint={field ? 'The target of an existing relation field can’t be changed — delete and recreate the field to retarget it.' : 'Each record of this module can link one record of the target module.'}
+            label="Links to"
+            hint={field ? 'The target of an existing relation field can’t be changed — delete and recreate the field to retarget it.' : 'Each record can link one record of the target — a core CRM/desk record, or another module. Linked core records show this record in their "Related records" panel.'}
           >
             <SearchableSelect
-              ariaLabel="Relation target module"
-              value={form.relationModuleId}
-              onChange={val => setForm(p => ({ ...p, relationModuleId: val }))}
-              options={(allModules ?? []).map((m: any) => ({ value: m.id, label: m.name }))}
-              placeholder="Pick a module…"
+              ariaLabel="Relation target"
+              value={form.relationTarget}
+              onChange={val => setForm(p => ({ ...p, relationTarget: val }))}
+              options={[
+                { value: 'entity:CONTACT', label: 'Contacts (CRM)' },
+                { value: 'entity:ACCOUNT', label: 'Accounts (CRM)' },
+                { value: 'entity:DEAL',    label: 'Deals (CRM)' },
+                { value: 'entity:TICKET',  label: 'Tickets (IT Desk)' },
+                ...(allModules ?? []).map((m: any) => ({ value: `module:${m.id}`, label: `${m.name} (custom module)` })),
+              ]}
+              placeholder="Pick a target…"
               disabled={!!field}
             />
           </Field>
