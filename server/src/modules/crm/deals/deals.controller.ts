@@ -29,25 +29,38 @@ const Schema = z.object({
   contactId: z.preprocess(v => (v === null ? '' : v), z.string().optional().or(z.literal(''))).transform(v => v || undefined),
   accountId: z.preprocess(v => (v === null ? '' : v), z.string().optional().or(z.literal(''))).transform(v => v || undefined),
   assignedTo: z.preprocess(v => (v === null ? '' : v), z.string().optional().or(z.literal(''))).transform(v => v || undefined),
+  // Department credited with this deal — validated against the org's
+  // Department list (HR Org Structure); '' clears it.
+  departmentId: z.preprocess(v => (v === null ? '' : v), z.string().optional().or(z.literal(''))).transform(v => v || undefined),
   status: z.enum(['OPEN','WON','LOST']).optional(),
 });
+
+/** departmentId must belong to this org, or be undefined. */
+async function assertDepartmentInOrg(departmentId: string | undefined, orgId: string) {
+  if (!departmentId) return undefined;
+  const dep = await prisma.department.findFirst({ where: { id: departmentId, orgId }, select: { id: true } });
+  if (!dep) throw new AppError(400, 'Department not found in this organization');
+  return dep.id;
+}
 
 const include = {
   contact: { select: { id: true, name: true, email: true } },
   account: { select: { id: true, name: true } },
   assignee: { select: { id: true, name: true, email: true } },
+  department: { select: { id: true, name: true } },
   pipeline: { select: { id: true, name: true, stages: true } },
 };
 
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { status, stage, assignedTo, tagId } = req.query as Record<string, string>;
+    const { status, stage, assignedTo, tagId, departmentId } = req.query as Record<string, string>;
     const pag = parsePagination(req);
     const where: any = { orgId };
     if (status) where.status = status;
     if (stage) where.stage = stage;
     if (assignedTo) where.assignedTo = assignedTo;
+    if (departmentId) where.departmentId = departmentId;
     // ?tagId=a,b narrows to records carrying every listed tag. Merged
     // into `where` as an id set, since tags are polymorphic rather than
     // a relation on this model — see utils/tagFilter.ts.
@@ -89,6 +102,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
         contactId: data.contactId,
         accountId: data.accountId,
         assignedTo: data.assignedTo || req.user!.id,
+        departmentId: await assertDepartmentInOrg(data.departmentId, orgId),
         pipelineId: p.id,
       },
       include
@@ -115,11 +129,14 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const data = Schema.partial().parse(req.body);
     const existing = await prisma.deal.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!existing) throw new AppError(404, 'Deal not found');
+    if (data.departmentId !== undefined) {
+      (data as any).departmentId = await assertDepartmentInOrg(data.departmentId, req.user!.orgId);
+    }
     await prisma.deal.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data: { ...data, closeDate: data.closeDate ? new Date(data.closeDate) : undefined } });
     const deal = await prisma.deal.findUnique({ where: { id: req.params.id }, include });
     if (data.status && data.status !== existing.status) {
       const trigger = data.status === 'WON' ? 'DEAL_WON' : data.status === 'LOST' ? 'DEAL_LOST' : null;
-      if (trigger) runWorkflows({ trigger, orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal!.id, entity: deal as any, previousEntity: existing as any }).catch(() => {});
+      if (trigger) runWorkflows({ trigger, orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal!.id, entity: { ...(deal as any), departmentName: (deal as any)?.department?.name ?? null }, previousEntity: existing as any }).catch(() => {});
       if (data.status === 'WON' && deal) slackDealWon(req.user!.orgId, { title: deal.title, value: Number(deal.value), assignee: deal.assignee }).catch(() => {});
     }
 
@@ -133,10 +150,10 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
         orgId: req.user!.orgId,
         entityType: 'DEAL',
         entityId: deal.id,
-        entity: deal as any,
+        entity: { ...(deal as any), departmentName: (deal as any)?.department?.name ?? null },
         previousEntity: existing as any,
       }).catch(() => {});
-      runAiRules({ trigger: 'DEAL_STAGE_CHANGED', orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal.id, entity: deal as any, userId: req.user!.id });
+      runAiRules({ trigger: 'DEAL_STAGE_CHANGED', orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal.id, entity: { ...(deal as any), departmentName: (deal as any)?.department?.name ?? null }, userId: req.user!.id });
     }
     logAction(req.user!.id, 'UPDATE', 'Deal', req.params.id, data as Record<string, unknown>);
     res.json(deal);
@@ -160,7 +177,7 @@ export async function moveStage(req: AuthRequest, res: Response, next: NextFunct
     if (deal.assignee?.email) {
       sendMail({ ...emailTemplates.dealStageChanged({ title: deal.title, stage }, deal.assignee.name, deal.assignee.email), orgId: req.user!.orgId }).catch(() => {});
     }
-    runWorkflows({ trigger: 'DEAL_STAGE_CHANGED', orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal.id, entity: deal as any, previousEntity: existing as any }).catch(() => {});
+    runWorkflows({ trigger: 'DEAL_STAGE_CHANGED', orgId: req.user!.orgId, entityType: 'DEAL', entityId: deal.id, entity: { ...(deal as any), departmentName: (deal as any)?.department?.name ?? null }, previousEntity: existing as any }).catch(() => {});
     res.json(deal);
   } catch (err) { next(err); }
 }

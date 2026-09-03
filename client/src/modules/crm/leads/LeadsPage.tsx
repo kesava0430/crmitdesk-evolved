@@ -10,6 +10,8 @@ import {
   AccessDenied} from '../../../shared/components';
 import type { Column } from '../../../shared/components';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
+import { useUsers } from '../../../api/users';
+import { useDepartments } from '../../../api/people';
 import { useLabels } from '../../../hooks/useLabels';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
@@ -26,8 +28,21 @@ function scoreVariant(score: number) {
   return 'red' as const;
 }
 
+/** Roles a lead can be assigned to — the CRM side of the house. */
+const LEAD_ASSIGNEE_ROLES = new Set(['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP']);
+
 function LeadForm({ initial, entityId, onSubmit, loading, aiPrefill }: any) {
-  const [form, setForm] = useState(initial || { name: '', email: '', source: '', notes: '', status: 'NEW', ...aiPrefill });
+  const [form, setForm] = useState(initial || { name: '', email: '', source: '', notes: '', status: 'NEW', assignedTo: '', departmentId: '', ...aiPrefill });
+  const { data: departmentsRes } = useDepartments();
+  const departmentOptions = (departmentsRes?.data ?? [])
+    .filter((d: any) => d.isActive !== false)
+    .map((d: any) => ({ value: d.id, label: d.name }));
+  // Sales reps + managers for the "Assigned to" picker. Server-side, an
+  // unassigned create falls back to whoever files the lead.
+  const { data: orgUsers } = useUsers();
+  const assigneeOptions = (orgUsers ?? [])
+    .filter((u: any) => LEAD_ASSIGNEE_ROLES.has(u.role))
+    .map((u: any) => ({ value: u.id, label: u.name }));
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { data: existingValues } = useCustomFieldValues(entityId);
   useEffect(() => {
@@ -72,6 +87,22 @@ function LeadForm({ initial, entityId, onSubmit, loading, aiPrefill }: any) {
             <Label>{fieldLabel('lead', 'status', 'Status')}</Label>
             <SearchableSelect ariaLabel={fieldLabel('lead', 'status', 'Status')} value={form.status} onChange={val => setForm((p: any) => ({ ...p, status: val }))} required options={STATUSES.filter(s => s !== 'CONVERTED').map(s => ({ value: s, label: s }))} />
           </div>
+          <div>
+            <Label>Assigned to</Label>
+            <SearchableSelect
+              ariaLabel="Assigned to"
+              value={form.assignedTo ?? ''}
+              onChange={val => setForm((p: any) => ({ ...p, assignedTo: val }))}
+              options={assigneeOptions}
+              placeholder="Assign a sales rep…"
+            />
+          </div>
+          {departmentOptions.length > 0 && (
+            <div>
+              <Label>Department</Label>
+              <SearchableSelect ariaLabel="Department" value={form.departmentId ?? ''} onChange={val => setForm((p: any) => ({ ...p, departmentId: val }))} options={departmentOptions} placeholder="— none —" />
+            </div>
+          )}
         </FormGrid>
       </div>
       <div className="form-section">
@@ -433,6 +464,19 @@ export function LeadsPage() {
       cell: (lead: any) => <StatusBadge value={lead.status} map={leadStatusVariant} dot />,
     },
     {
+      key: 'department', header: 'Department', hideBelow: 'lg', muted: true,
+      cell: (lead: any) => lead.department?.name || '--',
+    },
+    {
+      key: 'assignee', header: 'Assigned to', hideBelow: 'md', muted: true,
+      cell: (lead: any) => lead.assignee?.name ? (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Avatar name={lead.assignee.name} size="xs" />
+          <span className="truncate" title={lead.assignee.name}>{lead.assignee.name}</span>
+        </div>
+      ) : <span className="text-fg-subtle">Unassigned</span>,
+    },
+    {
       key: 'aiScore',
       // One ⓘ on the column header rather than one per row: it explains both
       // the "Score" button and the re-score action, and scoring writes the
@@ -558,6 +602,8 @@ export function LeadsPage() {
                 source: (modal as any).lead.source || '',
                 notes: (modal as any).lead.notes || '',
                 status: (modal as any).lead.status || 'NEW',
+                assignedTo: (modal as any).lead.assignedTo || (modal as any).lead.assignee?.id || '',
+                departmentId: (modal as any).lead.departmentId || (modal as any).lead.department?.id || '',
               }
             : null}
           entityId={modal && typeof modal === 'object' && (modal as any).type === 'edit' ? (modal as any).lead.id : undefined}

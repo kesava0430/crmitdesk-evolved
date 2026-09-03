@@ -575,9 +575,13 @@ model Lead {
   updatedAt     DateTime     @updatedAt @map("updated_at")
   aiScore       Int?         @map("ai_score")
   aiScoreReason String?      @map("ai_score_reason")
+  // Which department works this lead (Org Structure's Department model) —
+  // same optional, presentation-plus-routing role it plays on tickets.
+  departmentId  String?      @map("department_id")
   orgId         String       @map("org_id")
   activities    Activity[]
   assignee      User?        @relation("LeadAssignee", fields: [assignedTo], references: [id])
+  department    Department?  @relation("LeadDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
   contact       Contact?     @relation(fields: [contactId], references: [id])
   deal          Deal?        @relation(fields: [dealId], references: [id])
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -597,6 +601,8 @@ model Deal {
   contactId   String?       @map("contact_id")
   accountId   String?       @map("account_id")
   assignedTo  String?       @map("assigned_to")
+  // Department credited with / working this deal — optional, like tickets.
+  departmentId String?      @map("department_id")
   status      DealStatus    @default(OPEN)
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
@@ -605,6 +611,7 @@ model Deal {
   history     DealHistory[]
   account     Account?      @relation(fields: [accountId], references: [id])
   assignee    User?         @relation("DealAssignee", fields: [assignedTo], references: [id])
+  department  Department?   @relation("DealDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
   contact     Contact?      @relation(fields: [contactId], references: [id])
   org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   pipeline    Pipeline?     @relation(fields: [pipelineId], references: [id])
@@ -716,6 +723,11 @@ model Ticket {
   // resolve against when an automation's recipient is set to "the linked
   // contact" — see notification-recipient.ts.
   contactId     String?         @map("contact_id")
+  // Which department this request is raised to (IT, HR, Facilities, …) —
+  // the same HR Department model Org Structure manages. Optional: orgs that
+  // never define departments see no change. Drives queue filtering and
+  // department-based auto-routing rules (condition field departmentName).
+  departmentId  String?         @map("department_id")
   assignedTo    String?         @map("assigned_to")
   slaDueAt      DateTime?       @map("sla_due_at")
   resolvedAt    DateTime?       @map("resolved_at")
@@ -730,6 +742,7 @@ model Ticket {
   assets        TicketAsset[]
   history       TicketHistory[]
   assignee      User?           @relation("TicketAssignee", fields: [assignedTo], references: [id])
+  department    Department?     @relation("TicketDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
   category      Category?       @relation(fields: [categoryId], references: [id])
   org           Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   requester     User            @relation("TicketRequester", fields: [requesterId], references: [id])
@@ -2138,6 +2151,9 @@ model Department {
 
   employees Employee[] @relation("EmployeeDepartment")
   teams     Team[]
+  tickets   Ticket[]   @relation("TicketDepartment")
+  leads     Lead[]     @relation("LeadDepartment")
+  deals     Deal[]     @relation("DealDepartment")
 
   @@unique([orgId, name])
   @@index([orgId])

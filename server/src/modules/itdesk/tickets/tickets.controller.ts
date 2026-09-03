@@ -27,6 +27,9 @@ const Schema = z.object({
   // spoof who a ticket is "from".
   requesterId: z.string().optional(),
   contactId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
+  // Which department the request is raised to (IT, HR, Facilities…) —
+  // validated against the org's Department list below; '' clears it.
+  departmentId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
 });
 
 const include = {
@@ -34,7 +37,16 @@ const include = {
   contact: { select: { id: true, name: true, email: true } },
   assignee: { select: { id: true, name: true, email: true } },
   category: { select: { id: true, name: true, slaPolicy: true } },
+  department: { select: { id: true, name: true } },
 };
+
+/** departmentId must be one of this org's active departments, or undefined. */
+async function assertDepartmentInOrg(departmentId: string | undefined, orgId: string) {
+  if (!departmentId) return undefined;
+  const dep = await prisma.department.findFirst({ where: { id: departmentId, orgId }, select: { id: true } });
+  if (!dep) throw new AppError(400, 'Department not found in this organization');
+  return dep.id;
+}
 
 function calcSlaDue(resolutionHours: number) {
   const due = new Date();
@@ -45,12 +57,13 @@ function calcSlaDue(resolutionHours: number) {
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { status, priority, assignedTo, requesterId, tagId } = req.query as Record<string, string>;
+    const { status, priority, assignedTo, requesterId, tagId, departmentId } = req.query as Record<string, string>;
     const where: any = { orgId };
     if (status) where.status = status;
     if (priority) where.priority = priority;
     if (assignedTo) where.assignedTo = assignedTo;
     if (requesterId) where.requesterId = requesterId;
+    if (departmentId) where.departmentId = departmentId;
     if (req.user!.role === 'EMPLOYEE') where.requesterId = req.user!.id;
     // ?tagId=a,b narrows to records carrying every listed tag. Merged
     // into `where` as an id set, since tags are polymorphic rather than
@@ -99,15 +112,20 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
       const cat = await prisma.category.findFirst({ where: { id: data.categoryId, orgId }, include: { slaPolicy: true } });
       if (cat?.slaPolicy) slaDueAt = calcSlaDue(cat.slaPolicy.resolutionHours);
     }
+    // Department is open to every role — an employee raising a request picks
+    // which department it goes to — but always validated against this org.
+    const departmentId = await assertDepartmentInOrg(data.departmentId, orgId);
     const ticket = await prisma.ticket.create({
-      data: { ...data, orgId, requesterId, contactId, slaDueAt },
+      data: { ...data, departmentId, orgId, requesterId, contactId, slaDueAt },
       include
     });
     await prisma.ticketHistory.create({ data: { ticketId: ticket.id, toStatus: 'OPEN', changedBy: req.user!.id } });
     const managers = await prisma.user.findMany({ where: { orgId, role: { in: ['IT_MANAGER', 'SUPER_ADMIN'] }, isActive: true } });
     managers.forEach(m => sendMail({ ...emailTemplates.ticketCreated(ticket, ticket.requester.name, m.email), orgId }).catch(() => {}));
-    // Fire workflows + SSE in background
-    runWorkflows({ trigger: 'TICKET_CREATED', orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any }).catch(() => {});
+    // Fire workflows + SSE in background. departmentName is flattened onto
+    // the entity so rules can condition on the human-readable name
+    // ("departmentName equals IT") instead of an opaque id.
+    runWorkflows({ trigger: 'TICKET_CREATED', orgId, entityType: 'TICKET', entityId: ticket.id, entity: { ...(ticket as any), departmentName: (ticket as any).department?.name ?? null } }).catch(() => {});
     // AI Custom Rules run alongside workflow rules on the same events.
     runAiRules({ trigger: 'TICKET_CREATED', orgId: req.user!.orgId, entityType: 'TICKET', entityId: ticket.id, entity: ticket as any, userId: req.user!.id });
     sseManager.broadcastAll(orgId, SSEEvent.TICKET_CREATED, { id: ticket.id, title: ticket.title, priority: ticket.priority, status: ticket.status });
@@ -136,6 +154,12 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const orgId = req.user!.orgId;
     const existing = await prisma.ticket.findFirst({ where: { id: req.params.id, orgId } });
     if (!existing) throw new AppError(404, 'Ticket not found');
+    // '' arrives as undefined via the schema transform; an explicit null
+    // never reaches here, so a set department can be changed but a partial
+    // update that omits it leaves it alone. Validate any new value.
+    if (data.departmentId !== undefined) {
+      (data as any).departmentId = await assertDepartmentInOrg(data.departmentId, orgId);
+    }
 
     await prisma.ticket.updateMany({ where: { id: req.params.id, orgId }, data });
     const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id }, include });

@@ -3,6 +3,7 @@ import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil
 import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
 import { useContacts, useAccounts, usePipelines, useAddStage, useUpdateStage, useRemoveStage, useReorderStages } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
+import { useDepartments } from '../../../api/people';
 import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } from '../../../api/ai';
 import {
   PageHeader, PageBody, Button, Modal, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay,
@@ -19,7 +20,12 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { can } from '../../../shared/permissions';
 
 function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading, aiPrefill }: any) {
-  const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', closeDate: '', ...aiPrefill });
+  const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', departmentId: '', closeDate: '', ...aiPrefill });
+  // Org Structure departments — the field only renders when some exist.
+  const { data: departmentsRes } = useDepartments();
+  const departmentOptions = (departmentsRes?.data ?? [])
+    .filter((d: any) => d.isActive !== false)
+    .map((d: any) => ({ value: d.id, label: d.name }));
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { data: existingValues } = useCustomFieldValues(entityId);
   useEffect(() => {
@@ -82,10 +88,16 @@ function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubm
             <Label>Account</Label>
             <SearchableSelect ariaLabel="Account" value={form.accountId} onChange={val => setForm((p: any) => ({ ...p, accountId: val }))} options={(accounts ?? []).map((a: any) => ({ value: a.id, label: a.name }))} placeholder="— none —" />
           </div>
-          <div className="sm:col-span-2">
+          <div className={departmentOptions.length ? '' : 'sm:col-span-2'}>
             <Label>Assigned To</Label>
             <SearchableSelect ariaLabel="Assigned To" value={form.assignedTo} onChange={val => setForm((p: any) => ({ ...p, assignedTo: val }))} options={(users ?? []).map((u: any) => ({ value: u.id, label: u.name }))} placeholder="— select team member —" />
           </div>
+          {departmentOptions.length > 0 && (
+            <div>
+              <Label>Department</Label>
+              <SearchableSelect ariaLabel="Department" value={form.departmentId} onChange={val => setForm((p: any) => ({ ...p, departmentId: val }))} options={departmentOptions} placeholder="— none —" />
+            </div>
+          )}
         </FormGrid>
       </div>
       <CustomFieldsFormFields
@@ -700,6 +712,7 @@ export function DealsPage() {
             contactId: editingDeal.contactId ?? editingDeal.contact?.id ?? '',
             accountId: editingDeal.accountId ?? editingDeal.account?.id ?? '',
             assignedTo: editingDeal.assignedTo ?? editingDeal.assignee?.id ?? '',
+            departmentId: editingDeal.departmentId ?? editingDeal.department?.id ?? '',
           } : null}
           entityId={editingDeal?.id}
           aiPrefill={!editingDeal ? aiPrefill : null}

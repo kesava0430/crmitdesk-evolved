@@ -13,6 +13,7 @@ import {
   AiInfo, AiNote, AiGeneratedTag, SkeletonStats, RichText, RichTextEditor,
   type Column, RecordTasks, RecordTags} from '../../../shared/components';
 import { useCustomFieldDefs, useSaveCustomFieldValues, toValuesPayload } from '../../../api/customFields';
+import { useDepartments } from '../../../api/people';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { TimeTrackingPanel } from './TimeTrackingPanel';
@@ -50,7 +51,14 @@ const FILING_TABS = [
 ];
 
 function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickContact, onSubmit, loading, initialValues }: any) {
-  const [form, setForm] = useState({ title: '', body: '', categoryId: '', priority: 'MEDIUM', ...initialValues });
+  const [form, setForm] = useState({ title: '', body: '', categoryId: '', priority: 'MEDIUM', departmentId: '', ...initialValues });
+  // Which department the request is raised to — the HR Org Structure list
+  // (GET /hr/org/departments is ALL_USERS, so employees can pick too). Orgs
+  // with no departments defined simply never see the field.
+  const { data: departmentsRes } = useDepartments();
+  const departmentOptions = (departmentsRes?.data ?? [])
+    .filter((d: any) => d.isActive !== false)
+    .map((d: any) => ({ value: d.id, label: d.name }));
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   // "On behalf of" — staff-only (see canFileOnBehalf, gated server-side too
   // in tickets.controller.ts's create()). 'self' sends neither field, so a
@@ -203,6 +211,11 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
           <Field label={fieldLabel('ticket', 'priority', 'Priority')}>
             <SearchableSelect ariaLabel={fieldLabel('ticket', 'priority', 'Priority')} value={form.priority} onChange={val => setForm((p: any) => ({ ...p, priority: val }))} required options={PRIORITIES.map(p => ({ value: p, label: p.charAt(0) + p.slice(1).toLowerCase() }))} />
           </Field>
+          {departmentOptions.length > 0 && (
+            <Field label="Department" hint="Which department this request is raised to.">
+              <SearchableSelect ariaLabel="Department" value={form.departmentId} onChange={val => setForm((p: any) => ({ ...p, departmentId: val }))} options={departmentOptions} placeholder="— none —" />
+            </Field>
+          )}
         </div>
       </div>
       <CustomFieldsFormFields
@@ -220,11 +233,16 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
 
 function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
   const updateTicket = useUpdateTicket();
+  const { data: departmentsRes } = useDepartments();
+  const departmentOptions = (departmentsRes?.data ?? [])
+    .filter((d: any) => d.isActive !== false)
+    .map((d: any) => ({ value: d.id, label: d.name }));
   const [form, setForm] = useState({
     title: ticket.title || '',
     body: ticket.body || '',
     categoryId: ticket.categoryId || ticket.category?.id || '',
     priority: ticket.priority || 'MEDIUM',
+    departmentId: ticket.departmentId || ticket.department?.id || '',
   });
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
 
@@ -248,6 +266,11 @@ function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
         <Field label="Priority">
           <SearchableSelect ariaLabel="Edit priority" value={form.priority} onChange={val => setForm(p => ({ ...p, priority: val }))} options={PRIORITIES.map(p => ({ value: p, label: p.charAt(0) + p.slice(1).toLowerCase() }))} />
         </Field>
+        {departmentOptions.length > 0 && (
+          <Field label="Department">
+            <SearchableSelect ariaLabel="Edit department" value={form.departmentId} onChange={val => setForm(p => ({ ...p, departmentId: val }))} options={departmentOptions} placeholder="— none —" />
+          </Field>
+        )}
       </div>
       <div className="flex justify-end gap-2 pt-1">
         <Button size="sm" variant="secondary" onClick={onCancel}>Cancel</Button>
@@ -446,6 +469,11 @@ function TicketDetailModal({ id, users, categories }: any) {
         <SummaryItem label="Category">
           <span title={ticket.category?.name}>{ticket.category?.name || '--'}</span>
         </SummaryItem>
+        {ticket.department && (
+          <SummaryItem label="Department">
+            <span title={ticket.department.name}>{ticket.department.name}</span>
+          </SummaryItem>
+        )}
         <SummaryItem label="SLA Due">
           <span className={`tabular-nums ${slaBreach ? 'text-danger' : ''}`}>
             {ticket.slaDueAt ? formatDistanceToNow(new Date(ticket.slaDueAt), { addSuffix: true }) : '--'}
@@ -709,6 +737,7 @@ export function TicketsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [createModal, setCreateModal] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const aiPrefill = useAiPrefill<{ title?: string; body?: string; priority?: string; categoryId?: string }>();
@@ -716,7 +745,10 @@ export function TicketsPage() {
   const { data: tickets, isLoading } = useTickets({
     ...(statusFilter && { status: statusFilter }),
     ...(priorityFilter && { priority: priorityFilter }),
+    ...(departmentFilter && { departmentId: departmentFilter }),
   });
+  const { data: departmentsRes } = useDepartments();
+  const departments = (departmentsRes?.data ?? []).filter((d: any) => d.isActive !== false);
   const { data: categories } = useCategories();
   const { data: users } = useUsers();
   const { user } = useAuth();
@@ -780,6 +812,7 @@ export function TicketsPage() {
         : <span className="text-fg-subtle text-xs">--</span>),
     },
     { key: 'category', header: 'Category', hideBelow: 'md', muted: true, cell: t => t.category?.name || '--' },
+    { key: 'department', header: 'Department', hideBelow: 'lg', muted: true, cell: t => t.department?.name || '--' },
     { key: 'requester', header: 'Requester', hideBelow: 'md', muted: true, cell: t => t.requester?.name },
     {
       key: 'assignee',
@@ -825,6 +858,12 @@ export function TicketsPage() {
               <option value="">All Priorities</option>
               {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
             </Select>
+            {departments.length > 0 && (
+              <Select aria-label="Department filter" value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)}>
+                <option value="">All Departments</option>
+                {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </Select>
+            )}
           </Toolbar>
         }
       />
@@ -853,7 +892,7 @@ export function TicketsPage() {
             <EmptyState
               icon={<Ticket size={24} />}
               title={`No ${plural.toLowerCase()} found`}
-              description={search || statusFilter || priorityFilter
+              description={search || statusFilter || priorityFilter || departmentFilter
                 ? 'Nothing matches your current search or filters. Try clearing them.'
                 : `All clear! Submit your first ${singular.toLowerCase()} to get started.`}
               action={{ label: `New ${singular}`, onClick: () => setCreateModal(true) }}

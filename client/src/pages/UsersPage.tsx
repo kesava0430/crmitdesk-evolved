@@ -10,6 +10,7 @@ import {
 import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check, KeyRound } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
 import { useRoles } from '../api/work';
+import { useDepartments } from '../api/people';
 import { can } from '../shared/permissions';
 
 /**
@@ -58,6 +59,13 @@ function UserForm({ initial, onSubmit, loading }: any) {
       : { name: '', email: '', password: '', roleId: '', department: '', phone: '' }
   );
   const f = (k: string) => (e: any) => setForm((p: any) => ({ ...p, [k]: e.target.value }));
+  // Org Structure's department list, offered as a picker when defined. The
+  // current (possibly legacy free-text) value is kept as an option so an
+  // existing user's department never silently disappears from the select.
+  const { data: departmentsRes } = useDepartments();
+  const departmentNames = (departmentsRes?.data ?? []).filter((d: any) => d.isActive !== false).map((d: any) => d.name);
+  const departmentOptions = [...new Set([...departmentNames, ...(form.department ? [form.department] : [])])]
+    .map(n => ({ value: n, label: n }));
   return (
     <form
       onSubmit={e => {
@@ -99,8 +107,21 @@ function UserForm({ initial, onSubmit, loading }: any) {
               <Input aria-label="Password" required type="password" minLength={8} value={form.password} onChange={f('password')} placeholder="Min 8 characters" />
             </Field>
           )}
-          <Field label="Department">
-            <Input value={form.department} onChange={f('department')} placeholder="e.g. Engineering, Sales" />
+          <Field label="Department" hint={departmentOptions.length ? undefined : 'Define departments in HR → Org Structure to pick from a list.'}>
+            {departmentOptions.length > 0 ? (
+              // Departments are managed in HR → Org Structure; the user record
+              // stores the department NAME (matching the legacy free-text
+              // column), so existing values keep working unchanged.
+              <SearchableSelect
+                ariaLabel="Department"
+                value={form.department || ''}
+                onChange={val => setForm((p: any) => ({ ...p, department: val }))}
+                options={departmentOptions}
+                placeholder="— none —"
+              />
+            ) : (
+              <Input value={form.department} onChange={f('department')} placeholder="e.g. Engineering, Sales" />
+            )}
           </Field>
           <Field label="Phone (WhatsApp)">
             <Input aria-label="Phone" value={form.phone || ''} onChange={f('phone')} placeholder="+14155551234" />

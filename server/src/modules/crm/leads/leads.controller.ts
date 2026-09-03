@@ -19,21 +19,34 @@ const Schema = z.object({
   notes: z.string().optional(),
   name: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')).transform(v => v || undefined),
+  // Which department works this lead — validated against the org's
+  // Department list (HR Org Structure) below; '' clears it.
+  departmentId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
 });
 
 const include = {
   contact: { select: { id: true, name: true, email: true } },
   assignee: { select: { id: true, name: true } },
+  department: { select: { id: true, name: true } },
   _count: { select: { activities: true } },
 };
+
+/** departmentId must belong to this org, or be undefined. */
+async function assertDepartmentInOrg(departmentId: string | undefined, orgId: string) {
+  if (!departmentId) return undefined;
+  const dep = await prisma.department.findFirst({ where: { id: departmentId, orgId }, select: { id: true } });
+  if (!dep) throw new AppError(400, 'Department not found in this organization');
+  return dep.id;
+}
 
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { status, search, tagId } = req.query as Record<string, string>;
+    const { status, search, tagId, departmentId } = req.query as Record<string, string>;
     const pag = parsePagination(req);
     const where: any = { orgId };
     if (status) where.status = status;
+    if (departmentId) where.departmentId = departmentId;
     if (search) where.contact = { name: { contains: search, mode: 'insensitive' } };
     // ?tagId=a,b narrows to records carrying every listed tag. Merged
     // into `where` as an id set, since tags are polymorphic rather than
@@ -59,11 +72,13 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
       });
       contactId = contact.id;
     }
+    const departmentId = await assertDepartmentInOrg(data.departmentId, orgId);
     const lead = await prisma.lead.create({
-      data: { contactId, source: data.source, assignedTo: data.assignedTo || req.user!.id, notes: data.notes, orgId },
+      data: { contactId, source: data.source, assignedTo: data.assignedTo || req.user!.id, notes: data.notes, departmentId, orgId },
       include
     });
-    runWorkflows({ trigger: 'LEAD_CREATED', orgId, entityType: 'LEAD', entityId: lead.id, entity: lead as any }).catch(() => {});
+    // departmentName flattened for rule conditions ("departmentName equals Sales").
+    runWorkflows({ trigger: 'LEAD_CREATED', orgId, entityType: 'LEAD', entityId: lead.id, entity: { ...(lead as any), departmentName: (lead as any).department?.name ?? null } }).catch(() => {});
     slackNewLead(orgId, { id: lead.id, contact: lead.contact, source: lead.source }).catch(() => {});
     logAction(req.user!.id, 'CREATE', 'Lead', lead.id, { contactId: lead.contactId, source: lead.source });
     res.status(201).json(lead);
@@ -100,10 +115,13 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       });
     }
 
+    if (leadData.departmentId !== undefined) {
+      (leadData as any).departmentId = await assertDepartmentInOrg(leadData.departmentId, orgId);
+    }
     await prisma.lead.updateMany({ where: { id: req.params.id, orgId }, data: leadData });
     const lead = await prisma.lead.findUnique({ where: { id: req.params.id }, include });
     if (leadData.status && leadData.status !== existing.status && lead) {
-      runWorkflows({ trigger: 'LEAD_STATUS_CHANGED', orgId, entityType: 'LEAD', entityId: lead.id, entity: lead as any, previousEntity: existing as any }).catch(() => {});
+      runWorkflows({ trigger: 'LEAD_STATUS_CHANGED', orgId, entityType: 'LEAD', entityId: lead.id, entity: { ...(lead as any), departmentName: (lead as any)?.department?.name ?? null }, previousEntity: existing as any }).catch(() => {});
     }
     logAction(req.user!.id, 'UPDATE', 'Lead', req.params.id, leadData as Record<string, unknown>);
     res.json(lead);
@@ -131,6 +149,9 @@ export async function convert(req: AuthRequest, res: Response, next: NextFunctio
         pipelineId: pipeline.id,
         contactId: lead.contactId ?? undefined,
         assignedTo: req.user!.id,
+        // The deal inherits the lead's department — the same team that
+        // worked the lead owns the resulting opportunity.
+        departmentId: lead.departmentId ?? undefined,
       }
     });
     await prisma.dealHistory.create({ data: { dealId: deal.id, toStage: deal.stage, changedBy: req.user!.id } });
@@ -140,7 +161,7 @@ export async function convert(req: AuthRequest, res: Response, next: NextFunctio
       data: { status: 'CONVERTED', convertedAt: new Date(), dealId: deal.id },
       include
     });
-    runWorkflows({ trigger: 'LEAD_STATUS_CHANGED', orgId, entityType: 'LEAD', entityId: updated.id, entity: updated as any, previousEntity: lead as any }).catch(() => {});
+    runWorkflows({ trigger: 'LEAD_STATUS_CHANGED', orgId, entityType: 'LEAD', entityId: updated.id, entity: { ...(updated as any), departmentName: (updated as any)?.department?.name ?? null }, previousEntity: lead as any }).catch(() => {});
     logAction(req.user!.id, 'UPDATE', 'Lead', updated.id, { converted: true, dealId: deal.id });
     res.json({ lead: updated, deal });
   } catch (err) { next(err); }

@@ -55,14 +55,19 @@ const CONDITION_FIELDS: Record<string, { value: string; label: string }[]> = {
     { value: 'priority', label: 'Priority' },
     { value: 'status', label: 'Status' },
     { value: 'assignedTo', label: 'Assigned To (User ID)' },
+    // Flattened onto the workflow entity by tickets.controller — matches the
+    // department's display name, so "departmentName equals IT" reads sanely.
+    { value: 'departmentName', label: 'Department (name, e.g. IT)' },
   ],
   LEAD: [
     { value: 'status', label: 'Status' },
     { value: 'source', label: 'Source' },
+    { value: 'departmentName', label: 'Department (name)' },
   ],
   DEAL: [
     { value: 'stage', label: 'Stage' },
     { value: 'status', label: 'Status' },
+    { value: 'departmentName', label: 'Department (name)' },
   ],
   CONTACT: [
     { value: 'source', label: 'Source' },
