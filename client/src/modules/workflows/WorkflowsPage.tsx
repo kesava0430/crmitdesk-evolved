@@ -117,6 +117,10 @@ const ACTION_TYPES = [
   { value: 'CREATE_NOTIFICATION', label: 'Create In-App Notification' },
   { value: 'CREATE_TICKET', label: 'Create Follow-up Ticket' },
   { value: 'SCORE_LEAD',    label: 'AI-Score Lead (Lead only)' },
+  // The AI dispatcher: reads the new ticket/lead and fills in department +
+  // owner, balancing topical fit against each teammate's live workload.
+  // Fill-only — it never overwrites a human's choice. No params needed.
+  { value: 'AI_AUTO_ASSIGN', label: 'AI Auto-Assign owner + department (Ticket/Lead)' },
   { value: 'SEND_CSAT_SURVEY', label: 'Send Feedback Survey (Ticket only)' },
 ];
 
@@ -296,6 +300,8 @@ function ActionParamsEditor({ action, onChange, entity }: { action: Action; onCh
       </ParamStack>;
     case 'SCORE_LEAD':
       return <p className="flex-1 text-[11px] text-fg-subtle italic px-1 py-1.5">No parameters — uses AI to score the lead and stores the result on the lead record.</p>;
+    case 'AI_AUTO_ASSIGN':
+      return <p className="flex-1 text-[11px] text-fg-subtle italic px-1 py-1.5">No parameters — AI picks the department and the least-loaded suitable teammate, and only fills fields that are still empty (a human's choice is never overwritten).</p>;
     case 'SEND_CSAT_SURVEY': {
       if (entity !== 'TICKET') {
         return <p className="flex-1 text-[11px] text-warning italic px-1 py-1.5">Only applies to Ticket-triggered rules — this action will be skipped otherwise.</p>;

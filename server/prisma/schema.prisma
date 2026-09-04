@@ -110,6 +110,7 @@ model Organization {
   chatThreads       ChatThread[]
   workspaceConfig   WorkspaceConfig?
   solutionTemplates SolutionTemplate[]
+  webForms          WebForm[]
 }
 
 // Lightweight per-event usage log — currently AI_CALL, WHATSAPP_SEND, and
@@ -3242,4 +3243,27 @@ model SolutionTemplate {
   @@index([orgId])
   @@index([isShared])
   @@map("solution_templates")
+}
+
+
+model WebForm {
+  id               String    @id @default(cuid())
+  orgId            String    @map("org_id")
+  name             String
+  // LEAD | TICKET — which record a submission creates.
+  type             String
+  isActive         Boolean   @default(true) @map("is_active")
+  // Optional heading/intro shown on the hosted page.
+  title            String?
+  intro            String?
+  submissionCount  Int       @default(0) @map("submission_count")
+  lastSubmissionAt DateTime? @map("last_submission_at")
+  createdBy        String    @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("web_forms")
 }

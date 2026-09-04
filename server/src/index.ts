@@ -29,6 +29,7 @@ import { workflowsRouter } from './modules/workflows/workflows.routes';
 import { chatRouter } from './modules/chat/chat.routes';
 import { workspaceRouter } from './modules/workspace/workspace.routes';
 import { relatedRouter } from './modules/core/related/related.routes';
+import { webFormsRouter, publicFormsRouter } from './modules/webforms/webforms.routes';
 import { portalRouter } from './modules/portal/portal.routes';
 import { portalUsersRouter } from './modules/portal/portalUsers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
@@ -278,6 +279,9 @@ app.use('/api/workflows', workflowsRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/workspace', workspaceRouter);
 app.use('/api/related', relatedRouter);
+app.use('/api/web-forms', webFormsRouter);
+// Public web-to-lead/ticket submissions — deliberately unauthenticated.
+app.use('/api/public/forms', publicFormsRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/portal-users', portalUsersRouter);
 app.use('/api/billing', billingRouter);

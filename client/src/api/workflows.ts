@@ -8,7 +8,7 @@ export interface Condition {
 }
 
 export interface Action {
-  type: 'ASSIGN_TO' | 'SET_PRIORITY' | 'SET_STATUS' | 'SEND_EMAIL' | 'SEND_WHATSAPP' | 'ADD_NOTE' | 'SEND_WEBHOOK' | 'SCORE_LEAD' | 'CREATE_TICKET' | 'CREATE_NOTIFICATION' | 'SEND_CSAT_SURVEY';
+  type: 'ASSIGN_TO' | 'SET_PRIORITY' | 'SET_STATUS' | 'SEND_EMAIL' | 'SEND_WHATSAPP' | 'ADD_NOTE' | 'SEND_WEBHOOK' | 'SCORE_LEAD' | 'AI_AUTO_ASSIGN' | 'CREATE_TICKET' | 'CREATE_NOTIFICATION' | 'SEND_CSAT_SURVEY';
   params: Record<string, string | number>;
 }
 

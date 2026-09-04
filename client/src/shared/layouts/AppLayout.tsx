@@ -10,6 +10,7 @@ import {
   Clock, CalendarCheck, Building2, Receipt, RefreshCw, Wallet, KeyRound,
   Package, Boxes, Wrench, Tag, Briefcase, ClipboardList,
   CheckSquare, CheckCircle2, Network, UserSquare2, ChevronRight, SlidersHorizontal, Rocket,
+  PanelTop,
 } from "lucide-react";
 import { useCustomModules } from "../../api/customModules";
 import { useWorkspace } from "../../api/workspace";
@@ -132,6 +133,9 @@ export const NAV_SECTIONS: NavSection[] = [
       // Never listed as hideable in its own settings page, so admins can't
       // strand themselves.
       { to: "/workspace",     label: "Workspace",     icon: SlidersHorizontal, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      // Public web-to-lead / web-to-ticket forms — same manager roles as the
+      // record types the submissions create.
+      { to: "/web-forms",     label: "Web Forms",     icon: PanelTop,  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/org-settings",  label: "Org Settings",  icon: Globe2,    roles: ['SUPER_ADMIN'] },
       { to: "/admin/roles",   label: "Roles & Permissions", icon: Shield, roles: ['SUPER_ADMIN'] },
       { to: "/admin/ai-governance", label: "AI Governance", icon: Brain, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
@@ -192,6 +196,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/templates":         "Templates",
   "/branding":          "Branding",
   "/workspace":         "Workspace Settings",
+  "/web-forms":         "Web Forms",
   "/solution-builder":  "AI Solution Builder",
   "/org-settings":      "Org Settings",
   "/audit-logs":        "Audit Log",

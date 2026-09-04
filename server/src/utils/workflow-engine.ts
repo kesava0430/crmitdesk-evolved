@@ -2,7 +2,7 @@ import { prisma } from './prisma';
 import crypto from 'crypto';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
-import { scoreLead } from './ai';
+import { scoreLead, pickAssignment } from './ai';
 import { sendPushToUser } from './webPush';
 import { sendMail, emailTemplates } from './mailer';
 
@@ -169,6 +169,7 @@ interface Action {
     | 'SEND_WEBHOOK'        // POST to external URL
     | 'CREATE_TICKET'       // auto-create a follow-up ticket
     | 'SCORE_LEAD'          // trigger AI lead scoring
+    | 'AI_AUTO_ASSIGN'      // AI picks department + owner for a ticket/lead
     | 'CREATE_NOTIFICATION' // in-app notification (bell icon), independent of email/WhatsApp
     | 'SEND_CSAT_SURVEY';   // feedback request — TICKET only, emails the requester the 1-5 star rating link
   params: Record<string, string | number>;
@@ -409,6 +410,81 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
       const result = await scoreLead(lead as any);
       await prisma.lead.update({ where: { id: entityId }, data: { aiScore: result.score, aiScoreReason: result.reason } });
       return `Lead scored ${result.score}/100 — ${result.reason}`;
+    }
+
+    case 'AI_AUTO_ASSIGN': {
+      /* The AI dispatcher: reads the fresh ticket/lead, the org's
+         departments, and the eligible people with their live workloads, and
+         fills in department + owner. Fill-only by default — a record that
+         already has an assignee or department keeps it, so a human's choice
+         is never overwritten (params.overwrite = 'always' opts out). Names
+         come back from the model and are resolved to ids HERE, against this
+         org only — an invented name simply doesn't match and that field is
+         left unset. */
+      if (entityType !== 'TICKET' && entityType !== 'LEAD') {
+        return 'AI_AUTO_ASSIGN skipped — only applies to tickets and leads';
+      }
+      const overwrite = String(action.params.overwrite ?? '') === 'always';
+
+      const fresh = entityType === 'TICKET'
+        ? await prisma.ticket.findFirst({ where: { id: entityId, orgId } })
+        : await prisma.lead.findFirst({ where: { id: entityId, orgId }, include: { contact: { select: { name: true } } } });
+      if (!fresh) return 'AI_AUTO_ASSIGN skipped — record not found';
+      const needsAssignee = overwrite || !(fresh as any).assignedTo;
+      const needsDepartment = overwrite || !(fresh as any).departmentId;
+      if (!needsAssignee && !needsDepartment) return 'AI_AUTO_ASSIGN skipped — already assigned';
+
+      const departments = await prisma.department.findMany({
+        where: { orgId, isActive: true }, select: { id: true, name: true },
+      });
+      const roles = entityType === 'TICKET' ? ['IT_MANAGER', 'IT_AGENT'] : ['CRM_MANAGER', 'SALES_REP'];
+      const people = await prisma.user.findMany({
+        where: { orgId, isActive: true, role: { in: roles as any } },
+        select: { id: true, name: true, department: true },
+      });
+      if (!people.length) return 'AI_AUTO_ASSIGN skipped — no eligible teammates';
+
+      // Live workload per candidate — open items they already own.
+      const counts = entityType === 'TICKET'
+        ? await prisma.ticket.groupBy({ by: ['assignedTo'], where: { orgId, assignedTo: { in: people.map(p => p.id) }, status: { in: ['OPEN', 'IN_PROGRESS', 'PENDING'] as any } }, _count: { _all: true } })
+        : await prisma.lead.groupBy({ by: ['assignedTo'], where: { orgId, assignedTo: { in: people.map(p => p.id) }, status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] as any } }, _count: { _all: true } });
+      const countBy: Record<string, number> = {};
+      for (const c of counts as any[]) if (c.assignedTo) countBy[c.assignedTo] = c._count._all;
+
+      const title = entityType === 'TICKET'
+        ? String((fresh as any).title ?? '')
+        : `Lead${(fresh as any).contact?.name ? ` for ${(fresh as any).contact.name}` : ''}${(fresh as any).source ? ` from ${(fresh as any).source}` : ''}`;
+      const body = entityType === 'TICKET' ? String((fresh as any).body ?? '') : String((fresh as any).notes ?? '');
+
+      const pick = await pickAssignment(
+        entityType,
+        { title, body },
+        departments.map(d => ({ name: d.name })),
+        people.map(p => ({ name: p.name, department: p.department, openCount: countBy[p.id] ?? 0 })),
+      );
+
+      const dep = pick.departmentName
+        ? departments.find(d => d.name.toLowerCase() === pick.departmentName!.toLowerCase())
+        : undefined;
+      const person = pick.assigneeName
+        ? people.find(p => p.name.toLowerCase() === pick.assigneeName!.toLowerCase())
+        : undefined;
+
+      const data: Record<string, unknown> = {};
+      if (needsDepartment && dep) data.departmentId = dep.id;
+      if (needsAssignee && person) data.assignedTo = person.id;
+      if (!Object.keys(data).length) return `AI_AUTO_ASSIGN made no change — ${pick.reason || 'no confident match'}`;
+
+      if (entityType === 'TICKET') {
+        await prisma.ticket.updateMany({ where: { id: entityId, orgId }, data });
+      } else {
+        await prisma.lead.updateMany({ where: { id: entityId, orgId }, data });
+      }
+      const parts = [
+        data.assignedTo ? `assigned to ${person!.name}` : null,
+        data.departmentId ? `department ${dep!.name}` : null,
+      ].filter(Boolean).join(', ');
+      return `AI auto-assign: ${parts}${pick.reason ? ` — ${pick.reason}` : ''}`;
     }
 
     case 'SEND_CSAT_SURVEY': {

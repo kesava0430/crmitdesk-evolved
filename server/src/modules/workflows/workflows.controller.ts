@@ -45,7 +45,7 @@ const RuleSchema = z.object({
     // and the switch is what actually runs. A type present in only one or
     // two of the three either 400s on save or silently no-ops at runtime
     // (see CREATE_TICKET/SCORE_LEAD, which used to drift between these).
-    type: z.enum(['ASSIGN_TO', 'SET_PRIORITY', 'SET_STATUS', 'SEND_EMAIL', 'SEND_WHATSAPP', 'ADD_NOTE', 'SEND_WEBHOOK', 'SCORE_LEAD', 'CREATE_TICKET', 'CREATE_NOTIFICATION', 'SEND_CSAT_SURVEY']),
+    type: z.enum(['ASSIGN_TO', 'SET_PRIORITY', 'SET_STATUS', 'SEND_EMAIL', 'SEND_WHATSAPP', 'ADD_NOTE', 'SEND_WEBHOOK', 'SCORE_LEAD', 'AI_AUTO_ASSIGN', 'CREATE_TICKET', 'CREATE_NOTIFICATION', 'SEND_CSAT_SURVEY']),
     params: z.record(z.union([z.string(), z.number()])),
   })),
   isActive: z.boolean().default(true),

@@ -546,6 +546,46 @@ export async function generateSolutionBlueprint(description: string): Promise<an
   return safeJson(raw);
 }
 
+// ─── AI dispatcher — pick department + owner for a new ticket/lead ───────────
+
+/**
+ * The brain behind the AI_AUTO_ASSIGN workflow action: given a fresh ticket
+ * or lead, the org's departments, and the eligible people (with their
+ * department and current open workload), pick which department the record
+ * belongs to and who should own it. Balances topical fit against workload —
+ * the prompt tells it to prefer the least-loaded qualified person. Returns
+ * NAMES (validated/resolved to ids by the caller); null when unsure, so the
+ * action can leave a field untouched instead of guessing.
+ */
+export async function pickAssignment(
+  kind: 'TICKET' | 'LEAD',
+  record: { title: string; body?: string },
+  departments: Array<{ name: string }>,
+  candidates: Array<{ name: string; department?: string | null; openCount: number }>,
+): Promise<{ departmentName: string | null; assigneeName: string | null; reason: string }> {
+  const client = getClient();
+  if (!client) return { departmentName: null, assigneeName: null, reason: 'AI not configured' };
+  const raw = await chat(client,
+    'You are a work dispatcher for a service desk and CRM. Given a new ' +
+    (kind === 'TICKET' ? 'support ticket' : 'sales lead') +
+    ', pick which department it belongs to and the best person to own it. ' +
+    'Respond ONLY with valid JSON: {"departmentName": string|null, "assigneeName": string|null, "reason": "1 short sentence"}. ' +
+    'departmentName must be EXACTLY one of the listed department names (or null if none fits). ' +
+    'assigneeName must be EXACTLY one of the listed candidate names (or null if none fits). ' +
+    'Prefer a candidate whose department matches the chosen department; among equally suitable people pick the LOWEST openCount (their current workload). Never invent names.',
+    `${kind === 'TICKET' ? 'Ticket' : 'Lead'}: ${record.title}\n${record.body ? `Details: ${record.body.slice(0, 800)}\n` : ''}` +
+    `Departments: ${JSON.stringify(departments)}\n` +
+    `Candidates: ${JSON.stringify(candidates)}`,
+    { feature: 'routing.assign', maxTokens: 200, json: true }
+  );
+  const parsed = safeJson(raw);
+  return {
+    departmentName: str(parsed?.departmentName, 60) ?? null,
+    assigneeName: str(parsed?.assigneeName, 120) ?? null,
+    reason: str(parsed?.reason, 300) ?? '',
+  };
+}
+
 // ─── Invoice Payment Reminder ─────────────────────────────────────────────────
 
 /**

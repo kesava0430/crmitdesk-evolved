@@ -69,6 +69,8 @@ const TeamsPage          = lazy(() => import('./pages/TeamsPage'));
 const BrandingPage       = lazy(() => import('./pages/BrandingPage'));
 const WorkspaceSettingsPage = lazy(() => import('./pages/WorkspaceSettingsPage'));
 const SolutionBuilderPage = lazy(() => import('./pages/SolutionBuilderPage'));
+const WebFormsPage = lazy(() => import('./pages/WebFormsPage'));
+const PublicWebFormPage = lazy(() => import('./pages/PublicWebFormPage'));
 const OrgSettingsPage    = lazy(() => import('./pages/OrgSettingsPage'));
 const StoragePage        = lazy(() => import('./pages/StoragePage'));
 const CustomModulesPage  = lazy(() => import('./pages/CustomModulesPage'));
@@ -161,6 +163,9 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/quote/:id" element={<PublicQuotePage />} />
         <Route path="/invoice/:id" element={<PublicInvoicePage />} />
+        {/* Public hosted web-to-lead / web-to-ticket form — no login, no app
+            shell. Orgs embed this URL (or an iframe of it) on their site. */}
+        <Route path="/form/:id" element={<Suspense fallback={<PageSkeleton />}><PublicWebFormPage /></Suspense>} />
         <Route path="/platform-admin" element={<PlatformAdminRoute><Suspense fallback={<PageSkeleton />}><PlatformAdminPage /></Suspense></PlatformAdminRoute>} />
         {/* Authenticated but outside AppLayout — no sidebar chrome, so the
             browser's print dialog produces a clean payslip PDF (see
@@ -203,6 +208,7 @@ export default function App() {
             <Route path="teams" element={<TeamsPage />} />
             <Route path="branding" element={<BrandingPage />} />
             <Route path="workspace" element={<WorkspaceSettingsPage />} />
+            <Route path="web-forms" element={<WebFormsPage />} />
             <Route path="solution-builder" element={<SolutionBuilderPage />} />
             <Route path="org-settings" element={<OrgSettingsPage />} />
             <Route path="storage" element={<StoragePage />} />

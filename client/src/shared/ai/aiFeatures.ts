@@ -360,6 +360,15 @@ export const AI_FEATURES: AiFeature[] = [
     tier: 'paid',
   },
   {
+    id: 'routing.assign',
+    name: 'AI auto-assign',
+    does: 'When a rule with the AI Auto-Assign action fires, picks the department and the best-suited, least-loaded teammate for a new ticket or lead, and fills in those fields.',
+    sends: "The record's title/description, your department names, and eligible teammates' names with their open-item counts.",
+    effect: 'writes',
+    tier: 'paid',
+    caveat: "Fill-only by default — it never overwrites an assignee or department a human already set, and it can only pick from your org's real departments and teammates.",
+  },
+  {
     id: 'studio.function',
     name: 'Custom AI function',
     does: 'Runs an AI function your team wrote, against the inputs you give it.',
