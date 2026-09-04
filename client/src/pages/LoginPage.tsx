@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Ticket, Users, Shield, Eye, EyeOff, Sparkles, ArrowRight, UserSquare2, CheckSquare, Bot } from 'lucide-react';
 import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
+import { isTransientError } from '../api/client';
 import {
   Alert, Button, Card, Field, FormError, IconButton, Input, Tabs,
 } from '../shared/components';
@@ -116,8 +117,18 @@ export function LoginPage() {
       } else {
         navigate('/dashboard');
       }
-    } catch {
-      setError(needsTotp ? 'Invalid or expired code. Please try again.' : 'Invalid email or password. Please try again.');
+    } catch (err: any) {
+      // A network error / timeout / gateway status is the server being
+      // unreachable or waking up — NOT bad credentials. Saying "invalid
+      // email or password" there sends people rechecking a password that
+      // was fine. Only a real 401 is a credentials problem.
+      if (isTransientError(err)) {
+        setError('Could not reach the server — it may be waking up. Please wait a moment and try again.');
+      } else if (needsTotp) {
+        setError('Invalid or expired code. Please try again.');
+      } else {
+        setError('Invalid email or password. Please try again.');
+      }
     } finally { setLoading(false); }
   }
 

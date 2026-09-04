@@ -8,13 +8,51 @@ import { addToast } from '../shared/components/toastStore';
 // explicit /api/* redirect proxy in render.yaml papering over it; any other
 // host (Netlify included) sent every request to its own domain instead of
 // the API, which doesn't exist there.
-export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' });
+// 60s timeout: long enough to survive a Render cold-start wake (the server
+// spins down when idle and the first request can take 30–40s to boot),
+// short enough that a genuinely hung request eventually fails instead of
+// spinning forever.
+export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api', timeout: 60_000 });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+// A "transient" failure is the server being unreachable or still waking up —
+// no HTTP response at all (network error / timeout), or a gateway status
+// Render returns while the instance boots (502/503/504). These are NOT
+// authentication failures: a login or refresh that hits one should be
+// retried, and must never be reported to the user as "invalid credentials"
+// or treated as an expired session.
+export function isTransientError(err: any): boolean {
+  if (!err?.response) return true;                       // network error / timeout
+  const s = err.response.status;
+  return s === 502 || s === 503 || s === 504;
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/**
+ * POST an auth endpoint (login / refresh) with a couple of automatic retries
+ * on transient failures, so a Render cold-start wake shows up as "took a few
+ * seconds" rather than a spurious failure. Real 4xx (bad credentials,
+ * invalid refresh token) are returned immediately — they are not retried.
+ */
+export async function authPost(url: string, body: any, retries = 2): Promise<any> {
+  let lastErr: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await api.post(url, body);
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientError(err) || attempt === retries) throw err;
+      await sleep(1500 * (attempt + 1)); // 1.5s, then 3s
+    }
+  }
+  throw lastErr;
+}
 
 // The refresh endpoint rotates the refresh token (invalidates the old one,
 // issues a new pair — see auth.controller.ts refreshToken). A page like the
@@ -31,6 +69,11 @@ api.interceptors.request.use((config) => {
 // concurrent 401 instead of letting each request start its own.
 let refreshPromise: Promise<{ access: string; refresh?: string }> | null = null;
 let loggedOutFromExpiry = false;
+// Set by ensureFreshToken() when a refresh attempt comes back 401 — i.e. the
+// refresh token is genuinely invalid/expired, so the session really is over.
+// A transient failure (server waking up, network blip) leaves this false, so
+// the interceptor keeps the user signed in instead of dumping them to /login.
+let refreshWasUnauthorized = false;
 
 // AuthContext's `accessToken` React state is only ever set by login/setSession
 // — a background refresh triggered here writes straight to localStorage and
@@ -48,10 +91,10 @@ export function onAccessTokenRefreshed(cb: (token: string) => void) {
 function performRefresh() {
   if (!refreshPromise) {
     const refresh = localStorage.getItem('refreshToken');
-    // api.post, not a bare axios.post('/api/auth/refresh', ...) — the
-    // bare call hardcoded a relative path that bypassed baseURL/
-    // VITE_API_URL entirely, same bug as the baseURL default above.
-    refreshPromise = api.post('/auth/refresh', { refresh })
+    // authPost (not a bare axios call) so a refresh that lands mid-cold-start
+    // retries instead of failing — a failed refresh is what logs the user
+    // out, so it must not fail just because the server was waking up.
+    refreshPromise = authPost('/auth/refresh', { refresh })
       .then(res => res.data)
       .finally(() => { refreshPromise = null; });
   }
@@ -73,8 +116,13 @@ export async function ensureFreshToken(): Promise<string | null> {
     localStorage.setItem('accessToken', data.access);
     if (data.refresh) localStorage.setItem('refreshToken', data.refresh);
     tokenListener?.(data.access);
+    refreshWasUnauthorized = false;
     return data.access;
-  } catch {
+  } catch (err) {
+    // Distinguish "the refresh token is dead" (real 401 → session is over)
+    // from "couldn't reach the server right now" (transient → keep the
+    // session). The interceptor uses this flag to decide whether to log out.
+    refreshWasUnauthorized = (err as any)?.response?.status === 401;
     return null;
   }
 }
@@ -96,7 +144,13 @@ api.interceptors.response.use(
         original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
       }
-      if (!loggedOutFromExpiry) {
+      // Only hard-log-out when the refresh token itself was rejected (401).
+      // If the refresh merely couldn't reach the server (cold start, network
+      // blip), keep the session and let this one request fail — clearing
+      // localStorage here is exactly what threw freshly-logged-in users back
+      // to the login screen "with a credentials error" when the server was
+      // waking up.
+      if (refreshWasUnauthorized && !loggedOutFromExpiry) {
         loggedOutFromExpiry = true;
         addToast('Your session has expired — please sign in again.', 'warning', { duration: 6000 });
         localStorage.clear();

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import { api, onAccessTokenRefreshed } from '../api/client';
+import { api, authPost, onAccessTokenRefreshed } from '../api/client';
 
 interface Org {
   id: string;
@@ -61,7 +61,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const login = useCallback(async (email: string, password: string, totpToken?: string) => {
-    const res = await api.post('/auth/login', { email, password, totpToken });
+    // authPost retries on transient failures (Render cold-start wake) so a
+    // login during a server boot doesn't spuriously fail. Real 401s (wrong
+    // password) are not retried and surface immediately.
+    const res = await authPost('/auth/login', { email, password, totpToken });
     if (res.data.requires2FA) return { requires2FA: true };
     const { user, access, refresh } = res.data;
     const normalized = { ...user, org: user.org ?? user.organization ?? null };
