@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   PanelTop, Plus, Link2, Code2, Trash2, CheckCircle2,
   ExternalLink, MousePointerClick, KeyRound, RefreshCw,
+  Plug, ChevronDown, ChevronUp, Copy,
 } from 'lucide-react';
 import { api } from '../api/client';
 import {
@@ -39,6 +40,7 @@ export default function WebFormsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [draft, setDraft] = useState({ name: '', type: 'LEAD' as 'LEAD' | 'TICKET', title: '', intro: '' });
   const [copied, setCopied] = useState<string | null>(null);
+  const [integrationsFor, setIntegrationsFor] = useState<string | null>(null);
 
   const { data: forms, isLoading } = useQuery<WebForm[]>({
     queryKey: ['web-forms'],
@@ -86,6 +88,47 @@ export default function WebFormsPage() {
   const publicUrl = (id: string) => `${window.location.origin}/form/${id}`;
   const embedSnippet = (id: string) =>
     `<iframe src="${publicUrl(id)}" style="width:100%;max-width:560px;height:640px;border:0;border-radius:12px" title="Contact form"></iframe>`;
+
+  // The public submit endpoint as an absolute URL — what Google Apps Script,
+  // Zoho webhooks and Zapier must POST to. VITE_API_URL is absolute in
+  // production (API and client are different Render services); the '/api'
+  // fallback is dev, where origin-relative works.
+  const rawApi: string = (import.meta as any).env?.VITE_API_URL || '/api';
+  const apiBase = rawApi.startsWith('http') ? rawApi : `${window.location.origin}${rawApi}`;
+  const submitUrl = (id: string) => `${apiBase.replace(/\/$/, '')}/public/forms/${id}/submit`;
+
+  const appsScript = (form: WebForm) => `// ── CRMITdesk bridge for Google Forms ─────────────────────────────
+// Form menu (⋮) → Apps Script → paste this → Triggers → Add Trigger:
+// function onFormSubmit, event source "From form", type "On form submit".
+const ENDPOINT = '${submitUrl(form.id)}';
+const INTAKE_TOKEN = '${form.intakeToken ?? ''}';
+
+// Map YOUR Google Form question titles (left) to CRMITdesk fields (right).
+// Edit the left side to match your questions exactly.
+const QUESTION_MAP = {
+  'Your name':        'name',     // required
+  'Email address':    'email',    // required
+  'Phone number':     'phone',
+  'Company':          'company',${form.type === 'TICKET' ? `
+  'Subject':          'subject',` : ''}
+  'How can we help?': 'message',
+};
+
+function onFormSubmit(e) {
+  const payload = {};
+  e.response.getItemResponses().forEach(function (ir) {
+    const field = QUESTION_MAP[ir.getItem().getTitle()];
+    if (field) payload[field] = String(ir.getResponse());
+  });
+  if (!payload.name || !payload.email) return;
+  UrlFetchApp.fetch(ENDPOINT, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-intake-token': INTAKE_TOKEN },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  });
+}`;
 
   async function copyText(key: string, text: string) {
     try {
@@ -187,6 +230,13 @@ export default function WebFormsPage() {
                     >
                       <ExternalLink size={13} /> Preview
                     </a>
+                    <Button
+                      variant="secondary" size="sm"
+                      icon={<Plug size={13} />}
+                      onClick={() => setIntegrationsFor(v => (v === form.id ? null : form.id))}
+                    >
+                      Connect other products {integrationsFor === form.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </Button>
                   </div>
                   <code className="block text-[11.5px] text-fg-subtle bg-surface-sunken rounded-md px-2.5 py-1.5 truncate">
                     {publicUrl(form.id)}
@@ -223,6 +273,79 @@ export default function WebFormsPage() {
                       <span className="text-[11px] text-fg-subtle">
                         Send as <code>x-intake-token</code> header from Zoho / Google Forms / Zapier
                       </span>
+                    </div>
+                  )}
+
+                  {/* ── Integration steps: connect Google Forms / Zoho / Zapier ── */}
+                  {integrationsFor === form.id && (
+                    <div className="mt-1 rounded-xl border border-line bg-surface-sunken/50 p-4 space-y-5 text-[13px] text-fg">
+                      <p className="text-[12.5px] text-fg-muted">
+                        Any form product that can send an HTTP POST after a submission can create{' '}
+                        {form.type === 'LEAD' ? 'leads' : 'tickets'} here. All of them POST to this endpoint
+                        with the intake token above as an <code>x-intake-token</code> header:
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="text-[11.5px] bg-surface border border-line rounded px-2 py-1 truncate max-w-full">
+                          {submitUrl(form.id)}
+                        </code>
+                        <Button
+                          variant="secondary" size="xs"
+                          icon={copied === `api-${form.id}` ? <CheckCircle2 size={12} className="text-success" /> : <Copy size={12} />}
+                          onClick={() => copyText(`api-${form.id}`, submitUrl(form.id))}
+                        >
+                          {copied === `api-${form.id}` ? 'Copied' : 'Copy endpoint'}
+                        </Button>
+                      </div>
+                      <p className="text-[12px] text-fg-subtle">
+                        Fields: <code>name</code> (required), <code>email</code> (required), <code>phone</code>,{' '}
+                        <code>company</code>{form.type === 'TICKET' && <>, <code>subject</code></>}, <code>message</code> — sent as JSON.
+                      </p>
+
+                      <div>
+                        <p className="font-semibold mb-1.5">Google Forms</p>
+                        <ol className="list-decimal ml-5 space-y-1 text-[12.5px] text-fg-muted">
+                          <li>Open your Google Form → ⋮ menu → <strong>Apps Script</strong>.</li>
+                          <li>Delete the sample code and paste the script below — the endpoint and token are already filled in for this form.</li>
+                          <li>Edit <code>QUESTION_MAP</code> so the left side matches your Google Form question titles exactly.</li>
+                          <li>Click <strong>Triggers</strong> (clock icon) → <strong>Add Trigger</strong> → function <code>onFormSubmit</code>, event source <em>From form</em>, event type <em>On form submit</em> → Save and approve the permission prompt.</li>
+                          <li>Submit a test response — it appears here within seconds.</li>
+                        </ol>
+                        <Button
+                          className="mt-2"
+                          variant="secondary" size="xs"
+                          icon={copied === `gas-${form.id}` ? <CheckCircle2 size={12} className="text-success" /> : <Code2 size={12} />}
+                          onClick={() => copyText(`gas-${form.id}`, appsScript(form))}
+                        >
+                          {copied === `gas-${form.id}` ? 'Copied' : 'Copy ready-made Apps Script'}
+                        </Button>
+                      </div>
+
+                      <div>
+                        <p className="font-semibold mb-1.5">Zoho Forms (no code)</p>
+                        <ol className="list-decimal ml-5 space-y-1 text-[12.5px] text-fg-muted">
+                          <li>Open your form in Zoho Forms → <strong>Integrations</strong> → <strong>Webhooks</strong>.</li>
+                          <li>Webhook URL: the endpoint above. Method: <strong>POST</strong>. Format: <strong>JSON</strong>.</li>
+                          <li>Add a header <code>x-intake-token</code> with the token above.</li>
+                          <li>Map your Zoho fields to parameter names <code>name</code>, <code>email</code>, <code>phone</code>, <code>company</code>{form.type === 'TICKET' && <>, <code>subject</code></>}, <code>message</code>.</li>
+                          <li>Save and submit a test entry. (Typeform, Jotform and Tally work the same way via their Webhooks settings.)</li>
+                        </ol>
+                      </div>
+
+                      <div>
+                        <p className="font-semibold mb-1.5">Zapier / Make / n8n</p>
+                        <ol className="list-decimal ml-5 space-y-1 text-[12.5px] text-fg-muted">
+                          <li>Trigger: "New form response" from your form tool.</li>
+                          <li>Action: <strong>Webhooks → POST</strong> to the endpoint above, payload type JSON.</li>
+                          <li>Header <code>x-intake-token</code>: the token above. Map <code>name</code> and <code>email</code> (plus any other fields) from the trigger.</li>
+                        </ol>
+                      </div>
+
+                      <Alert tone="warning">
+                        Never put the intake token in website code — anything in a web page is public.
+                        For your own website, embed this form with the iframe snippet instead; the token
+                        is only for server-side senders like Apps Script, Zoho and Zapier. If it ever
+                        leaks, press <strong>Rotate</strong> above.
+                      </Alert>
                     </div>
                   )}
                 </Card>
