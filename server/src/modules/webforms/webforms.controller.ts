@@ -19,6 +19,7 @@
  * never see, hard length caps, and rich text stripped to plain text.
  */
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
@@ -30,6 +31,18 @@ import { notifyOrgAdmins } from '../notifications/notifications.controller';
 
 // ─── Admin CRUD ──────────────────────────────────────────────────────────────
 
+// Secret for server-to-server intake (Zoho webhooks, Google Apps Script,
+// Zapier…). Sent as the x-intake-token header; proves the caller is the
+// org's own integration, so the per-IP rate limit doesn't apply (webhook
+// traffic all arrives from one provider IP and would trip it instantly).
+const newIntakeToken = () => `wfk_${crypto.randomBytes(24).toString('hex')}`;
+
+function tokenMatches(given: string, actual: string | null): boolean {
+  if (!actual || !given) return false;
+  const a = Buffer.from(given), b = Buffer.from(actual);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const FormSchema = z.object({
   name: z.string().trim().min(1).max(80),
   type: z.enum(['LEAD', 'TICKET']),
@@ -40,9 +53,19 @@ const FormSchema = z.object({
 
 export async function listForms(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forms = await prisma.webForm.findMany({
+    let forms = await prisma.webForm.findMany({
       where: { orgId: req.user!.orgId }, orderBy: { createdAt: 'desc' },
     });
+    // Lazy backfill: forms created before intake tokens existed get one the
+    // first time an admin looks at the list.
+    const missing = forms.filter(f => !f.intakeToken);
+    if (missing.length) {
+      await Promise.all(missing.map(f =>
+        prisma.webForm.update({ where: { id: f.id }, data: { intakeToken: newIntakeToken() } })));
+      forms = await prisma.webForm.findMany({
+        where: { orgId: req.user!.orgId }, orderBy: { createdAt: 'desc' },
+      });
+    }
     res.json(forms);
   } catch (err) { next(err); }
 }
@@ -53,7 +76,7 @@ export async function createForm(req: AuthRequest, res: Response, next: NextFunc
     const count = await prisma.webForm.count({ where: { orgId: req.user!.orgId } });
     if (count >= 20) throw new AppError(400, 'Form limit reached (20 per organization)');
     const form = await prisma.webForm.create({
-      data: { ...data, orgId: req.user!.orgId, createdBy: req.user!.id },
+      data: { ...data, orgId: req.user!.orgId, createdBy: req.user!.id, intakeToken: newIntakeToken() },
     });
     logAction(req.user!.id, 'CREATE', 'WebForm', form.id, { name: form.name, type: form.type });
     res.status(201).json(form);
@@ -68,6 +91,19 @@ export async function updateForm(req: AuthRequest, res: Response, next: NextFunc
     });
     if (!updated.count) throw new AppError(404, 'Form not found');
     res.json(await prisma.webForm.findUnique({ where: { id: req.params.id } }));
+  } catch (err) { next(err); }
+}
+
+/** Rotate the intake token — invalidates every integration using the old one. */
+export async function rotateToken(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const owned = await prisma.webForm.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    if (!owned) throw new AppError(404, 'Form not found');
+    const form = await prisma.webForm.update({
+      where: { id: owned.id }, data: { intakeToken: newIntakeToken() },
+    });
+    logAction(req.user!.id, 'UPDATE', 'WebForm', form.id, { rotatedIntakeToken: true });
+    res.json(form);
   } catch (err) { next(err); }
 }
 
@@ -120,12 +156,22 @@ const strip = (v: unknown, max: number) => String(v ?? '').replace(/<[^>]*>/g, '
 
 export async function publicFormSubmit(req: Request, res: Response, next: NextFunction) {
   try {
-    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? 'unknown').split(',')[0].trim();
-    if (limited(ipHits, ip, 10, 10 * 60_000)) throw new AppError(429, 'Too many submissions — try again later');
-    if (limited(formHits, req.params.id, 60, 60 * 60_000)) throw new AppError(429, 'This form is receiving too many submissions — try again later');
-
     const form = await prisma.webForm.findUnique({ where: { id: req.params.id } });
     if (!form || !form.isActive) throw new AppError(404, 'This form is not available');
+
+    // A valid x-intake-token marks a trusted server-to-server integration
+    // (Zoho webhook, Google Apps Script, Zapier). Those all send from one
+    // provider IP, so the per-IP limit is skipped for them — they get a
+    // higher per-form budget instead. Anonymous browser traffic keeps both
+    // original limits.
+    const trusted = tokenMatches(String(req.headers['x-intake-token'] ?? ''), form.intakeToken);
+    if (trusted) {
+      if (limited(formHits, `${form.id}:intake`, 600, 60 * 60_000)) throw new AppError(429, 'This form is receiving too many submissions — try again later');
+    } else {
+      const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? 'unknown').split(',')[0].trim();
+      if (limited(ipHits, ip, 10, 10 * 60_000)) throw new AppError(429, 'Too many submissions — try again later');
+      if (limited(formHits, form.id, 60, 60 * 60_000)) throw new AppError(429, 'This form is receiving too many submissions — try again later');
+    }
     const orgId = form.orgId;
 
     // Honeypot: a hidden "website" field humans never fill. Bots do. Answer

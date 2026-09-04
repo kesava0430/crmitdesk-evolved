@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   PanelTop, Plus, Link2, Code2, Trash2, CheckCircle2,
-  ExternalLink, MousePointerClick,
+  ExternalLink, MousePointerClick, KeyRound, RefreshCw,
 } from 'lucide-react';
 import { api } from '../api/client';
 import {
@@ -28,6 +28,7 @@ interface WebForm {
   title: string | null;
   intro: string | null;
   isActive: boolean;
+  intakeToken: string | null;
   submissionCount: number;
   lastSubmissionAt: string | null;
   createdAt: string;
@@ -68,6 +69,12 @@ export default function WebFormsPage() {
       (await api.patch(`/web-forms/${id}`, { isActive })).data,
     onSuccess: invalidate,
     onError: (e: any) => addToast(e?.response?.data?.error || 'Update failed', 'error'),
+  });
+
+  const rotateMut = useMutation({
+    mutationFn: async (id: string) => (await api.post(`/web-forms/${id}/rotate-token`)).data,
+    onSuccess: () => { invalidate(); addToast('New intake token issued — update your integrations', 'success'); },
+    onError: (e: any) => addToast(e?.response?.data?.error || 'Could not rotate token', 'error'),
   });
 
   const deleteMut = useMutation({
@@ -184,6 +191,40 @@ export default function WebFormsPage() {
                   <code className="block text-[11.5px] text-fg-subtle bg-surface-sunken rounded-md px-2.5 py-1.5 truncate">
                     {publicUrl(form.id)}
                   </code>
+                  {/* Webhook intake — for Zoho webhooks / Google Apps Script /
+                      Zapier. The token lifts the per-IP rate limit for
+                      server-to-server traffic and proves the caller is yours. */}
+                  {form.intakeToken && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-line-subtle">
+                      <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg-muted">
+                        <KeyRound size={13} /> Webhook intake token
+                      </span>
+                      <code className="text-[11.5px] text-fg-subtle bg-surface-sunken rounded px-2 py-0.5">
+                        {form.intakeToken.slice(0, 12)}…
+                      </code>
+                      <Button
+                        variant="secondary" size="xs"
+                        icon={copied === `tok-${form.id}` ? <CheckCircle2 size={12} className="text-success" /> : <Link2 size={12} />}
+                        onClick={() => copyText(`tok-${form.id}`, form.intakeToken!)}
+                      >
+                        {copied === `tok-${form.id}` ? 'Copied' : 'Copy token'}
+                      </Button>
+                      <Button
+                        variant="ghost" size="xs"
+                        icon={<RefreshCw size={12} />}
+                        onClick={() => {
+                          if (window.confirm('Issue a new token? Integrations using the current one will lose the rate-limit bypass until updated.')) {
+                            rotateMut.mutate(form.id);
+                          }
+                        }}
+                      >
+                        Rotate
+                      </Button>
+                      <span className="text-[11px] text-fg-subtle">
+                        Send as <code>x-intake-token</code> header from Zoho / Google Forms / Zapier
+                      </span>
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>

@@ -3258,6 +3258,10 @@ model WebForm {
   intro            String?
   submissionCount  Int       @default(0) @map("submission_count")
   lastSubmissionAt DateTime? @map("last_submission_at")
+  // Secret for server-to-server intake (Zoho webhooks, Google Apps Script,
+  // Zapier). Sent as the x-intake-token header: proves the caller really is
+  // the org's own integration and lifts the per-IP rate limit.
+  intakeToken      String?   @unique @map("intake_token")
   createdBy        String    @map("created_by")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")

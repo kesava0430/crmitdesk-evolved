@@ -13,4 +13,5 @@ webFormsRouter.use(authenticate);
 webFormsRouter.get('/', requireRole(...MANAGERS), c.listForms);
 webFormsRouter.post('/', requireRole(...MANAGERS), c.createForm);
 webFormsRouter.patch('/:id', requireRole(...MANAGERS), c.updateForm);
+webFormsRouter.post('/:id/rotate-token', requireRole(...MANAGERS), c.rotateToken);
 webFormsRouter.delete('/:id', requireRole(...MANAGERS), c.deleteForm);
