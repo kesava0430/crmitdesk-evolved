@@ -880,7 +880,7 @@ async function buildOrg(preset: VerticalPreset) {
     await prisma.user.deleteMany({ where: { email: { in: seedEmails } } });
   }
 
-  const org = await prisma.organization.create({ data: { name: preset.orgName, slug: preset.slug, plan: 'ENTERPRISE', currency: preset.currency ?? 'USD', timezone: preset.timezone ?? 'UTC' } });
+  const org = await prisma.organization.create({ data: { name: preset.orgName, slug: preset.slug, currency: preset.currency ?? 'USD', timezone: preset.timezone ?? 'UTC' } });
 
   const [admin, crmMgr, salesRep, itMgr, itAgent] = await Promise.all([
     prisma.user.create({ data: { orgId: org.id, name: 'Alex Admin', email: seedEmails[0], passwordHash: await hash('Admin@123'), role: UserRole.SUPER_ADMIN, department: 'Operations' } }),

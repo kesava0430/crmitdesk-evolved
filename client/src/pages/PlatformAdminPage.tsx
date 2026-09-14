@@ -26,8 +26,8 @@ const GB = 1024 * 1024 * 1024;
 const gbLabel = (bytes: number) => `${(bytes / GB).toFixed(bytes < GB ? 2 : 1)}GB`;
 
 /** One plan → one colour, matching BillingPage so "Pro" reads the same everywhere. */
-const PLAN_BADGE: Record<string, 'gray' | 'purple' | 'blue'> = {
-  FREE: 'gray', PRO: 'purple', ENTERPRISE: 'blue',
+const PLAN_BADGE: Record<string, 'gray' | 'purple' | 'blue' | 'yellow'> = {
+  FREE: 'gray', PRO: 'purple', ENTERPRISE: 'blue', CUSTOM: 'yellow',
 };
 
 function UsageBar({ label, usedBytes, quotaBytes, colorClass }: { label: string; usedBytes: number; quotaBytes: number; colorClass: string }) {
@@ -216,7 +216,7 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
             onCancel={() => setEditing(false)}
             saving={mutation.isPending}
             onSave={() => mutation.mutate({
-              id: org.id, plan: plan as 'FREE' | 'PRO' | 'ENTERPRISE', seats, status, cancelAtPeriodEnd,
+              id: org.id, plan: plan as 'FREE' | 'PRO' | 'ENTERPRISE' | 'CUSTOM', seats, status, cancelAtPeriodEnd,
               storageQuotaOverrideGb: storageOverrideGb.trim() === '' ? null : Number(storageOverrideGb),
               aiTokenLimitMonthly: aiTokenLimit.trim() === '' ? null : Number(aiTokenLimit),
             } as any, { onSuccess: () => setEditing(false) })}
@@ -235,6 +235,7 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
                 { value: 'FREE', label: 'FREE' },
                 { value: 'PRO', label: 'PRO' },
                 { value: 'ENTERPRISE', label: 'ENTERPRISE' },
+                { value: 'CUSTOM', label: 'CUSTOM (self-serve licence — modules/seats set at checkout)' },
               ]}
             />
           </Field>

@@ -2,7 +2,8 @@ import { Response, NextFunction } from 'express';
 import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/authenticate';
-import { PLANS, FeatureKey } from './stripe';
+import { PLANS, FeatureKey, PlanKey, isPlanKey } from './stripe';
+import { GRACE_PERIOD_DAYS, CUSTOM_STORAGE_GB, normaliseModules } from './pricing';
 
 // Every internal role counts against a plan's seat limit EXCEPT plain
 // EMPLOYEE — those are staff who just submit requests internally (not
@@ -25,6 +26,116 @@ async function getOrCreateSubscription(orgId: string) {
   });
 }
 
+// ─── Effective licence (plan × payment state) ────────────────────────────────
+//
+// Everything below (seats, features, storage) must read the org's licence
+// through getEffectiveLicense() rather than Subscription.plan directly, so
+// that Stripe's payment state is honoured everywhere in one place:
+//
+//   active / trialing            → full paid entitlements
+//   past_due / incomplete        → paid entitlements continue during the grace
+//                                  window (graceUntil, set by invoice.payment_failed,
+//                                  else currentPeriodEnd + GRACE_PERIOD_DAYS), then FREE
+//   canceled / unpaid / paused   → FREE immediately
+//   active but currentPeriodEnd stale past the grace window → FREE
+//
+// "FREE" here means FREE entitlements (seats/features/storage). Existing users,
+// rules and files are never touched — the grandfathering rules in the licensing
+// spec still apply; the org simply can't add beyond FREE limits until it pays.
+
+export type LicenseAccess = 'full' | 'grace' | 'lapsed';
+
+export interface EffectiveLicense {
+  orgId: string;
+  /** Plan on the row */
+  plan: PlanKey;
+  /** Plan whose entitlements actually apply right now */
+  effectivePlan: PlanKey;
+  status: string;
+  seats: number;
+  features: FeatureKey[];
+  storageQuotaGB: number;
+  interval: string;
+  currentPeriodEnd: Date | null;
+  graceUntil: Date | null;
+  cancelAtPeriodEnd: boolean;
+  access: LicenseAccess;
+  /** Human-readable explanation when access !== 'full' */
+  reason: string | null;
+}
+
+const ACTIVE_STATUSES = new Set(['active', 'trialing']);
+const LAPSED_STATUSES = new Set(['canceled', 'unpaid', 'incomplete_expired', 'paused']);
+
+const addDays = (d: Date, days: number) => new Date(d.getTime() + days * 86_400_000);
+
+type SubRow = {
+  orgId: string; plan: string; status: string; seats: number; features: string[]; interval: string;
+  currentPeriodEnd: Date | null; graceUntil: Date | null; cancelAtPeriodEnd: boolean;
+  storageQuotaOverrideGb: number | null;
+};
+
+/** Pure evaluation — exported so it can be unit-tested without a database. */
+export function evaluateLicense(sub: SubRow, now = new Date()): EffectiveLicense {
+  const plan: PlanKey = isPlanKey(sub.plan) ? sub.plan : 'FREE';
+  const base = {
+    orgId: sub.orgId, plan, status: sub.status, interval: sub.interval,
+    currentPeriodEnd: sub.currentPeriodEnd, graceUntil: sub.graceUntil, cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+  };
+
+  const paidFeatures: FeatureKey[] = plan === 'CUSTOM'
+    ? (normaliseModules(sub.features).filter(k => k !== 'hosted_storage') as FeatureKey[])
+    : [...PLANS[plan].features];
+  const paidStorage = sub.storageQuotaOverrideGb ?? (plan === 'CUSTOM'
+    ? (sub.features.includes('hosted_storage') ? CUSTOM_STORAGE_GB : 0)
+    : PLANS[plan].storageQuotaGB);
+
+  const full: EffectiveLicense = { ...base, effectivePlan: plan, seats: sub.seats, features: paidFeatures, storageQuotaGB: paidStorage, access: 'full', reason: null };
+  const lapsed = (reason: string): EffectiveLicense => ({
+    ...base, effectivePlan: 'FREE', seats: PLANS.FREE.seats, features: [...PLANS.FREE.features],
+    // An explicit operator override still wins on a lapsed org (it is a deliberate comp)
+    storageQuotaGB: sub.storageQuotaOverrideGb ?? PLANS.FREE.storageQuotaGB, access: 'lapsed', reason,
+  });
+
+  if (plan === 'FREE') return { ...full, seats: PLANS.FREE.seats };
+  if (LAPSED_STATUSES.has(sub.status)) return lapsed(`Your subscription is ${sub.status}.`);
+
+  const graceEnd = sub.graceUntil ?? (sub.currentPeriodEnd ? addDays(sub.currentPeriodEnd, GRACE_PERIOD_DAYS) : null);
+
+  if (sub.status === 'past_due' || sub.status === 'incomplete') {
+    if (graceEnd && now <= graceEnd) {
+      return { ...full, access: 'grace', reason: `Your last payment failed. Update your payment method before ${graceEnd.toDateString()} to keep ${PLANS[plan].name} features.` };
+    }
+    return lapsed('Your last payment failed and the grace period has ended.');
+  }
+
+  if (ACTIVE_STATUSES.has(sub.status)) {
+    if (sub.currentPeriodEnd && now > addDays(sub.currentPeriodEnd, GRACE_PERIOD_DAYS)) {
+      return lapsed('Your subscription period ended and was not renewed.');
+    }
+    return full;
+  }
+
+  return lapsed(`Your subscription status "${sub.status}" is not active.`);
+}
+
+const CACHE_TTL_MS = 30_000;
+const licenseCache = new Map<string, { at: number; value: EffectiveLicense }>();
+
+/** Call after any Subscription write (webhooks, platform-admin edits) so the next request sees it. */
+export function invalidateLicenseCache(orgId?: string) {
+  if (orgId) licenseCache.delete(orgId); else licenseCache.clear();
+}
+
+export async function getEffectiveLicense(orgId: string): Promise<EffectiveLicense> {
+  const hit = licenseCache.get(orgId);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
+  const sub = await getOrCreateSubscription(orgId);
+  const value = evaluateLicense(sub as unknown as SubRow);
+  licenseCache.set(orgId, { at: Date.now(), value });
+  return value;
+}
+
 /** Active users whose role counts against the seat limit (everything but EMPLOYEE). */
 export async function getBillableSeatCount(orgId: string): Promise<number> {
   return prisma.user.count({
@@ -45,15 +156,16 @@ export async function getBillableSeatCount(orgId: string): Promise<number> {
 export async function assertSeatAvailable(orgId: string, role: string): Promise<void> {
   if (!isMeteredRole(role)) return;
 
-  const sub = await getOrCreateSubscription(orgId);
+  const lic = await getEffectiveLicense(orgId);
   const billableCount = await getBillableSeatCount(orgId);
 
-  if (billableCount >= sub.seats) {
+  if (billableCount >= lic.seats) {
+    const lapsedNote = lic.access === 'lapsed' ? ` ${lic.reason} Until payment is restored your organisation is limited to the Free plan's seats.` : '';
     throw new AppError(
       402,
-      `Your ${sub.plan} plan includes ${sub.seats} seat${sub.seats === 1 ? '' : 's'}. ` +
+      `Your ${PLANS[lic.effectivePlan].name} plan includes ${lic.seats} seat${lic.seats === 1 ? '' : 's'}. ` +
       `You're already using all ${billableCount} (every role except Employee counts toward this). ` +
-      `Upgrade your plan to add more people.`
+      `Upgrade your plan or add seats under Billing to add more people.${lapsedNote}`
     );
   }
 }
@@ -66,13 +178,9 @@ export async function assertSeatAvailable(orgId: string, role: string): Promise<
 // rather than throwing, so an unrecognized plan blocks access to Pro+
 // features instead of accidentally granting them.
 
-function planFeatures(plan: string): FeatureKey[] {
-  return (PLANS as Record<string, { features: readonly FeatureKey[] }>)[plan]?.features as FeatureKey[] || [];
-}
-
 export async function hasFeature(orgId: string, feature: FeatureKey): Promise<boolean> {
-  const sub = await getOrCreateSubscription(orgId);
-  return planFeatures(sub.plan).includes(feature);
+  const lic = await getEffectiveLicense(orgId);
+  return lic.features.includes(feature);
 }
 
 /** Express middleware factory — 402s with an upgrade message if the org's
@@ -81,12 +189,12 @@ export async function hasFeature(orgId: string, feature: FeatureKey): Promise<bo
 export function requireFeature(feature: FeatureKey) {
   return async (req: AuthRequest, _res: Response, next: NextFunction) => {
     try {
-      const sub = await getOrCreateSubscription(req.user!.orgId);
-      if (!planFeatures(sub.plan).includes(feature)) {
-        throw new AppError(
-          402,
-          `This feature isn't included in your ${sub.plan} plan. Upgrade your plan to unlock it.`
-        );
+      const lic = await getEffectiveLicense(req.user!.orgId);
+      if (!lic.features.includes(feature)) {
+        const why = lic.access === 'lapsed'
+          ? `${lic.reason} Restore payment under Billing to regain access.`
+          : `Upgrade your plan or add it to a custom licence under Billing to unlock it.`;
+        throw new AppError(402, `This feature isn't included in your ${PLANS[lic.effectivePlan].name} plan. ${why}`);
       }
       next();
     } catch (err) { next(err); }
@@ -100,21 +208,12 @@ export function requireFeature(feature: FeatureKey) {
 // alternative to bring-your-own Google Drive. Same fail-safe-to-0 pattern
 // as planFeatures() for an unrecognized plan value.
 
-function planStorageQuotaGB(plan: string): number {
-  return (PLANS as Record<string, { storageQuotaGB: number }>)[plan]?.storageQuotaGB ?? 0;
-}
-
 export async function getStorageQuotaBytes(orgId: string): Promise<number> {
-  const sub = await getOrCreateSubscription(orgId);
   // A per-org override set by the platform operator in the license editor
-  // beats the plan default — this is how a specific customer gets more (or
-  // less) hosted storage than their tier normally includes, without moving
-  // them to a different plan. Null/undefined = plan default applies.
-  const overrideGb = (sub as any).storageQuotaOverrideGb;
-  if (overrideGb !== null && overrideGb !== undefined) {
-    return overrideGb * 1024 * 1024 * 1024;
-  }
-  return planStorageQuotaGB(sub.plan) * 1024 * 1024 * 1024;
+  // beats the plan default (evaluateLicense applies it); a CUSTOM licence
+  // gets CUSTOM_STORAGE_GB when it includes the hosted_storage module.
+  const lic = await getEffectiveLicense(orgId);
+  return lic.storageQuotaGB * 1024 * 1024 * 1024;
 }
 
 /** Sums fileSize across every attachment this org has stored in OUR bucket
@@ -142,8 +241,9 @@ export async function getHostedStorageUsageBytes(orgId: string): Promise<number>
  * `additionalBytes` is the size of the file about to be uploaded.
  */
 export async function assertHostedStorageAvailable(orgId: string, additionalBytes: number): Promise<void> {
-  const sub = await getOrCreateSubscription(orgId);
-  const quotaBytes = await getStorageQuotaBytes(orgId);
+  const lic = await getEffectiveLicense(orgId);
+  const sub = { plan: PLANS[lic.effectivePlan].name };
+  const quotaBytes = lic.storageQuotaGB * 1024 * 1024 * 1024;
 
   if (quotaBytes === 0) {
     throw new AppError(

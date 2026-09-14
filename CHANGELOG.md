@@ -15,6 +15,22 @@ This adds the `schedules` table and the `phone` / `notify_number` columns descri
 
 ---
 
+## Custom licensing, per-seat checkout, and payment-state enforcement
+
+**Action required:** run the migration and regenerate the client — `cd server && npx prisma migrate dev && npx prisma generate`. In the Stripe dashboard, add `invoice.paid`, `invoice.payment_failed` and `customer.subscription.created` to the webhook endpoint's events. `STRIPE_PRO_PRICE_ID` / `STRIPE_ENTERPRISE_PRICE_ID` are now optional (yearly and custom licences are priced dynamically with `price_data`); if set they must be flat monthly Prices.
+
+**Single source of truth for the plan.** `Organization.plan` is gone — every reader now goes through `Subscription` (the platform-admin console mirrored the two, and older code paths could drift). `Subscription` gains `interval`, `features[]`, `amountCents`, `graceUntil` and `lastPaymentFailedAt`.
+
+**Payment state is honoured.** `utils/licensing.ts` now exposes `getEffectiveLicense(orgId)` and every gate (seats, `requireFeature`, hosted-storage quota) reads through it. `active`/`trialing` → full entitlements; `past_due` → full entitlements until `graceUntil` (set by `invoice.payment_failed`, default 7 days via `LICENSE_GRACE_PERIOD_DAYS`), then Free-plan entitlements; `canceled`/`unpaid` → Free immediately; an `active` row whose `currentPeriodEnd` is stale past the grace window → Free. Consistent with the grandfathering rules in the licensing spec, nothing existing is removed — the org simply can't add beyond Free limits until it pays. `GET /api/billing/entitlements` (any signed-in user) exposes this; the app shell shows a grace/lapsed strip and the Billing page shows the detail.
+
+**Custom licence (self-serve).** New **Billing → Build your licence** page (`/billing/custom`): pick billable seats, monthly/yearly, and any of the gated modules (advanced AI, workflow automation, customer portal, advanced analytics, custom branding, hosted storage). Price = per-seat base (`LICENSE_BASE_SEAT_PRICE_CENTS`, default $8) + per-seat add-on per module, 10% off at 51+ seats / 20% at 201+, yearly = 10 months (`LICENSE_YEARLY_MONTHS_CHARGED`). Module prices live in `server/src/utils/pricing.ts`. Checkout creates a per-seat Stripe subscription (`quantity = seats`), and the webhook writes `plan = CUSTOM`, `seats`, `features`, `interval` onto the row; seat changes made in the Stripe portal sync back via `customer.subscription.updated`. A CUSTOM licence with `hosted_storage` gets `LICENSE_CUSTOM_STORAGE_GB` (default 10 GB). The platform-admin licence editor can also set plan `CUSTOM` and `features` directly for negotiated deals.
+
+**Yearly billing for Pro / Enterprise.** The Billing page has a monthly/yearly toggle; `POST /api/billing/checkout` accepts `interval`.
+
+New endpoints: `GET /api/billing/pricing`, `GET /api/billing/entitlements`, `POST /api/billing/quote`, `POST /api/billing/custom-checkout`. New e2e spec: `tests/e2e/custom-license.spec.ts`.
+
+---
+
 ## AI Command — whitelisted action execution
 
 The AI command bar (`Ctrl/Cmd+K` or the "AI" button in the topbar) could previously only parse a request into a prefilled create/update form for five entity types — the user still had to open and submit that form themselves. It can now, for a fixed whitelist of actions, actually perform the action after the user confirms.

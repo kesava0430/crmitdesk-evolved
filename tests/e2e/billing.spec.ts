@@ -22,10 +22,26 @@ test.describe('Billing', () => {
     ).toBeVisible({ timeout: 5_000 });
   });
 
-  // Verifies an upgrade or manage button is present
+  // Verifies an upgrade / switch / manage action is present
   test('upgrade or manage button is visible', async ({ page }) => {
     await expect(
-      page.getByRole('button', { name: /upgrade|manage|subscribe|billing portal/i })
+      page.getByRole('button', { name: /upgrade|switch to|manage|subscribe|billing portal/i }).first()
     ).toBeVisible({ timeout: 5_000 });
+  });
+
+  // Licensed modules come from the effective-licence engine
+  test('shows licensed modules for the current plan', async ({ page }) => {
+    await expect(page.getByTestId('licensed-modules')).toContainText(/CRM \+ IT Desk core/);
+  });
+
+  // All four plan cards render, with the custom licence entry point
+  test('renders plan cards, yearly toggle and custom licence link', async ({ page }) => {
+    for (const plan of ['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM']) {
+      await expect(page.getByTestId(`plan-card-${plan}`)).toBeVisible();
+    }
+    await page.getByRole('radio', { name: /yearly/i }).click();
+    await expect(page.getByTestId('plan-card-PRO')).toContainText(/billed \$\d+\/year/);
+    await page.getByTestId('build-custom-licence').click();
+    await page.waitForURL(/\/billing\/custom/);
   });
 });

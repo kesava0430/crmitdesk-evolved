@@ -22,6 +22,8 @@ import { ChatCopilot } from "../components/ChatCopilot";
 import { ThemePicker } from "../components/ThemePicker";
 import { useLabels, type LabelEntityKey } from "../../hooks/useLabels";
 import { can } from "../permissions";
+import { useLicense } from "../../api/billing";
+import { AlertTriangle } from "lucide-react";
 
 // Which nav routes / page-title routes correspond to a relabelable entity —
 // same 4 entities the AI Setup Generator can propose overrides for
@@ -207,6 +209,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/directory-sso":     "Single Sign-On",
   "/storage":           "Storage",
   "/billing":           "Billing",
+  "/billing/custom":    "Custom Licence",
   "/security/2fa":      "2FA Security",
   "/ai-builder":        "AI Feature Builder",
   "/ai-studio":         "AI Studio",
@@ -584,6 +587,8 @@ export function AppLayout() {
           <AISmartSearch className="w-full" />
         </div>
 
+        <LicenceBanner role={user?.role} />
+
         {/* Page content */}
         <main id="main-content" className="flex-1 overflow-y-auto">
           <ErrorBoundary>
@@ -596,6 +601,28 @@ export function AppLayout() {
       {/* Floating chat copilot — chat that answers questions and executes
           confirmed actions (tickets, leads, notes, leave, assignments). */}
       <ChatCopilot />
+    </div>
+  );
+}
+
+/** Payment-state strip shown on every page while a paid licence is in its
+ *  grace period or has lapsed (GET /billing/entitlements). Nothing renders
+ *  for a healthy subscription. */
+function LicenceBanner({ role }: { role?: string | null }) {
+  const { data: lic } = useLicense(!!role);
+  if (!lic || lic.access === "full") return null;
+  const lapsed = lic.access === "lapsed";
+  return (
+    <div
+      data-testid="licence-banner"
+      role="status"
+      className={`flex items-center gap-3 px-4 py-2 text-[12.5px] border-b ${lapsed ? "bg-danger/10 text-danger border-danger/30" : "bg-warning/10 text-warning border-warning/30"}`}
+    >
+      <AlertTriangle size={15} className="shrink-0" />
+      <span className="flex-1">
+        <strong>{lapsed ? "Licence inactive — limited to Free-plan features." : "Payment issue — grace period active."}</strong> {lic.reason}
+      </span>
+      {can.readBilling(role) && <Link to="/billing" className="font-semibold underline whitespace-nowrap">Go to Billing</Link>}
     </div>
   );
 }

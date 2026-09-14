@@ -49,6 +49,7 @@ const WorkflowsPage    = lazy(() => import('./modules/workflows/WorkflowsPage').
 const TeamChatPage     = lazy(() => import('./pages/TeamChatPage'));
 const PortalUsersPage  = lazy(() => import('./modules/portal/PortalUsersPage').then(m => ({ default: m.PortalUsersPage })));
 const BillingPage      = lazy(() => import('./pages/BillingPage').then(m => ({ default: m.BillingPage })));
+const CustomLicensePage = lazy(() => import('./pages/CustomLicensePage').then(m => ({ default: m.CustomLicensePage })));
 const AnalyticsPage    = lazy(() => import('./pages/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })));
 const AIFeaturePage    = lazy(() => import('./pages/AIFeaturePage').then(m => ({ default: m.AIFeaturePage })));
 
@@ -191,6 +192,7 @@ export default function App() {
             <Route path="workflows" element={<WorkflowsPage />} />
             <Route path="portal-users" element={<PortalUsersPage />} />
             <Route path="billing" element={<BillingPage />} />
+            <Route path="billing/custom" element={<CustomLicensePage />} />
             <Route path="slack" element={<SlackPage />} />
             <Route path="directory-sso" element={<DirectorySSOPage />} />
             <Route path="itdesk/assets" element={<AssetsPage />} />

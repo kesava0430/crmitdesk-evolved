@@ -4,9 +4,10 @@ import { z } from 'zod';
 import { optionalField, optionalText, emailField } from '../../utils/zodHelpers';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../utils/prisma';
+import { normaliseModules } from '../../utils/pricing';
 import { AppError } from '../../middleware/errorHandler';
 import { AuthRequest } from '../../middleware/authenticate';
-import { getHostedStorageUsageBytes } from '../../utils/licensing';
+import { getHostedStorageUsageBytes, invalidateLicenseCache } from '../../utils/licensing';
 import { getSendCounts, getSendCountsForOrgs } from '../../utils/usageTracking';
 import { getPlatformStorageConfig, getPlatformSettingsForAdmin, upsertPlatformSettings } from '../../utils/platformSettings';
 import { PLANS } from '../../utils/stripe';
@@ -90,7 +91,7 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
     ]);
 
     res.json(orgs.map((o, i) => {
-      const plan = o.subscription?.plan ?? o.plan;
+      const plan = o.subscription?.plan ?? 'FREE';
       const overrideGb = (o.subscription as any)?.storageQuotaOverrideGb;
       const quotaBytes = overrideGb !== null && overrideGb !== undefined
         ? overrideGb * 1024 * 1024 * 1024
@@ -99,7 +100,7 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
         id: o.id,
         name: o.name,
         slug: o.slug,
-        plan: o.plan,
+        plan,
         createdAt: o.createdAt,
         subscription: o.subscription
           ? {
@@ -177,7 +178,7 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
     const overrideGb = (org.subscription as any)?.storageQuotaOverrideGb;
     const quotaBytes = overrideGb !== null && overrideGb !== undefined
       ? overrideGb * 1024 * 1024 * 1024
-      : storageQuotaBytesForPlan(org.subscription?.plan ?? org.plan);
+      : storageQuotaBytesForPlan(org.subscription?.plan ?? 'FREE');
     // Current-month AI token usage, shown next to the license's token
     // allowance in the org detail panel.
     const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
@@ -193,6 +194,7 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
 
     res.json({
       ...org,
+      plan: org.subscription?.plan ?? 'FREE',
       storageLicense: { quotaBytes, usedBytes },
       sendCounts,
       aiUsage: {
@@ -218,8 +220,11 @@ export async function updateOrg(req: AuthRequest, res: Response, next: NextFunct
 }
 
 const UpdateSubscriptionSchema = z.object({
-  plan: z.enum(['FREE', 'PRO', 'ENTERPRISE']).optional(),
+  plan: z.enum(['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM']).optional(),
   seats: z.number().int().positive().optional(),
+  /** Feature keys for a CUSTOM licence (utils/pricing.ts MODULES; ignored for fixed plans). */
+  features: z.array(z.string()).optional(),
+  interval: z.enum(['month', 'year']).optional(),
   status: z.string().min(1).optional(),
   cancelAtPeriodEnd: z.boolean().optional(),
   /** Hosted-storage quota override in GB. null clears the override (plan
@@ -237,23 +242,22 @@ const UpdateSubscriptionSchema = z.object({
  * Stripe webhook, correcting a manual sales deal) without needing the org's
  * own admin to go through Billing themselves. Upserts because not every org
  * has a Subscription row yet (see licensing.ts's getOrCreateSubscription —
- * same default-row pattern). Also mirrors the plan onto Organization.plan so
- * the two never drift apart (some older code paths still read that field).
+ * same default-row pattern).
+ * Subscription is the single source of truth for the plan (Organization.plan
+ * was removed), so nothing needs mirroring.
  */
 export async function updateSubscription(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.params.id;
     const data = UpdateSubscriptionSchema.parse(req.body);
 
+    const payload = { ...data, ...(data.features ? { features: normaliseModules(data.features) } : {}) };
     const sub = await prisma.subscription.upsert({
       where: { orgId },
-      create: { orgId, plan: 'FREE', status: 'active', seats: 5, ...data },
-      update: data,
+      create: { orgId, plan: 'FREE', status: 'active', seats: 5, ...payload },
+      update: payload,
     });
-
-    if (data.plan) {
-      await prisma.organization.update({ where: { id: orgId }, data: { plan: data.plan } });
-    }
+    invalidateLicenseCache(orgId);
 
     res.json(sub);
   } catch (err) { next(err); }

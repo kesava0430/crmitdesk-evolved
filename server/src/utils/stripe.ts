@@ -77,8 +77,20 @@ export const stripe = {
         mode: 'subscription' | 'payment';
         customer?: string;
         customer_email?: string;
-        line_items: { price: string; quantity: number }[];
+        line_items: (
+          | { price: string; quantity: number }
+          | {
+              quantity: number;
+              price_data: {
+                currency: string;
+                unit_amount: number;
+                recurring: { interval: 'month' | 'year' };
+                product_data: { name: string; description?: string; metadata?: Record<string, string> };
+              };
+            }
+        )[];
         subscription_data?: { metadata?: Record<string, string> };
+        allow_promotion_codes?: boolean;
         metadata?: Record<string, string>;
       }) => stripeRequest('POST', '/checkout/sessions', params),
     },
@@ -149,4 +161,12 @@ export const PLANS = {
     features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics'] as FeatureKey[], storageQuotaGB: 5 },
   ENTERPRISE: { name: 'Enterprise', seats: 999, price: 149,  priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
     features: ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding'] as FeatureKey[], storageQuotaGB: 50 },
+  // Self-serve custom licence: seats, features and storage are stored on the
+  // Subscription row itself (built on /billing/custom, priced in utils/pricing.ts),
+  // so the static config here is intentionally empty — see licensing.ts
+  // getEffectiveLicense() for how a CUSTOM row is read.
+  CUSTOM:     { name: 'Custom',     seats: 0,   price: 0,    priceId: null, features: [] as FeatureKey[], storageQuotaGB: 0 },
 } as const;
+
+export type PlanKey = keyof typeof PLANS;
+export function isPlanKey(v: unknown): v is PlanKey { return typeof v === 'string' && v in PLANS; }
