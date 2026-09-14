@@ -3,7 +3,7 @@ import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/authenticate';
 import { PLANS, FeatureKey, PlanKey, isPlanKey } from './stripe';
-import { GRACE_PERIOD_DAYS, CUSTOM_STORAGE_GB, normaliseModules } from './pricing';
+import { normaliseModules, getPricingConfig, DEFAULT_PRICING, PricingConfig } from './pricing';
 
 // Every internal role counts against a plan's seat limit EXCEPT plain
 // EMPLOYEE — those are staff who just submit requests internally (not
@@ -35,7 +35,7 @@ async function getOrCreateSubscription(orgId: string) {
 //   active / trialing            → full paid entitlements
 //   past_due / incomplete        → paid entitlements continue during the grace
 //                                  window (graceUntil, set by invoice.payment_failed,
-//                                  else currentPeriodEnd + GRACE_PERIOD_DAYS), then FREE
+//                                  else currentPeriodEnd + gracePeriodDays), then FREE
 //   canceled / unpaid / paused   → FREE immediately
 //   active but currentPeriodEnd stale past the grace window → FREE
 //
@@ -76,7 +76,7 @@ type SubRow = {
 };
 
 /** Pure evaluation — exported so it can be unit-tested without a database. */
-export function evaluateLicense(sub: SubRow, now = new Date()): EffectiveLicense {
+export function evaluateLicense(sub: SubRow, now = new Date(), cfg: PricingConfig = DEFAULT_PRICING): EffectiveLicense {
   const plan: PlanKey = isPlanKey(sub.plan) ? sub.plan : 'FREE';
   const base = {
     orgId: sub.orgId, plan, status: sub.status, interval: sub.interval,
@@ -87,7 +87,7 @@ export function evaluateLicense(sub: SubRow, now = new Date()): EffectiveLicense
     ? (normaliseModules(sub.features).filter(k => k !== 'hosted_storage') as FeatureKey[])
     : [...PLANS[plan].features];
   const paidStorage = sub.storageQuotaOverrideGb ?? (plan === 'CUSTOM'
-    ? (sub.features.includes('hosted_storage') ? CUSTOM_STORAGE_GB : 0)
+    ? (sub.features.includes('hosted_storage') ? cfg.customStorageGb : 0)
     : PLANS[plan].storageQuotaGB);
 
   const full: EffectiveLicense = { ...base, effectivePlan: plan, seats: sub.seats, features: paidFeatures, storageQuotaGB: paidStorage, access: 'full', reason: null };
@@ -100,7 +100,7 @@ export function evaluateLicense(sub: SubRow, now = new Date()): EffectiveLicense
   if (plan === 'FREE') return { ...full, seats: PLANS.FREE.seats };
   if (LAPSED_STATUSES.has(sub.status)) return lapsed(`Your subscription is ${sub.status}.`);
 
-  const graceEnd = sub.graceUntil ?? (sub.currentPeriodEnd ? addDays(sub.currentPeriodEnd, GRACE_PERIOD_DAYS) : null);
+  const graceEnd = sub.graceUntil ?? (sub.currentPeriodEnd ? addDays(sub.currentPeriodEnd, cfg.gracePeriodDays) : null);
 
   if (sub.status === 'past_due' || sub.status === 'incomplete') {
     if (graceEnd && now <= graceEnd) {
@@ -110,7 +110,7 @@ export function evaluateLicense(sub: SubRow, now = new Date()): EffectiveLicense
   }
 
   if (ACTIVE_STATUSES.has(sub.status)) {
-    if (sub.currentPeriodEnd && now > addDays(sub.currentPeriodEnd, GRACE_PERIOD_DAYS)) {
+    if (sub.currentPeriodEnd && now > addDays(sub.currentPeriodEnd, cfg.gracePeriodDays)) {
       return lapsed('Your subscription period ended and was not renewed.');
     }
     return full;
@@ -130,8 +130,8 @@ export function invalidateLicenseCache(orgId?: string) {
 export async function getEffectiveLicense(orgId: string): Promise<EffectiveLicense> {
   const hit = licenseCache.get(orgId);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
-  const sub = await getOrCreateSubscription(orgId);
-  const value = evaluateLicense(sub as unknown as SubRow);
+  const [sub, cfg] = await Promise.all([getOrCreateSubscription(orgId), getPricingConfig()]);
+  const value = evaluateLicense(sub as unknown as SubRow, new Date(), cfg);
   licenseCache.set(orgId, { at: Date.now(), value });
   return value;
 }
@@ -211,7 +211,7 @@ export function requireFeature(feature: FeatureKey) {
 export async function getStorageQuotaBytes(orgId: string): Promise<number> {
   // A per-org override set by the platform operator in the license editor
   // beats the plan default (evaluateLicense applies it); a CUSTOM licence
-  // gets CUSTOM_STORAGE_GB when it includes the hosted_storage module.
+  // gets the operator-set customStorageGb when it includes the hosted_storage module.
   const lic = await getEffectiveLicense(orgId);
   return lic.storageQuotaGB * 1024 * 1024 * 1024;
 }

@@ -3,8 +3,9 @@ import { Response, NextFunction, Request } from 'express';
 import { z } from 'zod';
 import { optionalField, optionalText, emailField } from '../../utils/zodHelpers';
 import bcrypt from 'bcryptjs';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
-import { normaliseModules } from '../../utils/pricing';
+import { normaliseModules, getPricingConfig, savePricingOverride, DEFAULT_PRICING, PricingOverride } from '../../utils/pricing';
 import { AppError } from '../../middleware/errorHandler';
 import { AuthRequest } from '../../middleware/authenticate';
 import { getHostedStorageUsageBytes, invalidateLicenseCache } from '../../utils/licensing';
@@ -379,5 +380,64 @@ export async function testStorage(req: AuthRequest, res: Response, next: NextFun
 
     const result = await testConnection(target);
     res.json({ ...result, bucket: target.bucket, endpoint: target.endpoint });
+  } catch (err) { next(err); }
+}
+
+// ─── Licence pricing (Platform Admin → Pricing) ──────────────────────────────
+//
+// The platform operator — not a customer org's SUPER_ADMIN — decides what
+// every plan and custom-licence module costs. Stored as one JSON override on
+// PlatformSettings and layered over the code defaults (utils/pricing.ts).
+
+const PricingSchema = z.object({
+  baseSeatPriceCents: z.number().int().min(0).max(1_000_000).optional(),
+  planPrices: z.object({
+    PRO: z.number().min(0).max(1_000_000).optional(),
+    ENTERPRISE: z.number().min(0).max(1_000_000).optional(),
+  }).optional(),
+  customStorageGb: z.number().int().min(0).max(100_000).optional(),
+  yearlyMonthsCharged: z.number().min(1).max(12).optional(),
+  gracePeriodDays: z.number().int().min(0).max(365).optional(),
+  minSeats: z.number().int().min(1).max(100_000).optional(),
+  maxSeats: z.number().int().min(1).max(100_000).optional(),
+  volumeTiers: z.array(z.object({ minSeats: z.number().int().min(1).max(100_000), discountPct: z.number().min(0).max(90) })).max(10).optional(),
+  modules: z.array(z.object({
+    key: z.string().min(1),
+    name: z.string().min(1).max(60).optional(),
+    description: z.string().max(200).optional(),
+    pricePerSeatCents: z.number().int().min(0).max(1_000_000).optional(),
+    enabled: z.boolean().optional(),
+  })).max(50).optional(),
+});
+
+/** GET /platform/pricing — effective pricing plus the code defaults (so the UI can show "default: …"). */
+export async function getPricing(_req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const [effective, row] = await Promise.all([
+      getPricingConfig(),
+      prisma.platformSettings.findUnique({ where: { id: 'platform' }, select: { pricing: true, updatedAt: true } }),
+    ]);
+    res.json({ effective, defaults: DEFAULT_PRICING, hasOverride: !!row?.pricing, updatedAt: row?.updatedAt ?? null });
+  } catch (err) { next(err); }
+}
+
+/** PUT /platform/pricing — replace the operator override (send the full desired config). Every org sees it on its next request. */
+export async function updatePricing(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const override = PricingSchema.parse(req.body) as PricingOverride;
+    const effective = await savePricingOverride(override);
+    invalidateLicenseCache(); // grace days / custom storage feed entitlements
+    res.json({ effective, defaults: DEFAULT_PRICING, hasOverride: true, updatedAt: new Date() });
+  } catch (err) { next(err); }
+}
+
+/** DELETE /platform/pricing — drop the override and go back to code/env defaults. */
+export async function resetPricing(_req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    await prisma.platformSettings.upsert({ where: { id: 'platform' }, create: { id: 'platform' }, update: { pricing: Prisma.DbNull } });
+    const { invalidatePricingCache } = await import('../../utils/pricing');
+    invalidatePricingCache();
+    invalidateLicenseCache();
+    res.json({ effective: DEFAULT_PRICING, defaults: DEFAULT_PRICING, hasOverride: false, updatedAt: null });
   } catch (err) { next(err); }
 }

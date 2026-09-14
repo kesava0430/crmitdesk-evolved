@@ -6,10 +6,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { stripe, verifyStripeWebhook, PLANS, PlanKey, isPlanKey } from '../../utils/stripe';
 import { getBillableSeatCount, getEffectiveLicense, invalidateLicenseCache } from '../../utils/licensing';
 import { getUsageSummary } from '../../utils/usageTracking';
-import {
-  MODULES, MIN_SEATS, MAX_SEATS, GRACE_PERIOD_DAYS, CUSTOM_STORAGE_GB, YEARLY_MONTHS_CHARGED,
-  computeQuote, normaliseModules, pricingCatalogue, BillingInterval,
-} from '../../utils/pricing';
+import { computeQuote, normaliseModules, pricingCatalogue, getPricingConfig, BillingInterval, PricingConfig } from '../../utils/pricing';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -33,7 +30,11 @@ async function ensureStripeCustomer(req: AuthRequest, sub: { stripeCustomerId: s
 }
 
 /** What the Billing page shows as "planConfig" — for CUSTOM the seats/price come from the row. */
-function planView(sub: { plan: string; seats: number; amountCents: number; interval: string; features: string[] }) {
+function planPrice(plan: PlanKey, cfg: PricingConfig): number {
+  return plan === 'PRO' || plan === 'ENTERPRISE' ? cfg.planPrices[plan] : 0;
+}
+
+function planView(sub: { plan: string; seats: number; amountCents: number; interval: string; features: string[] }, cfg: PricingConfig) {
   const key: PlanKey = isPlanKey(sub.plan) ? sub.plan : 'FREE';
   const p = PLANS[key];
   const isCustom = key === 'CUSTOM';
@@ -41,20 +42,21 @@ function planView(sub: { plan: string; seats: number; amountCents: number; inter
     name: p.name,
     seats: isCustom ? sub.seats : p.seats,
     /** Monthly-equivalent list price in dollars (what the summary card shows) */
-    price: isCustom ? Math.round(sub.amountCents / (sub.interval === 'year' ? 12 : 1) / 100) : p.price,
+    price: isCustom ? Math.round(sub.amountCents / (sub.interval === 'year' ? 12 : 1) / 100) : planPrice(key, cfg),
     priceId: p.priceId,
     features: isCustom ? normaliseModules(sub.features) : [...p.features],
-    storageQuotaGB: isCustom ? (sub.features.includes('hosted_storage') ? CUSTOM_STORAGE_GB : 0) : p.storageQuotaGB,
+    storageQuotaGB: isCustom ? (sub.features.includes('hosted_storage') ? cfg.customStorageGb : 0) : p.storageQuotaGB,
   };
 }
 
 // ─── GET /api/billing/pricing ────────────────────────────────────────────────
 export async function getPricing(_req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const cfg = await getPricingConfig();
     res.json({
-      ...pricingCatalogue(),
+      ...pricingCatalogue(cfg),
       plans: (['FREE', 'PRO', 'ENTERPRISE'] as const).map(k => ({
-        key: k, name: PLANS[k].name, price: PLANS[k].price, seats: PLANS[k].seats,
+        key: k, name: PLANS[k].name, price: planPrice(k, cfg), seats: PLANS[k].seats,
         features: PLANS[k].features, storageQuotaGB: PLANS[k].storageQuotaGB, stripeConfigured: !!PLANS[k].priceId,
       })),
     });
@@ -64,8 +66,8 @@ export async function getPricing(_req: AuthRequest, res: Response, next: NextFun
 // ─── GET /api/billing/entitlements  (any signed-in user) ─────────────────────
 export async function getEntitlements(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const lic = await getEffectiveLicense(req.user!.orgId);
-    res.json({ ...lic, gracePeriodDays: GRACE_PERIOD_DAYS });
+    const [lic, cfg] = await Promise.all([getEffectiveLicense(req.user!.orgId), getPricingConfig()]);
+    res.json({ ...lic, gracePeriodDays: cfg.gracePeriodDays });
   } catch (err) { next(err); }
 }
 
@@ -77,26 +79,42 @@ export async function getSubscription(req: AuthRequest, res: Response, next: Nex
     // seatsUsed counts every active user except EMPLOYEE (see utils/licensing.ts)
     // — mirrors exactly what assertSeatAvailable() checks, so the billing page
     // never shows a number that disagrees with what actually gets blocked.
-    const [seatsUsed, usage, license] = await Promise.all([
+    const [seatsUsed, usage, license, cfg] = await Promise.all([
       getBillableSeatCount(orgId),
       // No plan reads this yet (no included quotas exist) — purely so orgs
       // (and we) can see real AI/WhatsApp usage before any limit is set.
       getUsageSummary(orgId),
       getEffectiveLicense(orgId),
+      getPricingConfig(),
     ]);
-    res.json({ ...sub, seatsUsed, usage, license, planConfig: planView(sub) });
+    res.json({ ...sub, seatsUsed, usage, license, planConfig: planView(sub, cfg) });
   } catch (err) { next(err); }
 }
 
 // ─── POST /api/billing/quote — price a custom licence, no side effects ───────
 const QuoteSchema = z.object({
-  seats: z.number().int().min(MIN_SEATS).max(MAX_SEATS),
+  seats: z.number().int().min(1).max(100_000),
   modules: z.array(z.string()).default([]),
   interval: z.enum(['month', 'year']).default('month'),
 });
 
+/** Parse + validate against the live pricing config (seat bounds, purchasable modules). */
+async function parseQuoteInput(body: unknown) {
+  const input = QuoteSchema.parse(body);
+  const cfg = await getPricingConfig();
+  if (input.seats < cfg.minSeats || input.seats > cfg.maxSeats) {
+    throw new AppError(400, `Seats must be between ${cfg.minSeats} and ${cfg.maxSeats}.`);
+  }
+  const disabled = normaliseModules(input.modules).filter(k => !cfg.modules.find(m => m.key === k)?.enabled);
+  if (disabled.length) throw new AppError(400, `These modules are not currently available: ${disabled.join(', ')}.`);
+  return { input, cfg };
+}
+
 export async function quoteCustom(req: AuthRequest, res: Response, next: NextFunction) {
-  try { res.json(computeQuote(QuoteSchema.parse(req.body))); } catch (err) { next(err); }
+  try {
+    const { input, cfg } = await parseQuoteInput(req.body);
+    res.json(computeQuote(input, cfg));
+  } catch (err) { next(err); }
 }
 
 // ─── POST /api/billing/checkout — fixed plan (PRO / ENTERPRISE) ──────────────
@@ -113,11 +131,11 @@ export async function createCheckout(req: AuthRequest, res: Response, next: Next
     const { plan, interval } = CheckoutSchema.parse(req.body);
     const def = PLANS[plan];
     const orgId = req.user!.orgId;
-    const sub = await getOrCreateSubscription(orgId);
+    const [sub, cfg] = await Promise.all([getOrCreateSubscription(orgId), getPricingConfig()]);
     const customer = await ensureStripeCustomer(req, sub);
 
-    const monthlyCents = def.price * 100;
-    const unitAmount = interval === 'year' ? monthlyCents * YEARLY_MONTHS_CHARGED : monthlyCents;
+    const monthlyCents = Math.round(planPrice(plan, cfg) * 100);
+    const unitAmount = Math.round(interval === 'year' ? monthlyCents * cfg.yearlyMonthsCharged : monthlyCents);
     const lineItem = def.priceId && interval === 'month'
       ? { price: def.priceId, quantity: 1 }
       : {
@@ -150,14 +168,15 @@ export async function createCheckout(req: AuthRequest, res: Response, next: Next
 // metadata so the webhook can write them onto the Subscription row.
 export async function createCustomCheckout(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const quote = computeQuote(QuoteSchema.parse(req.body));
+    const { input, cfg } = await parseQuoteInput(req.body);
+    const quote = computeQuote(input, cfg);
     if (quote.modules.length === 0) throw new AppError(400, 'Select at least one module for a custom licence.');
 
     const orgId = req.user!.orgId;
     const sub = await getOrCreateSubscription(orgId);
     const customer = await ensureStripeCustomer(req, sub);
 
-    const moduleNames = quote.modules.map(k => MODULES.find(m => m.key === k)?.name ?? k).join(', ');
+    const moduleNames = quote.modules.map(k => cfg.modules.find(m => m.key === k)?.name ?? k).join(', ');
     const metadata = {
       orgId, plan: 'CUSTOM', seats: String(quote.seats), interval: quote.interval,
       features: quote.modules.join(','), amountCents: String(quote.totalPerIntervalCents),
@@ -290,13 +309,14 @@ export async function handleWebhook(req: Request, res: Response, next: NextFunct
         if (!sub) break;
         touchedOrgId = sub.orgId;
         const now = new Date();
+        const cfg = await getPricingConfig();
         await prisma.subscription.update({
           where: { id: sub.id },
           data: {
             status: 'past_due',
             lastPaymentFailedAt: now,
             // Keep an already-running grace deadline; Stripe retries several times
-            graceUntil: sub.graceUntil ?? new Date(now.getTime() + GRACE_PERIOD_DAYS * 86_400_000),
+            graceUntil: sub.graceUntil ?? new Date(now.getTime() + cfg.gracePeriodDays * 86_400_000),
           },
         });
         break;

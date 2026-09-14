@@ -8,3 +8,6 @@ ALTER TABLE "subscriptions"
   ADD COLUMN "amount_cents"           INTEGER     NOT NULL DEFAULT 0,
   ADD COLUMN "grace_until"            TIMESTAMP(3),
   ADD COLUMN "last_payment_failed_at" TIMESTAMP(3);
+
+-- Operator-editable licence pricing (Platform Admin → Pricing)
+ALTER TABLE "platform_settings" ADD COLUMN "pricing" JSONB;

@@ -183,3 +183,61 @@ export const useTestPlatformStorage = () =>
       accessKeyId?: string; secretAccessKey?: string;
     }) => api.post('/platform/settings/storage/test', body).then(r => r.data as PlatformStorageTestResult),
   });
+
+// ─── Licence pricing (Platform Admin → Pricing) ──────────────────────────────
+
+export interface PricingModule {
+  key: string;
+  name: string;
+  description: string;
+  pricePerSeatCents: number;
+  enabled: boolean;
+}
+
+export interface PricingConfig {
+  baseSeatPriceCents: number;
+  planPrices: { PRO: number; ENTERPRISE: number };
+  customStorageGb: number;
+  yearlyMonthsCharged: number;
+  gracePeriodDays: number;
+  minSeats: number;
+  maxSeats: number;
+  volumeTiers: { minSeats: number; discountPct: number }[];
+  modules: PricingModule[];
+}
+
+export interface PlatformPricing {
+  effective: PricingConfig;
+  defaults: PricingConfig;
+  hasOverride: boolean;
+  updatedAt: string | null;
+}
+
+/** The operator sends the full desired config; the server layers it over code defaults. */
+export type PricingUpdate = Partial<Omit<PricingConfig, 'modules' | 'planPrices'>> & {
+  planPrices?: Partial<PricingConfig['planPrices']>;
+  modules?: ({ key: string } & Partial<Omit<PricingModule, 'key'>>)[];
+};
+
+export const usePlatformPricing = (enabled = true) =>
+  useQuery({
+    queryKey: ['platform-pricing'],
+    queryFn: () => api.get('/platform/pricing').then(r => r.data as PlatformPricing),
+    enabled,
+  });
+
+export const useUpdatePlatformPricing = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: PricingUpdate) => api.put('/platform/pricing', data).then(r => r.data as PlatformPricing),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['platform-pricing'] }); qc.invalidateQueries({ queryKey: ['billing-pricing'] }); },
+  });
+};
+
+export const useResetPlatformPricing = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete('/platform/pricing').then(r => r.data as PlatformPricing),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['platform-pricing'] }); qc.invalidateQueries({ queryKey: ['billing-pricing'] }); },
+  });
+};

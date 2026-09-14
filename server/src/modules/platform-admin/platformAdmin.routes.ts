@@ -16,3 +16,6 @@ platformAdminRouter.patch('/orgs/:id/branding', c.updateBranding);
 platformAdminRouter.get('/settings', c.getSettings);
 platformAdminRouter.patch('/settings', c.updateSettings);
 platformAdminRouter.post('/settings/storage/test', c.testStorage);
+platformAdminRouter.get('/pricing', c.getPricing);
+platformAdminRouter.put('/pricing', c.updatePricing);
+platformAdminRouter.delete('/pricing', c.resetPricing);

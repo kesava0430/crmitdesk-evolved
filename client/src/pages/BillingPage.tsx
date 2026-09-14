@@ -225,7 +225,7 @@ export function BillingPage() {
           {(['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM'] as const).map(plan => {
             const isCurrent = plan === current;
             const Icon = PLAN_ICONS[plan];
-            const monthly = plan === 'FREE' ? 0 : plan === 'PRO' ? 49 : plan === 'ENTERPRISE' ? 149 : 0;
+            const monthly = plan === 'PRO' || plan === 'ENTERPRISE' ? (pricing?.plans.find(p => p.key === plan)?.price ?? (plan === 'PRO' ? 49 : 149)) : 0;
             const price = interval === 'year' ? Math.round(monthly * monthsCharged / 12) : monthly;
             const locked = isCurrent || plan === 'FREE';
 

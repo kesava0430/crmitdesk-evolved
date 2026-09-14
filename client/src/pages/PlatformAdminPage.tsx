@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, Users as UsersIcon, CheckCircle2, XCircle, AlertTriangle, LogOut, HardDrive, Pencil, Check, Mail, MessageCircle, Settings as SettingsIcon } from 'lucide-react';
+import { Building2, Users as UsersIcon, CheckCircle2, XCircle, AlertTriangle, LogOut, HardDrive, Pencil, Check, Mail, MessageCircle, Settings as SettingsIcon, Tags, RotateCcw } from 'lucide-react';
 import {
   usePlatformOrgs,
   usePlatformOrg,
@@ -9,6 +9,11 @@ import {
   usePlatformSettings,
   useTestPlatformStorage,
   useUpdatePlatformSettings,
+  usePlatformPricing,
+  useUpdatePlatformPricing,
+  useResetPlatformPricing,
+  type PricingConfig,
+  type PricingUpdate,
   type PlatformOrgDetail,
   type PlatformOrgSummary,
   type SendCounts,
@@ -16,7 +21,7 @@ import {
   type PlatformSettingsUpdate,
 } from '../api/platformAdmin';
 import {
-  PageHeader, PageBody, Card, StatTile, Modal, Button, IconButton, Badge, Checkbox,
+  PageHeader, PageBody, Card, StatTile, Modal, Button, IconButton, Badge, Checkbox, Toggle,
   Field, Input, Select, DataTable, EmptyState, Alert, SkeletonCard, SkeletonStats, SkeletonTable,
   type Column,
 } from '../shared/components';
@@ -731,6 +736,7 @@ export function PlatformAdminPage() {
   const { data: orgs, isLoading } = usePlatformOrgs();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const { logout, user } = useAuth();
 
   const columns: Column<PlatformOrgSummary>[] = [
@@ -811,6 +817,9 @@ export function PlatformAdminPage() {
         subtitle={`${user?.email} · cross-org license & sending overview`}
         actions={
           <>
+            <Button variant="ghost" icon={<Tags size={14} />} onClick={() => setPricingOpen(true)}>
+              Pricing
+            </Button>
             <Button variant="ghost" icon={<SettingsIcon size={14} />} onClick={() => setSettingsOpen(true)}>
               Platform settings
             </Button>
@@ -876,6 +885,195 @@ export function PlatformAdminPage() {
 
       {selectedId && <OrgDetailPanel key={selectedId} orgId={selectedId} onClose={() => setSelectedId(null)} />}
       {settingsOpen && <PlatformSettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {pricingOpen && <PricingPanel onClose={() => setPricingOpen(false)} />}
     </div>
+  );
+}
+
+// ─── Pricing panel ───────────────────────────────────────────────────────────
+//
+// The platform operator decides what every plan and custom-licence module
+// costs. A customer org's SUPER_ADMIN only ever buys at these prices.
+
+const usd = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
+
+type PricingForm = {
+  baseSeatPrice: string;       // dollars
+  proPrice: string;            // dollars / month
+  enterprisePrice: string;     // dollars / month
+  customStorageGb: string;
+  yearlyMonthsCharged: string;
+  gracePeriodDays: string;
+  minSeats: string;
+  maxSeats: string;
+  tiers: { minSeats: string; discountPct: string }[];
+  modules: { key: string; name: string; description: string; price: string; enabled: boolean }[];
+};
+
+function toForm(cfg: PricingConfig): PricingForm {
+  return {
+    baseSeatPrice: (cfg.baseSeatPriceCents / 100).toString(),
+    proPrice: String(cfg.planPrices.PRO),
+    enterprisePrice: String(cfg.planPrices.ENTERPRISE),
+    customStorageGb: String(cfg.customStorageGb),
+    yearlyMonthsCharged: String(cfg.yearlyMonthsCharged),
+    gracePeriodDays: String(cfg.gracePeriodDays),
+    minSeats: String(cfg.minSeats),
+    maxSeats: String(cfg.maxSeats),
+    tiers: [...cfg.volumeTiers].sort((a, b) => a.minSeats - b.minSeats).map(t => ({ minSeats: String(t.minSeats), discountPct: String(t.discountPct) })),
+    modules: cfg.modules.map(m => ({ key: m.key, name: m.name, description: m.description, price: (m.pricePerSeatCents / 100).toString(), enabled: m.enabled })),
+  };
+}
+
+const toCents = (dollars: string) => Math.round((Number(dollars) || 0) * 100);
+
+function PricingPanel({ onClose }: { onClose: () => void }) {
+  const { data, isLoading } = usePlatformPricing();
+  const save = useUpdatePlatformPricing();
+  const reset = useResetPlatformPricing();
+  const [form, setForm] = useState<PricingForm | null>(null);
+
+  useEffect(() => { if (data) setForm(toForm(data.effective)); }, [data]);
+
+  const setField = (key: keyof Omit<PricingForm, 'tiers' | 'modules'>) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => (f ? { ...f, [key]: e.target.value } : f));
+  const setModule = (key: string, patch: Partial<PricingForm['modules'][number]>) =>
+    setForm(f => (f ? { ...f, modules: f.modules.map(m => (m.key === key ? { ...m, ...patch } : m)) } : f));
+  const setTier = (i: number, patch: Partial<PricingForm['tiers'][number]>) =>
+    setForm(f => (f ? { ...f, tiers: f.tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)) } : f));
+
+  const submit = () => {
+    if (!form) return;
+    const payload: PricingUpdate = {
+      baseSeatPriceCents: toCents(form.baseSeatPrice),
+      planPrices: { PRO: Number(form.proPrice) || 0, ENTERPRISE: Number(form.enterprisePrice) || 0 },
+      customStorageGb: Math.round(Number(form.customStorageGb) || 0),
+      yearlyMonthsCharged: Number(form.yearlyMonthsCharged) || 12,
+      gracePeriodDays: Math.round(Number(form.gracePeriodDays) || 0),
+      minSeats: Math.max(1, Math.round(Number(form.minSeats) || 1)),
+      maxSeats: Math.max(1, Math.round(Number(form.maxSeats) || 1)),
+      volumeTiers: form.tiers
+        .map(t => ({ minSeats: Math.round(Number(t.minSeats) || 0), discountPct: Number(t.discountPct) || 0 }))
+        .filter(t => t.minSeats >= 1),
+      modules: form.modules.map(m => ({ key: m.key, name: m.name.trim() || undefined, description: m.description, pricePerSeatCents: toCents(m.price), enabled: m.enabled })),
+    };
+    save.mutate(payload);
+  };
+
+  // Worked example so a price change is immediately legible: 10 seats, monthly, every enabled module.
+  const example = (() => {
+    if (!form) return null;
+    const seats = 10;
+    const perSeat = toCents(form.baseSeatPrice) + form.modules.filter(m => m.enabled).reduce((s, m) => s + toCents(m.price), 0);
+    return { seats, perSeat, monthly: perSeat * seats, yearly: Math.round(perSeat * (Number(form.yearlyMonthsCharged) || 12)) * seats };
+  })();
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Licence pricing"
+      subtitle="What every plan and custom-licence module costs. Applies to all organisations the moment you save — customer admins buy at these prices and never see this screen."
+      icon={<Tags size={16} />}
+      size="xl"
+      footer={
+        data && form ? (
+          <>
+            <span className="mr-auto text-xs text-fg-subtle">
+              {data.hasOverride && data.updatedAt ? `Custom pricing · last saved ${new Date(data.updatedAt).toLocaleString()}` : 'Using code / env defaults'}
+            </span>
+            {data.hasOverride && (
+              <Button variant="ghost" icon={<RotateCcw size={14} />} loading={reset.isPending} onClick={() => reset.mutate()}>
+                Reset to defaults
+              </Button>
+            )}
+            <Button icon={<Check size={14} />} loading={save.isPending} onClick={submit}>
+              Save pricing
+            </Button>
+          </>
+        ) : undefined
+      }
+    >
+      {isLoading || !data || !form ? (
+        <div className="space-y-4" aria-hidden="true"><SkeletonCard lines={5} /><SkeletonCard lines={6} /></div>
+      ) : (
+        <div className="space-y-6">
+          <section>
+            <PanelHeading>Fixed plans (flat monthly price)</PanelHeading>
+            <Card tone="sunken" padding="sm" flat className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Pro — $ / month" hint={`Default $${data.defaults.planPrices.PRO} · 25 billable seats`}>
+                <Input type="number" min={0} step="1" value={form.proPrice} onChange={setField('proPrice')} />
+              </Field>
+              <Field label="Enterprise — $ / month" hint={`Default $${data.defaults.planPrices.ENTERPRISE} · unlimited seats`}>
+                <Input type="number" min={0} step="1" value={form.enterprisePrice} onChange={setField('enterprisePrice')} />
+              </Field>
+            </Card>
+            <p className="text-[11.5px] text-fg-subtle mt-2">If <code>STRIPE_PRO_PRICE_ID</code> / <code>STRIPE_ENTERPRISE_PRICE_ID</code> are set, Stripe's own monthly Price wins for monthly checkouts — keep them in sync or leave those env vars empty so these numbers are used everywhere.</p>
+          </section>
+
+          <section>
+            <PanelHeading>Custom licence — per seat / month</PanelHeading>
+            <Card tone="sunken" padding="sm" flat className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Field label="Platform base — $ / seat / month" hint={`Default ${usd(data.defaults.baseSeatPriceCents)}. Always charged; covers CRM + IT Desk core.`}>
+                  <Input type="number" min={0} step="0.5" value={form.baseSeatPrice} onChange={setField('baseSeatPrice')} />
+                </Field>
+                <Field label="Min seats"><Input type="number" min={1} value={form.minSeats} onChange={setField('minSeats')} /></Field>
+                <Field label="Max seats"><Input type="number" min={1} value={form.maxSeats} onChange={setField('maxSeats')} /></Field>
+              </div>
+
+              <div className="border-t border-line pt-3">
+                <p className="text-[11.5px] font-medium text-fg-muted mb-2">Module add-ons — $ / seat / month. Switch a module off to stop selling it (orgs that already have it keep it).</p>
+                <div className="space-y-2">
+                  {form.modules.map(m => (
+                    <div key={m.key} className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_110px_auto] gap-2 items-center" data-testid={`pricing-module-${m.key}`}>
+                      <Input aria-label={`${m.key} name`} value={m.name} onChange={e => setModule(m.key, { name: e.target.value })} />
+                      <Input aria-label={`${m.key} description`} className="hidden sm:block" value={m.description} onChange={e => setModule(m.key, { description: e.target.value })} />
+                      <Input aria-label={`${m.key} price`} type="number" min={0} step="0.5" value={m.price} onChange={e => setModule(m.key, { price: e.target.value })} />
+                      <Toggle checked={m.enabled} onChange={v => setModule(m.key, { enabled: v })} label="" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-line pt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Field label="Hosted storage module — GB included" hint={`Default ${data.defaults.customStorageGb} GB`}>
+                  <Input type="number" min={0} value={form.customStorageGb} onChange={setField('customStorageGb')} />
+                </Field>
+                <Field label="Yearly billing — months charged" hint={`Default ${data.defaults.yearlyMonthsCharged} (= ${Math.round((12 - data.defaults.yearlyMonthsCharged) / 12 * 100)}% off)`}>
+                  <Input type="number" min={1} max={12} step="0.5" value={form.yearlyMonthsCharged} onChange={setField('yearlyMonthsCharged')} />
+                </Field>
+                <Field label="Payment-failure grace — days" hint={`Default ${data.defaults.gracePeriodDays}. Paid features stay on this long after a failed payment.`}>
+                  <Input type="number" min={0} max={365} value={form.gracePeriodDays} onChange={setField('gracePeriodDays')} />
+                </Field>
+              </div>
+
+              <div className="border-t border-line pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11.5px] font-medium text-fg-muted">Volume discounts (applied to the whole custom licence)</p>
+                  <Button size="xs" variant="ghost" onClick={() => setForm(f => (f ? { ...f, tiers: [...f.tiers, { minSeats: '', discountPct: '' }] } : f))}>Add tier</Button>
+                </div>
+                <div className="space-y-2">
+                  {form.tiers.length === 0 && <p className="text-[11.5px] text-fg-subtle">No volume discounts.</p>}
+                  {form.tiers.map((t, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                      <Input aria-label="Tier minimum seats" type="number" min={1} placeholder="From N seats" value={t.minSeats} onChange={e => setTier(i, { minSeats: e.target.value })} />
+                      <Input aria-label="Tier discount percent" type="number" min={0} max={90} placeholder="% off" value={t.discountPct} onChange={e => setTier(i, { discountPct: e.target.value })} />
+                      <Button size="xs" variant="ghost" onClick={() => setForm(f => (f ? { ...f, tiers: f.tiers.filter((_, j) => j !== i) } : f))}>Remove</Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </section>
+
+          {example && (
+            <Alert tone="info" title="Worked example">
+              A custom licence with every enabled module for {example.seats} seats: {usd(example.perSeat)}/seat/month → <strong>{usd(example.monthly)}/month</strong>, or <strong>{usd(example.yearly)}/year</strong> billed yearly (before volume discounts).
+            </Alert>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }
