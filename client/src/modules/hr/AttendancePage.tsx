@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
@@ -6,8 +6,10 @@ import {
   PageHeader, PageBody, Card, CardHeader, Tabs, Button, Badge, Alert, Avatar,
   DataTable, EmptyState,
 } from '../../shared/components';
-import { LogIn, LogOut, MapPin, Users, Clock } from 'lucide-react';
+import { LogIn, LogOut, MapPin, Users, Clock, ScanFace, Trash2 } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
+import { FaceCaptureModal, type FaceSample } from '../../shared/components/FaceCaptureModal';
+const LiveMap = lazy(() => import('./LiveMap').then(m => ({ default: m.LiveMap })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
@@ -18,7 +20,34 @@ interface AttendanceRecord {
   checkOutAt: string | null;
   checkInLocationOk: boolean | null;
   checkInNetworkOk: boolean | null;
+  checkInFaceOk?: boolean | null;
+  checkInFaceDistance?: number | null;
+  checkInPassed?: boolean | null;
+  checkOutFaceOk?: boolean | null;
+  checkOutPassed?: boolean | null;
+  checkOutSource?: string | null;
   source: string;
+}
+
+interface VerificationRule { location: boolean; network: boolean; face: boolean; mode: 'ALL' | 'ANY'; enforce: boolean }
+interface AttendancePolicy {
+  checkInRule: VerificationRule;
+  checkOutRule: VerificationRule;
+  faceVerificationRequired: boolean;
+  faceMatchThreshold: number;
+  keepCheckInSelfie: boolean;
+  autoCheckoutOnLeave: boolean;
+  autoCheckoutAfterMinutes: number;
+  heartbeatTimeoutMinutes: number;
+  shareLiveLocation: boolean;
+  myEnrollment: { samples: number; enrolledAt: string; updatedAt: string; referenceSelfie: string | null } | null;
+}
+
+function useAttendancePolicy() {
+  return useQuery<AttendancePolicy>({
+    queryKey: ['attendance-policy'],
+    queryFn: () => api.get('/hr/attendance/policy').then(r => r.data),
+  });
 }
 
 function fmtHours(minutes: number) {
@@ -46,6 +75,14 @@ function isSameDay(iso: string, ref: Date) {
   return new Date(iso).toDateString() === ref.toDateString();
 }
 
+/** "location and network", "location or face", "no verification" */
+function ruleSummary(r: VerificationRule) {
+  const on = [r.location && 'location', r.network && 'office network', r.face && 'face'].filter(Boolean) as string[];
+  if (on.length === 0) return 'no verification';
+  const text = on.length === 1 ? on[0] : on.slice(0, -1).join(', ') + (r.mode === 'ALL' ? ' and ' : ' or ') + on[on.length - 1];
+  return r.enforce ? text : `${text} (recorded only)`;
+}
+
 /** Wraps navigator.geolocation in a promise; rejects with a friendly message. */
 function getPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
@@ -67,6 +104,8 @@ function SessionChip({ session, compact = false }: { session: AttendanceRecord; 
       }`}
     >
       {fmtTime(session.checkInAt)}{compact ? '–' : ' – '}{session.checkOutAt ? fmtTime(session.checkOutAt) : 'now'}
+      {session.checkOutSource === 'AUTO_GEOFENCE' && <span title="Checked out automatically after leaving the office" className="ml-1 text-warning">⤴</span>}
+      {session.checkOutSource === 'AUTO_TIMEOUT' && <span title="Checked out automatically — app lost contact" className="ml-1 text-fg-subtle">⏱</span>}
     </span>
   );
 }
@@ -87,21 +126,57 @@ function CheckInWidget() {
     queryKey: ['attendance-me'],
     queryFn: () => api.get('/hr/attendance/me').then(r => r.data),
   });
+  const { data: policy } = useAttendancePolicy();
+  const [face, setFace] = useState<{ mode: 'enrol' | 'verify'; action: 'in' | 'out' } | null>(null);
   // Multiple sessions can exist today — sorted newest-first by the API.
   const todaysSessions = (month || []).filter(r => isSameDay(r.date, now));
   const lastSession = todaysSessions[0] ?? null;
   const isCheckedInNow = !!(lastSession?.checkInAt && !lastSession?.checkOutAt);
   const totalMinutesToday = sumWorkedMinutes(todaysSessions, now);
+  const enrolled = !!policy?.myEnrollment;
+  const ruleFor = (action: 'in' | 'out') => (action === 'in' ? policy?.checkInRule : policy?.checkOutRule);
+  const needsLocation = (action: 'in' | 'out') => { const r = ruleFor(action); return !r || r.location || r.network; };
+
+  async function postCheck(action: 'in' | 'out', extra: Record<string, unknown> = {}) {
+    // Location is only requested when the rule uses it (or the network check, which is recorded alongside).
+    let coords = { lat: 0, lng: 0 };
+    if (needsLocation(action)) { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; }
+    await api.post(`/hr/attendance/check-${action}`, { ...coords, ...extra });
+    qc.invalidateQueries({ queryKey: ['attendance-me'] });
+  }
 
   async function handle(action: 'in' | 'out') {
-    setBusy(action); setError('');
+    setError('');
+    // When the rule includes a face, capture it up front (enrolling first if needed) —
+    // the server then combines it with location/network per the org's AND/OR rule.
+    if (ruleFor(action)?.face) {
+      setFace({ mode: enrolled ? 'verify' : 'enrol', action });
+      return;
+    }
+    setBusy(action);
     try {
-      const pos = await getPosition();
-      await api.post(`/hr/attendance/check-${action}`, { lat: pos.coords.latitude, lng: pos.coords.longitude });
-      qc.invalidateQueries({ queryKey: ['attendance-me'] });
+      await postCheck(action);
     } catch (err: any) {
+      const code = err?.response?.data?.code;
+      if (code === 'FACE_NOT_ENROLLED' || code === 'FACE_REQUIRED') {
+        qc.invalidateQueries({ queryKey: ['attendance-policy'] });
+        setFace({ mode: code === 'FACE_NOT_ENROLLED' ? 'enrol' : 'verify', action });
+        return;
+      }
       setError(err?.response?.data?.error || err?.message || 'Something went wrong.');
     } finally { setBusy(null); }
+  }
+
+  /** Called by the capture modal with the live sample(s); throws so the modal can show the server's reason. */
+  async function onFaceCaptured(samples: FaceSample[]) {
+    if (!face) return;
+    if (face.mode === 'enrol') {
+      await api.post('/hr/attendance/face/enrol', { descriptors: samples.map(s => s.descriptor), referenceSelfie: samples[0]?.selfie });
+      qc.invalidateQueries({ queryKey: ['attendance-policy'] });
+    }
+    // Straight on to the actual check-in/out with the last sample so the user isn't asked twice
+    const last = samples[samples.length - 1];
+    await postCheck(face.action, { faceDescriptor: last.descriptor, selfie: last.selfie });
   }
 
   return (
@@ -161,9 +236,81 @@ function CheckInWidget() {
           Check Out
         </Button>
       </div>
-      <p className="text-[11px] text-fg-subtle mt-4 flex items-center justify-center gap-1.5">
-        <MapPin size={11} /> Requires location access and being on-site · check in/out as many times as you need in a day
+      <p className="text-[11px] text-fg-subtle mt-4 flex items-center justify-center gap-1.5 flex-wrap">
+        {policy ? (
+          <>
+            <MapPin size={11} /> Check-in: {ruleSummary(policy.checkInRule)} · Check-out: {ruleSummary(policy.checkOutRule)}
+            {policy.faceVerificationRequired && <> · <ScanFace size={11} /> face</>}
+            {policy.autoCheckoutOnLeave && <> · auto check-out after {policy.autoCheckoutAfterMinutes} min outside the office (keep the app open)</>}
+            {policy.shareLiveLocation && <> · your location is shared with managers while you're checked in</>}
+          </>
+        ) : <><MapPin size={11} /> Requires location access and being on-site</>}
+        {' '}· check in/out as many times as you need in a day
       </p>
+
+      {face && (
+        <FaceCaptureModal
+          open
+          mode={face.mode}
+          onClose={() => setFace(null)}
+          onCaptured={onFaceCaptured}
+          title={face.mode === 'enrol' ? `Enrol your face to check ${face.action}` : 'Face verification'}
+          subtitle={face.mode === 'enrol'
+            ? `Your organisation's check-${face.action} rule includes face verification. We'll capture 3 quick samples now and check you ${face.action} straight after. Only a numeric face signature is stored, never the photos.`
+            : undefined}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** Self-service view of the user's enrolled face — re-enrol or remove. Shown only when the org requires face verification. */
+function FaceIdCard() {
+  const qc = useQueryClient();
+  const { data: policy } = useAttendancePolicy();
+  const { date } = useFormat();
+  const [mode, setMode] = useState<'enrol' | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!policy?.faceVerificationRequired) return null;
+  const e = policy.myEnrollment;
+
+  async function enrol(samples: FaceSample[]) {
+    await api.post('/hr/attendance/face/enrol', { descriptors: samples.map(s => s.descriptor), referenceSelfie: samples[0]?.selfie });
+    qc.invalidateQueries({ queryKey: ['attendance-policy'] });
+  }
+  async function remove() {
+    setBusy(true);
+    try { await api.delete('/hr/attendance/face/me'); qc.invalidateQueries({ queryKey: ['attendance-policy'] }); } finally { setBusy(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader title="Face ID" subtitle="Used to confirm it's you at check-in." />
+      <div className="flex items-center gap-4 mt-3 flex-wrap">
+        {e?.referenceSelfie ? (
+          <img src={e.referenceSelfie} alt="Enrolled face" className="w-16 h-16 rounded-lg object-cover -scale-x-100 border border-line" />
+        ) : (
+          <div className="w-16 h-16 rounded-lg bg-surface-sunken border border-line flex items-center justify-center text-fg-subtle"><ScanFace size={22} /></div>
+        )}
+        <div className="flex-1 min-w-[180px]">
+          {e ? (
+            <>
+              <p className="text-[13px] font-medium text-fg flex items-center gap-2">Enrolled <Badge variant="green">{e.samples} samples</Badge></p>
+              <p className="text-[12px] text-fg-muted">Since {date(e.enrolledAt)}. Only a numeric signature is stored — you can remove it any time.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13px] font-medium text-fg">Not enrolled yet</p>
+              <p className="text-[12px] text-fg-muted">You'll be asked to enrol the first time you check in, or do it now.</p>
+            </>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="secondary" icon={<ScanFace size={14} />} onClick={() => setMode('enrol')}>{e ? 'Re-enrol' : 'Enrol now'}</Button>
+          {e && <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} loading={busy} onClick={remove}>Remove</Button>}
+        </div>
+      </div>
+      {mode && <FaceCaptureModal open mode="enrol" onClose={() => setMode(null)} onCaptured={enrol} />}
     </Card>
   );
 }
@@ -228,10 +375,11 @@ function MyHistory() {
             key: 'verified',
             header: 'Verified',
             cell: d => {
-              const allVerified = d.sessions.every(s => s.source === 'SELF' && s.checkInLocationOk && s.checkInNetworkOk);
+              const allVerified = d.sessions.every(s => s.source === 'SELF' && (s.checkInPassed ?? (s.checkInLocationOk && s.checkInNetworkOk)));
               const anyManual = d.sessions.some(s => s.source === 'MANUAL');
+              const faceVerified = d.sessions.some(s => s.checkInFaceOk || s.checkOutFaceOk);
               return anyManual ? <Badge variant="gray">Manual entry</Badge>
-                : allVerified ? <Badge variant="green">Verified</Badge>
+                : allVerified ? <span className="inline-flex items-center gap-1"><Badge variant="green">Verified</Badge>{faceVerified && <Badge variant="teal"><ScanFace size={10} className="mr-0.5" />Face</Badge>}</span>
                 : <Badge variant="yellow">Partial</Badge>;
             },
           },
@@ -326,7 +474,8 @@ function TeamToday() {
 export default function AttendancePage() {
   const { user } = useAuth();
   const isManager = MANAGER_ROLES.includes(user?.role || '');
-  const [tab, setTab] = useState<'me' | 'team'>('me');
+  const [tab, setTab] = useState<'me' | 'team' | 'map'>('me');
+  const { data: policy } = useAttendancePolicy();
 
   return (
     <div>
@@ -334,7 +483,7 @@ export default function AttendancePage() {
         title="Attendance"
         subtitle="Mark and track daily attendance"
         below={isManager ? (
-          <Tabs<'me' | 'team'>
+          <Tabs<'me' | 'team' | 'map'>
             aria-label="Attendance views"
             variant="segmented"
             value={tab}
@@ -342,17 +491,21 @@ export default function AttendancePage() {
             items={[
               { key: 'me', label: 'My Attendance' },
               { key: 'team', label: 'Team' },
+              ...(policy?.shareLiveLocation ? [{ key: 'map' as const, label: 'Live map' }] : []),
             ]}
           />
         ) : undefined}
       />
 
-      <PageBody width="full" className="max-w-4xl mx-auto">
+      <PageBody width="full" className={tab === 'map' ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}>
         {tab === 'me' ? (
           <div className="space-y-5">
             <CheckInWidget />
+            <FaceIdCard />
             <MyHistory />
           </div>
+        ) : tab === 'map' ? (
+          <Suspense fallback={<div className="p-6 text-[13px] text-fg-subtle">Loading map…</div>}><LiveMap /></Suspense>
         ) : (
           <TeamToday />
         )}

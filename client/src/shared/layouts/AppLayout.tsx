@@ -23,6 +23,7 @@ import { ThemePicker } from "../components/ThemePicker";
 import { useLabels, type LabelEntityKey } from "../../hooks/useLabels";
 import { can } from "../permissions";
 import { useLicense } from "../../api/billing";
+import { useAttendanceHeartbeat } from "../../hooks/useAttendanceHeartbeat";
 import { AlertTriangle } from "lucide-react";
 
 // Which nav routes / page-title routes correspond to a relabelable entity —
@@ -424,6 +425,8 @@ function SidebarContent({ user, onLogout, onNavClick }: {
 
 export function AppLayout() {
   const { user, logout } = useAuth();
+  // Geofence auto check-out: location heartbeats while a session is open (no-op unless the org enabled it)
+  useAttendanceHeartbeat(!!user);
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);

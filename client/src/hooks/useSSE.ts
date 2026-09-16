@@ -13,6 +13,8 @@ export type SSEEventType =
   | 'deal:updated'
   | 'notification'
   | 'chat:message'
+  | 'attendance:updated'
+  | 'attendance:locate'
   | 'ping';
 
 type Handler = (data: any) => void;
@@ -74,6 +76,14 @@ export function useSSE() {
       'chat:message': (data) => {
         qc.invalidateQueries({ queryKey: ['chat-threads'] });
         if (data.threadId) qc.invalidateQueries({ queryKey: ['chat-messages', data.threadId] });
+      },
+      'attendance:updated': () => {
+        qc.invalidateQueries({ queryKey: ['attendance-today'] });
+        qc.invalidateQueries({ queryKey: ['attendance-live'] });
+      },
+      // A manager asked for this user's position — the heartbeat hook listens for this and pings immediately
+      'attendance:locate': (data) => {
+        window.dispatchEvent(new CustomEvent('attendance:locate', { detail: data }));
       },
     };
 

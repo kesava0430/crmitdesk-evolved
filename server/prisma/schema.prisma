@@ -110,6 +110,9 @@ model Organization {
   workspaceConfig   WorkspaceConfig?
   solutionTemplates SolutionTemplate[]
   webForms          WebForm[]
+  attendancePolicy  AttendancePolicy?
+  faceEnrollments   FaceEnrollment[]
+  locationPings     AttendanceLocationPing[]
 }
 
 // Lightweight per-event usage log — currently AI_CALL, WHATSAPP_SEND, and
@@ -311,6 +314,8 @@ model User {
   @@map("users")
   chatParticipants ChatParticipant[]
   chatMessages     ChatMessage[]
+  faceEnrollment    FaceEnrollment?
+  locationPings     AttendanceLocationPing[]
 }
 
 // Staff forgot-password flow. tokenHash is SHA-256 of the raw token emailed
@@ -1661,14 +1666,126 @@ model AttendanceRecord {
   // employee's own check-in/out, and skip geofence/IP verification entirely.
   source                String       @default("SELF") @map("source") // SELF | MANUAL
   notes                 String?
+  // Face verification at check-in (see AttendancePolicy / FaceEnrollment).
+  // Null = the org didn't require it at the time; false = attempted and
+  // failed (never persisted — a failed match rejects the check-in) so in
+  // practice rows carry true or null. Distance is the euclidean distance
+  // between the live descriptor and the closest enrolled sample.
+  checkInFaceOk         Boolean?     @map("check_in_face_ok")
+  checkInFaceDistance   Float?       @map("check_in_face_distance")
+  /// Small JPEG data URL of the selfie captured at check-in, kept as evidence for managers.
+  checkInSelfie         String?      @map("check_in_selfie")
+  /// Overall result of the org's check-in rule (AttendancePolicy.checkInRule) at the time.
+  checkInPassed         Boolean?     @map("check_in_passed")
+  checkOutFaceOk        Boolean?     @map("check_out_face_ok")
+  checkOutFaceDistance  Float?       @map("check_out_face_distance")
+  checkOutSelfie        String?      @map("check_out_selfie")
+  checkOutPassed        Boolean?     @map("check_out_passed")
+  /// How the session was closed: SELF (button) | MANUAL (manager) | AUTO_GEOFENCE (left the office) | AUTO_TIMEOUT (app went silent)
+  checkOutSource        String?      @map("check_out_source")
+  /// Last location heartbeat while the session was open (POST /hr/attendance/heartbeat)
+  lastSeenAt            DateTime?    @map("last_seen_at")
+  lastSeenLat           Float?       @map("last_seen_lat")
+  lastSeenLng           Float?       @map("last_seen_lng")
+  lastSeenInside        Boolean?     @map("last_seen_inside")
+  /// First heartbeat that placed the user outside every office radius; cleared when they come back
+  outsideSince          DateTime?    @map("outside_since")
+  /// Last "open the app to update your location" push sent for this session
+  lastNudgedAt          DateTime?    @map("last_nudged_at")
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
   org                   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  locationPings         AttendanceLocationPing[]
+
   @@index([userId, date])
   @@index([orgId, date])
   @@map("attendance_records")
+}
+
+// Per-org attendance rules. One row per org (created on first read).
+model AttendancePolicy {
+  id                       String       @id @default(cuid())
+  orgId                    String       @unique @map("org_id")
+  /// Which signals check-in / check-out require and how they combine —
+  /// { location, network, face: boolean; mode: "ALL" | "ANY"; enforce: boolean }.
+  /// See utils/attendanceRules.ts for defaults and evaluation. Null = default
+  /// (check-in: location AND network, enforced; check-out: same, recorded only).
+  checkInRule              Json?        @map("check_in_rule")
+  checkOutRule             Json?        @map("check_out_rule")
+  /// Close the open session automatically once the user has been outside every
+  /// office radius for autoCheckoutAfterMinutes (needs the app open to send
+  /// location heartbeats; see utils/attendanceAutoCheckout.ts).
+  autoCheckoutOnLeave      Boolean      @default(false) @map("auto_checkout_on_leave")
+  autoCheckoutAfterMinutes Int          @default(5) @map("auto_checkout_after_minutes")
+  /// Also close a session when no heartbeat arrives for this many minutes
+  /// (app closed / phone off). 0 = off.
+  heartbeatTimeoutMinutes  Int          @default(0) @map("heartbeat_timeout_minutes")
+  /// Managers can see each checked-in employee's live position and the day's
+  /// trail on Attendance → Live map. Location is only collected while a session
+  /// is open and the app is running; employees see a notice on their page.
+  shareLiveLocation        Boolean      @default(false) @map("share_live_location")
+  /// Days of location pings kept for the trail view (older rows are purged nightly)
+  locationRetentionDays    Int          @default(30) @map("location_retention_days")
+  /// When a checked-in person's location goes stale for this long, send a push
+  /// notification asking them to open the app (browsers can't read GPS while the
+  /// app is closed). 0 = never nudge. Repeats at most every nudgeRepeatMinutes.
+  nudgeAfterMinutes        Int          @default(10) @map("nudge_after_minutes")
+  nudgeRepeatMinutes       Int          @default(30) @map("nudge_repeat_minutes")
+  /// Max euclidean distance between live and enrolled descriptors to count as
+  /// a match. face-api's conventional threshold is 0.6; 0.5 is stricter.
+  faceMatchThreshold       Float        @default(0.5) @map("face_match_threshold")
+  /// Keep the check-in selfie on the attendance record for manager review.
+  keepCheckInSelfie        Boolean      @default(true) @map("keep_check_in_selfie")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
+  org                      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("attendance_policies")
+}
+
+// One location ping per heartbeat while a session is open and the org shares
+// live location — powers the manager's live map and per-day trail.
+model AttendanceLocationPing {
+  id        String           @id @default(cuid())
+  orgId     String           @map("org_id")
+  userId    String           @map("user_id")
+  recordId  String           @map("record_id")
+  at        DateTime         @default(now())
+  lat       Float
+  lng       Float
+  accuracy  Float?
+  inside    Boolean?
+  org       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  record    AttendanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at])
+  @@index([userId, at])
+  @@map("attendance_location_pings")
+}
+
+// A user's enrolled reference face: several 128-float descriptors produced
+// in the browser by the face-recognition model (client/src/shared/face.ts),
+// never the photos themselves. Biometric data — deleted with the user, and
+// removable by the user or a manager at any time.
+model FaceEnrollment {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  userId      String       @unique @map("user_id")
+  /// number[][] — each inner array is one 128-dim descriptor sample
+  descriptors Json
+  samples     Int          @default(0)
+  /// Small JPEG data URL of one enrolment selfie, shown back to the user/manager as "this is what's enrolled".
+  referenceSelfie String?  @map("reference_selfie")
+  enrolledAt  DateTime     @default(now()) @map("enrolled_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("face_enrollments")
 }
 
 // ─── HR: Leave Management ───────────────────────────────────────────────────

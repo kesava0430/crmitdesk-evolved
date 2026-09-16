@@ -3,9 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import {
   PageHeader, PageBody, Card, CardHeader, Button, Modal, Badge, EmptyState,
-  RowActions, Field, Input, Checkbox, Alert, SkeletonTable,
+  RowActions, Field, Input, Checkbox, Alert, SkeletonTable, Toggle,
 } from '../../shared/components';
-import { Building2, Plus, Pencil, Trash2, Tag, MapPin, Wifi } from 'lucide-react';
+import { Building2, Plus, Pencil, Trash2, Tag, MapPin, Wifi, ScanFace } from 'lucide-react';
 
 interface OfficeLocation {
   id: string; name: string; latitude: number; longitude: number;
@@ -379,12 +379,217 @@ function LeaveTypesSection() {
   );
 }
 
+// ─── Face verification policy ────────────────────────────────────────────────
+
+interface VerificationRule { location: boolean; network: boolean; face: boolean; mode: 'ALL' | 'ANY'; enforce: boolean }
+interface AttendancePolicy {
+  checkInRule: VerificationRule; checkOutRule: VerificationRule;
+  faceVerificationRequired: boolean; faceMatchThreshold: number; keepCheckInSelfie: boolean;
+  autoCheckoutOnLeave: boolean; autoCheckoutAfterMinutes: number; heartbeatTimeoutMinutes: number;
+  shareLiveLocation: boolean; locationRetentionDays: number;
+  nudgeAfterMinutes: number; nudgeRepeatMinutes: number;
+}
+
+const SIGNALS: { key: keyof Pick<VerificationRule, 'location' | 'network' | 'face'>; label: string; hint: string }[] = [
+  { key: 'location', label: 'Location', hint: 'GPS inside an office geofence' },
+  { key: 'network',  label: 'Office network', hint: 'Device IP on an office allowlist (skipped if no office has one)' },
+  { key: 'face',     label: 'Face verification', hint: 'Live face matches the enrolled one' },
+];
+
+function describeRule(r: VerificationRule) {
+  const on = SIGNALS.filter(s => r[s.key]).map(s => s.label.toLowerCase());
+  if (on.length === 0) return 'No verification — anyone can mark it from anywhere.';
+  const joined = on.length === 1 ? on[0] : on.slice(0, -1).join(', ') + (r.mode === 'ALL' ? ' and ' : ' or ') + on[on.length - 1];
+  return `${r.mode === 'ALL' && on.length > 1 ? 'Requires all of: ' : on.length > 1 ? 'Requires at least one of: ' : 'Requires '}${joined}. ${r.enforce ? 'Blocked when it fails.' : 'Recorded only — never blocked.'}`;
+}
+
+/** Small numeric setting with its own Save so a half-typed value never fires a PATCH. */
+function NumberSetting({ label, hint, value, min, max, onSave, saving }: { label: string; hint?: string; value: number; min: number; max: number; onSave: (v: number) => void; saving: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+  return (
+    <Field label={label} hint={hint}>
+      <div className="flex gap-2">
+        <Input type="number" min={min} max={max} value={shown} onChange={e => setDraft(e.target.value)} />
+        <Button size="sm" variant="secondary" disabled={draft === null || Number(draft) === value} loading={saving}
+          onClick={() => { onSave(Math.min(max, Math.max(min, Math.round(Number(shown) || min)))); setDraft(null); }}>Save</Button>
+      </div>
+    </Field>
+  );
+}
+
+/** One rule editor: which signals, AND/OR, enforce. Saves on every change. */
+function RuleEditor({ title, subtitle, rule, onChange, saving }: { title: string; subtitle: string; rule: VerificationRule; onChange: (r: VerificationRule) => void; saving: boolean }) {
+  const enabledCount = SIGNALS.filter(s => rule[s.key]).length;
+  return (
+    <div className="rounded-lg border border-line p-3.5" data-testid={`rule-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+        <div>
+          <p className="text-[13px] font-semibold text-fg">{title}</p>
+          <p className="text-[11.5px] text-fg-muted">{subtitle}</p>
+        </div>
+        <div role="radiogroup" aria-label={`${title} combination`} className="inline-flex rounded-lg border border-line p-0.5 bg-surface-sunken">
+          {(['ALL', 'ANY'] as const).map(m => (
+            <button key={m} type="button" role="radio" aria-checked={rule.mode === m} disabled={saving || enabledCount < 2}
+              onClick={() => onChange({ ...rule, mode: m })}
+              className={`px-3 py-1 rounded-md text-[12px] font-medium transition disabled:opacity-50 ${rule.mode === m ? 'bg-surface shadow-ui-sm text-fg' : 'text-fg-muted hover:text-fg'}`}>
+              {m === 'ALL' ? 'All (AND)' : 'Any (OR)'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {SIGNALS.map(sig => (
+          <Checkbox key={sig.key} label={sig.label} hint={sig.hint} checked={rule[sig.key]} disabled={saving}
+            onChange={e => onChange({ ...rule, [sig.key]: e.target.checked })} />
+        ))}
+      </div>
+      <div className="mt-3 pt-3 border-t border-line-subtle flex items-start justify-between gap-4 flex-wrap">
+        <p className="text-[12px] text-fg-muted flex-1 min-w-[200px]">{describeRule(rule)}</p>
+        <Toggle checked={rule.enforce} disabled={saving} onChange={v => onChange({ ...rule, enforce: v })} label="Block when the rule fails" />
+      </div>
+    </div>
+  );
+}
+interface FaceEnrollmentRow { userId: string; samples: number; enrolledAt: string; user: { name: string; email: string; role: string } }
+
+function FaceVerificationSection() {
+  const qc = useQueryClient();
+  const { data: policy } = useQuery<AttendancePolicy>({
+    queryKey: ['attendance-policy'],
+    queryFn: () => api.get('/hr/attendance/policy').then(r => r.data),
+  });
+  const { data: enrolments, isLoading } = useQuery<FaceEnrollmentRow[]>({
+    queryKey: ['attendance-face-enrolments'],
+    queryFn: () => api.get('/hr/attendance/face').then(r => r.data),
+    enabled: !!policy?.faceVerificationRequired,
+  });
+  const update = useMutation({
+    mutationFn: (data: Partial<AttendancePolicy>) => api.patch('/hr/attendance/policy', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance-policy'] }),
+  });
+  const reset = useMutation({
+    mutationFn: (userId: string) => api.delete(`/hr/attendance/face/${userId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance-face-enrolments'] }),
+  });
+  const [threshold, setThreshold] = useState<string | null>(null);
+  const shownThreshold = threshold ?? String(policy?.faceMatchThreshold ?? 0.5);
+
+  return (
+    <Card>
+      <CardHeader
+        title="Check-in / check-out verification"
+        subtitle="Choose which signals each action needs — location, office network, face — and whether they must all pass (AND) or any one is enough (OR)."
+      />
+      <div className="mt-4 space-y-4">
+        {policy ? (
+          <>
+            <RuleEditor title="Check-in" subtitle="Starting a session." rule={policy.checkInRule} saving={update.isPending}
+              onChange={r => update.mutate({ checkInRule: r })} />
+            <RuleEditor title="Check-out" subtitle="Ending a session. Default is record-only so someone leaving for a client visit can still log their time." rule={policy.checkOutRule} saving={update.isPending}
+              onChange={r => update.mutate({ checkOutRule: r })} />
+          </>
+        ) : <SkeletonTable rows={2} />}
+        {policy && (
+          <div className="rounded-lg border border-line p-3.5 space-y-3" data-testid="auto-checkout">
+            <Toggle
+              checked={policy.autoCheckoutOnLeave}
+              disabled={update.isPending}
+              onChange={v => update.mutate({ autoCheckoutOnLeave: v })}
+              label="Check out automatically when someone leaves the office"
+              hint="While the app is open, it sends a location ping every minute. Once every ping for the period below places the person outside all office radii, their session is closed at the moment they were first seen outside. Browsers can't track location with the app closed."
+            />
+            {policy.autoCheckoutOnLeave && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <NumberSetting label="Outside for (minutes) before check-out" hint="Avoids false check-outs from a GPS blip or a step outside the door." value={policy.autoCheckoutAfterMinutes} min={1} max={240}
+                  onSave={v => update.mutate({ autoCheckoutAfterMinutes: v })} saving={update.isPending} />
+                <NumberSetting label="Close silent sessions after (minutes, 0 = off)" hint="If no ping arrives for this long (app closed, phone off), check out at the last ping." value={policy.heartbeatTimeoutMinutes} min={0} max={1440}
+                  onSave={v => update.mutate({ heartbeatTimeoutMinutes: v })} saving={update.isPending} />
+              </div>
+            )}
+          </div>
+        )}
+        {policy && (
+          <div className="rounded-lg border border-line p-3.5 space-y-3" data-testid="live-location">
+            <Toggle
+              checked={policy.shareLiveLocation}
+              disabled={update.isPending}
+              onChange={v => update.mutate({ shareLiveLocation: v })}
+              label="Let managers see live locations while people are checked in"
+              hint="Adds a Live map tab on Attendance for managers: each checked-in employee's latest position, whether they're inside an office radius, a 'Locate now' button, and the day's trail. Location is collected only while a session is open and the app is running; employees see a notice on their Attendance page. Nothing is collected once they check out."
+            />
+            {policy.shareLiveLocation && (
+              <NumberSetting label="Keep location history for (days)" hint="Trails older than this are deleted automatically." value={policy.locationRetentionDays} min={1} max={365}
+                onSave={v => update.mutate({ locationRetentionDays: v })} saving={update.isPending} />
+            )}
+            {(policy.shareLiveLocation || policy.autoCheckoutOnLeave || policy.heartbeatTimeoutMinutes > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-line-subtle pt-3">
+                <NumberSetting label="Push a reminder when location is stale for (minutes, 0 = never)"
+                  hint="Phones don't share GPS while the app is closed. When a checked-in person's last fix is older than this, they get a push notification asking them to open the app; an open app is relayed the request silently."
+                  value={policy.nudgeAfterMinutes} min={0} max={1440} onSave={v => update.mutate({ nudgeAfterMinutes: v })} saving={update.isPending} />
+                <NumberSetting label="Repeat the reminder at most every (minutes)" value={policy.nudgeRepeatMinutes} min={5} max={1440}
+                  onSave={v => update.mutate({ nudgeRepeatMinutes: v })} saving={update.isPending} />
+              </div>
+            )}
+          </div>
+        )}
+        {policy?.faceVerificationRequired && (
+          <p className="text-[12px] text-fg-muted">Face verification: employees enrol once from the Attendance page (3 webcam samples). Only a numeric face signature is stored — not photos — and anyone can remove theirs; you can reset it below.</p>
+        )}
+        {policy?.faceVerificationRequired && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Match strictness (max distance)" hint="0.5 is a good default. Lower = stricter (more false rejections), higher = looser. 0.6 is the model's conventional limit.">
+                <div className="flex gap-2">
+                  <Input type="number" min={0.3} max={0.8} step={0.05} value={shownThreshold} onChange={e => setThreshold(e.target.value)} />
+                  <Button size="sm" variant="secondary" disabled={threshold === null} loading={update.isPending}
+                    onClick={() => { update.mutate({ faceMatchThreshold: Number(shownThreshold) }); setThreshold(null); }}>Save</Button>
+                </div>
+              </Field>
+              <Toggle
+                checked={!!policy.keepCheckInSelfie}
+                disabled={update.isPending}
+                onChange={v => update.mutate({ keepCheckInSelfie: v })}
+                label="Keep the check-in selfie as evidence"
+                hint="A small photo is stored on each verified check-in for manager review. Turn off to store only the pass/fail result."
+              />
+            </div>
+
+            <div className="border-t border-line-subtle pt-4">
+              <p className="text-[12px] font-medium text-fg-muted mb-2">Enrolled employees {enrolments ? `(${enrolments.length})` : ''}</p>
+              {isLoading ? <SkeletonTable rows={3} /> : !enrolments?.length ? (
+                <p className="text-[12.5px] text-fg-subtle">Nobody has enrolled yet — each person is prompted at their next check-in.</p>
+              ) : (
+                <ul className="divide-y divide-line-subtle">
+                  {enrolments.map(e => (
+                    <li key={e.userId} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-[13px] text-fg truncate">{e.user.name} <span className="text-fg-subtle">· {e.user.email}</span></p>
+                        <p className="text-[11.5px] text-fg-subtle">{e.samples} samples · enrolled {new Date(e.enrolledAt).toLocaleDateString()}</p>
+                      </div>
+                      <Button size="xs" variant="ghost" icon={<Trash2 size={12} />} loading={reset.isPending && reset.variables === e.userId} onClick={() => reset.mutate(e.userId)}>
+                        Reset
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        )}
+        <p className="text-[11.5px] text-fg-subtle flex items-center gap-1.5"><ScanFace size={12} /> Biometric data: tell employees why it's collected and let them opt out via a manual entry where local law requires consent.</p>
+      </div>
+    </Card>
+  );
+}
+
 export default function HRSettingsPage() {
   return (
     <div>
-      <PageHeader title="HR Settings" subtitle="Configure office locations and leave types" />
+      <PageHeader title="HR Settings" subtitle="Configure office locations, check-in verification rules and leave types" />
       <PageBody width="full" className="max-w-4xl mx-auto">
         <OfficeLocationsSection />
+        <FaceVerificationSection />
         <LeaveTypesSection />
       </PageBody>
     </div>

@@ -42,6 +42,14 @@ class SSEManager {
     }
   }
 
+  /** True when the user has at least one live SSE connection (i.e. the app is open somewhere). */
+  isUserConnected(orgId: string, userId: string): boolean {
+    const org = this.clients.get(orgId);
+    if (!org) return false;
+    for (const c of org) if (c.userId === userId) return true;
+    return false;
+  }
+
   /** Broadcast to ALL clients in org including sender */
   broadcastAll(orgId: string, event: string, data: any) {
     this.broadcast(orgId, event, data);
@@ -97,6 +105,7 @@ export const SSEEvent = {
   DEAL_UPDATED:       'deal:updated',
   NOTIFICATION:       'notification',
   ATTENDANCE_UPDATED: 'attendance:updated',
+  ATTENDANCE_LOCATE:  'attendance:locate',   // sent to one user: "send a location ping now"
   LEAVE_UPDATED:      'leave:updated',
   CHAT_MESSAGE:       'chat:message',
   CHAT_THREAD:        'chat:thread',

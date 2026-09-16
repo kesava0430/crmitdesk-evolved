@@ -33,10 +33,14 @@ export function getVapidPublicKey(): string | null {
   return VAPID_PUBLIC_KEY || null;
 }
 
-interface PushPayload {
+export interface PushPayload {
   title: string;
   body?: string;
   url?: string; // opened on notification click — see sw.ts's notificationclick handler
+  /** Collapses repeated notifications of the same kind (e.g. attendance nudges) */
+  tag?: string;
+  /** Machine-readable kind; sw.ts relays some of these to open tabs (e.g. 'attendance:locate') */
+  type?: string;
 }
 
 /**

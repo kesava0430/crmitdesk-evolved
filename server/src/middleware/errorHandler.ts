@@ -14,7 +14,8 @@ export class AppError extends Error {
 
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({ error: err.message });
+    const code = (err as any).code;
+    return res.status(err.statusCode).json(typeof code === 'string' ? { error: err.message, code } : { error: err.message });
   }
   if ((err as any).status === 413 || (err as any).type === 'entity.too.large') {
     return res.status(413).json({ error: 'Payload too large' });

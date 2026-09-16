@@ -38,6 +38,8 @@ interface PushPayload {
   title?: string;
   body?: string;
   url?: string;
+  tag?: string;
+  type?: string;
 }
 
 self.addEventListener('push', (event: PushEvent) => {
@@ -49,14 +51,24 @@ self.addEventListener('push', (event: PushEvent) => {
   }
 
   const title = data.title || 'CRM & IT Desk';
-  event.waitUntil(
-    self.registration.showNotification(title, {
+  event.waitUntil((async () => {
+    // Attendance "locate" pushes: if the app is open in any tab (even a
+    // backgrounded one), hand the request straight to it so it can send a
+    // location fix without the person tapping anything. Service workers can't
+    // read GPS themselves, so a closed app still needs the tap.
+    if (data.type === 'attendance:locate') {
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const c of clients) c.postMessage({ type: 'attendance:locate' });
+      if (clients.some(c => c.visibilityState === 'visible')) return; // already in the foreground — no notification needed
+    }
+    await self.registration.showNotification(title, {
       body: data.body || '',
       icon: '/pwa-192x192.png',
       badge: '/pwa-192x192.png',
-      data: { url: data.url || '/' },
-    }),
-  );
+      tag: data.tag,
+      data: { url: data.url || '/', type: data.type },
+    });
+  })());
 });
 
 // Clicking the OS notification focuses an already-open tab if there is one,

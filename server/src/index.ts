@@ -33,6 +33,7 @@ import { webFormsRouter, publicFormsRouter } from './modules/webforms/webforms.r
 import { portalRouter } from './modules/portal/portal.routes';
 import { portalUsersRouter } from './modules/portal/portalUsers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
+import { sweepAutoCheckouts, purgeOldLocationPings } from './utils/attendanceAutoCheckout';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { eventsRouter } from './modules/events/events.routes';
 import { slackRouter } from './modules/slack/slack.routes';
@@ -374,6 +375,18 @@ pollers.push(setInterval(async () => {
 // Email sync: run immediately on startup, then every 5 minutes
 syncAllEmailAccounts().catch(() => {});
 pollers.push(setInterval(() => syncAllEmailAccounts().catch(() => {}), 5 * 60 * 1000));
+
+// Attendance: finish geofence / silent-session auto check-outs every minute
+pollers.push(setInterval(() => {
+  sweepAutoCheckouts()
+    .then(n => { if (n.geofence || n.timeout || n.nudged) console.log(`[attendance] sweep: ${n.geofence} left office, ${n.timeout} timed out, ${n.nudged} nudged by push`); })
+    .catch(err => console.error('[attendance] auto check-out sweep failed', err));
+}, 60 * 1000));
+
+// Attendance: drop location pings past each org's retention, hourly
+pollers.push(setInterval(() => {
+  purgeOldLocationPings().then(n => { if (n) console.log(`[attendance] purged ${n} old location pings`); }).catch(() => {});
+}, 60 * 60 * 1000));
 
 // Schedule reminders: check for due WhatsApp notifications every minute
 startSchedulePoller();
