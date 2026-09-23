@@ -8,11 +8,13 @@
  * from /models/face (client/public/models/face).
  */
 
+import { asset } from './asset';
+
 type FaceApi = typeof import('@vladmandic/face-api');
 
 let faceApiPromise: Promise<FaceApi> | null = null;
 
-export const MODEL_URL = '/models/face';
+export const MODEL_URL = asset('models/face');
 
 export async function loadFaceApi(): Promise<FaceApi> {
   if (!faceApiPromise) {

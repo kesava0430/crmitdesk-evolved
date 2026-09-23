@@ -1,0 +1,121 @@
+# Build on push to main, publish the artifacts to S3. The EC2 box pulls
+# them itself (see deploy/zenkara-pull-deploy.sh).
+#
+# Why build here: the server is a t3.small (2 GB) and `tsc` over this
+# codebase OOM'd at ~950 MB. A GitHub runner has 4 CPUs and 16 GB, so the
+# server only unpacks finished output — ~15s of downtime instead of ~6
+# minutes with the app stopped.
+#
+# Why S3 in the middle rather than scp: nothing needs to connect INTO the
+# server. GitHub writes to a bucket, the instance reads from it with an IAM
+# role. Port 22 can stay restricted to your own IP, and there is no SSH key
+# sitting in GitHub secrets.
+#
+# What is NOT shipped: node_modules. It holds the Prisma query engine, a
+# platform-specific native binary — `npm ci` + `prisma generate` run on the
+# instance, and only when package-lock.json actually changed.
+#
+# ── One-time AWS setup ──────────────────────────────────────────────────
+# See deploy/README.md for the bucket, the two IAM roles and the timer.
+#
+# ⚠️ Do not enable until your local work is pushed to main. The first run
+#    publishes whatever is on main; if that lacks the sub-path changes, the
+#    next pull takes the site down.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+# Required for GitHub's OIDC token — this is what lets us assume an AWS role
+# with no long-lived access key stored as a secret.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-north-1
+  S3_BUCKET: zenkara-deploy
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Install ONCE at the root — this is an npm-workspaces monorepo, and
+      # `npm ci` inside client/ or server/ wipes the shared node_modules.
+      - name: Install dependencies (root — workspaces)
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: server
+
+      - name: Build server (tsc)
+        run: npm run build --workspace=server
+
+      - name: Server unit tests
+        run: npm run test:unit --workspace=server
+
+      # VITE_BASE_PATH is what makes the bundle work under /zenkara — Vite
+      # bakes it into every asset URL and main.tsx derives the router
+      # basename from it. Omit it and every asset 404s on app.zenkara.in.
+      - name: Build client (hosted at /zenkara)
+        env:
+          VITE_BASE_PATH: /zenkara/
+          VITE_API_URL: /zenkara/api
+        run: npm run build --workspace=client
+
+      - name: Package artifacts
+        run: |
+          tar -czf server-dist.tar.gz -C server dist
+          tar -czf client-dist.tar.gz -C client dist
+          ls -lh *.tar.gz
+
+      - name: Assume AWS role (OIDC — no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # current.txt is written LAST and is the only thing the instance
+      # watches. Until it flips, a half-uploaded release is invisible — so
+      # the puller can never grab an incomplete set of artifacts.
+      - name: Publish release to S3
+        run: |
+          SHA="${{ github.sha }}"
+          aws s3 cp server-dist.tar.gz  "s3://$S3_BUCKET/releases/$SHA/server-dist.tar.gz"
+          aws s3 cp client-dist.tar.gz  "s3://$S3_BUCKET/releases/$SHA/client-dist.tar.gz"
+          aws s3 cp package-lock.json   "s3://$S3_BUCKET/releases/$SHA/package-lock.json"
+          echo "$SHA" > current.txt
+          aws s3 cp current.txt "s3://$S3_BUCKET/current.txt" --cache-control no-cache
+          echo "Published $SHA"
+
+      # The instance polls once a minute, so give it up to ~3 minutes to
+      # pick the release up and come back healthy.
+      - name: Wait for the instance to deploy it
+        run: |
+          for i in $(seq 1 36); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://app.zenkara.in/zenkara/api/docs || true)
+            live=$(curl -s https://app.zenkara.in/zenkara/deployed.txt 2>/dev/null || true)
+            if [ "$code" = "200" ] && [ "$live" = "${{ github.sha }}" ]; then
+              echo "Deployed and healthy: $live"; exit 0
+            fi
+            echo "attempt $i — api:$code deployed:'${live:0:7}' want:'${GITHUB_SHA:0:7}'"
+            sleep 10
+          done
+          echo "::error::Instance did not report this release within 6 minutes. Check: journalctl -u zenkara-deploy -n 50"
+          exit 1

@@ -2,7 +2,24 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+/**
+ * Where this build will be served from.
+ *
+ * Vite bakes the base path into every asset URL, so it cannot be decided at
+ * runtime — one build serves one base. Two targets need different values:
+ *
+ *   web (path-hosted):  VITE_BASE_PATH=/zenkara/  -> app.zenkara.in/zenkara
+ *   Capacitor (APK):    unset                     -> served at http://localhost
+ *
+ * Hardcoding '/zenkara/' would break the native build, whose WebView always
+ * serves the bundle from the root of its own origin. Keep the trailing
+ * slash: Vite requires it, and main.tsx derives the router basename from
+ * import.meta.env.BASE_URL so the two can never drift apart.
+ */
+const base = process.env.VITE_BASE_PATH || '/';
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -25,12 +42,15 @@ export default defineConfig({
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',
-        start_url: '/',
-        scope: '/',
+        // Must track `base`. A PWA installed from /zenkara/ with scope '/'
+        // would claim the whole host — breaking any sibling project on the
+        // same domain — and its start_url would open a 404.
+        start_url: base,
+        scope: base,
         icons: [
-          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: `${base}pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
+          { src: `${base}pwa-512x512.png`, sizes: '512x512', type: 'image/png' },
+          { src: `${base}maskable-icon-512x512.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       injectManifest: {

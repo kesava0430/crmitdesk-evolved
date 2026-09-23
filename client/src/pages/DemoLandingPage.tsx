@@ -1,3 +1,4 @@
+import { asset } from '../shared/asset';
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -173,7 +174,7 @@ export function DemoLandingPage() {
       {/* ── Top bar ──────────────────────────────────────────────────── */}
       <header className="relative z-10 max-w-7xl mx-auto px-6 lg:px-10 pt-7 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <img src="/logo.svg" alt="" className="w-8 h-8" />
+          <img src={asset("logo.svg")} alt="" className="w-8 h-8" />
           <span className="font-semibold tracking-tight">CRMITdesk Evolved</span>
         </div>
         <nav className="flex items-center gap-1.5">
@@ -431,7 +432,7 @@ export function DemoLandingPage() {
       <footer className="relative z-10 border-t border-white/[0.07]">
         <div className="max-w-7xl mx-auto px-6 lg:px-10 py-7 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-slate-500 text-xs">
-            <img src="/logo.svg" alt="" className="w-4 h-4 opacity-60" />
+            <img src={asset("logo.svg")} alt="" className="w-4 h-4 opacity-60" />
             <span>CRMITdesk Evolved &mdash; CRM, IT Desk, HR and AI in one workspace</span>
           </div>
           <div className="flex items-center gap-5 text-xs text-slate-500">

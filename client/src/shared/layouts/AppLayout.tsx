@@ -1,3 +1,4 @@
+import { asset } from '../asset';
 import { useState, useEffect, useMemo } from "react";
 import { Outlet, NavLink, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -324,7 +325,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
       {/* Workspace header */}
       <div className="px-4 h-topbar flex items-center border-b border-sidebar-line shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
-          <img src="/logo.svg" alt="" className="w-7 h-7 shrink-0" />
+          <img src={asset("logo.svg")} alt="" className="w-7 h-7 shrink-0" />
           <div className="min-w-0">
             <p className="text-sidebar-fg font-semibold text-[13px] leading-tight truncate tracking-tight">
               {workspace.appName}

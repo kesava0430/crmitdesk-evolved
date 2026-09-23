@@ -42,7 +42,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <ThemeProvider>
         <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
+          {/* Derived from Vite's `base` (see vite.config.ts) so the router
+              and the asset URLs can never disagree. BASE_URL is '/' for the
+              Capacitor build and '/zenkara/' when the web build is hosted
+              under a path; React Router wants no trailing slash, and ''
+              means "no basename", which is exactly right at the root. */}
+          <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
             <App />
             <ToastContainer />
           </BrowserRouter>

@@ -73,7 +73,14 @@ function sumWorkedMinutes(sessions: AttendanceRecord[], now: Date = new Date()):
 }
 
 function isSameDay(iso: string, ref: Date) {
-  return new Date(iso).toDateString() === ref.toDateString();
+  // Compare UTC days, not the device's. The server stamps
+  // AttendanceRecord.date via todayDateOnly() = Date.UTC(...), so a session
+  // belongs to a UTC calendar day. toDateString() resolves in the device
+  // timezone, so east of UTC every session between 00:00 local and the UTC
+  // rollover looked like "yesterday": today's list came back empty, Check
+  // Out disabled itself, and Check In then failed with "you're already
+  // checked in" because the server saw an open session the client did not.
+  return new Date(iso).toISOString().slice(0, 10) === new Date(ref).toISOString().slice(0, 10);
 }
 
 /** "location and network", "location or face", "no verification" */

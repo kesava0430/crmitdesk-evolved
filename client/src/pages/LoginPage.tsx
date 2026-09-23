@@ -1,3 +1,4 @@
+import { asset } from '../shared/asset';
 import { useId, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -173,7 +174,7 @@ export function LoginPage() {
 
         {/* Logo */}
         <div className="flex items-center gap-3 mb-16 relative z-10">
-          <img src="/logo.svg" alt="Logo" className="w-10 h-10" />
+          <img src={asset("logo.svg")} alt="Logo" className="w-10 h-10" />
           <div>
             <p className="font-bold text-lg leading-tight">CRM &amp; IT Desk</p>
             <p className="text-sidebar-muted text-xs">All-in-one business platform</p>
@@ -235,7 +236,7 @@ export function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 justify-center mb-6">
-            <img src="/logo.svg" alt="Logo" className="w-9 h-9" />
+            <img src={asset("logo.svg")} alt="Logo" className="w-9 h-9" />
             <span className="font-bold text-xl text-fg tracking-tight">CRM &amp; IT Desk</span>
           </div>
 

@@ -57,3 +57,21 @@ Thumbs.db
 
 # TypeScript cache
 *.tsbuildinfo
+
+# ─── Capacitor / Android ─────────────────────────────────────────────────
+# The android/ project itself IS committed (it carries the manifest
+# permissions and network-security config), but its build output and the
+# web assets `npx cap sync` copies in are regenerated every build.
+client/android/.gradle/
+client/android/build/
+client/android/app/build/
+client/android/capacitor-cordova-android-plugins/
+client/android/local.properties
+client/android/app/src/main/assets/public/
+client/android/app/src/main/assets/capacitor.config.json
+client/android/app/src/main/assets/capacitor.plugins.json
+client/ios/App/Pods/
+client/ios/App/App/public/
+
+# Deployment tarballs built for upload
+*.tar.gz

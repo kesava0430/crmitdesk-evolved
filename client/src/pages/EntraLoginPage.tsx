@@ -1,3 +1,4 @@
+import { asset } from '../shared/asset';
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Spinner } from '../shared/components';
@@ -19,7 +20,7 @@ export default function EntraLoginPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-canvas px-6">
       <div className="flex items-center gap-2.5 animate-fade-in">
-        <img src="/logo.svg" alt="" className="w-9 h-9" />
+        <img src={asset("logo.svg")} alt="" className="w-9 h-9" />
         <span className="text-xl font-semibold text-fg tracking-tight">CRM &amp; IT Desk</span>
       </div>
       <Spinner label="Redirecting you to your organization's sign-in…" compact />

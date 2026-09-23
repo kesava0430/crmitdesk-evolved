@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 9 (API 28) and later block cleartext HTTP by default, and this app
+  targets API 34. The Zenkara CRM API is currently served over plain HTTP at
+  13.48.19.159:4000, so without an explicit exception every request fails
+  with "CLEARTEXT communication to 13.48.19.159 not permitted by network
+  security policy" - and it fails the same way whether the call goes through
+  the WebView or CapacitorHttp's native stack.
+
+  This allows cleartext for that one host only, rather than the blanket
+  android:usesCleartextTraffic="true", which would permit unencrypted
+  traffic to anywhere.
+
+  WHEN THE BACKEND MOVES TO HTTPS: delete this file, remove the
+  android:networkSecurityConfig line from AndroidManifest.xml, and set
+  androidScheme back to 'https' in capacitor.config.ts.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- The API server. Replace if the address changes. -->
+        <domain includeSubdomains="false">13.48.19.159</domain>
+        <!-- The WebView serves the app itself from http://localhost
+             (androidScheme: 'http' in capacitor.config.ts). -->
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

@@ -1,3 +1,4 @@
+import { asset } from '../shared/asset';
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
@@ -67,7 +68,7 @@ export function AcceptInvitePage() {
     <div className="min-h-screen bg-canvas flex items-center justify-center p-6">
       <Card padding="lg" className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2.5 mb-7">
-          <img src="/logo.svg" alt="" className="w-9 h-9" />
+          <img src={asset("logo.svg")} alt="" className="w-9 h-9" />
           <h1 className="text-xl font-semibold text-fg tracking-tight">CRM &amp; IT Desk</h1>
         </div>
 

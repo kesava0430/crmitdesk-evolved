@@ -1,3 +1,4 @@
+import { asset } from '../../shared/asset';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -96,7 +97,7 @@ function LoginView({ orgId }: { orgId: string }) {
     <PortalSplash>
       {/* Logo */}
       <div className="text-center mb-8">
-        <img src="/logo.svg" alt="Logo" className="w-14 h-14 mx-auto mb-4" />
+        <img src={asset("logo.svg")} alt="Logo" className="w-14 h-14 mx-auto mb-4" />
         <h1 className="text-2xl font-semibold text-fg tracking-tight">Support Portal</h1>
         <p className="text-sm text-fg-muted mt-1">Submit and track your support tickets</p>
       </div>
@@ -514,7 +515,7 @@ export function CustomerPortal() {
       <header className="bg-surface/90 backdrop-blur-sm border-b border-line sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/logo.svg" alt="Logo" className="w-7 h-7" />
+            <img src={asset("logo.svg")} alt="Logo" className="w-7 h-7" />
             <span className="font-semibold text-fg text-sm">Support Portal</span>
           </div>
           <div className="flex items-center gap-3">

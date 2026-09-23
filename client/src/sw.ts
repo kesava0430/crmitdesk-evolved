@@ -10,6 +10,7 @@
 // "exclude") because it runs under the "webworker" lib, not "DOM" — see
 // tsconfig.sw.json for its own (editor-only) type-checking.
 
+import { asset } from './shared/asset';
 import { precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { NetworkOnly, CacheFirst } from 'workbox-strategies';
@@ -26,14 +27,14 @@ precacheAndRoute(self.__WB_MANIFEST);
 // tests regexes against the absolute URL ("https://host/api/..."), so a
 // ^-anchored /^\/api\//-style pattern silently never matches — and would
 // also miss a future cross-origin VITE_API_URL deployment.
-registerRoute(({ url }) => url.pathname.startsWith('/api/'), new NetworkOnly());
-registerRoute(({ url }) => url.pathname.startsWith('/portal/'), new NetworkOnly());
+registerRoute(({ url }) => url.pathname.startsWith(asset('api/')), new NetworkOnly());
+registerRoute(({ url }) => url.pathname.startsWith(asset('portal/')), new NetworkOnly());
 
-// Face-verification model weights (/models/face/*, ~6.7 MB total) are static
+// Face-verification model weights (<base>models/face/*, ~6.7 MB total) are static
 // and versioned by path, but too large for the precache manifest and not
 // matched by its globs. Cache them on first use so the camera dialog opens
 // instantly (and offline) after the first successful check-in.
-registerRoute(({ url }) => url.pathname.startsWith('/models/'), new CacheFirst({ cacheName: 'face-models-v1' }));
+registerRoute(({ url }) => url.pathname.startsWith(asset('models/')), new CacheFirst({ cacheName: 'face-models-v1' }));
 
 self.skipWaiting();
 self.addEventListener('activate', () => self.clients.claim());
@@ -69,8 +70,8 @@ self.addEventListener('push', (event: PushEvent) => {
     }
     await self.registration.showNotification(title, {
       body: data.body || '',
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
+      icon: asset('pwa-192x192.png'),
+      badge: asset('pwa-192x192.png'),
       tag: data.tag,
       data: { url: data.url || '/', type: data.type },
     });
