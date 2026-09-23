@@ -15,6 +15,66 @@ This adds the `schedules` table and the `phone` / `notify_number` columns descri
 
 ---
 
+## Payslip templates — eight layouts, field visibility, per-department/branch assignment, server-side PDF and e-mail (phase 4 of the payroll/attendance rebuild)
+
+**Action required:** `npm install` (adds `pdfkit` to the server) and `cd server && npx prisma migrate dev && npx prisma generate` (migration `20260923170000_payslip_templates`: `payslip_templates` becomes many-per-org with `name`, `layout`, `is_default`, `is_active`, `accent_color`, `header_title`, `header_note`, `signatory_name`, `signature_url`, `show_fields`, `applicability`; `payslips` gains `template_id` and `emailed_at`). Your existing letterhead becomes the "Default" template — nothing changes until you add more.
+
+**Templates** (Payroll → Templates). Create as many as you need. Each has a **layout** — Standard, Modern (colour band), Minimal (mono, prints well in B&W), Detailed (every field, bank + statutory IDs, employer contributions), Compact (dense, boxed), Corporate (serif, fully boxed), Branch (office address in the header), Statement (one earnings/deductions table) — plus colours, logo, company name/address, document title, header and footer notes, and a signature block (label, signatory name, optional signature image). **Fields** tab: tick which employee details print (code, designation, department, location, joining date, cost centre, e-mail, masked bank account, PAN/UAN/ESI) and which sections show (days summary, employer contributions, annual CTC, net pay in words, signature, PAID stamp, calculation basis under each line); defaults follow the layout. **Applies to** tab: assign by department, location/branch and employment type — an employee gets the first template that matches all of its chosen groups, otherwise the default. A live preview on sample data updates as you type; "Open sample PDF" shows the real PDF. Duplicate, make default, deactivate; a template used by issued payslips is deactivated instead of deleted.
+
+**Rendering** now happens on the server (`server/src/utils/payslipRender.ts`): one document model, one HTML renderer (in-app print view, previews, e-mail) and one **PDFKit** renderer (no headless browser, runs on Render's free tier) that share the same layout registry. When a run is **finalised, each payslip is pinned to the template that applied to that employee**, so editing a template later never restyles issued documents. Net pay in words uses Indian numbering (lakh/crore) for INR. Amounts follow the org currency.
+
+**Download and send**: every payslip has *Download PDF* (employees too); the run review has *All payslips (PDF)* — one file, a page per employee — and *E-mail payslips*, which sends each employee their PDF (skips ones already sent; per-payslip re-send from the row). The mailer now supports attachments on Resend, platform SMTP and org SMTP. The print page (`/hr/payroll/payslips/:id/print`) renders the server HTML; managers can append `?templateId=` to preview a payslip in another template.
+
+Endpoints under `/api/hr/payroll`: `templates` (GET/POST), `templates/preview` (POST, unsaved draft), `templates/:id` (PUT/DELETE), `templates/:id/preview[?payslipId&format=pdf]`, `templates/:id/duplicate`, `payslips/:id/html[?embed=1&templateId]`, `payslips/:id/pdf`, `payslips/:id/email`, `runs/:id/pdf`, `runs/:id/email`. Legacy `GET/PUT template` now read/edit the default template. e2e: `tests/e2e/payslip-templates.spec.ts`.
+
+---
+
+## Payroll runs now use the attendance register (phase 3 of the payroll/attendance rebuild)
+
+**Action required:** `cd server && npx prisma migrate dev && npx prisma generate` (migration `20260923150000_payroll_attendance_mode` adds `payroll_runs.attendance_mode`).
+
+Running payroll now reads each employee's period from the attendance policy engine instead of paying every calendar day: working days (period minus weekly offs and holidays), paid days, LOP days (absences, unpaid leave, half days, late-count conversions, manual corrections), paid leave and overtime hours all come from `payrollSummary()` in `attendanceRegister.ts`. The **Run payroll** dialog has a "Paid days come from" choice — *Attendance register* (default) or *Calendar — pay every day* for orgs not tracking attendance yet — and the mode is stored on the run. If a run is started before the period ends, days after today are assumed paid, counted, and flagged in the review so you recalculate before finalising.
+
+The **review screen** shows LOP days per run, marks payslips with projected days, and the side panel shows an *Attendance basis* card for the selected employee: working / paid / LOP / OT hours, the day-status breakdown (Present, Late, WFH, Half day, Leave, Unpaid leave, Absent, Holiday, Week off), late arrivals and any conversion, future days assumed paid and manual corrections included. Every payslip stores this in `attendanceSummary` (JSON) alongside the day counts, and the print view lists half days and overtime hours. **Recalculate** re-reads attendance, so an HR correction in the register flows into the draft with one click.
+
+`POST /hr/payroll/preview` accepts `attendance: false` to ignore the register (the salary editor's preview uses this so it stays a pure structure preview; "what-if LOP" still works) and returns `attendance` (policy group, byStatus, lateCount, lateConversion, futureDaysAssumedPaid, manualCorrections). `POST /hr/payroll/runs` accepts `attendanceMode`. e2e: `tests/e2e/payroll-attendance.spec.ts`.
+
+---
+
+## Attendance policy engine, admin attendance register and leave control (phase 2 of the payroll/attendance rebuild)
+
+**Action required:** `cd server && npx prisma migrate dev && npx prisma generate`. Migration `20260923120000_attendance_policy_engine` adds `attendance_policy_groups`, `holidays`, `attendance_days`, `attendance_audits`, `leave_balance_adjustments`, and extends `leave_types` / `leave_requests` (half days, carry-forward, cancellation fields). Existing check-in/out records are untouched; day statuses are computed from them on demand.
+
+**Attendance policies** (HR Settings → Attendance policies). One or more policy groups per org, each with: shift start/end and timezone; grace minutes; **late bands** (e.g. up to 60 min late → Late, up to 180 → Half day, beyond → Absent); minimum worked minutes for a full day / half day; early-departure grace and whether leaving early costs a half day; overtime start (minutes after shift end) and minimum OT block; **late conversion** (N lates allowed per month, every further M lates = a half day / a LOP day / nothing); weekly offs; and what to assume when someone forgets to check out. Groups apply by department, location, employment type or named users; the most specific group wins and the default group covers everyone else. A "Standard (9:00 – 18:00)" default is seeded the first time the org touches attendance.
+
+**Holidays** (HR Settings → Holidays): per year, optionally scoped to office locations, optional holidays flagged. Holidays and weekly offs are never counted as absent or LOP.
+
+**Attendance register** (Attendance → Register, managers). A month grid of employee × day with computed statuses — Present, Late, Half day, Absent, Leave, Unpaid leave, WFH, Holiday, Week off, LOP — plus per-row paid days / working days, LOP days (including late conversion), late count and OT hours. Clicking a day opens a correction modal: set the status, edit check-in/check-out times, add a note the employee sees, and a **mandatory reason** that goes to the audit trail. Manual corrections are marked with a dot, always win over the computed value, and can be reset to computed. A day can also be **converted to leave** (full or half) straight from the grid, which creates an approved request and updates the balance. "Change history" shows every correction, leave change and reset for that employee with before/after and who did it. Employees see their own monthly register and their applicable policy on the Attendance page.
+
+**Leave admin** (Leave → Employees, managers): pick an employee, see balances for any year (quota + carry-forward + adjustments − used; unlimited types show usage only), **apply on their behalf** (auto-approved by default, or routed to approval), **adjust balances** with a reason (e.g. comp-off), **modify** a pending or approved request (type, dates, half day) with a change reason, and **cancel approved leave** — the balance is restored and attendance for those days is recomputed. Everyone can now apply **half-day leave** (first/second half) where the leave type allows it. Leave types gained carry-forward (max days, expiry months), half-day and unlimited flags.
+
+Endpoints: `/api/hr/attendance/policy-groups` (GET/POST/PUT/DELETE), `my-policy`, `holidays` (GET/POST/PUT/DELETE, `POST holidays/bulk`), `GET register?month=YYYY-MM[&userId][&includeEmployees=1]`, `GET summary`, `POST days`, `DELETE days/:userId/:date`, `GET audit`; `/api/hr/leave/balance?userId&year`, `POST balances/adjust`, `POST requests/on-behalf`, `PATCH requests/:id`, `POST requests/:id/admin-cancel`, `POST convert`. Engine: `server/src/utils/attendanceEngine.ts` (pure, unit-testable), `attendanceRegister.ts` (DB glue; `periodSummary()` is what phase 3 payroll will consume). e2e: `tests/e2e/attendance-policy.spec.ts`.
+
+---
+
+## Configurable payroll — salary components, payroll cycles, draft runs (phase 1 of the payroll/attendance rebuild)
+
+**Action required:** `cd server && npx prisma migrate dev && npx prisma generate`. The migration (`20260923090000_configurable_payroll`) copies every active legacy salary structure into the new `employee_salaries` table and adds component lines to existing payslips, so nothing already generated changes.
+
+**Salary components** (Payroll → Salary Components). The fixed basic/HRA/allowances/PF/PT/other columns are replaced by a per-org catalogue: each component has a code (usable in formulas), category (earning, deduction, reimbursement, employer contribution), a calculation — fixed amount, percentage of another component / gross / CTC, or a formula (`min(BASIC * 0.12, 1800)`, `if(GROSS_EARNINGS > 21000, 0, …)`; safe evaluator, no `eval`) — flags for proration, taxability and payslip visibility, a display order, and applicability by department, location, employment type or designation. **Statutory presets for India** ship with editable rules: PF employee/employer (rate, wage ceiling, on-full-basic), ESI employee/employer (rate, threshold), Professional Tax (monthly slabs, per-state slabs via `stateSlabs`), TDS (per-employee amount). A default catalogue is seeded per org on first use. `LOP` is a component too: active → earnings shown in full with a Loss of Pay deduction; disabled → earnings prorated by paid days (never both).
+
+**Payroll cycles** (Payroll → Cycles): monthly (calendar month), weekly / bi-weekly (start weekday, anchor), custom (N days from an anchor). Each employee's salary is assigned to a cycle, so weekly contractors and monthly staff run separately.
+
+**Employee salaries** (Payroll → Employee Salaries): per-employee values per component (amount, percent, formula, or off), annual CTC, cycle, effective date; a **live preview** of the resulting payslip with a "what if LOP days" box. Saving creates a revision; past payslips keep the old one.
+
+**Payroll runs are now draft → review → finalise**: Run Payroll calculates a DRAFT for a cycle's period; the review screen shows every payslip's lines with the basis of each figure ("12% of BASIC (ceiling 15000)"), lets a manager adjust any line (totals re-derive, adjustments survive Recalculate), discard the draft, or finalise to issue payslips. Employees never see drafts. Payslips store `PayslipLine` rows plus period, paid/working/LOP days (phase 2/3 will feed these from attendance; today every calendar day counts as paid) and the legacy totals for older views. The print view lists earnings and deductions from the lines.
+
+New endpoints under `/api/hr/payroll`: `components` (GET/POST/PATCH/DELETE, `PATCH components/reorder`), `cycles` (GET/POST/PUT), `employee-salaries` (GET/GET :userId/POST/DELETE), `POST preview`, `POST runs/:id/recalculate`, `PATCH runs/:id/payslips/:payslipId`, `POST runs/:id/finalize`, `DELETE runs/:id`. Engine: `server/src/utils/payrollEngine.ts`, `payrollFormula.ts`. e2e: `tests/e2e/payroll-config.spec.ts`.
+
+Coming next: attendance policy engine (timings, grace, late bands, half-day/LOP rules, holidays, shifts, admin corrections with audit) feeding payroll; then payslip templates (8 layouts, field visibility, per-department assignment, server-side PDF).
+
+---
+
 ## Attendance — configurable verification rules (location / network / face, AND / OR) + face verification
 
 **Action required:** `cd server && npx prisma migrate dev && npx prisma generate` (adds `attendance_policies`, `face_enrollments`, `attendance_location_pings` and new columns on `attendance_records`), and `npm install` (adds `@vladmandic/face-api`, `leaflet`, `react-leaflet`). Model weights (~6.5 MB) ship in `client/public/models/face`.

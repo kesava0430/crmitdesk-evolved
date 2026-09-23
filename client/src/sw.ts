@@ -12,7 +12,7 @@
 
 import { precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
-import { NetworkOnly } from 'workbox-strategies';
+import { NetworkOnly, CacheFirst } from 'workbox-strategies';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -28,6 +28,12 @@ precacheAndRoute(self.__WB_MANIFEST);
 // also miss a future cross-origin VITE_API_URL deployment.
 registerRoute(({ url }) => url.pathname.startsWith('/api/'), new NetworkOnly());
 registerRoute(({ url }) => url.pathname.startsWith('/portal/'), new NetworkOnly());
+
+// Face-verification model weights (/models/face/*, ~6.7 MB total) are static
+// and versioned by path, but too large for the precache manifest and not
+// matched by its globs. Cache them on first use so the camera dialog opens
+// instantly (and offline) after the first successful check-in.
+registerRoute(({ url }) => url.pathname.startsWith('/models/'), new CacheFirst({ cacheName: 'face-models-v1' }));
 
 self.skipWaiting();
 self.addEventListener('activate', () => self.clients.claim());

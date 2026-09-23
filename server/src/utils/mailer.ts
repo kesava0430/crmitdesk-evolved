@@ -16,7 +16,11 @@ interface MailOptions {
   // platform Resend/SMTP mailer below if the org has no EmailAccount
   // connected, or if sending through it fails for any reason.
   orgId?: string;
+  /** Base64 so the payload survives the job-queue JSON round trip on retry. */
+  attachments?: { filename: string; contentBase64: string; contentType?: string }[];
 }
+
+const nodemailerAttachments = (opts: MailOptions) => opts.attachments?.map(a => ({ filename: a.filename, content: Buffer.from(a.contentBase64, 'base64'), contentType: a.contentType }));
 
 // Render's free web-service tier blocks all outbound SMTP traffic (ports 25,
 // 465, 587) — confirmed by the ETIMEDOUT/CONN errors nodemailer throws there
@@ -39,6 +43,7 @@ async function sendViaResend(opts: MailOptions, apiKey: string, from: string, re
     body: JSON.stringify({
       from, to: opts.to, subject: opts.subject, html: opts.html,
       ...(replyTo ? { reply_to: replyTo } : {}),
+      ...(opts.attachments?.length ? { attachments: opts.attachments.map(a => ({ filename: a.filename, content: a.contentBase64 })) } : {}),
     }),
   });
   if (!res.ok) {
@@ -157,7 +162,7 @@ async function performSendMail(opts: MailOptions): Promise<void> {
     try {
       const orgMailer = await getOrgMailer(opts.orgId);
       if (orgMailer) {
-        await orgMailer.transport.sendMail({ from: orgMailer.from, to: opts.to, subject: opts.subject, html: opts.html });
+        await orgMailer.transport.sendMail({ from: orgMailer.from, to: opts.to, subject: opts.subject, html: opts.html, attachments: nodemailerAttachments(opts) });
         console.log(`[Email sent via org SMTP] To: ${opts.to} | ${opts.subject}`);
         recordUsage(opts.orgId, 'EMAIL_SEND', 'OWN');
         return;
@@ -198,7 +203,7 @@ async function performSendMail(opts: MailOptions): Promise<void> {
     console.log(`[Email skipped — no Resend key or SMTP configured] To: ${opts.to} | ${opts.subject}`);
     return;
   }
-  await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html });
+  await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html, attachments: nodemailerAttachments(opts) });
   console.log(`[Email sent via SMTP]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
   if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
 }

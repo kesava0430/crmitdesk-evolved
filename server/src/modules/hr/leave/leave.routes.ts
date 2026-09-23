@@ -12,6 +12,13 @@ router.patch('/types/:id',    requireRole(...MANAGERS),  c.updateLeaveType);
 router.delete('/types/:id',   requireRole(...MANAGERS),  c.deleteLeaveType);
 
 router.get('/balance',        requireRole(...ALL_USERS), c.myBalance);
+router.post('/balances/adjust', requireRole(...MANAGERS), c.adjustBalance);
+
+// Admin leave control
+router.post('/requests/on-behalf',        requireRole(...MANAGERS), c.applyOnBehalf);
+router.patch('/requests/:id',             requireRole(...MANAGERS), c.modifyRequest);
+router.post('/requests/:id/admin-cancel', requireRole(...MANAGERS), c.adminCancel);
+router.post('/convert',                   requireRole(...MANAGERS), c.convertAttendanceToLeave);
 
 router.get('/requests',           requireRole(...ALL_USERS), c.listRequests);
 router.post('/requests',          requireRole(...ALL_USERS), c.createRequest);

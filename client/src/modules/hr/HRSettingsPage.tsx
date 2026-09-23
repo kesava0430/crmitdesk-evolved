@@ -6,6 +6,8 @@ import {
   RowActions, Field, Input, Checkbox, Alert, SkeletonTable, Toggle,
 } from '../../shared/components';
 import { Building2, Plus, Pencil, Trash2, Tag, MapPin, Wifi, ScanFace } from 'lucide-react';
+import { PolicyGroupsSection } from './attendance/PolicyGroupsSection';
+import { HolidaysSection } from './attendance/HolidaysSection';
 
 interface OfficeLocation {
   id: string; name: string; latitude: number; longitude: number;
@@ -13,10 +15,11 @@ interface OfficeLocation {
 }
 interface LeaveType {
   id: string; name: string; annualQuota: number; isPaid: boolean; color: string; isActive: boolean;
+  carryForward?: boolean; carryForwardMaxDays?: number; carryForwardExpiryMonths?: number; allowHalfDay?: boolean; isUnlimited?: boolean;
 }
 
 const emptyOffice = { name: '', latitude: '', longitude: '', radiusMeters: '150', allowedIps: '' };
-const emptyType = { name: '', annualQuota: '12', isPaid: true, color: '#4f46e5' };
+const emptyType = { name: '', annualQuota: '12', isPaid: true, color: '#4f46e5', carryForward: false, carryForwardMaxDays: '0', carryForwardExpiryMonths: '0', allowHalfDay: true, isUnlimited: false };
 
 function OfficeLocationsSection() {
   const qc = useQueryClient();
@@ -280,7 +283,7 @@ function LeaveTypesSection() {
 
   const save = useMutation({
     mutationFn: () => {
-      const payload = { name: form.name, annualQuota: Number(form.annualQuota), isPaid: form.isPaid, color: form.color };
+      const payload = { name: form.name, annualQuota: Number(form.annualQuota), isPaid: form.isPaid, color: form.color, carryForward: form.carryForward, carryForwardMaxDays: Number(form.carryForwardMaxDays) || 0, carryForwardExpiryMonths: Number(form.carryForwardExpiryMonths) || 0, allowHalfDay: form.allowHalfDay, isUnlimited: form.isUnlimited };
       return editing
         ? api.patch(`/hr/leave/types/${editing.id}`, payload)
         : api.post('/hr/leave/types', payload);
@@ -299,7 +302,7 @@ function LeaveTypesSection() {
   function openCreate() { setEditing(null); setForm(emptyType); setError(''); setModalOpen(true); }
   function openEdit(t: LeaveType) {
     setEditing(t);
-    setForm({ name: t.name, annualQuota: String(t.annualQuota), isPaid: t.isPaid, color: t.color });
+    setForm({ name: t.name, annualQuota: String(t.annualQuota), isPaid: t.isPaid, color: t.color, carryForward: !!t.carryForward, carryForwardMaxDays: String(t.carryForwardMaxDays ?? 0), carryForwardExpiryMonths: String(t.carryForwardExpiryMonths ?? 0), allowHalfDay: t.allowHalfDay !== false, isUnlimited: !!t.isUnlimited });
     setError(''); setModalOpen(true);
   }
   function closeModal() { setModalOpen(false); setEditing(null); }
@@ -328,7 +331,7 @@ function LeaveTypesSection() {
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.color }} />
                 <span className="font-medium text-fg text-sm truncate" title={t.name}>{t.name}</span>
-                <span className="text-xs text-fg-subtle tabular-nums">{t.annualQuota} days/yr · {t.isPaid ? 'Paid' : 'Unpaid'}</span>
+                <span className="text-xs text-fg-subtle tabular-nums">{t.isUnlimited ? 'Unlimited' : `${t.annualQuota} days/yr`} · {t.isPaid ? 'Paid' : 'Unpaid'}{t.carryForward ? ' · carry-forward' : ''}</span>
                 {!t.isActive && <Badge variant="gray">Inactive</Badge>}
               </div>
               <RowActions items={[
@@ -360,6 +363,15 @@ function LeaveTypesSection() {
             checked={form.isPaid}
             onChange={e => setForm(f => ({ ...f, isPaid: e.target.checked }))}
           />
+          <Checkbox label="Allow half days" checked={form.allowHalfDay} onChange={e => setForm(f => ({ ...f, allowHalfDay: e.target.checked }))} />
+          <Checkbox label="No quota limit (e.g. Leave Without Pay)" checked={form.isUnlimited} onChange={e => setForm(f => ({ ...f, isUnlimited: e.target.checked }))} />
+          <Checkbox label="Carry unused days into next year" checked={form.carryForward} onChange={e => setForm(f => ({ ...f, carryForward: e.target.checked }))} />
+          {form.carryForward && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Max days carried (0 = all)"><Input type="number" min={0} value={form.carryForwardMaxDays} onChange={e => setForm(f => ({ ...f, carryForwardMaxDays: e.target.value }))} /></Field>
+              <Field label="Carried days expire after (months, 0 = never)"><Input type="number" min={0} max={12} value={form.carryForwardExpiryMonths} onChange={e => setForm(f => ({ ...f, carryForwardExpiryMonths: e.target.value }))} /></Field>
+            </div>
+          )}
           <Field label="Color">
             <div className="flex gap-2 flex-wrap">
               {COLOR_SWATCHES.map(c => (
@@ -586,9 +598,11 @@ function FaceVerificationSection() {
 export default function HRSettingsPage() {
   return (
     <div>
-      <PageHeader title="HR Settings" subtitle="Configure office locations, check-in verification rules and leave types" />
+      <PageHeader title="HR Settings" subtitle="Office locations, attendance policies, holidays, verification rules and leave types" />
       <PageBody width="full" className="max-w-4xl mx-auto">
         <OfficeLocationsSection />
+        <PolicyGroupsSection />
+        <HolidaysSection />
         <FaceVerificationSection />
         <LeaveTypesSection />
       </PageBody>

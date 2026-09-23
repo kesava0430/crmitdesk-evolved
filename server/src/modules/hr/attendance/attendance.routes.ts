@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, requireRole, ALL_USERS, MANAGERS } from '../../../middleware/authenticate';
 import * as c from './attendance.controller';
+import * as a from './attendanceAdmin.controller';
 
 const router = Router();
 router.use(authenticate);
@@ -19,6 +20,23 @@ router.post('/face/enrol',       requireRole(...ALL_USERS), c.enrolFace);
 router.delete('/face/me',        requireRole(...ALL_USERS), c.deleteMyFace);
 router.get('/face',              requireRole(...MANAGERS),  c.listEnrollments);
 router.delete('/face/:userId',   requireRole(...MANAGERS),  c.deleteUserFace);
+
+// Policy engine: groups, holidays, register, corrections (see attendanceAdmin.controller.ts)
+router.get('/policy-groups',          requireRole(...MANAGERS),  a.listGroups);
+router.post('/policy-groups',         requireRole(...MANAGERS),  a.saveGroup);
+router.put('/policy-groups/:id',      requireRole(...MANAGERS),  a.saveGroup);
+router.delete('/policy-groups/:id',   requireRole(...MANAGERS),  a.deleteGroup);
+router.get('/my-policy',              requireRole(...ALL_USERS), a.myPolicy);
+router.get('/holidays',               requireRole(...ALL_USERS), a.listHolidays);
+router.post('/holidays',              requireRole(...MANAGERS),  a.saveHoliday);
+router.post('/holidays/bulk',         requireRole(...MANAGERS),  a.bulkHolidays);
+router.put('/holidays/:id',           requireRole(...MANAGERS),  a.saveHoliday);
+router.delete('/holidays/:id',        requireRole(...MANAGERS),  a.deleteHoliday);
+router.get('/register',               requireRole(...ALL_USERS), a.register);
+router.get('/summary',                requireRole(...ALL_USERS), a.summary);
+router.post('/days',                  requireRole(...MANAGERS),  a.markDay);
+router.delete('/days/:userId/:date',  requireRole(...MANAGERS),  a.resetDay);
+router.get('/audit',                  requireRole(...ALL_USERS), a.auditHistory);
 
 // Manager views
 router.get('/today',      requireRole(...MANAGERS), c.todayStatus);

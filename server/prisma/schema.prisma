@@ -82,7 +82,7 @@ model Organization {
   salaryStructures  SalaryStructure[]
   payrollRuns       PayrollRun[]
   payslips          Payslip[]
-  payslipTemplate   PayslipTemplate?
+  payslipTemplates  PayslipTemplate[]
   directoryConfig   DirectoryConfig?
   directoryRoleMappings DirectoryRoleMapping[]
   directorySyncLogs     DirectorySyncLog[]
@@ -113,6 +113,14 @@ model Organization {
   attendancePolicy  AttendancePolicy?
   faceEnrollments   FaceEnrollment[]
   locationPings     AttendanceLocationPing[]
+  salaryComponents  SalaryComponent[]
+  payrollCycles     PayrollCycle[]
+  employeeSalaries  EmployeeSalary[]
+  leaveBalanceAdjustments LeaveBalanceAdjustment[]
+  attendancePolicyGroups  AttendancePolicyGroup[]
+  holidays                Holiday[]
+  attendanceDays          AttendanceDay[]
+  attendanceAudits        AttendanceAudit[]
 }
 
 // Lightweight per-event usage log — currently AI_CALL, WHATSAPP_SEND, and
@@ -316,6 +324,11 @@ model User {
   chatMessages     ChatMessage[]
   faceEnrollment    FaceEnrollment?
   locationPings     AttendanceLocationPing[]
+  employeeSalaries  EmployeeSalary[]
+  leaveBalanceAdjustments LeaveBalanceAdjustment[]
+  attendanceDays          AttendanceDay[]
+  attendanceAuditsAbout   AttendanceAudit[] @relation("AttendanceAuditSubject")
+  attendanceAuditsMade    AttendanceAudit[] @relation("AttendanceAuditChanger")
 }
 
 // Staff forgot-password flow. tokenHash is SHA-256 of the raw token emailed
@@ -1798,10 +1811,18 @@ model LeaveType {
   isPaid        Boolean        @default(true) @map("is_paid")
   color         String         @default("#6366f1")
   isActive      Boolean        @default(true) @map("is_active")
+  /// Unused days roll into next year, up to carryForwardMaxDays; they lapse carryForwardExpiryMonths into the new year (0 = never)
+  carryForward           Boolean @default(false) @map("carry_forward")
+  carryForwardMaxDays    Int     @default(0) @map("carry_forward_max_days")
+  carryForwardExpiryMonths Int   @default(0) @map("carry_forward_expiry_months")
+  allowHalfDay  Boolean        @default(true) @map("allow_half_day")
+  /// Days available before any approval, for LOP-type leave (unpaid, unlimited)
+  isUnlimited   Boolean        @default(false) @map("is_unlimited")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   leaveRequests LeaveRequest[]
+  balanceAdjustments LeaveBalanceAdjustment[]
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -1815,12 +1836,19 @@ model LeaveRequest {
   leaveTypeId     String       @map("leave_type_id")
   startDate       DateTime     @db.Date @map("start_date")
   endDate         DateTime     @db.Date @map("end_date")
-  days            Int          // inclusive whole-day count; half-days aren't supported
+  days            Decimal      @db.Decimal(5, 1) // inclusive count; 0.5 for a half day
+  halfDay         Boolean      @default(false) @map("half_day")
+  halfDayPeriod   String?      @map("half_day_period") // AM | PM
   reason          String?
   status          String       @default("PENDING") @map("status") // PENDING | APPROVED | REJECTED | CANCELLED
+  /// Set when a manager applied on the employee's behalf
+  appliedBy       String?      @map("applied_by")
   decidedBy       String?      @map("decided_by")
   decidedAt       DateTime?    @map("decided_at")
   rejectionReason String?      @map("rejection_reason")
+  cancelledBy     String?      @map("cancelled_by")
+  cancelledAt     DateTime?    @map("cancelled_at")
+  cancelReason    String?      @map("cancel_reason")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
   org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -1831,6 +1859,163 @@ model LeaveRequest {
   @@index([orgId, userId])
   @@index([orgId, status])
   @@map("leave_requests")
+}
+
+/// Manual balance credits/debits set by an admin (opening balance, comp-off, carry-forward correction).
+model LeaveBalanceAdjustment {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  userId      String       @map("user_id")
+  leaveTypeId String       @map("leave_type_id")
+  year        Int
+  days        Decimal      @db.Decimal(5, 1)
+  reason      String?
+  createdBy   String       @map("created_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType    @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId, year])
+  @@map("leave_balance_adjustments")
+}
+
+// ─── HR: Attendance policy engine ───────────────────────────────────────────
+//
+// An org can have several policy groups (head office 9–6, factory shifts, a
+// branch with Saturday working). utils/attendanceEngine.ts picks the group
+// for an employee by applicability (explicit users > location > department >
+// employment type > default) and turns raw check-in/out records into a
+// day status — PRESENT / LATE / HALF_DAY / ABSENT / … — plus hours, late and
+// overtime minutes, which payroll (phase 3) consumes.
+
+model AttendancePolicyGroup {
+  id                      String       @id @default(cuid())
+  orgId                   String       @map("org_id")
+  name                    String
+  isDefault               Boolean      @default(false) @map("is_default")
+  isActive                Boolean      @default(true) @map("is_active")
+  /// Shift timing, local to the org/location timezone, "HH:mm"
+  shiftStart              String       @default("09:00") @map("shift_start")
+  shiftEnd                String       @default("18:00") @map("shift_end")
+  /// Override the org timezone for this group (e.g. a branch abroad)
+  timezone                String?
+  /// Arrivals up to this many minutes after shiftStart are on time
+  graceMinutes            Int          @default(15) @map("grace_minutes")
+  /// Ordered bands after grace: [{ untilMinutes: 60, status: "LATE" }, { untilMinutes: 180, status: "HALF_DAY" }, { untilMinutes: null, status: "ABSENT" }]
+  lateBands               Json?        @map("late_bands")
+  /// Minimum worked minutes for a full / half day; below half = ABSENT (unless leave/holiday)
+  minFullDayMinutes       Int          @default(480) @map("min_full_day_minutes")
+  minHalfDayMinutes       Int          @default(240) @map("min_half_day_minutes")
+  /// Leaving earlier than shiftEnd − grace flags EARLY; earlyDepartureStatus decides its effect (NONE | HALF_DAY)
+  earlyDepartureGraceMinutes Int       @default(15) @map("early_departure_grace_minutes")
+  earlyDepartureStatus    String       @default("NONE") @map("early_departure_status")
+  /// Overtime counts after shiftEnd + this many minutes; 0 = OT off
+  overtimeAfterMinutes    Int          @default(0) @map("overtime_after_minutes")
+  overtimeMinMinutes      Int          @default(30) @map("overtime_min_minutes")
+  /// Late-arrival policy: lates beyond lateAllowedPerMonth convert — every lateConversionEvery extra lates = one lateConversionUnit (HALF_DAY | LOP | NONE)
+  lateAllowedPerMonth     Int          @default(3) @map("late_allowed_per_month")
+  lateConversionEvery     Int          @default(3) @map("late_conversion_every")
+  lateConversionUnit      String       @default("HALF_DAY") @map("late_conversion_unit")
+  /// Weekly offs as weekday numbers, 0 = Sunday … 6 = Saturday
+  weeklyOffs              Int[]        @default([0, 6]) @map("weekly_offs")
+  /// Missing check-out: assume shiftEnd (true) or count as ABSENT for the day (false)
+  assumeShiftEndOnMissingCheckout Boolean @default(false) @map("assume_shift_end_on_missing_checkout")
+  /// { departmentIds, locationIds, employmentTypes, userIds }
+  applicability           Json?
+  createdAt               DateTime     @default(now()) @map("created_at")
+  updatedAt               DateTime     @updatedAt @map("updated_at")
+  org                     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  days                    AttendanceDay[]
+
+  @@index([orgId])
+  @@map("attendance_policy_groups")
+}
+
+model Holiday {
+  id          String       @id @default(cuid())
+  orgId       String       @map("org_id")
+  date        DateTime     @db.Date
+  name        String
+  /// Empty = every location
+  locationIds String[]     @default([]) @map("location_ids")
+  isOptional  Boolean      @default(false) @map("is_optional")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, date, name])
+  @@index([orgId, date])
+  @@map("holidays")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  HALF_DAY
+  ABSENT
+  LEAVE
+  UNPAID_LEAVE
+  WFH
+  HOLIDAY
+  WEEK_OFF
+  LOP
+}
+
+/// One employee-day. COMPUTED rows are (re)derived from check-in/out records
+/// by the engine; MANUAL rows were set by an admin and are never overwritten
+/// by recomputation. Every manual change is recorded in AttendanceAudit.
+model AttendanceDay {
+  id              String           @id @default(cuid())
+  orgId           String           @map("org_id")
+  userId          String           @map("user_id")
+  date            DateTime         @db.Date
+  status          AttendanceStatus
+  source          String           @default("COMPUTED") // COMPUTED | MANUAL
+  policyGroupId   String?          @map("policy_group_id")
+  firstInAt       DateTime?        @map("first_in_at")
+  lastOutAt       DateTime?        @map("last_out_at")
+  workedMinutes   Int              @default(0) @map("worked_minutes")
+  lateMinutes     Int              @default(0) @map("late_minutes")
+  earlyMinutes    Int              @default(0) @map("early_minutes")
+  overtimeMinutes Int              @default(0) @map("overtime_minutes")
+  /// Paid fraction of the day for payroll: 1, 0.5 or 0
+  paidFraction    Decimal          @default(1) @db.Decimal(3, 2) @map("paid_fraction")
+  leaveRequestId  String?          @map("leave_request_id")
+  /// Why the engine chose the status ("arrived 74 min late", "worked 3h50 < 4h half-day minimum")
+  reason          String?
+  notes           String?
+  updatedBy       String?          @map("updated_by")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  org             Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policyGroup     AttendancePolicyGroup? @relation(fields: [policyGroupId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, date])
+  @@index([orgId, date])
+  @@map("attendance_days")
+}
+
+/// Who changed what on attendance/leave data, with before/after snapshots.
+model AttendanceAudit {
+  id         String       @id @default(cuid())
+  orgId      String       @map("org_id")
+  userId     String       @map("user_id")     // the employee affected
+  date       DateTime?    @db.Date
+  entityType String       @map("entity_type") // ATTENDANCE_DAY | ATTENDANCE_RECORD | LEAVE_REQUEST | LEAVE_BALANCE
+  entityId   String?      @map("entity_id")
+  action     String       // MARK | CORRECT | REGULARISE | TIME_EDIT | LEAVE_APPLY_ON_BEHALF | LEAVE_CANCEL | LEAVE_MODIFY | CONVERT_TO_LEAVE | BALANCE_ADJUST
+  before     Json?
+  after      Json?
+  reason     String?
+  changedBy  String       @map("changed_by")
+  changedAt  DateTime     @default(now()) @map("changed_at")
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User         @relation("AttendanceAuditSubject", fields: [userId], references: [id], onDelete: Cascade)
+  changer    User         @relation("AttendanceAuditChanger", fields: [changedBy], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId, changedAt])
+  @@map("attendance_audits")
 }
 
 // ─── HR: Payroll ─────────────────────────────────────────────────────────────
@@ -1870,19 +2055,28 @@ model SalaryStructure {
 // constraint below — corrections happen on the individual Payslip rows, not
 // by re-running the whole month.
 model PayrollRun {
-  id        String   @id @default(cuid())
-  orgId     String   @map("org_id")
-  month     Int // 1-12
-  year      Int
-  status    String   @default("PROCESSED") @map("status") // PROCESSED | PAID
-  runBy     String   @map("run_by")
-  runAt     DateTime @default(now()) @map("run_at")
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  runByUser User         @relation("PayrollRunCreator", fields: [runBy], references: [id])
-  payslips  Payslip[]
+  id             String   @id @default(cuid())
+  orgId          String   @map("org_id")
+  /// Month/year of the period start (kept for display and legacy uniqueness of monthly runs)
+  month          Int // 1-12
+  year           Int
+  payrollCycleId String?  @map("payroll_cycle_id")
+  periodStart    DateTime? @db.Date @map("period_start")
+  periodEnd      DateTime? @db.Date @map("period_end")
+  /// DRAFT (computed, under review) → PROCESSED (finalised, payslips issued) → PAID
+  status         String   @default("PROCESSED") @map("status")
+  runBy          String   @map("run_by")
+  runAt          DateTime @default(now()) @map("run_at")
+  finalizedAt    DateTime? @map("finalized_at")
+  /// ATTENDANCE: paid/LOP/OT days come from the attendance register; CALENDAR: every day paid
+  attendanceMode String   @default("ATTENDANCE") @map("attendance_mode")
+  org            Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  runByUser      User          @relation("PayrollRunCreator", fields: [runBy], references: [id])
+  payrollCycle   PayrollCycle? @relation(fields: [payrollCycleId], references: [id], onDelete: SetNull)
+  payslips       Payslip[]
 
-  @@unique([orgId, month, year])
-  @@index([orgId])
+  @@unique([orgId, payrollCycleId, periodStart])
+  @@index([orgId, year, month])
   @@map("payroll_runs")
 }
 
@@ -1909,16 +2103,40 @@ model Payslip {
   otherDeductions   Decimal   @db.Decimal(12, 2) @map("other_deductions")
   totalDeductions   Decimal   @db.Decimal(12, 2) @map("total_deductions")
   netPay            Decimal   @db.Decimal(12, 2) @map("net_pay")
-  status            String    @default("GENERATED") @map("status") // GENERATED | PAID
+  status            String    @default("GENERATED") @map("status") // DRAFT | GENERATED | PAID
   paidAt            DateTime? @map("paid_at")
   createdAt         DateTime  @default(now()) @map("created_at")
+  // ── Configurable payroll (component-based) ──
+  employeeSalaryId  String?   @map("employee_salary_id")
+  periodStart       DateTime? @db.Date @map("period_start")
+  periodEnd         DateTime? @db.Date @map("period_end")
+  currency          String    @default("INR")
+  workingDays       Decimal?  @db.Decimal(5, 2) @map("working_days")
+  presentDays       Decimal?  @db.Decimal(5, 2) @map("present_days")
+  paidDays          Decimal?  @db.Decimal(5, 2) @map("paid_days")
+  leaveDays         Decimal?  @db.Decimal(5, 2) @map("leave_days")
+  lopDays           Decimal?  @db.Decimal(5, 2) @map("lop_days")
+  halfDays          Decimal?  @db.Decimal(5, 2) @map("half_days")
+  overtimeHours     Decimal?  @db.Decimal(6, 2) @map("overtime_hours")
+  totalEarnings     Decimal?  @db.Decimal(12, 2) @map("total_earnings")
+  totalReimbursements Decimal? @db.Decimal(12, 2) @map("total_reimbursements")
+  employerContributions Decimal? @db.Decimal(12, 2) @map("employer_contributions")
+  /// Snapshot of the attendance/leave inputs used, for the review screen
+  attendanceSummary Json?     @map("attendance_summary")
+  /// Template pinned at finalise time so a later template edit does not restyle issued payslips
+  templateId        String?   @map("template_id")
+  /// Set when the payslip was emailed to the employee
+  emailedAt         DateTime? @map("emailed_at")
 
   org             Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user            User             @relation(fields: [userId], references: [id], onDelete: Restrict)
   payrollRun      PayrollRun       @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   salaryStructure SalaryStructure? @relation(fields: [salaryStructureId], references: [id], onDelete: SetNull)
+  employeeSalary  EmployeeSalary?  @relation(fields: [employeeSalaryId], references: [id], onDelete: SetNull)
+  template        PayslipTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  lines           PayslipLine[]
 
-  @@unique([orgId, userId, month, year])
+  @@unique([orgId, userId, payrollRunId])
   @@index([orgId, month, year])
   @@map("payslips")
 }
@@ -1930,19 +2148,170 @@ model Payslip {
 // row exists yet so the print view always has something to render.
 model PayslipTemplate {
   id             String   @id @default(cuid())
-  orgId          String   @unique @map("org_id")
+  orgId          String   @map("org_id")
+  /// Several per org (phase 4): "Head office", "Contractors", …
+  name           String   @default("Default")
+  /// STANDARD | MODERN | MINIMAL | DETAILED | COMPACT | CORPORATE | BRANCH | STATEMENT — see utils/payslipRender.ts
+  layout         String   @default("STANDARD")
+  isDefault      Boolean  @default(true) @map("is_default")
+  isActive       Boolean  @default(true) @map("is_active")
   companyName    String?  @map("company_name")
   companyAddress String?  @map("company_address")
   logoUrl        String?  @map("logo_url")
   primaryColor   String   @default("#2563eb") @map("primary_color")
+  accentColor    String?  @map("accent_color")
+  /// Title printed on the document ("Payslip", "Salary Statement")
+  headerTitle    String   @default("Payslip") @map("header_title")
+  headerNote     String?  @map("header_note")
   footerNote     String?  @map("footer_note")
   showSignature  Boolean  @default(true) @map("show_signature")
   signatureLabel String   @default("Authorized Signatory") @map("signature_label")
+  signatoryName  String?  @map("signatory_name")
+  signatureUrl   String?  @map("signature_url")
+  /// Which optional blocks/fields print — keys in PAYSLIP_FIELDS (utils/payslipRender.ts)
+  showFields     Json?    @map("show_fields")
+  /// { departmentIds, locationIds, employmentTypes } — first matching non-default template wins
+  applicability  Json?
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
   org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  payslips       Payslip[]
 
+  @@index([orgId])
   @@map("payslip_templates")
+}
+
+// ─── HR: Configurable payroll (salary components, cycles, payslip lines) ────
+//
+// Replaces the fixed basic/HRA/allowances/PF/PT/other columns with a per-org
+// catalogue of components (utils/payrollEngine.ts evaluates them). Legacy
+// SalaryStructure rows are migrated into EmployeeSalary overrides; the old
+// Payslip columns stay as denormalised totals so existing payslips render.
+
+enum SalaryComponentCategory {
+  EARNING
+  DEDUCTION
+  REIMBURSEMENT
+  EMPLOYER_CONTRIBUTION
+}
+
+enum SalaryCalcType {
+  FIXED     // amount per period
+  PERCENT   // percent of another component / BASIC / GROSS
+  FORMULA   // expression over component codes and payroll variables
+}
+
+model SalaryComponent {
+  id             String                  @id @default(cuid())
+  orgId          String                  @map("org_id")
+  /// Stable identifier used in formulas and payslip lines, e.g. "BASIC", "HRA", "PF_EMP"
+  code           String
+  name           String
+  category       SalaryComponentCategory
+  calcType       SalaryCalcType          @default(FIXED) @map("calc_type")
+  /// FIXED: default amount per period (per-employee override usual)
+  amount         Decimal?                @db.Decimal(12, 2)
+  /// PERCENT: percent of `percentOf` (a component code, or BASIC / GROSS_EARNINGS / CTC)
+  percent        Decimal?                @db.Decimal(7, 3)
+  percentOf      String?                 @map("percent_of")
+  /// FORMULA: e.g. "min(BASIC * 0.12, 1800)" — see payrollEngine.ts for the grammar
+  formula        String?
+  /// Statutory preset key (PF_EMP, PF_EMPLOYER, ESI_EMP, ESI_EMPLOYER, PT, TDS) with org-editable config
+  statutory      String?
+  statutoryConfig Json?                  @map("statutory_config")
+  /// Prorate by paid days / working days (attendance-linked) — off for e.g. reimbursements
+  prorate        Boolean                 @default(true)
+  taxable        Boolean                 @default(true)
+  showOnPayslip  Boolean                 @default(true) @map("show_on_payslip")
+  displayOrder   Int                     @default(0) @map("display_order")
+  isActive       Boolean                 @default(true) @map("is_active")
+  /// Who the component applies to. Empty lists = everyone.
+  /// { departmentIds: [], locationIds: [], designations: [], employmentTypes: [], userIds: [] }
+  applicability  Json?
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  org            Organization            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([orgId, isActive])
+  @@map("salary_components")
+}
+
+enum PayrollFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+/// A payroll cycle an employee can be assigned to. Periods are calendar-based:
+/// MONTHLY = calendar month; WEEKLY / BIWEEKLY start on `startWeekday` (0 = Sunday);
+/// CUSTOM = `lengthDays` starting from `anchorDate` and repeating.
+model PayrollCycle {
+  id           String           @id @default(cuid())
+  orgId        String           @map("org_id")
+  name         String
+  frequency    PayrollFrequency @default(MONTHLY)
+  startWeekday Int?             @map("start_weekday")
+  anchorDate   DateTime?        @db.Date @map("anchor_date")
+  lengthDays   Int?             @map("length_days")
+  isDefault    Boolean          @default(false) @map("is_default")
+  isActive     Boolean          @default(true) @map("is_active")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+  org          Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  salaries     EmployeeSalary[]
+  runs         PayrollRun[]
+
+  @@index([orgId])
+  @@map("payroll_cycles")
+}
+
+/// An employee's pay: which cycle they're on and their per-component values.
+/// Revision pattern (like SalaryStructure): a change deactivates the previous
+/// row so past payslips keep their history.
+model EmployeeSalary {
+  id             String        @id @default(cuid())
+  orgId          String        @map("org_id")
+  userId         String        @map("user_id")
+  payrollCycleId String?       @map("payroll_cycle_id")
+  currency       String        @default("INR")
+  /// Optional annual CTC for display / CTC-based formulas
+  ctcAnnual      Decimal?      @db.Decimal(14, 2) @map("ctc_annual")
+  /// { "<CODE>": { amount?: number, percent?: number, formula?: string, enabled?: boolean } }
+  overrides      Json          @default("{}")
+  effectiveFrom  DateTime      @db.Date @map("effective_from")
+  isActive       Boolean       @default(true) @map("is_active")
+  notes          String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  org            Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payrollCycle   PayrollCycle? @relation(fields: [payrollCycleId], references: [id], onDelete: SetNull)
+  payslips       Payslip[]
+
+  @@index([orgId, userId, isActive])
+  @@map("employee_salaries")
+}
+
+/// One line on a payslip — the evaluated value of a component for that period.
+model PayslipLine {
+  id            String                  @id @default(cuid())
+  payslipId     String                  @map("payslip_id")
+  code          String
+  name          String
+  category      SalaryComponentCategory
+  amount        Decimal                 @db.Decimal(12, 2)
+  /// How it was computed, for the review screen: e.g. "12% of BASIC", "fixed", "formula: min(BASIC*0.12,1800)"
+  basis         String?
+  showOnPayslip Boolean                 @default(true) @map("show_on_payslip")
+  displayOrder  Int                     @default(0) @map("display_order")
+  /// Set when a manager adjusted the computed value during review
+  adjusted      Boolean                 @default(false)
+  payslip       Payslip                 @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+
+  @@index([payslipId])
+  @@map("payslip_lines")
 }
 
 // ─── Invoicing ───────────────────────────────────────────────────────────────

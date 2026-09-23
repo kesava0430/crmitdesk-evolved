@@ -9,6 +9,7 @@ import {
 import { LogIn, LogOut, MapPin, Users, Clock, ScanFace, Trash2 } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { FaceCaptureModal, type FaceSample } from '../../shared/components/FaceCaptureModal';
+import { RegisterSection } from './attendance/RegisterSection';
 const LiveMap = lazy(() => import('./LiveMap').then(m => ({ default: m.LiveMap })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
@@ -474,7 +475,7 @@ function TeamToday() {
 export default function AttendancePage() {
   const { user } = useAuth();
   const isManager = MANAGER_ROLES.includes(user?.role || '');
-  const [tab, setTab] = useState<'me' | 'team' | 'map'>('me');
+  const [tab, setTab] = useState<'me' | 'team' | 'register' | 'map'>('me');
   const { data: policy } = useAttendancePolicy();
 
   return (
@@ -483,7 +484,7 @@ export default function AttendancePage() {
         title="Attendance"
         subtitle="Mark and track daily attendance"
         below={isManager ? (
-          <Tabs<'me' | 'team' | 'map'>
+          <Tabs<'me' | 'team' | 'register' | 'map'>
             aria-label="Attendance views"
             variant="segmented"
             value={tab}
@@ -491,19 +492,23 @@ export default function AttendancePage() {
             items={[
               { key: 'me', label: 'My Attendance' },
               { key: 'team', label: 'Team' },
+              { key: 'register', label: 'Register' },
               ...(policy?.shareLiveLocation ? [{ key: 'map' as const, label: 'Live map' }] : []),
             ]}
           />
         ) : undefined}
       />
 
-      <PageBody width="full" className={tab === 'map' ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}>
+      <PageBody width="full" className={tab === 'map' || tab === 'register' ? 'max-w-7xl mx-auto' : 'max-w-4xl mx-auto'}>
         {tab === 'me' ? (
           <div className="space-y-5">
             <CheckInWidget />
             <FaceIdCard />
             <MyHistory />
+            {user?.id && <RegisterSection canEdit={false} onlyUserId={user.id} />}
           </div>
+        ) : tab === 'register' ? (
+          <RegisterSection canEdit />
         ) : tab === 'map' ? (
           <Suspense fallback={<div className="p-6 text-[13px] text-fg-subtle">Loading map…</div>}><LiveMap /></Suspense>
         ) : (
