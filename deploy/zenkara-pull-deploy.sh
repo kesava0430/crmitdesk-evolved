@@ -26,9 +26,25 @@ mkdir -p "$STATE"
 log() { echo "[$(date -Is)] $*"; }
 
 # ── Is there anything to do? ────────────────────────────────────────────
-WANT=$(aws s3 cp "s3://$BUCKET/current.txt" - 2>/dev/null | tr -d '[:space:]' || true)
+# Keep stderr: "no release published yet" and "the IAM role is wrong" are
+# very different problems, and collapsing both into one message sent us
+# chasing the wrong one.
+ERR="$WORK/s3.err"
+WANT=$(aws s3 cp "s3://$BUCKET/current.txt" - 2>"$ERR" | tr -d '[:space:]' || true)
 if [ -z "$WANT" ]; then
-  log "could not read s3://$BUCKET/current.txt — skipping"
+  if grep -qi "AccessDenied\|Unable to locate credentials\|InvalidAccessKeyId" "$ERR"; then
+    log "ERROR: cannot read s3://$BUCKET/current.txt — the instance IAM role is missing or lacks s3:GetObject"
+    log "  check: aws sts get-caller-identity   /   aws s3 ls s3://$BUCKET/"
+  elif grep -qi "Not Found\|does not exist\|NoSuchKey\|NoSuchBucket" "$ERR"; then
+    # Normal before the first successful workflow run. Said once per hour
+    # rather than every minute, so it does not bury real errors.
+    if [ ! -f "$STATE/.notified-empty" ] || [ "$(find "$STATE/.notified-empty" -mmin +60 2>/dev/null)" ]; then
+      log "no release published yet (s3://$BUCKET/current.txt absent) — waiting for the Deploy workflow"
+      touch "$STATE/.notified-empty"
+    fi
+  else
+    log "could not read s3://$BUCKET/current.txt: $(head -1 "$ERR")"
+  fi
   exit 0
 fi
 
