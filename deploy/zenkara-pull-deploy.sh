@@ -82,6 +82,24 @@ echo "$WANT" > "$APP/client/dist/deployed.txt"
 
 cd "$APP/server"
 npx prisma generate
+
+# Back up before migrating, but only when there is actually something to
+# apply. `migrate deploy` can drop columns and rewrite data, and once it has
+# run there is no undo — the dump is the only way back. Skipping it when
+# there are no pending migrations keeps ordinary code-only deploys fast.
+if npx prisma migrate status 2>&1 | grep -qi "following migration.*not yet been applied\|pending"; then
+  log "pending migrations detected — backing up the database first"
+  if [ -x /usr/local/bin/zenkara-crm-backup.sh ]; then
+    /usr/local/bin/zenkara-crm-backup.sh
+  else
+    # Fall back to an inline dump rather than migrating unprotected.
+    mkdir -p /var/backups/zenkara-crm
+    sudo -u postgres pg_dump --no-owner --no-privileges zenkara_crm \
+      | gzip > "/var/backups/zenkara-crm/pre-migrate_${WANT:0:7}_$(date +%F_%H%M).sql.gz"
+  fi
+  log "backup complete"
+fi
+
 npx prisma migrate deploy
 
 # ── Restart ─────────────────────────────────────────────────────────────

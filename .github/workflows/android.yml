@@ -1,0 +1,137 @@
+# Build the Android app on every push to main.
+#
+# The debug APK is attached to the run as an artifact, so there is always a
+# current build to install without anyone opening Android Studio. Tag a
+# release (v1.0.0) and it builds a SIGNED release bundle instead, ready for
+# the Play Console — provided the keystore secrets are configured.
+#
+# Why this is separate from deploy.yml: the web deploy must be fast and must
+# never be blocked by a Gradle build, and an APK is not something the server
+# consumes. They share nothing but the source.
+#
+# ── Note on the API URL ─────────────────────────────────────────────────
+# VITE_BASE_PATH is deliberately NOT set here. The Capacitor WebView serves
+# the bundle from the root of its own origin (http://localhost), so the
+# /zenkara/ base that the web build needs would break every asset path in
+# the app. VITE_API_URL must be absolute for the same reason — a relative
+# "/api" would resolve to the phone itself.
+#
+# ── Play Store releases (optional, only needed for tags) ────────────────
+# Generate a keystore once and keep it safe — losing it means you can never
+# update the app on Play again:
+#
+#   keytool -genkey -v -keystore zenkara.jks -keyalg RSA -keysize 2048 \
+#     -validity 10000 -alias zenkara
+#
+# Then add these repository secrets (base64 the keystore first:
+#   certutil -encode zenkara.jks zenkara.txt   on Windows):
+#
+#   ANDROID_KEYSTORE_BASE64   the encoded .jks
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS         e.g. zenkara
+#   ANDROID_KEY_PASSWORD
+
+name: Android
+
+# Pushes to main build a debug APK; version tags (v1.0.0) build a signed
+# release bundle for the Play Console.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch: {}
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  API_URL: https://app.zenkara.in/zenkara/api
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # JDK 17 is what Android Gradle Plugin 8 requires.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      # Install ONCE at the root — npm workspaces monorepo.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: server
+
+      # No VITE_BASE_PATH: the app is served from the WebView root.
+      - name: Build web bundle for the app
+        env:
+          VITE_API_URL: ${{ env.API_URL }}
+        run: npm run build --workspace=client
+
+      # Copies dist/ into the native project. Skipping this is the classic
+      # Capacitor mistake — the APK silently ships the previous bundle.
+      - name: Sync to the Android project
+        run: npx cap sync android
+        working-directory: client
+
+      # ── Debug build (every push to main) ───────────────────────────────
+      - name: Build debug APK
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: client/android
+
+      - name: Upload debug APK
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: zenkara-debug-${{ github.sha }}
+          path: client/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # ── Release build (version tags only) ──────────────────────────────
+      - name: Decode keystore
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > client/android/zenkara.jks
+          test -s client/android/zenkara.jks
+
+      - name: Build signed release bundle
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ZENKARA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ZENKARA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ZENKARA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew bundleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file=$PWD/zenkara.jks \
+            -Pandroid.injected.signing.store.password="$ZENKARA_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ZENKARA_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ZENKARA_KEY_PASSWORD"
+        working-directory: client/android
+
+      - name: Upload release bundle
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: zenkara-release-${{ github.ref_name }}
+          path: client/android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 90
+
+      # The keystore must never survive into a cached layer or log.
+      - name: Remove keystore
+        if: always()
+        run: rm -f client/android/zenkara.jks
