@@ -104,18 +104,31 @@ jobs:
           aws s3 cp current.txt "s3://$S3_BUCKET/current.txt" --cache-control no-cache
           echo "Published $SHA"
 
-      # The instance polls once a minute, so give it up to ~3 minutes to
+      # The instance polls once a minute, so give it up to ~6 minutes to
       # pick the release up and come back healthy.
+      #
+      # The site is probed over BOTH https and http. Until certbot has run
+      # (deploy/enable-https.sh) nothing listens on 443, and a probe that only
+      # tried https:// sat at "000" for six minutes and failed every run even
+      # though the release had been published and applied fine. Set the
+      # repository variable SITE_URL (Settings → Variables) to pin one scheme.
       - name: Wait for the instance to deploy it
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
         run: |
+          if [ -n "$SITE_URL" ]; then bases="$SITE_URL"; else bases="https://app.zenkara.in http://app.zenkara.in"; fi
           for i in $(seq 1 36); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' https://app.zenkara.in/zenkara/api/docs || true)
-            live=$(curl -s https://app.zenkara.in/zenkara/deployed.txt 2>/dev/null || true)
-            if [ "$code" = "200" ] && [ "$live" = "${{ github.sha }}" ]; then
-              echo "Deployed and healthy: $live"; exit 0
-            fi
-            echo "attempt $i — api:$code deployed:'${live:0:7}' want:'${GITHUB_SHA:0:7}'"
+            for base in $bases; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "$base/zenkara/api/docs" || true)
+              live=$(curl -s --connect-timeout 5 --max-time 15 "$base/zenkara/deployed.txt" 2>/dev/null | tr -d '[:space:]' || true)
+              if [ "$code" = "200" ] && [ "$live" = "${{ github.sha }}" ]; then
+                echo "Deployed and healthy at $base: $live"
+                case "$base" in http://*) echo "::warning::Site is still served over plain HTTP — camera/geolocation/PWA features stay disabled until deploy/enable-https.sh has been run on the instance.";; esac
+                exit 0
+              fi
+              echo "attempt $i — $base api:$code deployed:'${live:0:7}' want:'${GITHUB_SHA:0:7}'"
+            done
             sleep 10
           done
-          echo "::error::Instance did not report this release within 6 minutes. Check: journalctl -u zenkara-deploy -n 50"
+          echo "::error::Release ${GITHUB_SHA:0:7} was published to S3 but the instance did not report it within 6 minutes. On the box: journalctl -u zenkara-deploy -n 50 --no-pager ; cat /var/lib/zenkara-deploy/deployed-sha"
           exit 1
