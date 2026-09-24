@@ -115,8 +115,9 @@ const isProd = process.env.NODE_ENV === 'production';
 // ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every single request. `1` trusts
 // exactly one hop (Render's own proxy), which is correct here — trusting
 // unlimited hops would let a client spoof X-Forwarded-For to dodge rate
-// limits entirely.
-app.set('trust proxy', 1);
+// limits entirely. Behind the docker-compose stack (Caddy → nginx → here)
+// there are two hops, so TRUST_PROXY_HOPS=2 is set in docker-compose.yml.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 1);
 
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({

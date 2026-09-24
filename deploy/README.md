@@ -170,6 +170,22 @@ echo "<previous-sha>" | aws s3 cp - s3://zenkara-deploy/current.txt --cache-cont
 The next tick rolls the instance back within a minute. Releases are kept for
 30 days, so anything in that window is a valid target.
 
+## HTTPS (required for attendance features)
+
+Face verification, geofenced check-in, live location and the installable
+PWA all need a secure origin — browsers never show the camera or location
+prompt on plain `http://`. Once DNS points at the instance and ports 80/443
+are open:
+
+```bash
+sudo bash /opt/zenkara-crm/deploy/enable-https.sh ops@zenkara.in
+```
+
+That installs certbot, obtains the Let's Encrypt certificate, rewrites the
+nginx site to serve 443 and redirect 80, and leaves renewal to certbot's
+timer. Afterwards set `FRONTEND_URL`, `CORS_ORIGIN` and `APP_URL` in
+`server/.env` to `https://app.zenkara.in` and restart the API.
+
 ## What this does *not* cover
 
 The Android app. APKs still need `npx cap sync` and a Gradle build locally —
