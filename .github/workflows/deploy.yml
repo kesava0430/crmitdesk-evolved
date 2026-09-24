@@ -85,6 +85,28 @@ jobs:
           tar -czf client-dist.tar.gz -C client dist
           ls -lh *.tar.gz
 
+      # TEMPORARY diagnostic: prints the claims GitHub puts in the OIDC token
+      # (this is what AWS matches the trust policy against) and the role NAME
+      # from the secret. Nothing secret is printed — the token is not echoed
+      # and GitHub masks the full ARN. Remove once the assume-role step works.
+      - name: Diagnose OIDC claims vs. role (temporary)
+        uses: actions/github-script@v7
+        env:
+          ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+            const c = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+            core.info(`iss = ${c.iss}`);
+            core.info(`aud = ${c.aud}`);
+            core.info(`sub = ${c.sub}`);
+            core.info(`repository = ${c.repository}   repository_owner = ${c.repository_owner}   ref = ${c.ref}`);
+            const arn = process.env.ARN || '';
+            core.info(`secret length = ${arn.length} (expected 50 for arn:aws:iam::223532249183:role/ZenkaraGitHubDeploy)`);
+            core.info(`role name from secret = "${arn.split('/').pop()}"`);
+            core.info(`account in secret = ${(arn.match(/::(\d{12}):/) || [])[1]}`);
+            if (arn !== arn.trim()) core.warning('The secret has leading/trailing whitespace — re-enter it.');
+
       - name: Assume AWS role (OIDC — no stored keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
