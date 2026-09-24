@@ -47,7 +47,16 @@ aws iam create-open-id-connect-provider \
 ```
 
 Create `trust.json` — the `sub` condition is what stops any other repo
-assuming this role:
+assuming this role. **Note the `@<id>` suffixes**: GitHub's OIDC `sub` claim
+now carries the owner ID and repository ID
+(`repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:...`), so the older
+`repo:kesava0430/crmitdesk-evolved:*` pattern no longer matches and every run
+fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity`. The IDs
+are stable across renames. To see the exact claim GitHub sends, add a step
+with `actions/github-script` that calls `core.getIDToken('sts.amazonaws.com')`
+and decodes the JWT payload — or query the IDs directly:
+`gh api users/kesava0430 --jq .id` and
+`gh api repos/kesava0430/crmitdesk-evolved --jq .id`.
 
 ```json
 {
@@ -58,7 +67,7 @@ assuming this role:
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
       "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
-      "StringLike": { "token.actions.githubusercontent.com:sub": "repo:kesava0430/crmitdesk-evolved:*" }
+      "StringLike": { "token.actions.githubusercontent.com:sub": "repo:kesava0430@69373401/crmitdesk-evolved@1311218234:*" }
     }
   }]
 }
