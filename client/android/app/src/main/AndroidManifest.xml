@@ -44,12 +44,11 @@
       Face enrolment / check-in selfie.
 
       The web app calls navigator.mediaDevices.getUserMedia(). Inside a
-      Capacitor WebView that reaches Android's permission layer, and with
-      no CAMERA permission declared the request is refused outright - which
-      surfaces in the UI as "Camera permission was denied - allow camera
-      access for this site and try again". Declaring it here lets
-      Capacitor's BridgeWebChromeClient raise the runtime prompt the first
-      time a face capture is attempted.
+      Capacitor WebView that reaches Android's permission layer, and with no
+      CAMERA permission declared the request is refused outright — which
+      surfaces in the UI as "Camera permission was denied". Declaring it here
+      lets Capacitor's BridgeWebChromeClient raise the runtime prompt the
+      first time a face capture is attempted.
     -->
     <uses-permission android:name="android.permission.CAMERA" />
 
@@ -59,15 +58,15 @@
       navigator.geolocation backs both "Use my current location" in Add
       Office Location and the radius check at check-in. Without these the
       WebView resolves nothing and the UI reports "Could not get current
-      location". FINE is what a 150m office radius needs; COARSE is the
-      fallback when a user grants only approximate location on Android 12+.
+      location". FINE is what an office radius needs; COARSE is the fallback
+      when a user grants only approximate location on Android 12+.
     -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!--
-      required="false" so Play Store still lists the app for devices with
-      no camera - every other module works without one.
+      required="false" so Play Store still lists the app for devices with no
+      camera or GPS — every other module works without them.
     -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />

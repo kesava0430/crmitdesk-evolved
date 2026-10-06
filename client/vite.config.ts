@@ -36,9 +36,9 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'logo.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'CRMITdesk Evolved',
-        short_name: 'CRMITdesk',
-        description: 'CRM and IT Help Desk platform',
+        name: 'Zenkara 360',
+        short_name: 'Zenkara 360',
+        description: 'CRM, IT help desk, HR and attendance in one place',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',
