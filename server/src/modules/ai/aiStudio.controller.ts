@@ -24,7 +24,17 @@ function getAiClient(): OpenAI | null {
     return new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', timeout: 30_000, maxRetries: 1 });
   }
   if (process.env.OPENAI_API_KEY) {
-    return new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30_000, maxRetries: 1 });
+    /* OPENAI_BASE_URL must be honoured here too, or AI Studio is the one
+       feature that breaks on an OpenAI-compatible provider: utils/ai.ts and
+       utils/aiGateway.ts both pass it, so a key for xAI, LiteLLM, Ollama or
+       a corporate proxy worked everywhere except this screen, which sent it
+       to api.openai.com and got a 401. */
+    return new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      timeout: 30_000,
+      maxRetries: 1,
+    });
   }
   return null;
 }
