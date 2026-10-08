@@ -1,14 +1,43 @@
 apply plugin: 'com.android.application'
 
+// Release signing, read from android/keystore.properties (gitignored).
+//
+// Passing these as -Pandroid.injected.signing.* on the command line is the
+// documented alternative, but it breaks here: the project path contains
+// spaces ("Zenkara Projects Full Stack") and gradlew.bat loses the quoting
+// on its way to the JVM, so the build died on 'C:\Users\saiva\...\Zenkara'
+// is not recognized. Reading the file sidesteps the shell entirely.
+//
+// The file holds the password, so it must never be committed — see the
+// Android signing block in the repo .gitignore. Without the file the
+// release build simply falls back to unsigned, which keeps debug builds and
+// CI (which injects its own signing config) working unchanged.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace "com.zenkara.app"
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            release {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.zenkara.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 3
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -20,6 +49,9 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

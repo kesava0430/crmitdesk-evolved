@@ -75,3 +75,10 @@ client/ios/App/App/public/
 
 # Deployment tarballs built for upload
 *.tar.gz
+
+# ─── Android signing — NEVER commit these ────────────────────────────────
+# Losing the upload keystore is recoverable via Play App Signing, but a
+# leaked one lets someone else publish an update to your listing.
+*.jks
+*.keystore
+keystore.properties

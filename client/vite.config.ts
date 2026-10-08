@@ -34,7 +34,7 @@ export default defineConfig({
       filename: 'sw.ts',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.svg', 'logo.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.png', 'logo.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Zenkara 360',
         short_name: 'Zenkara 360',

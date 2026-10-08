@@ -55,7 +55,7 @@ export default function SsoCallbackPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-canvas px-6">
       <div className="flex items-center gap-2.5 animate-fade-in">
-        <img src={asset("logo.svg")} alt="" className="w-9 h-9" />
+        <img src={asset("logo.png")} alt="" className="w-9 h-9" />
         <span className="text-xl font-semibold text-fg tracking-tight">CRM &amp; IT Desk</span>
       </div>
       <Spinner label="Finishing sign-in…" compact />
