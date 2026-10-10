@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, requireRole, ALL_USERS, MANAGERS } from '../../../middleware/authenticate';
+import { authenticate, requireRole, ALL_USERS, MANAGERS, ADMIN } from '../../../middleware/authenticate';
 import * as c from './attendance.controller';
 import * as a from './attendanceAdmin.controller';
 
@@ -13,12 +13,28 @@ router.get('/me',         requireRole(...ALL_USERS), c.myAttendance);
 router.post('/heartbeat', requireRole(...ALL_USERS), c.heartbeat);
 
 // Face verification — policy is readable by everyone (the check-in UI needs
-// it), editable by managers; enrolment is self-service, reset is self or manager.
+// it), editable by managers.
+//
+// Enrolment is asymmetric by design: the FIRST enrolment is self-service,
+// because there is nothing yet to protect, but REPLACING an enrolled face
+// goes through Super Admin review. There is deliberately no self-service
+// delete — removing your own face would otherwise be a one-line way to drop
+// back to the unreviewed first-enrolment path. Managers keep a reset route
+// for the genuine cases (a bad enrolment, someone who cannot match).
 router.get('/policy',            requireRole(...ALL_USERS), c.getPolicy);
 router.patch('/policy',          requireRole(...MANAGERS),  c.updatePolicy);
 router.post('/face/enrol',       requireRole(...ALL_USERS), c.enrolFace);
-router.delete('/face/me',        requireRole(...ALL_USERS), c.deleteMyFace);
+router.post('/face/reenrol',     requireRole(...ALL_USERS), c.requestFaceReenrolment);
 router.get('/face',              requireRole(...MANAGERS),  c.listEnrollments);
+
+// Re-enrolment review — Super Admin only, not the MANAGERS group the rest of
+// this router uses. Kept above the parameterised '/face/:userId' so that
+// adding a GET or POST there later cannot start shadowing these.
+router.get('/face/requests',             requireRole(...ADMIN), c.listFaceRequests);
+router.get('/face/requests/:id',         requireRole(...ADMIN), c.getFaceRequest);
+router.post('/face/requests/:id/approve', requireRole(...ADMIN), c.approveFaceRequest);
+router.post('/face/requests/:id/reject',  requireRole(...ADMIN), c.rejectFaceRequest);
+
 router.delete('/face/:userId',   requireRole(...MANAGERS),  c.deleteUserFace);
 
 // Policy engine: groups, holidays, register, corrections (see attendanceAdmin.controller.ts)

@@ -112,6 +112,7 @@ model Organization {
   webForms          WebForm[]
   attendancePolicy  AttendancePolicy?
   faceEnrollments   FaceEnrollment[]
+  faceReenrollmentRequests FaceReenrollmentRequest[]
   locationPings     AttendanceLocationPing[]
   salaryComponents  SalaryComponent[]
   payrollCycles     PayrollCycle[]
@@ -323,6 +324,8 @@ model User {
   chatParticipants ChatParticipant[]
   chatMessages     ChatMessage[]
   faceEnrollment    FaceEnrollment?
+  faceReenrollmentRequests FaceReenrollmentRequest[] @relation("FaceReenrolRequester")
+  faceReenrollmentsDecided FaceReenrollmentRequest[] @relation("FaceReenrolDecider")
   locationPings     AttendanceLocationPing[]
   employeeSalaries  EmployeeSalary[]
   leaveBalanceAdjustments LeaveBalanceAdjustment[]
@@ -1799,6 +1802,52 @@ model FaceEnrollment {
 
   @@index([orgId])
   @@map("face_enrollments")
+}
+
+// A request to REPLACE an existing FaceEnrollment, pending Super Admin review.
+//
+// Why this is a separate table rather than extra columns on FaceEnrollment:
+// the employee's current face must keep working for attendance the whole time
+// a replacement is under review. Parking the new descriptors here leaves the
+// live enrolment completely untouched until the moment of approval, so there
+// is no window in which check-in compares against an unreviewed face.
+//
+// Unlike FaceEnrollment — which stores only numeric signatures plus one
+// courtesy selfie — this row deliberately keeps a JPEG of every captured
+// sample, because a reviewer cannot judge "is this the same person" from 128
+// floats. The images are deleted along with the row when the user is deleted,
+// and a decided request keeps them as the evidence trail for that decision.
+model FaceReenrollmentRequest {
+  id              String       @id @default(cuid())
+  orgId           String       @map("org_id")
+  userId          String       @map("user_id")
+  /// number[][] — the newly captured descriptors, held here until approved
+  descriptors     Json
+  samples         Int          @default(0)
+  /// string[] — one small JPEG data URL per captured sample, for visual review
+  sampleImages    Json         @map("sample_images")
+  /// The selfie that was live when this request was raised, so the reviewer
+  /// still sees the correct "before" image even after a later approval
+  /// replaces the active enrolment.
+  previousSelfie  String?      @map("previous_selfie")
+  status          String       @default("PENDING") // PENDING | APPROVED | REJECTED
+  /// Mirrors userId while status is PENDING and is NULL once decided. The
+  /// unique constraint on a nullable column is how Postgres expresses "at
+  /// most one pending request per user" (it permits unlimited NULLs), giving
+  /// duplicate prevention in the database rather than in a racing read.
+  activePendingUserId String?  @unique @map("active_pending_user_id")
+  decidedBy       String?      @map("decided_by")
+  decidedAt       DateTime?    @map("decided_at")
+  rejectionReason String?      @map("rejection_reason")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user            User         @relation("FaceReenrolRequester", fields: [userId], references: [id], onDelete: Cascade)
+  decider         User?        @relation("FaceReenrolDecider", fields: [decidedBy], references: [id])
+
+  @@index([orgId, status])
+  @@index([orgId, userId])
+  @@map("face_reenrollment_requests")
 }
 
 // ─── HR: Leave Management ───────────────────────────────────────────────────

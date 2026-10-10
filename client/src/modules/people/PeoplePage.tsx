@@ -21,7 +21,8 @@ import {
 import { UserSquare2, Plus, KeyRound, ShieldOff, Copy, Check, Link2, Building2, Mail } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { useAuth } from '../../contexts/AuthContext';
-import { can } from '../../shared/permissions';
+import { can, inGroup, ADMIN } from '../../shared/permissions';
+import { FaceApprovals } from './FaceApprovals';
 
 /**
  * People — one screen for everyone in the organization.
@@ -347,17 +348,24 @@ function GrantLoginModal({ person, onClose }: { person: Person | null; onClose: 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/* The first three filter the people list; 'face' is a different view
+   entirely (the Face ID re-enrolment queue) and is only offered to Super
+   Admins, who are the only role the review endpoints accept. */
 const TABS = [
   { key: '', label: 'Everyone' },
   { key: 'yes', label: 'Can sign in' },
   { key: 'no', label: 'No login' },
+  { key: 'face', label: 'Face Approvals' },
 ] as const;
+
+type TabKey = (typeof TABS)[number]['key'];
 
 export default function PeoplePage() {
   const { user: currentUser } = useAuth();
   const fmt = useFormat();
 
-  const [login, setLogin] = useState<'' | 'yes' | 'no'>('');
+  const [tab, setTab] = useState<TabKey>('');
+  const login = tab === 'face' ? '' : tab;
   const [search, setSearch] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [addOpen, setAddOpen] = useState(false);
@@ -376,6 +384,9 @@ export default function PeoplePage() {
      else the row shows the person's role as plain text instead. */
   const canReadRoles = can.readRoles(currentUser?.role);
   const canManagePeople = can.managePeople(currentUser?.role);
+  /* Face ID re-enrolments are decided by Super Admins only — not MANAGERS,
+     which is where most of this page's gating sits. */
+  const isSuperAdmin = inGroup(currentUser?.role, ADMIN);
   const { data: roles } = useRoles(canReadRoles);
 
   const revoke = useRevokeLogin();
@@ -431,23 +442,31 @@ export default function PeoplePage() {
             <Tabs
               variant="segmented"
               aria-label="Filter by login"
-              value={login}
-              onChange={setLogin}
-              items={TABS.map(t => ({ key: t.key, label: t.label }))}
+              value={tab}
+              onChange={setTab}
+              items={TABS.filter(t => t.key !== 'face' || isSuperAdmin).map(t => ({ key: t.key, label: t.label }))}
             />
-            <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, email…" />
-            <Select
-              className="w-auto"
-              aria-label="Filter by department"
-              value={departmentId}
-              onChange={e => setDepartmentId(e.target.value)}
-            >
-              <option value="">All departments</option>
-              {(departments?.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </Select>
+            {/* Search and department filter belong to the people list; the
+                approvals queue has its own status filter. */}
+            {tab !== 'face' && (
+              <>
+                <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, email…" />
+                <Select
+                  className="w-auto"
+                  aria-label="Filter by department"
+                  value={departmentId}
+                  onChange={e => setDepartmentId(e.target.value)}
+                >
+                  <option value="">All departments</option>
+                  {(departments?.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </Select>
+              </>
+            )}
           </Toolbar>
 
-          {isLoading ? (
+          {tab === 'face' && isSuperAdmin ? (
+            <FaceApprovals />
+          ) : isLoading ? (
             <SkeletonTable rows={6} />
           ) : !data?.data.length ? (
             <EmptyState

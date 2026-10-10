@@ -382,9 +382,18 @@ export async function deleteOfficeLocation(req: AuthRequest, res: Response, next
 /** GET /hr/attendance/policy — any staff role; also tells the caller whether they're enrolled. */
 export async function getPolicy(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const [policy, enrollment] = await Promise.all([
+    const [policy, enrollment, lastRequest] = await Promise.all([
       getOrCreateAttendancePolicy(req.user!.orgId),
       prisma.faceEnrollment.findUnique({ where: { userId: req.user!.id }, select: { samples: true, enrolledAt: true, updatedAt: true, referenceSelfie: true } }),
+      /* The most recent re-enrolment request drives the Face ID card: PENDING
+         hides the Re-enrol button, REJECTED surfaces the reason. Only the
+         latest matters — older decided rows are history for the audit trail,
+         not state the employee acts on. */
+      prisma.faceReenrollmentRequest.findFirst({
+        where: { userId: req.user!.id },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true, samples: true, rejectionReason: true, createdAt: true, decidedAt: true },
+      }),
     ]);
     const checkInRule = parseRule(policy.checkInRule, DEFAULT_CHECK_IN_RULE);
     const checkOutRule = parseRule(policy.checkOutRule, DEFAULT_CHECK_OUT_RULE);
@@ -393,6 +402,8 @@ export async function getPolicy(req: AuthRequest, res: Response, next: NextFunct
       /** Convenience for the client: is a face ever needed (enrolment prompts)? */
       faceVerificationRequired: checkInRule.face || checkOutRule.face,
       myEnrollment: enrollment,
+      /** Latest re-enrolment request, or null if the user has never raised one. */
+      myFaceRequest: lastRequest,
     });
   } catch (err) { next(err); }
 }
@@ -449,32 +460,208 @@ const EnrolSchema = z.object({
   referenceSelfie: SelfieSchema.optional(),
 });
 
-/** POST /hr/attendance/face/enrol — the caller enrols (or re-enrols) their own face. */
+/**
+ * POST /hr/attendance/face/enrol — first-time enrolment only.
+ *
+ * This used to upsert, which made it the bypass route for the approval
+ * workflow: an already-enrolled employee could replace their face by calling
+ * it again, review or no review. It now refuses when an enrolment exists and
+ * points at the request flow, so approval cannot be skipped from the API any
+ * more than from the UI.
+ */
 export async function enrolFace(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { descriptors, referenceSelfie } = EnrolSchema.parse(req.body);
     descriptors.forEach(assertPlausibleDescriptor);
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
-    const enrollment = await prisma.faceEnrollment.upsert({
-      where: { userId },
-      create: { orgId, userId, descriptors, samples: descriptors.length, referenceSelfie: referenceSelfie ?? null },
-      update: { descriptors, samples: descriptors.length, referenceSelfie: referenceSelfie ?? null, enrolledAt: new Date() },
+
+    const existing = await prisma.faceEnrollment.findUnique({ where: { userId }, select: { id: true } });
+    if (existing) {
+      throw new AppError(409, 'Your face is already enrolled. Submit a re-enrolment request for approval instead.');
+    }
+
+    const enrollment = await prisma.faceEnrollment.create({
+      data: { orgId, userId, descriptors, samples: descriptors.length, referenceSelfie: referenceSelfie ?? null },
       select: { samples: true, enrolledAt: true, updatedAt: true, referenceSelfie: true },
     });
-    logAction(userId, 'UPDATE', 'FaceEnrollment', userId, { samples: descriptors.length });
+    logAction(userId, 'CREATE', 'FaceEnrollment', userId, { samples: descriptors.length });
     res.json(enrollment);
   } catch (err) { next(err); }
 }
 
-/** DELETE /hr/attendance/face/me — the caller removes their own enrolment. */
-export async function deleteMyFace(req: AuthRequest, res: Response, next: NextFunction) {
+// ─── Face re-enrolment requests ──────────────────────────────────────────────
+
+const ReenrolSchema = z.object({
+  descriptors: z.array(DescriptorSchema).min(1).max(MAX_ENROLLMENT_SAMPLES),
+  /** One image per descriptor — the reviewer compares these with the current face. */
+  sampleImages: z.array(SelfieSchema).min(1).max(MAX_ENROLLMENT_SAMPLES),
+});
+
+/** Shape returned to the employee and to reviewers in list views (no images). */
+const REQUEST_SUMMARY = {
+  id: true, userId: true, status: true, samples: true, rejectionReason: true,
+  createdAt: true, decidedAt: true,
+  user: { select: { id: true, name: true, email: true, role: true, avatarUrl: true } },
+  decider: { select: { id: true, name: true } },
+} as const;
+
+/**
+ * POST /hr/attendance/face/reenrol — employee submits a replacement face for
+ * approval. The live enrolment is not touched; see FaceReenrollmentRequest.
+ */
+export async function requestFaceReenrolment(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.faceEnrollment.deleteMany({ where: { userId: req.user!.id } });
-    logAction(req.user!.id, 'DELETE', 'FaceEnrollment', req.user!.id, {});
-    res.json({ ok: true });
+    const { descriptors, sampleImages } = ReenrolSchema.parse(req.body);
+    descriptors.forEach(assertPlausibleDescriptor);
+    const orgId = req.user!.orgId;
+    const userId = req.user!.id;
+
+    const current = await prisma.faceEnrollment.findUnique({
+      where: { userId },
+      select: { referenceSelfie: true },
+    });
+    /* Nothing to replace — the plain enrolment route handles that case, and
+       routing it here would create a request with no "before" to compare. */
+    if (!current) throw new AppError(400, 'You have no enrolled face yet — enrol first.');
+
+    try {
+      const created = await prisma.faceReenrollmentRequest.create({
+        data: {
+          orgId, userId,
+          descriptors,
+          samples: descriptors.length,
+          sampleImages,
+          previousSelfie: current.referenceSelfie,
+          status: 'PENDING',
+          activePendingUserId: userId,
+        },
+        select: REQUEST_SUMMARY,
+      });
+      logAction(userId, 'CREATE', 'FaceReenrollmentRequest', created.id, { samples: descriptors.length });
+      res.status(201).json(created);
+    } catch (err: any) {
+      /* Unique violation on active_pending_user_id — a second submission
+         raced the first, or the employee double-clicked. Either way there is
+         already a request waiting, which is exactly the end state they
+         wanted, so report it as a conflict rather than a failure. */
+      if (err?.code === 'P2002') throw new AppError(409, 'You already have a re-enrolment request awaiting approval.');
+      throw err;
+    }
   } catch (err) { next(err); }
 }
+
+/** GET /hr/attendance/face/requests?status=PENDING — Super Admin review queue. */
+export async function listFaceRequests(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status.toUpperCase() : 'PENDING';
+    if (!['PENDING', 'APPROVED', 'REJECTED', 'ALL'].includes(status)) throw new AppError(400, 'Invalid status filter');
+    const rows = await prisma.faceReenrollmentRequest.findMany({
+      where: { orgId: req.user!.orgId, ...(status === 'ALL' ? {} : { status }) },
+      select: REQUEST_SUMMARY,
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      take: 200,
+    });
+    const pendingCount = await prisma.faceReenrollmentRequest.count({ where: { orgId: req.user!.orgId, status: 'PENDING' } });
+    res.json({ data: rows, pendingCount });
+  } catch (err) { next(err); }
+}
+
+/**
+ * GET /hr/attendance/face/requests/:id — full detail including every
+ * submitted image plus the currently active face, which is what makes the
+ * review a visual comparison rather than an act of faith.
+ */
+export async function getFaceRequest(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const request = await prisma.faceReenrollmentRequest.findFirst({
+      where: { id: req.params.id, orgId: req.user!.orgId },
+      select: {
+        ...REQUEST_SUMMARY,
+        sampleImages: true,
+        previousSelfie: true,
+        user: {
+          select: {
+            id: true, name: true, email: true, role: true, avatarUrl: true,
+            faceEnrollment: { select: { referenceSelfie: true, samples: true, enrolledAt: true } },
+            employee: { select: { employeeCode: true, designation: true, department: { select: { name: true } } } },
+          },
+        },
+      },
+    });
+    if (!request) throw new AppError(404, 'Request not found');
+    res.json(request);
+  } catch (err) { next(err); }
+}
+
+const DecisionSchema = z.object({ reason: z.string().trim().max(500).optional() });
+
+/**
+ * POST /hr/attendance/face/requests/:id/approve|reject — Super Admin decision.
+ *
+ * Approval swaps the enrolment and closes the request inside one transaction:
+ * a half-applied decision would either leave the employee matching against a
+ * face nobody approved, or leave an approved request whose face never went
+ * live. The `updateMany ... where status PENDING` is a compare-and-set — if a
+ * second reviewer decided the same request a moment earlier it matches zero
+ * rows, and we stop instead of overwriting their decision.
+ */
+async function decideFaceRequest(req: AuthRequest, res: Response, next: NextFunction, approve: boolean) {
+  try {
+    const { reason } = DecisionSchema.parse(req.body ?? {});
+    const orgId = req.user!.orgId;
+    const reviewerId = req.user!.id;
+    const now = new Date();
+
+    const result = await prisma.$transaction(async tx => {
+      const request = await tx.faceReenrollmentRequest.findFirst({
+        where: { id: req.params.id, orgId },
+      });
+      if (!request) throw new AppError(404, 'Request not found');
+      if (request.status !== 'PENDING') throw new AppError(409, `This request was already ${request.status.toLowerCase()}.`);
+
+      const claimed = await tx.faceReenrollmentRequest.updateMany({
+        where: { id: request.id, orgId, status: 'PENDING' },
+        data: {
+          status: approve ? 'APPROVED' : 'REJECTED',
+          decidedBy: reviewerId,
+          decidedAt: now,
+          rejectionReason: approve ? null : (reason || null),
+          // Releases the one-pending-per-user slot so the employee can submit again.
+          activePendingUserId: null,
+        },
+      });
+      if (claimed.count === 0) throw new AppError(409, 'This request was just decided by someone else.');
+
+      if (approve) {
+        const images = Array.isArray(request.sampleImages) ? (request.sampleImages as string[]) : [];
+        await tx.faceEnrollment.upsert({
+          where: { userId: request.userId },
+          create: {
+            orgId, userId: request.userId,
+            descriptors: request.descriptors as any,
+            samples: request.samples,
+            referenceSelfie: images[0] ?? null,
+          },
+          update: {
+            descriptors: request.descriptors as any,
+            samples: request.samples,
+            referenceSelfie: images[0] ?? null,
+            enrolledAt: now,
+          },
+        });
+      }
+
+      return tx.faceReenrollmentRequest.findUnique({ where: { id: request.id }, select: REQUEST_SUMMARY });
+    });
+
+    logAction(reviewerId, 'UPDATE', 'FaceReenrollmentRequest', req.params.id, { decision: approve ? 'APPROVED' : 'REJECTED', reason: reason || null });
+    res.json(result);
+  } catch (err) { next(err); }
+}
+
+export const approveFaceRequest = (req: AuthRequest, res: Response, next: NextFunction) => decideFaceRequest(req, res, next, true);
+export const rejectFaceRequest = (req: AuthRequest, res: Response, next: NextFunction) => decideFaceRequest(req, res, next, false);
 
 /** GET /hr/attendance/face — managers: who in the org is enrolled. */
 export async function listEnrollments(req: AuthRequest, res: Response, next: NextFunction) {
@@ -493,7 +680,21 @@ export async function deleteUserFace(req: AuthRequest, res: Response, next: Next
   try {
     const target = await prisma.user.findFirst({ where: { id: req.params.userId, orgId: req.user!.orgId }, select: { id: true } });
     if (!target) throw new AppError(404, 'User not found');
-    await prisma.faceEnrollment.deleteMany({ where: { userId: target.id } });
+    await prisma.$transaction([
+      prisma.faceEnrollment.deleteMany({ where: { userId: target.id } }),
+      /* A pending request proposes a replacement for an enrolment that no
+         longer exists, so leaving it open would block the user's fresh
+         enrolment behind a review of a face with nothing to compare against.
+         Closed as rejected rather than deleted, to keep the decision trail. */
+      prisma.faceReenrollmentRequest.updateMany({
+        where: { userId: target.id, status: 'PENDING' },
+        data: {
+          status: 'REJECTED', decidedBy: req.user!.id, decidedAt: new Date(),
+          rejectionReason: 'Enrolment was reset by an administrator — please enrol again.',
+          activePendingUserId: null,
+        },
+      }),
+    ]);
     logAction(req.user!.id, 'DELETE', 'FaceEnrollment', target.id, { resetBy: req.user!.id });
     res.json({ ok: true });
   } catch (err) { next(err); }
