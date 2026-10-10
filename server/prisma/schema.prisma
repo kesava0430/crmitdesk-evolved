@@ -231,12 +231,28 @@ model InviteToken {
   /// short-lived token, and a role deleted before it is accepted should make
   /// the invite fall back to `role` above rather than fail to resolve.
   roleId    String?      @map("role_id")
+  /// The person this invite was raised for, when HR created the employee
+  /// record first (People → Add person → Send an invite, or Grant login on
+  /// an existing person). Acceptance links the new login to THIS record
+  /// instead of provisioning a second one.
+  ///
+  /// Nullable because not every invite has a person behind it: an invite
+  /// sent from Admin → Users has no employee record yet, and acceptance
+  /// provisions one as it always did. Invites issued before this column
+  /// existed are also null, and fall back to matching on email + org.
+  ///
+  /// SetNull rather than Cascade: if HR deletes the person before the
+  /// invite is accepted, the invitee should still get their login rather
+  /// than a dead link — they simply get a freshly provisioned record.
+  employeeId String?     @map("employee_id")
   token     String       @unique
   expiresAt DateTime     @map("expires_at")
   usedAt    DateTime?    @map("used_at")
   createdAt DateTime     @default(now()) @map("created_at")
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  employee  Employee?    @relation(fields: [employeeId], references: [id], onDelete: SetNull)
 
+  @@index([orgId, email])
   @@map("invite_tokens")
 }
 
@@ -2815,6 +2831,7 @@ model Employee {
   dottedLineManager Employee?   @relation("EmployeeDottedLine", fields: [dottedLineManagerId], references: [id], onDelete: SetNull)
   dottedLineReports Employee[]  @relation("EmployeeDottedLine")
 
+  inviteTokens      InviteToken[]
   headedDepartments Department[]            @relation("DepartmentHead")
   ledTeams          Team[]                  @relation("TeamLead")
   teamMemberships   TeamMember[]

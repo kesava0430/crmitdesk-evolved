@@ -337,6 +337,25 @@ export async function demoLogin(req: Request, res: Response, next: NextFunction)
   } catch (err) { next(err); }
 }
 
+/**
+ * Turn a unique-constraint collision into the 409 the caller deserves.
+ *
+ * Acceptance checks for an existing account before it starts, but that read
+ * and the insert are not one operation: two invites to the same address,
+ * accepted at the same moment, both pass the check and one loses on
+ * User.email. The same applies to Employee.userId when two requests try to
+ * claim one person. Both mean "somebody got there first", which is a 409 —
+ * without this they reach the client as an unexplained 500.
+ */
+async function withUniqueGuard<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err: any) {
+    if (err?.code === 'P2002') throw new AppError(409, 'That email address already has an account');
+    throw err;
+  }
+}
+
 /** POST /auth/accept-invite — invited user sets name + password */
 export async function acceptInvite(req: Request, res: Response, next: NextFunction) {
   try {
@@ -359,7 +378,19 @@ export async function acceptInvite(req: Request, res: Response, next: NextFuncti
     await assertSeatAvailable(invite.orgId, invite.role);
 
     const passwordHash = await bcrypt.hash(data.password, 12);
-    const user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const user = await withUniqueGuard(() => prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      /* Claim the invite before doing anything else. The check above is a
+         plain read, so two submissions of the same link — a double-click,
+         or a retry — both passed it and raced on to create accounts. This
+         is a compare-and-set: whoever matches the row owns the acceptance,
+         and the loser sees "already used" instead of a 500 from the email
+         unique constraint further down. */
+      const claimed = await tx.inviteToken.updateMany({
+        where: { id: invite.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new AppError(400, 'Invite already used');
+
       const u = await tx.user.create({
         data: {
           name: data.name,
@@ -376,12 +407,46 @@ export async function acceptInvite(req: Request, res: Response, next: NextFuncti
         },
         select: { id: true, name: true, email: true, role: true, orgId: true, avatarUrl: true },
       });
-      await tx.inviteToken.update({ where: { id: invite.id }, data: { usedAt: new Date() } });
-      return u;
-    });
 
-    // Accepting an invite is the most common way a person joins — provisioning
-    // here is what makes HR → Employees correct without anyone re-typing them.
+      /* Attach the login to the person HR already created.
+
+         Without this, ensureEmployeeForUser below looks the employee up by
+         user_id, finds nothing (the invited record has none yet) and makes
+         a second one — two directory rows for one human, from one invite.
+
+         The record is identified from the invite row, never from anything
+         the client sent. employeeId is set when HR raised the invite from
+         People; the email fallback covers invites issued before that
+         column existed, and is scoped to this org and to records with no
+         login yet, so an unrelated person's account can never be adopted. */
+      const invited = invite.employeeId
+        ? await tx.employee.findFirst({
+            where: { id: invite.employeeId, orgId: invite.orgId, userId: null },
+            select: { id: true },
+          })
+        : await tx.employee.findFirst({
+            where: {
+              orgId: invite.orgId,
+              userId: null,
+              workEmail: { equals: invite.email, mode: 'insensitive' },
+            },
+            // Oldest first: if HR somehow created two, the original invite
+            // belongs to the one that existed when it was sent.
+            orderBy: { createdAt: 'asc' },
+            select: { id: true },
+          });
+
+      /* Employee.userId is unique, so this is also the point where a
+         concurrent link would fail rather than silently double-attach.
+         HR's own fields (designation, manager, joining date, name) are
+         left exactly as entered — this only supplies the missing login. */
+      if (invited) await tx.employee.update({ where: { id: invited.id }, data: { userId: u.id } });
+
+      return u;
+    }));
+
+    // Falls through to provisioning only when the invite had no person
+    // behind it — Admin → Users invites, which have never had one.
     await ensureEmployeeForUser(user.id);
 
     const rawRefresh = generateRefreshToken();
