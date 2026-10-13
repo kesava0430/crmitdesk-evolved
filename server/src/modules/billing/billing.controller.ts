@@ -212,11 +212,12 @@ async function changeOrCheckout(req: AuthRequest, want: ChangeRequest): Promise<
       const updated = await stripe.subscriptions.update(sub.stripeSubscriptionId, params, {
         idempotencyKey: idempotencyKey(`subupd-${orgId}`, params),
       });
-      // Reflect it immediately (the customer.subscription.updated webhook will
-      // follow with the same data); bump lastStripeEventAt so a delayed older
-      // event can't revert the change.
+      // Reflect it immediately; the customer.subscription.updated webhook
+      // follows with the same data. lastStripeEventAt is deliberately NOT
+      // bumped from our clock — skew would make genuine Stripe events look
+      // stale. The ordering guard stays driven by Stripe's own timestamps.
       const fields = subscriptionFieldsFromStripe(updated, sub, { now: new Date(), gracePeriodDays: cfg.gracePeriodDays, fallbackMetadata: metadata });
-      await prisma.subscription.update({ where: { orgId }, data: { ...fields, lastStripeEventAt: new Date() } as any });
+      await prisma.subscription.update({ where: { orgId }, data: fields as any });
       invalidateLicenseCache(orgId);
       return { updated: true };
     }
@@ -347,6 +348,10 @@ function prismaWebhookDeps(gracePeriodDays: number): WebhookDeps {
     cancelSubscription: async id => { await stripe.subscriptions.cancel(id, { prorate: true }); },
     saveSubscription: async (orgId, data) => {
       await prisma.subscription.upsert({ where: { orgId }, create: { orgId, ...(data as any) }, update: data as any });
+    },
+    saveIfCurrentSubscription: async (orgId, subId, data) => {
+      const r = await prisma.subscription.updateMany({ where: { orgId, stripeSubscriptionId: subId }, data: data as any });
+      return r.count > 0;
     },
     getSeatsUsed: orgId => getBillableSeatCount(orgId),
     gracePeriodDays,

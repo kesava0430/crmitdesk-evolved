@@ -137,16 +137,28 @@ test('evaluateLicense: operator plan→feature mapping is honoured (LIC-8)', () 
   assert.deepEqual(planFeaturesFor('ENTERPRISE', cfg), DEFAULT_PRICING.planFeatures.ENTERPRISE);
 });
 
+test('allowances: defaults are unlimited, so deploying changes nothing', () => {
+  for (const p of ['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM'] as const) {
+    assert.equal(DEFAULT_PRICING.aiTokensMonthly[p], null);
+    assert.equal(DEFAULT_PRICING.platformEmailMonthly[p], null);
+    assert.equal(DEFAULT_PRICING.platformWhatsAppMonthly[p], null);
+  }
+  const lic = evaluateLicense(sub({ plan: 'FREE', stripeSubscriptionId: null }), NOW);
+  assert.equal(lic.aiTokensMonthly, null);
+  assert.equal(lic.platformEmailMonthly, null);
+});
+
 test('allowances: AI tokens and platform sends resolve override → plan default (LIC-18/19)', () => {
-  assert.equal(resolveAiTokenLimit(null, 'FREE'), DEFAULT_PRICING.aiTokensMonthly.FREE);
-  assert.equal(resolveAiTokenLimit(null, 'ENTERPRISE'), null, 'Enterprise default is unlimited');
-  assert.equal(resolveAiTokenLimit(0, 'FREE'), null, '0 override = explicitly unlimited');
-  assert.equal(resolveAiTokenLimit(1234, 'FREE'), 1234);
-  assert.equal(resolveSendQuota(null, DEFAULT_PRICING.platformEmailMonthly, 'PRO'), DEFAULT_PRICING.platformEmailMonthly.PRO);
-  assert.equal(resolveSendQuota(0, DEFAULT_PRICING.platformEmailMonthly, 'PRO'), 0);
-  const lic = evaluateLicense(sub({ status: 'canceled', platformWhatsAppQuotaMonthly: 77 }), NOW);
+  const cfg = mergePricing({ aiTokensMonthly: { FREE: 500_000 }, platformEmailMonthly: { FREE: 500, PRO: 5000 } });
+  assert.equal(resolveAiTokenLimit(null, 'FREE', cfg), 500_000);
+  assert.equal(resolveAiTokenLimit(null, 'ENTERPRISE', cfg), null, 'unset plan stays unlimited');
+  assert.equal(resolveAiTokenLimit(0, 'FREE', cfg), null, '0 override = explicitly unlimited');
+  assert.equal(resolveAiTokenLimit(1234, 'FREE', cfg), 1234);
+  assert.equal(resolveSendQuota(null, cfg.platformEmailMonthly, 'PRO'), 5000);
+  assert.equal(resolveSendQuota(0, cfg.platformEmailMonthly, 'PRO'), 0);
+  const lic = evaluateLicense(sub({ status: 'canceled', platformWhatsAppQuotaMonthly: 77 }), NOW, cfg);
   assert.equal(lic.platformWhatsAppMonthly, 77);
-  assert.equal(lic.platformEmailMonthly, DEFAULT_PRICING.platformEmailMonthly.FREE, 'lapsed org gets Free allowances');
+  assert.equal(lic.platformEmailMonthly, 500, 'lapsed org gets Free allowances');
   assert.equal(isOverQuota(10, null), false);
   assert.equal(isOverQuota(9, 10), false);
   assert.equal(isOverQuota(10, 10), true);
@@ -317,6 +329,13 @@ class FakeStore {
         this.saves.push({ orgId, data });
         this.rows.set(orgId, { ...(this.rows.get(orgId) as any), orgId, ...data });
       },
+      saveIfCurrentSubscription: async (orgId, subId, data) => {
+        const row = this.rows.get(orgId);
+        if (!row || row.stripeSubscriptionId !== subId) return false;
+        this.saves.push({ orgId, data });
+        this.rows.set(orgId, { ...row, ...data });
+        return true;
+      },
       getSeatsUsed: async () => 3,
       gracePeriodDays: 7,
       now: NOW,
@@ -375,6 +394,36 @@ test('webhook: a second subscription at checkout cancels the superseded one (no 
   }), store.deps());
   assert.deepEqual(store.cancelled, ['sub_old']);
   assert.equal(store.rows.get('org1')!.stripeSubscriptionId, 'sub_new');
+  assert.equal(store.rows.get('org1')!.plan, 'ENTERPRISE');
+});
+
+test('webhook: the new subscription is saved BEFORE the old one is cancelled, and its deleted event is a no-op (L1)', async () => {
+  const store = new FakeStore([{ orgId: 'org1', plan: 'PRO', stripeSubscriptionId: 'sub_old', stripeCustomerId: 'cus_1' }]);
+  store.stripeSubs.set('sub_new', stripeSubFixture({ metadata: { ...proMeta, plan: 'ENTERPRISE', seats: '999' } }));
+  let idAtCancel: string | null | undefined;
+  const deps = store.deps({ cancelSubscription: async () => { idAtCancel = store.rows.get('org1')!.stripeSubscriptionId; } });
+  await processStripeEvent(evt('checkout.session.completed', {
+    mode: 'subscription', payment_status: 'paid', subscription: 'sub_new', customer: 'cus_1', metadata: proMeta,
+  }), deps);
+  assert.equal(idAtCancel, 'sub_new', 'org already points at the new subscription when the old is cancelled');
+  // The old subscription's deleted event, even if it races, must not downgrade.
+  const r = await processStripeEvent(evt('customer.subscription.deleted', stripeSubFixture({ id: 'sub_old', status: 'canceled' })), store.deps());
+  assert.notEqual(r.action, 'applied');
+  assert.equal(store.rows.get('org1')!.plan, 'ENTERPRISE');
+});
+
+test('webhook: deleted is conditional on the stored id even if it changed after the lookup (L1)', async () => {
+  const store = new FakeStore([{ orgId: 'org1', plan: 'PRO', stripeSubscriptionId: 'sub_old' }]);
+  const deps = store.deps();
+  const realFind = deps.findByStripeSubscriptionId;
+  deps.findByStripeSubscriptionId = async id => {
+    const row = await realFind(id);
+    // a checkout swaps in sub_new between the lookup and the write
+    store.rows.set('org1', { ...store.rows.get('org1')!, stripeSubscriptionId: 'sub_new', plan: 'ENTERPRISE' });
+    return row;
+  };
+  const r = await processStripeEvent(evt('customer.subscription.deleted', stripeSubFixture({ id: 'sub_old', status: 'canceled' })), deps);
+  assert.equal(r.action, 'ignored');
   assert.equal(store.rows.get('org1')!.plan, 'ENTERPRISE');
 });
 

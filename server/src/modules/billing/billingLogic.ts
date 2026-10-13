@@ -166,6 +166,8 @@ export interface WebhookDeps {
   cancelSubscription(id: string): Promise<void>;
   /** Upsert by orgId. */
   saveSubscription(orgId: string, data: Record<string, unknown>): Promise<void>;
+  /** Update only if the row's stripeSubscriptionId still equals subId; true if a row was written. */
+  saveIfCurrentSubscription(orgId: string, subId: string, data: Record<string, unknown>): Promise<boolean>;
   getSeatsUsed?(orgId: string): Promise<number>;
   gracePeriodDays: number;
   now: Date;
@@ -228,7 +230,13 @@ export async function processStripeEvent(event: any, deps: WebhookDeps): Promise
         return ignored(`subscription ${subId} is ${stripeSub?.status ?? 'missing'}`, orgId);
       }
 
-      // A second subscription for an org that already has a live one (two
+      const fields = subscriptionFieldsFromStripe(stripeSub, row, { now: deps.now, gracePeriodDays: deps.gracePeriodDays, fallbackMetadata: data.metadata });
+      // Save the NEW subscription first: cancelling the old one fires
+      // customer.subscription.deleted for it, which must find the org already
+      // pointing at the new id (and so leave it alone) — see the deleted case.
+      await deps.saveSubscription(orgId, { ...fields, ...(customerId ? { stripeCustomerId: customerId } : {}), lastStripeEventAt: laterOf(row?.lastStripeEventAt ?? null, at) });
+
+      // A second subscription for an org that already had a live one (two
       // checkout tabs, or a session opened before in-place updates existed):
       // keep the newest and cancel the old one, so nobody is billed twice.
       if (row?.stripeSubscriptionId && row.stripeSubscriptionId !== subId) {
@@ -239,9 +247,6 @@ export async function processStripeEvent(event: any, deps: WebhookDeps): Promise
           deps.log?.(`[billing] org ${orgId}: FAILED to cancel superseded subscription ${row.stripeSubscriptionId}: ${e?.message} — cancel it in the Stripe dashboard`);
         }
       }
-
-      const fields = subscriptionFieldsFromStripe(stripeSub, row, { now: deps.now, gracePeriodDays: deps.gracePeriodDays, fallbackMetadata: data.metadata });
-      await deps.saveSubscription(orgId, { ...fields, ...(customerId ? { stripeCustomerId: customerId } : {}), lastStripeEventAt: laterOf(row?.lastStripeEventAt ?? null, at) });
       return { action: 'applied', orgId };
     }
 
@@ -277,8 +282,10 @@ export async function processStripeEvent(event: any, deps: WebhookDeps): Promise
     case 'customer.subscription.deleted': {
       const row = await deps.findByStripeSubscriptionId(data.id);
       if (!row) return ignored('subscription not tracked');
-      await deps.saveSubscription(row.orgId, { ...FREE_RESET, hadPaidSubscription: true, lastStripeEventAt: laterOf(row.lastStripeEventAt, at) });
-      return { action: 'applied', orgId: row.orgId };
+      // Conditional write: only downgrade if the org STILL points at this
+      // subscription (a concurrent checkout may have just swapped in a new one).
+      const applied = await deps.saveIfCurrentSubscription(row.orgId, data.id, { ...FREE_RESET, hadPaidSubscription: true, lastStripeEventAt: laterOf(row.lastStripeEventAt, at) });
+      return applied ? { action: 'applied', orgId: row.orgId } : ignored('subscription was superseded', row.orgId);
     }
 
     case 'invoice.payment_failed': {

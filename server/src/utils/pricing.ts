@@ -92,12 +92,12 @@ const envInt = (name: string, fallback: number) => {
 };
 
 /** Defaults are UNLIMITED so that deploying this changes nothing for existing
- *  customers: no notification is skipped and no AI call refused until the
- *  platform operator sets a limit in Platform Admin → Pricing (or per org).
- *  Suggested starting points, if you want to cap usage:
- *    platform email / month    FREE 500   · PRO 5,000  · ENTERPRISE 50,000 · CUSTOM 5,000
- *    platform WhatsApp / month FREE 100   · PRO 1,000  · ENTERPRISE 10,000 · CUSTOM 1,000
- *    AI tokens / month         FREE 500k  · PRO 5M     · ENTERPRISE —      · CUSTOM 5M */
+ *  customers — the platform operator sets real allowances in Platform Admin →
+ *  Pricing (or per org). They only bound sends that go through OUR accounts
+ *  and AI calls on orgs without a per-org override.
+ *  Suggested starting points: email FREE 500 · PRO 5,000 · ENTERPRISE 50,000 ·
+ *  CUSTOM 5,000; WhatsApp 100/1,000/10,000/1,000; AI tokens FREE 500k ·
+ *  PRO 5M · ENTERPRISE — · CUSTOM 5M. */
 export const DEFAULT_PLATFORM_EMAIL_MONTHLY: PlanLimits = { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null };
 export const DEFAULT_PLATFORM_WHATSAPP_MONTHLY: PlanLimits = { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null };
 export const DEFAULT_AI_TOKENS_MONTHLY: PlanLimits = { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null };

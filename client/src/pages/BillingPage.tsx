@@ -42,9 +42,9 @@ function planBullets(card: PlanCard | undefined, prev: PlanCard | undefined): st
   for (const f of fresh.filter(f => !CORE_AREAS.has(f))) out.push(featureLabel(f));
   out.push(card.storageQuotaGB > 0 ? `${card.storageQuotaGB}GB hosted attachment storage` : 'Attachments via your own Google Drive or S3');
   out.push(card.aiTokensMonthly === null ? 'Unlimited AI tokens' : `${fmtLimit(card.aiTokensMonthly)} AI tokens / month`);
-  if (card.platformEmailMonthly !== null || card.platformWhatsAppMonthly !== null) {
-    out.push(`${fmtLimit(card.platformEmailMonthly)} emails · ${fmtLimit(card.platformWhatsAppMonthly)} WhatsApp / month via our sender (unlimited with your own)`);
-  }
+  out.push(card.platformEmailMonthly === null && card.platformWhatsAppMonthly === null
+    ? 'Unlimited email & WhatsApp via our sender'
+    : `${fmtLimit(card.platformEmailMonthly)} emails · ${fmtLimit(card.platformWhatsAppMonthly)} WhatsApp / month via our sender (unlimited with your own)`);
   return out;
 }
 

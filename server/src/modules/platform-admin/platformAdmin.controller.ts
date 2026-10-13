@@ -357,8 +357,8 @@ export async function updateSubscription(req: AuthRequest, res: Response, next: 
       if (payload.cancelAtPeriodEnd !== undefined && payload.cancelAtPeriodEnd !== before!.cancelAtPeriodEnd) {
         if (!isBillingEnabled()) throw new AppError(503, 'Stripe is not configured on this server, so the subscription cannot be changed from here.');
         await stripe.subscriptions.update(stripeSubId, { cancel_at_period_end: !!payload.cancelAtPeriodEnd });
-        // Newer than any webhook already in flight for the old state.
-        payload.lastStripeEventAt = new Date();
+        // lastStripeEventAt is left to Stripe's own event timestamps (our
+        // clock may be skewed); the resulting subscription.updated confirms it.
       } else {
         delete payload.cancelAtPeriodEnd;
       }
