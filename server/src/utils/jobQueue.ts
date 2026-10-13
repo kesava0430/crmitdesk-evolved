@@ -17,7 +17,7 @@ import { prisma } from './prisma';
  * poller follows the exact same shape as startSchedulePoller() etc.
  */
 
-export type JobType = 'send_email' | 'slack_webhook' | 'teams_webhook' | 'web_push';
+export type JobType = 'send_email' | 'slack_webhook' | 'teams_webhook' | 'web_push' | 'fcm_push';
 
 export type JobHandler = (payload: any) => Promise<void>;
 

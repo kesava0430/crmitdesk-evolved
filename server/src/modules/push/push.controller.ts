@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
-import { getVapidPublicKey } from '../../utils/webPush';
+import { getVapidPublicKey, appPushConfigured } from '../../utils/webPush';
 
 /** GET /push/vapid-public-key — the client needs this to call pushManager.subscribe(). 404s (not an empty 200) when unconfigured, so the client can distinguish "not set up yet" from "here's the key". */
 export async function getVapidKey(req: AuthRequest, res: Response, next: NextFunction) {
@@ -37,5 +37,40 @@ export async function unsubscribe(req: AuthRequest, res: Response, next: NextFun
     const { endpoint } = z.object({ endpoint: z.string() }).parse(req.body);
     await prisma.pushSubscription.deleteMany({ where: { endpoint, userId: req.user!.id } });
     res.json({ message: 'Unsubscribed' });
+  } catch (err) { next(err); }
+}
+
+// ─── Native app (FCM) device tokens ─────────────────────────────────────────
+
+const DeviceSchema = z.object({
+  // FCM registration tokens are ~150–200 chars; bound it generously.
+  token: z.string().min(20).max(4096),
+  platform: z.enum(['android', 'ios']).default('android'),
+});
+
+/** GET /push/app-config — whether this server can push to the Android app (FCM configured). */
+export async function getAppPushConfig(_req: AuthRequest, res: Response) {
+  res.json({ enabled: appPushConfigured() });
+}
+
+/** POST /push/device — the Android app registers its FCM token. Upserted on token: a device always belongs to whoever is signed in on it now. */
+export async function registerDevice(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { token, platform } = DeviceSchema.parse(req.body);
+    await prisma.deviceToken.upsert({
+      where: { token },
+      update: { userId: req.user!.id, orgId: req.user!.orgId, platform },
+      create: { token, platform, userId: req.user!.id, orgId: req.user!.orgId },
+    });
+    res.status(201).json({ message: 'Device registered' });
+  } catch (err) { next(err); }
+}
+
+/** POST /push/device/unregister — on sign-out. Scoped to the caller, same as unsubscribe above. */
+export async function unregisterDevice(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
+    await prisma.deviceToken.deleteMany({ where: { token, userId: req.user!.id } });
+    res.json({ message: 'Device unregistered' });
   } catch (err) { next(err); }
 }

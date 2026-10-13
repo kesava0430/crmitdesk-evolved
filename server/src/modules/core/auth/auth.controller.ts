@@ -19,6 +19,10 @@ import { verifyGoogleIdToken, isGoogleSsoConfigured } from '../../../utils/googl
 import { decryptSecret } from '../../../utils/crypto';
 import { buildEntraAuthUrl, exchangeEntraCode, fetchEntraProfile, fetchEntraGroups } from '../../../utils/entraAuth';
 import { resolveRoleForGroups } from '../../directory/roleMapping';
+import {
+  ClientType, clientTypeFromHeader, decideRefresh, isValidProposedToken, refreshExpiry, rotatedRetentionMs,
+  DEFAULT_GRACE_MS, DEFAULT_MAX_GRACE_USES,
+} from './refreshPolicy';
 
 const RegisterSchema = z.object({
   name: z.string().min(2),
@@ -100,11 +104,60 @@ function generateRefreshToken() {
   return crypto.randomBytes(64).toString('hex');
 }
 
-async function storeRefreshToken(userId: string, rawToken: string) {
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+/** Which kind of client is asking — the Android app sends `X-Client: native-android` (api/client.ts). */
+function reqClientType(req: Request): ClientType {
+  return clientTypeFromHeader(req.headers['x-client']);
+}
+
+// Lifetime is per client type (web 7d / native 90d by default — see
+// refreshPolicy.ts refreshTtlDays) instead of a hardcoded 7 days, and it is
+// sliding: every rotation issues a fresh full window.
+async function storeRefreshToken(userId: string, rawToken: string, clientType: ClientType = 'web') {
   await prisma.refreshToken.create({
-    data: { userId, tokenHash: hashToken(rawToken), expiresAt },
+    data: { userId, tokenHash: hashToken(rawToken), expiresAt: refreshExpiry(clientType), clientType },
   });
+}
+
+const REFRESH_GRACE_MS = (() => {
+  const n = Number(process.env.REFRESH_GRACE_SECONDS);
+  return Number.isFinite(n) && n >= 0 && n <= 600 ? n * 1000 : DEFAULT_GRACE_MS;
+})();
+
+/**
+ * Deletes the given refresh tokens AND every successor they were rotated
+ * into. Logging out with a token that was rotated a moment ago (another tab
+ * refreshed it, or the refresh response was still in flight) must not leave
+ * the newer token alive.
+ */
+async function revokeTokenChain(tokenHashes: string[]) {
+  let frontier = tokenHashes.filter(Boolean);
+  for (let hop = 0; hop < 20 && frontier.length; hop++) {
+    const rows = await prisma.refreshToken.findMany({
+      where: { tokenHash: { in: frontier } },
+      select: { id: true, replacedByHash: true },
+    });
+    if (!rows.length) break;
+    await prisma.refreshToken.deleteMany({ where: { id: { in: rows.map(r => r.id) } } });
+    frontier = rows.map(r => r.replacedByHash).filter((h): h is string => !!h);
+  }
+}
+
+/**
+ * Hourly housekeeping (scheduled from index.ts): drop expired tokens, and
+ * rotated tokens once their replay window has passed — a rotated row is only
+ * kept so a client that missed the rotation response can recover.
+ */
+export async function purgeRefreshTokens(): Promise<number> {
+  const now = Date.now();
+  const { count } = await prisma.refreshToken.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { lt: new Date(now) } },
+        { rotatedAt: { lt: new Date(now - rotatedRetentionMs()) } },
+      ],
+    },
+  });
+  return count;
 }
 
 /** Build the full user response payload */
@@ -291,7 +344,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 
     const orgId = user.orgId ?? '';
     const rawRefresh = generateRefreshToken();
-    await storeRefreshToken(user.id, rawRefresh);
+    await storeRefreshToken(user.id, rawRefresh, reqClientType(req));
 
     const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId });
     logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email });
@@ -329,7 +382,7 @@ export async function demoLogin(req: Request, res: Response, next: NextFunction)
 
     const orgId = user.orgId ?? '';
     const rawRefresh = generateRefreshToken();
-    await storeRefreshToken(user.id, rawRefresh);
+    await storeRefreshToken(user.id, rawRefresh, reqClientType(req));
 
     const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId });
     logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email, demo: true });
@@ -450,7 +503,7 @@ export async function acceptInvite(req: Request, res: Response, next: NextFuncti
     await ensureEmployeeForUser(user.id);
 
     const rawRefresh = generateRefreshToken();
-    await storeRefreshToken(user.id, rawRefresh);
+    await storeRefreshToken(user.id, rawRefresh, reqClientType(req));
 
     const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId: invite.orgId });
     res.status(201).json({ user: userPayload(user, invite.org), access, refresh: rawRefresh });
@@ -473,44 +526,119 @@ export async function inviteInfo(req: Request, res: Response, next: NextFunction
   } catch (err) { next(err); }
 }
 
-/** POST /auth/refresh — validate stored token, issue new pair (rotation) */
+/**
+ * POST /auth/refresh — exchange a refresh token for a new pair (rotation).
+ *
+ * Body: { refresh, next? }. `next` is the successor the client generated and
+ * already persisted before sending (see api/client.ts performRefresh); a
+ * retry with the same pair is answered idempotently even if the first
+ * response was lost. Older clients omit it and get a server-generated
+ * successor plus the short grace window. Decision rules: refreshPolicy.ts.
+ *
+ * Every failure that means "this session is over" is a 401 with one of the
+ * messages the client treats as final; anything else (5xx) leaves the
+ * client signed in to try again.
+ */
 export async function refreshToken(req: Request, res: Response, next: NextFunction) {
   try {
-    const { refresh } = req.body;
-    if (!refresh) throw new AppError(400, 'Refresh token required');
+    const { refresh, next: proposed } = req.body ?? {};
+    if (!refresh || typeof refresh !== 'string') throw new AppError(400, 'Refresh token required');
 
+    const headerType = reqClientType(req);
+    const nextRaw = isValidProposedToken(proposed) ? proposed : null;
     const tokenHash = hashToken(refresh);
-    const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } });
-    if (!stored) throw new AppError(401, 'Invalid refresh token');
-    if (stored.expiresAt < new Date()) {
-      await prisma.refreshToken.delete({ where: { id: stored.id } });
-      throw new AppError(401, 'Refresh token expired');
+    const nextHash = nextRaw ? hashToken(nextRaw) : null;
+
+    const run = () => prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Two passes at most: a concurrent request for the same token can win
+      // the compare-and-set below, in which case we re-read its result and
+      // decide again (usually a 'replay' of the same proposal).
+      for (let pass = 0; pass < 2; pass++) {
+        const now = new Date();
+        const stored = await tx.refreshToken.findUnique({ where: { tokenHash } });
+        const successor = stored?.rotatedAt && nextHash && stored.replacedByHash === nextHash
+          ? await tx.refreshToken.findUnique({ where: { tokenHash: nextHash }, select: { expiresAt: true, rotatedAt: true } })
+          : null;
+
+        const decision = decideRefresh(stored, {
+          now, nextHash, successor, graceMs: REFRESH_GRACE_MS, maxGraceUses: DEFAULT_MAX_GRACE_USES,
+        });
+        if (decision.action === 'reject') {
+          if (decision.deleteRow && stored) await tx.refreshToken.deleteMany({ where: { id: stored.id } });
+          if (stored && decision.reason === 'Invalid refresh token') {
+            // Presented long after rotation: either a client bug or a copied
+            // token. Logged (not acted on) so it can be investigated.
+            console.warn(`[auth] rotated refresh token reused outside the grace window (user ${stored.userId})`);
+          }
+          return { error: decision.reason } as const;
+        }
+        const s = stored!;
+
+        const user = await tx.user.findUnique({
+          where: { id: s.userId },
+          select: { id: true, role: true, email: true, orgId: true, isActive: true },
+        });
+        if (!user || !user.isActive) return { error: 'User not found or inactive' } as const;
+
+        if (decision.action === 'replay') return { user, refresh: nextRaw! } as const;
+
+        // The app upgrading an existing web-typed row (sessions created by
+        // builds that didn't send X-Client) gets the native lifetime from now on.
+        const clientType: ClientType = headerType === 'native' ? 'native' : (s.clientType === 'native' ? 'native' : 'web');
+
+        // Use the client's proposal unless it is somehow already taken (e.g.
+        // a stale tab re-sending a proposal that was redeemed before).
+        const proposalTaken = nextHash
+          ? !!(await tx.refreshToken.findUnique({ where: { tokenHash: nextHash }, select: { id: true } }))
+          : true;
+        const raw = nextRaw && !proposalTaken ? nextRaw : generateRefreshToken();
+
+        const claimed = decision.action === 'rotate'
+          ? await tx.refreshToken.updateMany({
+              where: { id: s.id, rotatedAt: null },
+              data: { rotatedAt: now, replacedByHash: hashToken(raw) },
+            })
+          : await tx.refreshToken.updateMany({
+              where: { id: s.id, graceUses: { lt: DEFAULT_MAX_GRACE_USES } },
+              data: { graceUses: { increment: 1 } },
+            });
+        if (claimed.count === 0) continue; // lost the race — decide again on fresh state
+
+        await tx.refreshToken.create({
+          data: { userId: user.id, tokenHash: hashToken(raw), expiresAt: refreshExpiry(clientType, now), clientType },
+        });
+        return { user, refresh: raw } as const;
+      }
+      return { error: 'Invalid refresh token' } as const;
+    });
+
+    let result;
+    try {
+      result = await run();
+    } catch (err: any) {
+      // Unique collision on the new token hash from two simultaneous
+      // requests carrying the same proposal — the second attempt sees the
+      // first one's committed state and replays it.
+      if (err?.code !== 'P2002') throw err;
+      result = await run();
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: stored.userId },
-      include: { org: { select: { id: true, name: true, slug: true } } },
-    });
-    if (!user || !user.isActive) throw new AppError(401, 'User not found or inactive');
-
-    // Rotate: delete old token, issue new pair (deleteMany avoids P2025 on race conditions)
-    await prisma.refreshToken.deleteMany({ where: { id: stored.id } });
-    const rawRefresh = generateRefreshToken();
-    await storeRefreshToken(user.id, rawRefresh);
-
-    const orgId = user.orgId ?? '';
-    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId });
-    res.json({ access, refresh: rawRefresh });
+    if ('error' in result) throw new AppError(401, result.error as string);
+    const { user } = result;
+    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId: user.orgId ?? '' });
+    res.json({ access, refresh: result.refresh });
   } catch (err) { next(err); }
 }
 
-/** POST /auth/logout — revoke refresh token */
+/**
+ * POST /auth/logout — revoke the caller's refresh token (and anything it was
+ * rotated into). `pending` is the client's not-yet-confirmed proposed
+ * successor, revoked too in case that rotation did land server-side.
+ */
 export async function logout(req: Request, res: Response) {
-  const { refresh } = req.body;
-  if (refresh) {
-    const tokenHash = hashToken(refresh);
-    await prisma.refreshToken.deleteMany({ where: { tokenHash } }).catch(() => {});
-  }
+  const { refresh, pending } = req.body ?? {};
+  const hashes = [refresh, pending].filter((t): t is string => typeof t === 'string' && t.length > 0).map(hashToken);
+  if (hashes.length) await revokeTokenChain(hashes).catch(() => {});
   res.json({ message: 'Logged out' });
 }
 
@@ -579,11 +707,18 @@ export async function changePassword(req: AuthRequest, res: Response, next: Next
     if (!valid) throw new AppError(400, 'Current password is incorrect');
     const hash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: req.user!.id }, data: { passwordHash: hash } });
-    // Revoke all refresh tokens so other sessions are invalidated
+    // Revoke every refresh token so OTHER sessions are signed out, then
+    // issue a fresh pair for this device. Previously this device was revoked
+    // too, without a replacement, so the person who just changed their
+    // password was thrown to the login screen at the next token refresh
+    // while the UI told them only "other sessions" had been signed out.
     await prisma.refreshToken.deleteMany({ where: { userId: req.user!.id } });
+    const rawRefresh = generateRefreshToken();
+    await storeRefreshToken(user.id, rawRefresh, reqClientType(req));
+    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId: user.orgId ?? '' });
     logAction(req.user!.id, 'UPDATE', 'User', req.user!.id, { action: 'password_change' });
     sendMail({ ...emailTemplates.passwordChanged(user.email, user.name), orgId: user.orgId ?? undefined }).catch(() => {});
-    res.json({ message: 'Password changed successfully' });
+    res.json({ message: 'Password changed successfully', access, refresh: rawRefresh });
   } catch (err) { next(err); }
 }
 
@@ -679,7 +814,7 @@ export async function googleLogin(req: Request, res: Response, next: NextFunctio
 
     const orgId = user.orgId ?? '';
     const rawRefresh = generateRefreshToken();
-    await storeRefreshToken(user.id, rawRefresh);
+    await storeRefreshToken(user.id, rawRefresh, reqClientType(req));
 
     const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId });
     logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email, method: 'google' });
@@ -739,36 +874,68 @@ export async function unlinkGoogleAccount(req: AuthRequest, res: Response, next:
 // cookie — Microsoft's redirect back to /callback has no session of its own,
 // so this is how we know which org's config to use when it lands.
 
+// ── Native app (Android) variant ────────────────────────────────────────────
+// Inside the app, Microsoft's page opens in a Custom Tab (the system browser)
+// — Microsoft, like Google, refuses to sign in inside an embedded WebView,
+// and the WebView's own storage is not the browser's anyway. The round trip
+// then has to land back IN the app, via the com.zenkara.app:// deep link
+// (AndroidManifest intent-filter). Any app can claim a custom scheme, so
+// tokens never travel in that link: it carries a 2-minute one-time code,
+// redeemable only together with the PKCE-style verifier that never left the
+// app (`app_challenge` = base64url(sha256(verifier))) at POST /auth/sso/exchange.
+const APP_SSO_REDIRECT_URL = process.env.APP_SSO_REDIRECT_URL || 'com.zenkara.app://sso-callback';
+const APP_CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
+// One-time use for exchange codes. In-memory is enough: codes live 2 minutes
+// and are also bound to the verifier, so this only stops a replay by the
+// same holder within that window on this process.
+const redeemedSsoCodes = new Map<string, number>();
+
+function base64UrlSha256(value: string) {
+  return crypto.createHash('sha256').update(value).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 /** GET /auth/entra/:slug/login — public; redirects to the org's Microsoft sign-in */
 export async function entraLoginRedirect(req: Request, res: Response) {
+  const appChallenge = typeof req.query.app_challenge === 'string' && APP_CHALLENGE_RE.test(req.query.app_challenge)
+    ? req.query.app_challenge : undefined;
+  // Errors before Microsoft go back to where the user came from: the app's
+  // deep link for the native flow, the web login page otherwise.
+  const failTo = (code: string) => res.redirect(appChallenge
+    ? `${APP_SSO_REDIRECT_URL}#error=${encodeURIComponent(code)}`
+    : `${FRONTEND_URL}/login?error=${code}`);
   try {
     const config = await prisma.directoryConfig.findUnique({ where: { loginSlug: req.params.slug } });
-    if (!config) return res.redirect(`${FRONTEND_URL}/login?error=sso_not_found`);
-    if (!config.isEnabled) return res.redirect(`${FRONTEND_URL}/login?error=sso_disabled`);
+    if (!config) return failTo('sso_not_found');
+    if (!config.isEnabled) return failTo('sso_disabled');
 
-    const state = jwt.sign({ orgId: config.orgId }, process.env.JWT_SECRET!, { expiresIn: '10m' });
+    const state = jwt.sign(appChallenge ? { orgId: config.orgId, ac: appChallenge } : { orgId: config.orgId }, process.env.JWT_SECRET!, { expiresIn: '10m' });
     res.redirect(buildEntraAuthUrl({ tenantId: config.tenantId, clientId: config.clientId, state }));
   } catch (err) {
     console.error('[entra] login redirect failed:', err);
-    res.redirect(`${FRONTEND_URL}/login?error=sso_error`);
+    failTo('sso_error');
   }
 }
 
 /** GET /auth/entra/callback — public; Microsoft redirects the browser here after sign-in */
 export async function entraCallback(req: Request, res: Response) {
-  const fail = (reason: string) => res.redirect(`${FRONTEND_URL}/sso-callback#error=${encodeURIComponent(reason)}`);
+  const { code, state, error, error_description } = req.query as Record<string, string>;
+  // Decide where to send the browser before anything can fail. An unverified
+  // decode is fine for that: the worst a forged state can do is route an
+  // error message to the app instead of the web page.
+  const decoded = state ? (jwt.decode(state) as { ac?: string } | null) : null;
+  const toApp = !!(decoded?.ac && APP_CHALLENGE_RE.test(decoded.ac));
+  const fail = (reason: string) => res.redirect(`${toApp ? APP_SSO_REDIRECT_URL : `${FRONTEND_URL}/sso-callback`}#error=${encodeURIComponent(reason)}`);
   try {
-    const { code, state, error, error_description } = req.query as Record<string, string>;
     if (error) return fail(error_description || error);
     if (!code || !state) return fail('Missing sign-in response from Microsoft.');
 
     let orgId: string;
+    let appChallenge: string | undefined;
     try {
-      ({ orgId } = jwt.verify(state, process.env.JWT_SECRET!) as { orgId: string });
+      ({ orgId, ac: appChallenge } = jwt.verify(state, process.env.JWT_SECRET!) as { orgId: string; ac?: string });
     } catch {
       return fail('Your sign-in link expired — please try again.');
     }
-
     const config = await prisma.directoryConfig.findUnique({ where: { orgId } });
     if (!config || !config.isEnabled) return fail('Single sign-on is not available for this organization.');
 
@@ -840,6 +1007,15 @@ export async function entraCallback(req: Request, res: Response) {
     if (!user) return fail('No CRMITdesk account was found for you. Ask your admin to invite you first.');
     if (!user.isActive) return fail('Your account is deactivated. Contact your admin.');
 
+    if (appChallenge) {
+      // Native: hand the app a one-time code, not tokens (see above).
+      const exchangeCode = jwt.sign(
+        { uid: user.id, ac: appChallenge, typ: 'entra-app', jti: crypto.randomBytes(12).toString('hex') },
+        process.env.JWT_SECRET!, { expiresIn: '2m' },
+      );
+      return res.redirect(`${APP_SSO_REDIRECT_URL}#code=${encodeURIComponent(exchangeCode)}`);
+    }
+
     const rawRefresh = generateRefreshToken();
     await storeRefreshToken(user.id, rawRefresh);
     const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId: user.orgId ?? '' });
@@ -850,4 +1026,45 @@ export async function entraCallback(req: Request, res: Response) {
     console.error('[entra] callback failed:', err);
     fail(err?.message || 'Sign-in failed — please try again.');
   }
+}
+
+const SsoExchangeSchema = z.object({
+  code: z.string().min(1),
+  verifier: z.string().min(43).max(128),
+});
+
+/**
+ * POST /auth/sso/exchange — public; the app redeems the one-time code from
+ * the com.zenkara.app://sso-callback deep link, proving with the verifier
+ * that it is the same app instance that started the sign-in.
+ */
+export async function ssoExchange(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { code, verifier } = SsoExchangeSchema.parse(req.body);
+    let claims: { uid: string; ac: string; typ: string; jti: string; exp: number };
+    try {
+      claims = jwt.verify(code, process.env.JWT_SECRET!) as any;
+    } catch {
+      throw new AppError(401, 'Sign-in code expired — please try again.');
+    }
+    if (claims.typ !== 'entra-app' || !claims.jti) throw new AppError(401, 'Invalid sign-in code.');
+    if (base64UrlSha256(verifier) !== claims.ac) throw new AppError(401, 'Invalid sign-in code.');
+
+    const now = Date.now();
+    for (const [jti, exp] of redeemedSsoCodes) if (exp < now) redeemedSsoCodes.delete(jti);
+    if (redeemedSsoCodes.has(claims.jti)) throw new AppError(401, 'This sign-in code was already used.');
+    redeemedSsoCodes.set(claims.jti, claims.exp * 1000);
+
+    const user = await prisma.user.findUnique({
+      where: { id: claims.uid },
+      include: { org: { select: { id: true, name: true, slug: true } } },
+    });
+    if (!user || !user.isActive) throw new AppError(401, 'Your account is deactivated. Contact your admin.');
+
+    const rawRefresh = generateRefreshToken();
+    await storeRefreshToken(user.id, rawRefresh, 'native');
+    const access = signAccessToken({ id: user.id, role: user.role, email: user.email, orgId: user.orgId ?? '' });
+    logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email, method: 'entra', client: 'native' });
+    res.json({ user: userPayload(user, user.org), access, refresh: rawRefresh });
+  } catch (err) { next(err); }
 }

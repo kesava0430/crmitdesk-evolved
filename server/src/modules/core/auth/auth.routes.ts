@@ -4,7 +4,7 @@ import {
   acceptInvite, inviteInfo, orgSignupInfo, approveOrgSignup,
   forgotPassword, resetPassword,
   googleLogin, googleStatus, linkGoogleAccount, unlinkGoogleAccount,
-  entraLoginRedirect, entraCallback,
+  entraLoginRedirect, entraCallback, ssoExchange,
 } from './auth.controller';
 import { authenticate } from '../../../middleware/authenticate';
 
@@ -36,6 +36,9 @@ authRouter.delete('/google/link', authenticate, unlinkGoogleAccount);
 // entraCallback for why this can't create new users/orgs either.
 authRouter.get('/entra/:slug/login', entraLoginRedirect);
 authRouter.get('/entra/callback', entraCallback);
+// Public — the Android app redeems the one-time code from its sso-callback
+// deep link here; the code is bound to a verifier only the app holds.
+authRouter.post('/sso/exchange', ssoExchange);
 authRouter.get('/me', authenticate, me);
 authRouter.put('/me', authenticate, updateMe);
 authRouter.put('/me/password', authenticate, changePassword);

@@ -33,9 +33,11 @@ services:
       PORT: 4000
       DATABASE_URL: postgresql://crmuser:crmpass@postgres:5432/crm_itdesk
       JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_EXPIRES_IN: 15m
-      JWT_REFRESH_EXPIRES_IN: 7d
+      # Refresh tokens are opaque random strings (no separate secret). Their
+      # sliding lifetime is per client type — see server/.env.example.
+      REFRESH_TTL_DAYS: ${REFRESH_TTL_DAYS:-7}
+      REFRESH_TTL_DAYS_NATIVE: ${REFRESH_TTL_DAYS_NATIVE:-90}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}

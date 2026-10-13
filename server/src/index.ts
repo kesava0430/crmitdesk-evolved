@@ -6,6 +6,8 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { validateEnv } from './utils/env';
 import { authRouter } from './modules/core/auth/auth.routes';
+import { purgeRefreshTokens } from './modules/core/auth/auth.controller';
+import { resolveCorsOrigins } from './utils/corsOrigins';
 import { usersRouter } from './modules/core/users/users.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { contactsRouter } from './modules/crm/contacts/contacts.routes';
@@ -134,8 +136,10 @@ app.use(compression({
 }));
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
+// Comma-separated CORS_ORIGIN plus the Android app's WebView origins — see
+// utils/corsOrigins.ts for why the app needs them (live updates over SSE).
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: resolveCorsOrigins(),
   credentials: true,
 }));
 
@@ -198,6 +202,7 @@ app.use('/api/', authenticateApiKey);
 app.use('/api/', apiLimiter);
 app.use('/api/', apiKeyLimiter);
 app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/sso/exchange', authLimiter);
 app.use('/api/auth/demo-login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/accept-invite', authLimiter);
@@ -367,10 +372,11 @@ pollers.push(setInterval(() => {
     .catch(err => console.error('[approvals] expiry sweep failed', err));
 }, 15 * 60 * 1000));
 
-// Purge expired refresh tokens once per hour
-pollers.push(setInterval(async () => {
-  const { count } = await prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date() } } });
-  if (count > 0) console.log(`[cleanup] Deleted ${count} expired refresh tokens`);
+// Purge expired refresh tokens, and rotated ones past their replay window, once per hour
+pollers.push(setInterval(() => {
+  purgeRefreshTokens()
+    .then(count => { if (count > 0) console.log(`[cleanup] Deleted ${count} expired/rotated refresh tokens`); })
+    .catch(err => console.error('[cleanup] refresh token purge failed', err));
 }, 60 * 60 * 1000));
 
 // Email sync: run immediately on startup, then every 5 minutes

@@ -1,6 +1,7 @@
 import webpush from 'web-push';
 import { prisma } from './prisma';
 import { enqueueJob, registerJobHandler } from './jobQueue';
+import { fcmConfigured, sendFcm } from './fcm';
 
 /**
  * Real browser/OS-level push notifications (Push API), separate from the
@@ -29,6 +30,11 @@ export function pushConfigured(): boolean {
   return configured;
 }
 
+/** Whether the Android app can receive pushes from this server (FCM credentials present). */
+export function appPushConfigured(): boolean {
+  return fcmConfigured();
+}
+
 export function getVapidPublicKey(): string | null {
   return VAPID_PUBLIC_KEY || null;
 }
@@ -45,11 +51,17 @@ export interface PushPayload {
 
 /**
  * Sends a push notification to every browser/device a user has subscribed
- * on. Subscriptions the push service reports as gone (410 Gone, or 404 for
- * some providers) are pruned automatically — a stale subscription would
+ * on: browser Push API subscriptions (web-push, VAPID) AND Android app
+ * device tokens (FCM — see utils/fcm.ts). Each channel is independent and
+ * no-ops when its keys aren't configured. Subscriptions/tokens the push
+ * service reports as gone are pruned automatically — a stale one would
  * otherwise fail forever on every future send.
  */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
+  await Promise.all([sendWebPush(userId, payload), sendAppPush(userId, payload)]);
+}
+
+async function sendWebPush(userId: string, payload: PushPayload): Promise<void> {
   if (!configured) return;
   const subs = await prisma.pushSubscription.findMany({ where: { userId } });
   if (!subs.length) return;
@@ -79,6 +91,28 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     }
   }));
 }
+
+async function sendAppPush(userId: string, payload: PushPayload): Promise<void> {
+  if (!fcmConfigured()) return;
+  const devices = await prisma.deviceToken.findMany({ where: { userId } });
+  await Promise.all(devices.map(async (d) => {
+    const verdict = await sendFcm(d.token, payload).catch((err) => {
+      console.error(`[fcm] network error sending to device ${d.id}:`, err?.message || err);
+      return 'retry' as const;
+    });
+    if (verdict === 'prune') await prisma.deviceToken.delete({ where: { id: d.id } }).catch(() => {});
+    else if (verdict === 'retry') await enqueueJob('fcm_push', { deviceTokenId: d.id, token: d.token, payload });
+  }));
+}
+
+registerJobHandler('fcm_push', async (job: { deviceTokenId: string; token: string; payload: PushPayload }) => {
+  const verdict = await sendFcm(job.token, job.payload);
+  if (verdict === 'prune') {
+    await prisma.deviceToken.delete({ where: { id: job.deviceTokenId } }).catch(() => {});
+    return;
+  }
+  if (verdict === 'retry') throw new Error('FCM send still failing'); // jobQueue backs off and retries
+});
 
 registerJobHandler('web_push', async (payload: { subscriptionId: string; endpoint: string; p256dh: string; auth: string; body: string }) => {
   try {

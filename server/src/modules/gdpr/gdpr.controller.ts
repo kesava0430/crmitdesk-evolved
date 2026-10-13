@@ -95,6 +95,7 @@ export async function deleteMyData(req: AuthRequest, res: Response, next: NextFu
       }),
       prisma.refreshToken.deleteMany({ where: { userId: user.id } }),
       prisma.pushSubscription.deleteMany({ where: { userId: user.id } }),
+      prisma.deviceToken.deleteMany({ where: { userId: user.id } }),
       prisma.calendarConnection.deleteMany({ where: { userId: user.id } }),
     ]);
 
@@ -147,6 +148,7 @@ export async function anonymizeUser(req: AuthRequest, res: Response, next: NextF
       }),
       prisma.refreshToken.deleteMany({ where: { userId: target.id } }),
       prisma.pushSubscription.deleteMany({ where: { userId: target.id } }),
+      prisma.deviceToken.deleteMany({ where: { userId: target.id } }),
       prisma.calendarConnection.deleteMany({ where: { userId: target.id } }),
     ]);
 

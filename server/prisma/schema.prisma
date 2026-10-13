@@ -59,6 +59,7 @@ model Organization {
   pipelines      Pipeline[]
   portalUsers    PortalUser[]
   pushSubscriptions PushSubscription[]
+  deviceTokens   DeviceToken[]
   quotes         Quote[]
   schedules      Schedule[]
   slaPolicies    SlaPolicy[]
@@ -215,9 +216,23 @@ model RefreshToken {
   tokenHash String   @unique @map("token_hash")
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
+  /// Set when this token was exchanged for a successor. The row is kept (not
+  /// deleted) for a while so a client whose refresh response got lost can
+  /// still recover — see modules/core/auth/refreshPolicy.ts.
+  rotatedAt      DateTime? @map("rotated_at")
+  /// SHA-256 of the successor issued at rotation. Lets a retry that carries
+  /// the same client-proposed successor get an idempotent answer.
+  replacedByHash String?   @map("replaced_by_hash")
+  /// How many extra successors were handed out inside the short grace window
+  /// after rotation (bounded, so a leaked rotated token is useless quickly).
+  graceUses      Int       @default(0) @map("grace_uses")
+  /// 'web' | 'native' — picks the sliding TTL (REFRESH_TTL_DAYS vs
+  /// REFRESH_TTL_DAYS_NATIVE) and is carried across rotations.
+  clientType     String    @default("web") @map("client_type")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([rotatedAt])
   @@map("refresh_tokens")
 }
 
@@ -307,6 +322,7 @@ model User {
   assignedLeads          Lead[]             @relation("LeadAssignee")
   notifications          Notification[]
   pushSubscriptions      PushSubscription[]
+  deviceTokens           DeviceToken[]
   quotesCreated          Quote[]            @relation("QuoteCreator")
   refreshTokens          RefreshToken[]
   schedulesCreated       Schedule[]
@@ -989,6 +1005,26 @@ model PushSubscription {
   @@index([orgId])
   @@index([userId])
   @@map("push_subscriptions")
+}
+
+/// Native app (Capacitor) push registrations — FCM device tokens, the native
+/// counterpart of PushSubscription above. utils/webPush.ts sendPushToUser
+/// fans out to both. Upserted on token: a device re-registering always
+/// belongs to whoever is signed in on it now.
+model DeviceToken {
+  id         String       @id @default(cuid())
+  orgId      String       @map("org_id")
+  userId     String       @map("user_id")
+  token      String       @unique
+  platform   String       @default("android") // android | ios
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([userId])
+  @@map("device_tokens")
 }
 
 model WorkflowRule {
