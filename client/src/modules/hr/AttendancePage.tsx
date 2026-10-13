@@ -121,6 +121,7 @@ function CheckInWidget() {
   const { time: fmtTime, timezone } = useFormat();
   const qc = useQueryClient();
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState<'in' | 'out' | null>(null);
   const [now, setNow] = useState(new Date());
 
@@ -150,7 +151,10 @@ function CheckInWidget() {
     // Otherwise none is sent at all — 0,0 used to be stored and plotted in the Atlantic.
     let coords: { lat?: number; lng?: number } = {};
     if (needsLocation(action)) { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; }
-    await api.post(`/hr/attendance/check-${action}`, { ...coords, ...extra });
+    const { data } = await api.post(`/hr/attendance/check-${action}`, { ...coords, ...extra });
+    // Check-out found only a forgotten session from an earlier day: it was closed
+    // at that shift's end, and the person isn't checked in today.
+    setNotice(data?.staleClosed ? data.notice : '');
     qc.invalidateQueries({ queryKey: ['attendance-me'] });
   }
 
@@ -223,6 +227,7 @@ function CheckInWidget() {
       )}
 
       {error && <Alert tone="danger" className="mt-4 text-left">{error}</Alert>}
+      {notice && <Alert tone="warning" className="mt-4 text-left">{notice}</Alert>}
 
       <div className="flex gap-3 mt-5 justify-center flex-wrap">
         <Button

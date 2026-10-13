@@ -308,6 +308,11 @@ function Approvals() {
     queryFn: () => api.get('/hr/leave/requests', { params: { scope: 'org' } }).then(r => r.data),
   });
   const { user: me } = useAuth();
+  const { data: orgUsers } = useUsers();
+  // Own requests can't be decided by yourself — unless you're the org's only
+  // HR manager (the server applies the same rule and audits it as self-approved).
+  const soleManager = !!orgUsers && !orgUsers.some(u => u.id !== me?.id && MANAGER_ROLES.includes(u.role) && (u as any).isActive !== false);
+  const ownLocked = (r: LeaveRequest) => r.user.id === me?.id && !soleManager;
   const [decideError, setDecideError] = useState('');
   const approve = useMutation({
     mutationFn: (id: string) => api.patch(`/hr/leave/requests/${id}/approve`),
@@ -338,9 +343,9 @@ function Approvals() {
           <div>{pending.map(r => (
             // Nobody decides or edits their own leave — someone else must (server enforces it too)
             <RequestRow key={r.id} req={r} showEmployee
-              onApprove={r.user.id === me?.id ? undefined : () => approve.mutate(r.id)}
-              onReject={r.user.id === me?.id ? undefined : () => setRejecting(r)}
-              onModify={r.user.id === me?.id ? undefined : () => setModifying(r)}
+              onApprove={ownLocked(r) ? undefined : () => approve.mutate(r.id)}
+              onReject={ownLocked(r) ? undefined : () => setRejecting(r)}
+              onModify={ownLocked(r) ? undefined : () => setModifying(r)}
             />
           ))}</div>
         )}
@@ -348,7 +353,7 @@ function Approvals() {
       {decided.length > 0 && (
         <Card>
           <CardHeader title="History" className="mb-3" />
-          <div>{decided.map(r => <RequestRow key={r.id} req={r} showEmployee onModify={r.user.id === me?.id ? undefined : () => setModifying(r)} onAdminCancel={() => setCancelling(r)} />)}</div>
+          <div>{decided.map(r => <RequestRow key={r.id} req={r} showEmployee onModify={ownLocked(r) ? undefined : () => setModifying(r)} onAdminCancel={() => setCancelling(r)} />)}</div>
         </Card>
       )}
 

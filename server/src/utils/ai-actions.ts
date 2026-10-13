@@ -31,6 +31,7 @@ import { sendCampaignNow } from '../modules/campaigns/campaigns.controller';
 import { createManualSession } from './attendanceSessions';
 import { validateLeaveRequest } from './leaveRules';
 import { computeDays } from './attendanceRegister';
+import { mustSomeoneElseApprove } from './hrAccess';
 
 export interface AiActionContext {
   orgId: string;
@@ -829,7 +830,7 @@ export const AI_ACTIONS: AiActionDefinition[] = [
       });
       if (!request) throw new AppError(404, 'Leave request not found');
       if (request.status !== 'PENDING') throw new AppError(400, `This request is already ${request.status.toLowerCase()}`);
-      if (request.userId === ctx.userId) throw new AppError(403, 'Someone else must approve your leave.');
+      if (request.userId === ctx.userId && await mustSomeoneElseApprove(ctx.orgId, ctx.userId)) throw new AppError(403, 'Someone else must approve your leave.');
       const updated = await prisma.leaveRequest.update({
         where: { id: request.id },
         data: { status: 'APPROVED', decidedBy: ctx.userId, decidedAt: new Date() },

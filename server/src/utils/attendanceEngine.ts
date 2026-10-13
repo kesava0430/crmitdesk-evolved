@@ -53,7 +53,8 @@ export const DEFAULT_POLICY: Policy = {
   weeklyOffs: [0, 6], assumeShiftEndOnMissingCheckout: false,
 };
 
-/** checkOutSource AUTO_CLOSE = closed by the daily close-out job (attendanceAutoCheckout.ts), not by the person. */
+/** checkOutSource AUTO_CLOSE = closed by the close-out (attendanceAutoCheckout.ts), DEDUPED = closed by the
+ *  one-open-session migration — neither is a real check-out (see SYSTEM_CLOSED). */
 export interface Session { checkInAt: Date | null; checkOutAt: Date | null; source?: string; checkOutSource?: string | null }
 
 export interface DayContext {
@@ -225,6 +226,19 @@ export function countWorkingDays(startKey: string, endKey: string, weeklyOffs: n
 
 // ─── Day evaluation ──────────────────────────────────────────────────────────
 
+/** Check-out sources written by the system, not the person — treated as a missing check-out. */
+export const SYSTEM_CLOSED = ['AUTO_CLOSE', 'DEDUPED'];
+
+/**
+ * The holiday that applies to a user on a day: a mandatory one for their
+ * location wins; otherwise an optional one they opted into; otherwise any
+ * applicable optional one (which the engine ignores unless opted in).
+ */
+export function pickHoliday<H extends { id: string; isOptional: boolean; locationIds: string[] }>(candidates: H[], locationId: string | null | undefined, chosen: Set<string>): H | null {
+  const applicable = candidates.filter(h => h.locationIds.length === 0 || (!!locationId && h.locationIds.includes(locationId)));
+  return applicable.find(h => !h.isOptional) ?? applicable.find(h => chosen.has(h.id)) ?? applicable[0] ?? null;
+}
+
 const PAID_BY_STATUS: Partial<Record<DayStatus, number>> = { PRESENT: 1, LATE: 1, WFH: 1, LEAVE: 1, HOLIDAY: 1, WEEK_OFF: 1, HALF_DAY: 0.5, ABSENT: 0, UNPAID_LEAVE: 0, LOP: 0, PENDING: 0, NOT_EMPLOYED: 0 };
 
 export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): DayResult {
@@ -237,16 +251,16 @@ export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): 
 
   // Worked time across sessions. An open session counts up to now while the
   // day is in progress; in the past it counts to shift end only when the policy
-  // assumes so. A session closed by the close-out job (AUTO_CLOSE) is treated
-  // exactly like a missing check-out — the job closes it at shift end, which is
-  // what "assume shift end" means, and is ignored otherwise.
+  // assumes so, else 0. A session closed by the system (AUTO_CLOSE, DEDUPED) is
+  // a missing check-out: its stored check-out time is never used.
   let worked = 0;
   let missingOut = false;
+  let completeSessions = 0;
   let effectiveLastOut: Date | null = null;
   for (const s of sessions) {
-    let out: Date | null = s.checkOutAt;
-    const autoClosed = s.checkOutSource === 'AUTO_CLOSE';
-    if (out && autoClosed && !policy.assumeShiftEndOnMissingCheckout) out = null;
+    const systemClosed = !!s.checkOutSource && SYSTEM_CLOSED.includes(s.checkOutSource);
+    let out: Date | null = systemClosed ? null : s.checkOutAt;
+    if (out) completeSessions++;
     let isNow = false;
     if (!out) {
       if (phase !== 'past' && !s.checkOutAt) { out = now; isNow = true; }
@@ -256,7 +270,7 @@ export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): 
       } else { out = null; missingOut = true; }
     }
     if (out) worked += Math.max(0, Math.round((out.getTime() - s.checkInAt!.getTime()) / 60_000));
-    effectiveLastOut = isNow ? null : out;
+    if (out && !isNow && (!effectiveLastOut || out > effectiveLastOut)) effectiveLastOut = out;
   }
   const firstIn = sessions[0]?.checkInAt ?? null;
   const lastOut = sessions.length ? (sessions[sessions.length - 1].checkOutAt ?? null) : null;
@@ -340,8 +354,10 @@ export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): 
 
   let status: DayStatus;
   let reason: string;
-  if (missingOut && !policy.assumeShiftEndOnMissingCheckout) {
-    status = 'ABSENT'; reason = sessions.some(s => s.checkOutSource === 'AUTO_CLOSE') ? 'Never checked out (session closed automatically)' : 'Checked in but never checked out';
+  // "Missing check-out ⇒ ABSENT" only when nothing that day was completed; a
+  // forgotten session next to complete ones just contributes 0 minutes.
+  if (missingOut && !policy.assumeShiftEndOnMissingCheckout && completeSessions === 0) {
+    status = 'ABSENT'; reason = sessions.some(s => s.checkOutSource && SYSTEM_CLOSED.includes(s.checkOutSource)) ? 'Never checked out (session closed automatically)' : 'Checked in but never checked out';
   } else if (worked >= requiredFull) {
     status = arrival; reason = arrival === 'PRESENT' ? `Worked ${fmtDur(worked)}` : `Arrived ${fmtDur(lateBy)} late (${arrival.toLowerCase().replace('_', ' ')} band)`;
   } else if (worked >= requiredHalf) {

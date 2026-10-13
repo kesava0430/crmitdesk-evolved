@@ -14,12 +14,15 @@ import {
   RuleSchema, DEFAULT_CHECK_IN_RULE, DEFAULT_CHECK_OUT_RULE, parseRule, evaluateRule, describeRule,
   type VerificationRule, type SignalResults,
 } from '../../../utils/attendanceRules';
-import { recordHeartbeat } from '../../../utils/attendanceAutoCheckout';
+import { recordHeartbeat, closeIfStale } from '../../../utils/attendanceAutoCheckout';
 import { sendPushToUser } from '../../../utils/webPush';
 import { policyForUser, policiesForOrg, recordsForDays, recordDayKey, RECORD_PUBLIC_SELECT } from '../../../utils/attendanceRegister';
 import { shiftDayKey, todayKeyFor, keyToDate, zonedDayStart, addDaysKey, dateKey } from '../../../utils/attendanceEngine';
 import { createManualSession } from '../../../utils/attendanceSessions';
 import { isHrManager } from '../../../utils/hrAccess';
+
+/** What closeIfStale() needs from an open session */
+const OPEN_SELECT = { id: true, orgId: true, userId: true, date: true, checkInAt: true, lastSeenAt: true, lastSeenLat: true, lastSeenLng: true, lastSeenInside: true } as const;
 
 /** A GPS fix at exactly 0,0 is what older face-only clients sent for "no location" (ATT-33). */
 const isNullIsland = (lat: number | null | undefined, lng: number | null | undefined) => lat === 0 && lng === 0;
@@ -127,19 +130,24 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     // Block only if there's already an OPEN session (checked in, not yet
     // checked out) — on any day: a session left open across midnight must be
     // closed, not doubled. A completed earlier session (lunch break) doesn't block.
+    // A session left open on an earlier (finished) day is closed at its shift
+    // end first, so a forgotten check-out never blocks today's check-in.
+    const now = new Date();
+    const { policy: dayPolicy } = await policyForUser(orgId, userId);
     const openSession = await prisma.attendanceRecord.findFirst({
       where: { userId, orgId, checkInAt: { not: null }, checkOutAt: null },
-      select: { id: true },
+      orderBy: { checkInAt: 'desc' },
+      select: OPEN_SELECT,
     });
-    if (openSession) throw new AppError(400, "You're already checked in — check out first before starting a new session.");
+    if (openSession && !(await closeIfStale(openSession, dayPolicy, now))) {
+      throw new AppError(400, "You're already checked in — check out first before starting a new session.");
+    }
 
     const policy = await getOrCreateAttendancePolicy(orgId);
     const v = await verifySignals('in', req, { lat, lng, faceDescriptor });
 
     // The record's day is the shift day in the employee's policy timezone
     // (IST for an Indian office), not the UTC date (ATT-4).
-    const now = new Date();
-    const { policy: dayPolicy } = await policyForUser(orgId, userId);
     const date = keyToDate(shiftDayKey(now, dayPolicy));
 
     let record;
@@ -182,9 +190,24 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
     const openSession = await prisma.attendanceRecord.findFirst({
       where: { userId, orgId, checkInAt: { not: null }, checkOutAt: null },
       orderBy: { checkInAt: 'desc' },
-      select: { id: true },
+      select: OPEN_SELECT,
     });
     if (!openSession) throw new AppError(400, "You haven't checked in yet — nothing to check out of.");
+
+    // A session from an earlier day is never closed at "now" (that would credit
+    // days of work and overtime): it's closed at its shift end, and the person
+    // is told they aren't checked in today (H1).
+    const { policy: dayPolicy } = await policyForUser(orgId, userId);
+    const staleAt = await closeIfStale(openSession, dayPolicy, new Date());
+    if (staleAt) {
+      const day = recordDayKey(openSession, dayPolicy);
+      const record = await prisma.attendanceRecord.findUnique({ where: { id: openSession.id }, select: RECORD_PUBLIC_SELECT });
+      return res.json({
+        ...record,
+        staleClosed: true,
+        notice: `You weren't checked in today. Your session from ${day} was never checked out, so it has been closed at the end of that shift (${staleAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: dayPolicy.timezone })}). Ask HR to correct that day if needed, and check in if you're working now.`,
+      });
+    }
 
     // By default the check-out rule is recorded but not enforced — an employee
     // who legitimately leaves the office (client visit, end of day from home)
@@ -234,6 +257,9 @@ export async function myToday(req: AuthRequest, res: Response, next: NextFunctio
     const userId = req.user!.id;
     const { policy } = await policyForUser(orgId, userId);
     const today = todayKeyFor(policy);
+    // A forgotten session from an earlier day must not make today look "checked in"
+    const stale = await prisma.attendanceRecord.findFirst({ where: { orgId, userId, checkInAt: { not: null }, checkOutAt: null }, orderBy: { checkInAt: 'desc' }, select: OPEN_SELECT });
+    if (stale) await closeIfStale(stale, policy);
     const [sessions, open] = await Promise.all([
       recordsForDays(orgId, userId, policy, today, today, RECORD_PUBLIC_SELECT),
       prisma.attendanceRecord.findFirst({ where: { orgId, userId, checkInAt: { not: null }, checkOutAt: null }, orderBy: { checkInAt: 'desc' }, select: RECORD_PUBLIC_SELECT }),

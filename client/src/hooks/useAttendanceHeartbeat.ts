@@ -81,7 +81,9 @@ export function useAttendanceHeartbeat(enabled: boolean) {
           addToast(
             data.checkedOut.source === 'AUTO_GEOFENCE'
               ? `You were checked out automatically at ${new Date(data.checkedOut.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} because you left the office.`
-              : 'You were checked out automatically after the app lost contact.',
+              : data.checkedOut.source === 'AUTO_CLOSE'
+                ? 'Your session from an earlier day was never checked out, so it was closed at the end of that shift. Check in again if you\'re working now.'
+                : 'You were checked out automatically after the app lost contact.',
             'info', { duration: 12_000, actionLabel: 'View', actionHref: '/hr/attendance' },
           );
           warnedRef.current = null;

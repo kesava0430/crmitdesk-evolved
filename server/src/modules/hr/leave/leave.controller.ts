@@ -29,11 +29,11 @@ const LeaveTypeSchema = z.object({
 });
 import { audit, parseDateOnly as parseD, computeDays, frozenUntil } from '../../../utils/attendanceRegister';
 import { computeBalances, validateLeaveRequest } from '../../../utils/leaveRules';
-import { HR_MANAGERS, isHrManager } from '../../../utils/hrAccess';
+import { HR_MANAGERS, isHrManager, mustSomeoneElseApprove } from '../../../utils/hrAccess';
 
 export { computeBalances };
 
-/** Nobody approves their own leave — whatever their role (ATT-22). */
+/** Nobody approves their own leave — whatever their role — unless they are the org's only HR manager (ATT-22). */
 const SELF_APPROVAL = 'Someone else must approve your leave.';
 
 export async function listLeaveTypes(req: AuthRequest, res: Response, next: NextFunction) {
@@ -216,7 +216,8 @@ async function decide(req: AuthRequest, res: Response, next: NextFunction, appro
     const request = await prisma.leaveRequest.findFirst({ where: { id: req.params.id, orgId }, include });
     if (!request) throw new AppError(404, 'Leave request not found');
     if (request.status !== 'PENDING') throw new AppError(400, `This request is already ${request.status.toLowerCase()}`);
-    if (approve && request.userId === req.user!.id) throw new AppError(403, SELF_APPROVAL);
+    const selfApproved = approve && request.userId === req.user!.id;
+    if (selfApproved && await mustSomeoneElseApprove(orgId, req.user!.id)) throw new AppError(403, SELF_APPROVAL);
 
     let rejectionReason: string | undefined;
     if (!approve) {
@@ -234,7 +235,8 @@ async function decide(req: AuthRequest, res: Response, next: NextFunction, appro
       include,
     });
 
-    logAction(req.user!.id, 'UPDATE', 'LeaveRequest', request.id, { action: approve ? 'approved' : 'rejected' });
+    logAction(req.user!.id, 'UPDATE', 'LeaveRequest', request.id, { action: approve ? 'approved' : 'rejected', ...(selfApproved ? { selfApproved: true } : {}) });
+    if (selfApproved) await audit(orgId, req.user!.id, { userId: request.userId, date: request.startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'LEAVE_SELF_APPROVE', after: { status: 'APPROVED' }, reason: 'Self-approved — no other active HR manager in the organisation' });
     sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId: request.userId, type: 'decided' });
     if (approve) computeDays(orgId, request.userId, request.startDate, request.endDate).catch(() => {});
 
@@ -279,7 +281,8 @@ export async function applyOnBehalf(req: AuthRequest, res: Response, next: NextF
     const target = await prisma.user.findFirst({ where: { id: data.userId, orgId } });
     if (!target) throw new AppError(404, 'Employee not found');
     const approve = data.autoApprove !== false;
-    if (approve && data.userId === req.user!.id) throw new AppError(403, `${SELF_APPROVAL} Apply for it as a normal request instead.`);
+    const selfApproved = approve && data.userId === req.user!.id;
+    if (selfApproved && await mustSomeoneElseApprove(orgId, req.user!.id)) throw new AppError(403, `${SELF_APPROVAL} Apply for it as a normal request instead.`);
     checkDates(data.startDate, data.halfDay ? undefined : data.endDate);
     const startDate = parseD(data.startDate); const endDate = data.halfDay ? startDate : parseD(data.endDate);
     const { leaveType, days } = await validateLeaveRequest(orgId, data.userId, { leaveTypeId: data.leaveTypeId, startDate, endDate, halfDay: !!data.halfDay }, { allowNegative: !!data.allowNegative, subject: 'employee' });
@@ -290,7 +293,7 @@ export async function applyOnBehalf(req: AuthRequest, res: Response, next: NextF
         ...(approve ? { status: 'APPROVED', decidedBy: req.user!.id, decidedAt: new Date() } : {}),
       }, include,
     });
-    await audit(orgId, req.user!.id, { userId: data.userId, date: startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'LEAVE_APPLY_ON_BEHALF', after: { leaveType: leaveType.name, startDate: fmt(startDate), endDate: fmt(endDate), days, status: request.status }, reason: data.reason ?? null });
+    await audit(orgId, req.user!.id, { userId: data.userId, date: startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: selfApproved ? 'LEAVE_SELF_APPROVE' : 'LEAVE_APPLY_ON_BEHALF', after: { leaveType: leaveType.name, startDate: fmt(startDate), endDate: fmt(endDate), days, status: request.status, ...(selfApproved ? { selfApproved: true } : {}) }, reason: data.reason ?? (selfApproved ? 'Self-approved — no other active HR manager in the organisation' : null) });
     if (approve) computeDays(orgId, data.userId, startDate, endDate).catch(() => {});
     sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId: data.userId, type: 'created' });
     res.status(201).json(request);
@@ -316,7 +319,7 @@ export async function modifyRequest(req: AuthRequest, res: Response, next: NextF
     const request = await prisma.leaveRequest.findFirst({ where: { id: req.params.id, orgId }, include });
     if (!request) throw new AppError(404, 'Leave request not found');
     if (!['PENDING', 'APPROVED'].includes(request.status)) throw new AppError(400, 'Only pending or approved requests can be modified');
-    if (request.userId === req.user!.id) throw new AppError(403, 'Someone else must change your leave.');
+    if (request.userId === req.user!.id && await mustSomeoneElseApprove(orgId, req.user!.id)) throw new AppError(403, 'Someone else must change your leave.');
     if (data.startDate) checkDates(data.startDate);
     if (data.endDate) checkDates(data.endDate);
     const startDate = data.startDate ? parseD(data.startDate) : request.startDate;
@@ -366,7 +369,7 @@ export async function convertAttendanceToLeave(req: AuthRequest, res: Response, 
     const data = ConvertSchema.parse(req.body);
     const [target, leaveType] = await Promise.all([prisma.user.findFirst({ where: { id: data.userId, orgId } }), prisma.leaveType.findFirst({ where: { id: data.leaveTypeId, orgId, isActive: true } })]);
     if (!target || !leaveType) throw new AppError(404, 'Employee or leave type not found');
-    if (data.userId === req.user!.id) throw new AppError(403, SELF_APPROVAL);
+    if (data.userId === req.user!.id && await mustSomeoneElseApprove(orgId, req.user!.id)) throw new AppError(403, SELF_APPROVAL);
     if (data.halfDay && !leaveType.allowHalfDay) throw new AppError(400, `${leaveType.name} cannot be taken as a half day`);
     const date = parseD(data.date);
     const frozen = await frozenUntil(orgId, data.userId);
