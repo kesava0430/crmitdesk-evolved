@@ -195,6 +195,67 @@ nginx site to serve 443 and redirect 80, and leaves renewal to certbot's
 timer. Afterwards set `FRONTEND_URL`, `CORS_ORIGIN` and `APP_URL` in
 `server/.env` to `https://app.zenkara.in` and restart the API.
 
+## Billing (Stripe)
+
+Until both keys below are set the app works normally, the Billing page says
+online payment isn't available (with `BILLING_CONTACT_EMAIL` / the contact set
+in Platform Admin → Pricing) and you provision licences by hand in Platform
+Admin. To turn on self-serve payments:
+
+1. **Keys.** Stripe Dashboard → Developers → API keys → copy the secret key
+   into `STRIPE_SECRET_KEY` in `server/.env`. Use `sk_test_…` first.
+2. **Webhook.** Developers → Webhooks → *Add endpoint*:
+   - URL: `https://app.zenkara.in/zenkara/api/billing/webhook`
+   - API version: **2024-06-20** (what the server pins; newer versions are
+     handled too, but this one is tested)
+   - Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+     `customer.subscription.created`, `customer.subscription.updated`,
+     `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`
+   - Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+3. **Redirects.** `FRONTEND_URL` must include the base path
+   (`https://app.zenkara.in/zenkara`) — Checkout and the portal return to
+   `FRONTEND_URL/billing`.
+4. **Customer portal.** Settings → Billing → Customer portal: enable
+   *update payment method*, *view invoices* and *cancel subscription*
+   (cancel **at end of period**). Leave *switch plans* **off** — plan changes
+   go through the app, which updates the existing subscription in place with
+   proration. *Update quantities* may stay on for custom (per-seat) licences;
+   a quantity below the seats in use is accepted but blocks new billable users.
+5. **Prices.** Set them in Platform Admin → Pricing (fixed plans, custom
+   licence per seat, currency, trial days). Nothing needs creating in Stripe:
+   every checkout uses inline prices, and each plan change creates its own
+   product. `STRIPE_PRO_PRICE_ID` / `STRIPE_ENTERPRISE_PRICE_ID` are ignored.
+6. Restart the API (`sudo systemctl restart zenkara-crm-api`).
+
+**Verifying in test mode:** with `sk_test_` keys, subscribe as a customer
+Super Admin with card `4242 4242 4242 4242`; switch Pro → Enterprise from
+Billing and check the Stripe dashboard shows **one** subscription with a
+proration line; use card `4000 0000 0000 0341` (attaches, then fails) and
+*Advance time* on a test clock to see past_due → grace → lapsed;
+`stripe trigger invoice.payment_failed` / `stripe listen --forward-to …` also
+work. Each webhook delivery is recorded once in the `stripe_events` table.
+
+**INR / GST (India):**
+- Set the currency to INR in Platform Admin → Pricing *before* the first paid
+  checkout. Stripe ties a customer to the currency of its first subscription,
+  so an org that already pays in USD keeps paying in USD (switching needs a
+  new Stripe customer — cancel, clear `stripe_customer_id`, re-subscribe).
+- Indian accounts: card payments for recurring INR billing need e-mandates
+  (RBI); Stripe handles this in Checkout, but expect some first payments to
+  require authentication. International cards on an Indian account must be
+  enabled in Stripe settings.
+- Checkout always collects billing address and an optional tax ID (GSTIN).
+  For GST on invoices, register your GSTIN in Stripe Tax, then set
+  `STRIPE_AUTOMATIC_TAX=true`. Leave it `false` until Stripe Tax is set up or
+  checkout will fail.
+- Prices are tax-exclusive by default (Stripe adds GST on top when automatic
+  tax is on). Set your invoice prefix, legal name and GSTIN under
+  Settings → Business → Public details / Invoice template.
+
+**Grace & lapse:** a failed payment gives `LICENSE_GRACE_PERIOD_DAYS` (Pricing
+→ grace) of continued access; after that the org is limited to Free —
+existing users, rules and files keep working, nothing is deleted.
+
 ## What this does *not* cover
 
 The Android app. APKs still need `npx cap sync` and a Gradle build locally —
