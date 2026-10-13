@@ -82,7 +82,7 @@ function buildPlatformTransporter(cfg: PlatformMailConfig) {
  * Shared by sendMail() below and by workflow-engine.ts's SEND_EMAIL action,
  * which used to duplicate this exact lookup inline.
  */
-async function getOrgMailer(orgId: string): Promise<{ transport: nodemailer.Transporter; from: string } | null> {
+async function getOrgMailer(orgId: string): Promise<{ transport: ReturnType<typeof nodemailer.createTransport>; from: string } | null> {
   const [emailAccount, org, branding] = await Promise.all([
     prisma.emailAccount.findUnique({ where: { orgId } }),
     prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
