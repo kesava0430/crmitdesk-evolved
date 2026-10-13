@@ -9,6 +9,19 @@ const unitDescriptor = (seed: number) => {
   return v.map(x => x / n);
 };
 
+/**
+ * Clear the caller's own enrolment.
+ *
+ * There is no self-delete route any more: removing your own face would be a
+ * way back onto the unreviewed first-enrolment path, so replacing an enrolled
+ * face goes through approval instead. These tests sign in as an admin, who
+ * can still use the manager reset route — on themselves like anyone else.
+ */
+async function resetOwnFace(page: Page, headers: Record<string, string>) {
+  const me = await (await page.request.get(`${API}/api/auth/me`, { headers })).json();
+  if (me?.id) await page.request.delete(`${API}/api/hr/attendance/face/${me.id}`, { headers });
+}
+
 test.describe('Attendance — face verification', () => {
   test.afterEach(async ({ page }) => {
     // Leave the org as we found it: policy off, own enrolment removed.
@@ -18,7 +31,7 @@ test.describe('Attendance — face verification', () => {
       checkOutRule: { location: true, network: true, face: false, mode: 'ALL', enforce: false },
       autoCheckoutOnLeave: false, heartbeatTimeoutMinutes: 0, shareLiveLocation: false,
     } });
-    await page.request.delete(`${API}/api/hr/attendance/face/me`, { headers });
+    await resetOwnFace(page, headers);
   });
 
   test('policy defaults to location AND network, and rules are editable by a manager', async ({ page }) => {
@@ -48,7 +61,7 @@ test.describe('Attendance — face verification', () => {
     const headers = { Authorization: `Bearer ${await token(page)}` };
     // Face-only, enforced: no geofence involved, so the outcome is deterministic
     await page.request.patch(`${API}/api/hr/attendance/policy`, { headers, data: { checkInRule: { location: false, network: false, face: true, mode: 'ALL', enforce: true } } });
-    await page.request.delete(`${API}/api/hr/attendance/face/me`, { headers });
+    await resetOwnFace(page, headers);
     const res = await page.request.post(`${API}/api/hr/attendance/check-in`, { headers, data: { lat: 0, lng: 0 } });
     const body = await res.json();
     if (res.status() === 400 && /already checked in/i.test(body.error)) test.skip(true, 'admin already has an open session');
@@ -76,6 +89,89 @@ test.describe('Attendance — face verification', () => {
     expect(del.ok()).toBeTruthy();
     const after = await (await page.request.get(`${API}/api/hr/attendance/policy`, { headers })).json();
     expect(after.myEnrollment).toBeNull();
+  });
+
+  test('re-enrolment needs approval and leaves the live face untouched until then', async ({ page }) => {
+    await login(page);
+    const headers = { Authorization: `Bearer ${await token(page)}` };
+    const jpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    await resetOwnFace(page, headers);
+
+    // First enrolment applies immediately — nothing to protect yet.
+    const enrol = await page.request.post(`${API}/api/hr/attendance/face/enrol`, {
+      headers, data: { descriptors: [unitDescriptor(1), unitDescriptor(2)], referenceSelfie: jpeg },
+    });
+    expect(enrol.ok()).toBeTruthy();
+    const original = (await enrol.json()).enrolledAt;
+
+    // Enrolling again is the bypass this workflow exists to close.
+    const again = await page.request.post(`${API}/api/hr/attendance/face/enrol`, {
+      headers, data: { descriptors: [unitDescriptor(9)] },
+    });
+    expect(again.status()).toBe(409);
+
+    const reenrol = await page.request.post(`${API}/api/hr/attendance/face/reenrol`, {
+      headers, data: { descriptors: [unitDescriptor(4), unitDescriptor(5)], sampleImages: [jpeg, jpeg] },
+    });
+    expect(reenrol.status()).toBe(201);
+    const requestId = (await reenrol.json()).id;
+
+    // One pending request per person, enforced in the database.
+    const duplicate = await page.request.post(`${API}/api/hr/attendance/face/reenrol`, {
+      headers, data: { descriptors: [unitDescriptor(6)], sampleImages: [jpeg] },
+    });
+    expect(duplicate.status()).toBe(409);
+
+    // The live enrolment has not moved — attendance still matches the old face.
+    let policy = await (await page.request.get(`${API}/api/hr/attendance/policy`, { headers })).json();
+    expect(policy.myEnrollment.enrolledAt).toBe(original);
+    expect(policy.myEnrollment.samples).toBe(2);
+    expect(policy.myFaceRequest.status).toBe('PENDING');
+
+    // The reviewer sees both sides of the comparison, persisted server-side.
+    const detail = await (await page.request.get(`${API}/api/hr/attendance/face/requests/${requestId}`, { headers })).json();
+    expect(detail.sampleImages).toHaveLength(2);
+    expect(detail.previousSelfie).toBe(jpeg);
+
+    const approved = await page.request.post(`${API}/api/hr/attendance/face/requests/${requestId}/approve`, { headers, data: {} });
+    expect(approved.ok()).toBeTruthy();
+    expect((await approved.json()).status).toBe('APPROVED');
+
+    // Deciding twice must not re-apply the swap.
+    const twice = await page.request.post(`${API}/api/hr/attendance/face/requests/${requestId}/reject`, { headers, data: {} });
+    expect(twice.status()).toBe(409);
+
+    policy = await (await page.request.get(`${API}/api/hr/attendance/policy`, { headers })).json();
+    expect(policy.myEnrollment.enrolledAt).not.toBe(original);
+    expect(policy.myFaceRequest.status).toBe('APPROVED');
+
+    // Approval released the slot, so a further request is allowed.
+    const next = await page.request.post(`${API}/api/hr/attendance/face/reenrol`, {
+      headers, data: { descriptors: [unitDescriptor(7)], sampleImages: [jpeg] },
+    });
+    expect(next.status()).toBe(201);
+
+    // Rejection preserves the active face and records the reason.
+    const rejectId = (await next.json()).id;
+    const liveBefore = (await (await page.request.get(`${API}/api/hr/attendance/policy`, { headers })).json()).myEnrollment.enrolledAt;
+    const rejected = await page.request.post(`${API}/api/hr/attendance/face/requests/${rejectId}/reject`, {
+      headers, data: { reason: 'Too dark to compare' },
+    });
+    expect(rejected.ok()).toBeTruthy();
+    policy = await (await page.request.get(`${API}/api/hr/attendance/policy`, { headers })).json();
+    expect(policy.myEnrollment.enrolledAt).toBe(liveBefore);
+    expect(policy.myFaceRequest.status).toBe('REJECTED');
+    expect(policy.myFaceRequest.rejectionReason).toBe('Too dark to compare');
+  });
+
+  test('re-enrolment without an existing face is refused', async ({ page }) => {
+    await login(page);
+    const headers = { Authorization: `Bearer ${await token(page)}` };
+    await resetOwnFace(page, headers);
+    const res = await page.request.post(`${API}/api/hr/attendance/face/reenrol`, {
+      headers, data: { descriptors: [unitDescriptor(3)], sampleImages: ['data:image/jpeg;base64,/9j/4AAQSkZJRg=='] },
+    });
+    expect(res.status()).toBe(400);
   });
 
   test('bad descriptors are rejected', async ({ page }) => {

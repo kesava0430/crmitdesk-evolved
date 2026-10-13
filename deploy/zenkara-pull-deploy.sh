@@ -74,10 +74,17 @@ git fetch --quiet origin
 git reset --hard --quiet "$WANT"
 
 # ── Dependencies, only when they actually changed ───────────────────────
-# This is the difference between a ~15 second deploy and a ~3 minute one.
-if ! cmp -s "$WORK/package-lock.json" "$APP/package-lock.json"; then
-  log "package-lock.json changed — running npm ci"
+# Compared against a hash recorded at the last successful install, NOT
+# against the checked-out file: `git reset --hard` above has already
+# rewritten package-lock.json, so comparing the two files always found them
+# identical and npm ci never ran. A release that added a dependency then
+# built fine in CI and crash-looped here with MODULE_NOT_FOUND — which is
+# exactly how pdfkit took the API down.
+LOCK_HASH=$(sha256sum "$APP/package-lock.json" | cut -d' ' -f1)
+if [ "$LOCK_HASH" != "$(cat "$STATE/lock-hash" 2>/dev/null)" ]; then
+  log "dependencies changed — running npm ci"
   npm ci
+  echo "$LOCK_HASH" > "$STATE/lock-hash"
 else
   log "dependencies unchanged"
 fi

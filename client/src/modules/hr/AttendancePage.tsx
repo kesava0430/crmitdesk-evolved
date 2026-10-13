@@ -6,7 +6,7 @@ import {
   PageHeader, PageBody, Card, CardHeader, Tabs, Button, Badge, Alert, Avatar,
   DataTable, EmptyState,
 } from '../../shared/components';
-import { LogIn, LogOut, MapPin, Users, Clock, ScanFace, Trash2 } from 'lucide-react';
+import { LogIn, LogOut, MapPin, Users, Clock, ScanFace } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { FaceCaptureModal, type FaceSample } from '../../shared/components/FaceCaptureModal';
 import { RegisterSection } from './attendance/RegisterSection';
@@ -42,6 +42,9 @@ interface AttendancePolicy {
   heartbeatTimeoutMinutes: number;
   shareLiveLocation: boolean;
   myEnrollment: { samples: number; enrolledAt: string; updatedAt: string; referenceSelfie: string | null } | null;
+  /** Latest re-enrolment request. Separate from the enrolment above: a
+   *  PENDING request does not change the face attendance matches against. */
+  myFaceRequest: { id: string; status: 'PENDING' | 'APPROVED' | 'REJECTED'; samples: number; rejectionReason: string | null; createdAt: string; decidedAt: string | null } | null;
 }
 
 function useAttendancePolicy() {
@@ -272,23 +275,37 @@ function CheckInWidget() {
   );
 }
 
-/** Self-service view of the user's enrolled face — re-enrol or remove. Shown only when the org requires face verification. */
+/**
+ * Self-service view of the user's enrolled face. Shown only when the org
+ * requires face verification.
+ *
+ * First enrolment applies immediately; replacing an enrolled face raises a
+ * request a Super Admin has to approve, and the existing face keeps working
+ * for attendance throughout. There is no "remove" action — it would be a way
+ * to reach the unreviewed first-enrolment path by deleting your way back to
+ * it, and the server refuses that route for the same reason.
+ */
 function FaceIdCard() {
   const qc = useQueryClient();
   const { data: policy } = useAttendancePolicy();
   const { date } = useFormat();
-  const [mode, setMode] = useState<'enrol' | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'enrol' | 'reenrol' | null>(null);
   if (!policy?.faceVerificationRequired) return null;
   const e = policy.myEnrollment;
+  const request = policy.myFaceRequest;
+  const pending = request?.status === 'PENDING';
+  const rejected = request?.status === 'REJECTED';
 
   async function enrol(samples: FaceSample[]) {
     await api.post('/hr/attendance/face/enrol', { descriptors: samples.map(s => s.descriptor), referenceSelfie: samples[0]?.selfie });
     qc.invalidateQueries({ queryKey: ['attendance-policy'] });
   }
-  async function remove() {
-    setBusy(true);
-    try { await api.delete('/hr/attendance/face/me'); qc.invalidateQueries({ queryKey: ['attendance-policy'] }); } finally { setBusy(false); }
+  async function submitReenrolment(samples: FaceSample[]) {
+    await api.post('/hr/attendance/face/reenrol', {
+      descriptors: samples.map(s => s.descriptor),
+      sampleImages: samples.map(s => s.selfie),
+    });
+    qc.invalidateQueries({ queryKey: ['attendance-policy'] });
   }
 
   return (
@@ -303,8 +320,15 @@ function FaceIdCard() {
         <div className="flex-1 min-w-[180px]">
           {e ? (
             <>
-              <p className="text-[13px] font-medium text-fg flex items-center gap-2">Enrolled <Badge variant="green">{e.samples} samples</Badge></p>
-              <p className="text-[12px] text-fg-muted">Since {date(e.enrolledAt)}. Only a numeric signature is stored — you can remove it any time.</p>
+              <p className="text-[13px] font-medium text-fg flex items-center gap-2">
+                Verified <Badge variant="green">{e.samples} samples</Badge>
+                {pending && <Badge variant="orange">Pending Verification</Badge>}
+              </p>
+              <p className="text-[12px] text-fg-muted">
+                {pending
+                  ? `Replacement submitted ${date(request!.createdAt)} — your current Face ID stays active until it's approved.`
+                  : `Since ${date(e.enrolledAt)}. Only a numeric signature is stored.`}
+              </p>
             </>
           ) : (
             <>
@@ -314,11 +338,35 @@ function FaceIdCard() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="secondary" icon={<ScanFace size={14} />} onClick={() => setMode('enrol')}>{e ? 'Re-enrol' : 'Enrol now'}</Button>
-          {e && <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} loading={busy} onClick={remove}>Remove</Button>}
+          {/* Hidden rather than disabled while pending: there is no second
+              request to make, so the button has nothing to offer. */}
+          {!pending && (
+            <Button size="sm" variant="secondary" icon={<ScanFace size={14} />} onClick={() => setMode(e ? 'reenrol' : 'enrol')}>
+              {e ? 'Re-enrol' : 'Enrol now'}
+            </Button>
+          )}
         </div>
       </div>
-      {mode && <FaceCaptureModal open mode="enrol" onClose={() => setMode(null)} onCaptured={enrol} />}
+
+      {rejected && e && (
+        <Alert tone="warning" className="mt-3">
+          Your last re-enrolment request was rejected{request?.decidedAt ? ` on ${date(request.decidedAt)}` : ''}.
+          {request?.rejectionReason ? ` Reason: ${request.rejectionReason}` : ''} Your existing Face ID is unchanged — you can submit a new request.
+        </Alert>
+      )}
+
+      {mode === 'enrol' && <FaceCaptureModal open mode="enrol" onClose={() => setMode(null)} onCaptured={enrol} />}
+      {mode === 'reenrol' && (
+        <FaceCaptureModal
+          open
+          mode="enrol"
+          onClose={() => setMode(null)}
+          onCaptured={submitReenrolment}
+          submitLabel="Submit for Verification"
+          title="Re-enrol your face"
+          subtitle="We'll capture 3 samples and send them to a Super Admin for approval. Your current Face ID keeps working for attendance until they approve the replacement."
+        />
+      )}
     </Card>
   );
 }

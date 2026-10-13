@@ -1,4 +1,4 @@
-package com.zenkara.crm;
+package com.zenkara.app;
 
 import com.getcapacitor.BridgeActivity;
 

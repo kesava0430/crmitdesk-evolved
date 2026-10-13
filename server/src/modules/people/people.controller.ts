@@ -287,6 +287,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 
     let userId: string | null = null;
     let inviteLink: string | null = null;
+    let pendingInvite: { token: string; legacyRole: any; roleId: string | null } | null = null;
 
     if (data.loginMode !== 'none') {
       assertCan(ctx, 'core.user.create');
@@ -317,31 +318,11 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
         });
         userId = user.id;
       } else {
-        const token = crypto.randomBytes(32).toString('hex');
-        await prisma.inviteToken.create({
-          data: {
-            orgId,
-            email: data.email!,
-            role: legacyRole,
-            roleId: role?.id ?? null,
-            token,
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          },
-        });
-        inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/accept-invite?token=${token}`;
-
-        const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
-        sendMail({
-          orgId,
-          to: data.email!,
-          subject: `You've been invited to join ${org?.name ?? 'the team'}`,
-          html: `<div style="font-family:sans-serif;max-width:500px;margin:0 auto">
-            <h2 style="color:#4f46e5">You're invited</h2>
-            <p>You've been added to <strong>${org?.name ?? 'the team'}</strong>. Set up your account below — this link expires in 7 days.</p>
-            <a href="${inviteLink}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">Accept Invitation</a>
-            <p style="color:#6b7280;font-size:13px">Or copy this link: ${inviteLink}</p>
-          </div>`,
-        }).catch(() => {});
+        /* The token row is created after the employee below, so it can
+           record which person it belongs to. Without that link, accepting
+           the invite provisioned a second employee for the same human. */
+        pendingInvite = { token: crypto.randomBytes(32).toString('hex'), legacyRole, roleId: role?.id ?? null };
+        inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/accept-invite?token=${pendingInvite.token}`;
       }
     }
 
@@ -377,6 +358,35 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
       },
       include: employeeInclude,
     });
+
+    /* Now that the person exists, the invite can name them — acceptance
+       links the login to this record rather than creating another. */
+    if (pendingInvite) {
+      await prisma.inviteToken.create({
+        data: {
+          orgId,
+          email: data.email!,
+          role: pendingInvite.legacyRole,
+          roleId: pendingInvite.roleId,
+          employeeId: employee.id,
+          token: pendingInvite.token,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+      sendMail({
+        orgId,
+        to: data.email!,
+        subject: `You've been invited to join ${org?.name ?? 'the team'}`,
+        html: `<div style="font-family:sans-serif;max-width:500px;margin:0 auto">
+          <h2 style="color:#4f46e5">You're invited</h2>
+          <p>You've been added to <strong>${org?.name ?? 'the team'}</strong>. Set up your account below — this link expires in 7 days.</p>
+          <a href="${inviteLink}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">Accept Invitation</a>
+          <p style="color:#6b7280;font-size:13px">Or copy this link: ${inviteLink}</p>
+        </div>`,
+      }).catch(() => {});
+    }
 
     logAction(req.user!.id, 'CREATE', 'EMPLOYEE', employee.id, { displayName, loginMode: data.loginMode });
     if (userId) invalidatePermCtx(userId);
@@ -456,6 +466,9 @@ export async function grantLogin(req: AuthRequest, res: Response, next: NextFunc
         email: data.email,
         role: legacyRole,
         roleId: role?.id ?? null,
+        // This person already exists — acceptance attaches the login to
+        // them instead of provisioning a duplicate.
+        employeeId: employee.id,
         token,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },

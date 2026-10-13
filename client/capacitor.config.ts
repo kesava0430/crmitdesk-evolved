@@ -24,8 +24,8 @@ import type { CapacitorConfig } from '@capacitor/cli';
  *    axios client in src/api/client.ts is carried along unmodified.
  */
 const config: CapacitorConfig = {
-  appId: 'com.zenkara.crm',
-  appName: 'Zenkara CRM',
+  appId: 'com.zenkara.app',
+  appName: 'Zenkara 360',
   webDir: 'dist',
 
   plugins: {

@@ -14,6 +14,14 @@ interface Props {
   onCaptured: (samples: FaceSample[]) => Promise<void> | void;
   title?: string;
   subtitle?: string;
+  /**
+   * Opt in to an explicit confirmation step. Without it the modal submits the
+   * moment it has enough samples, which is right for check-in — nobody wants
+   * an extra click between their face and the clock. Re-enrolment is the
+   * opposite: it starts an approval someone else has to action, so the
+   * employee reviews what was captured and presses this button by name.
+   */
+  submitLabel?: string;
 }
 
 const HINTS: Record<string, string> = {
@@ -26,16 +34,29 @@ const HINTS: Record<string, string> = {
  * Webcam capture with live face detection. Auto-captures when a single face is
  * steadily detected for a few frames, so the employee just looks at the camera.
  */
-export function FaceCaptureModal({ open, onClose, mode, samples = 3, onCaptured, title, subtitle }: Props) {
+export function FaceCaptureModal({ open, onClose, mode, samples = 3, onCaptured, title, subtitle, submitLabel }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const capturedRef = useRef<FaceSample[]>([]);
-  const [phase, setPhase] = useState<'loading' | 'camera' | 'detecting' | 'submitting' | 'done' | 'error'>('loading');
+  const [phase, setPhase] = useState<'loading' | 'camera' | 'detecting' | 'review' | 'submitting' | 'done' | 'error'>('loading');
   const [error, setError] = useState('');
   const [hint, setHint] = useState('Starting camera…');
   const [count, setCount] = useState(0);
   const [box, setBox] = useState<FaceCapture['box'] | null>(null);
+  const [review, setReview] = useState<FaceSample[]>([]);
   const target = mode === 'enrol' ? samples : 1;
+
+  /** Shared by the auto-submit path and the explicit review button. */
+  async function submit(captured: FaceSample[]) {
+    setPhase('submitting'); setHint('Submitting…'); setError('');
+    try {
+      await onCaptured(captured);
+      setPhase('done');
+    } catch (err: any) {
+      setPhase('error');
+      setError(err?.response?.data?.error || err?.message || 'Submission failed.');
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -43,7 +64,7 @@ export function FaceCaptureModal({ open, onClose, mode, samples = 3, onCaptured,
     let stableFrames = 0;
     let lastCaptureAt = 0;
     capturedRef.current = [];
-    setCount(0); setError(''); setPhase('loading'); setHint('Loading face model…');
+    setCount(0); setError(''); setPhase('loading'); setHint('Loading face model…'); setReview([]);
 
     (async () => {
       try {
@@ -79,8 +100,11 @@ export function FaceCaptureModal({ open, onClose, mode, samples = 3, onCaptured,
                 const n = capturedRef.current.length;
                 setCount(n);
                 if (n >= target) {
-                  setPhase('submitting'); setHint('Verifying…');
                   stopStream(streamRef.current); streamRef.current = null;
+                  // Explicit-confirmation mode stops here and hands over to
+                  // the review footer; the auto path submits straight away.
+                  if (submitLabel) { setReview([...capturedRef.current]); setPhase('review'); return; }
+                  setPhase('submitting'); setHint('Verifying…');
                   try {
                     await onCaptured(capturedRef.current);
                     if (!cancelled) setPhase('done');
@@ -124,10 +148,41 @@ export function FaceCaptureModal({ open, onClose, mode, samples = 3, onCaptured,
       footer={
         phase === 'done' ? <Button icon={<CheckCircle2 size={14} />} onClick={onClose}>Done</Button>
         : phase === 'error' ? <Button variant="secondary" onClick={onClose}>Close</Button>
+        : phase === 'review' ? (
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button icon={<CheckCircle2 size={14} />} onClick={() => submit(review)}>{submitLabel}</Button>
+          </div>
+        )
+        : phase === 'submitting' && submitLabel ? <Button loading disabled>{submitLabel}</Button>
         : <Button variant="ghost" onClick={onClose}>Cancel</Button>
       }
     >
       <div className="space-y-3">
+        {/* Once the samples are in, the dead video feed has nothing left to
+            show — the captured frames are what the employee is confirming, so
+            they stay on screen through submission and the result. */}
+        {submitLabel && (phase === 'review' || phase === 'submitting' || phase === 'done') ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              {review.map((s, i) => (
+                <img
+                  key={i}
+                  src={s.selfie}
+                  alt={`Captured sample ${i + 1}`}
+                  className="w-full aspect-square rounded-lg object-cover -scale-x-100 border border-line"
+                />
+              ))}
+            </div>
+            {phase === 'done' ? (
+              <Alert tone="success">Submitted for verification. Your current Face ID stays active until a Super Admin reviews it.</Alert>
+            ) : (
+              <p className="text-[12.5px] text-fg-muted">
+                {review.length} sample{review.length === 1 ? '' : 's'} captured. Your current Face ID stays active until this is reviewed.
+              </p>
+            )}
+          </div>
+        ) : (
         <div className="relative rounded-lg overflow-hidden bg-black aspect-[4/3] max-h-[360px] mx-auto">
           <video ref={videoRef} playsInline muted className="w-full h-full object-cover -scale-x-100" data-testid="face-video" />
           {box && phase === 'detecting' && (
@@ -143,10 +198,11 @@ export function FaceCaptureModal({ open, onClose, mode, samples = 3, onCaptured,
           )}
           {phase === 'done' && (
             <div className="absolute inset-0 flex items-center justify-center bg-success/70 text-white text-sm gap-2">
-              <CheckCircle2 size={18} /> {mode === 'enrol' ? 'Face enrolled' : 'Verified'}
+              <CheckCircle2 size={18} /> {submitLabel ? 'Submitted' : mode === 'enrol' ? 'Face enrolled' : 'Verified'}
             </div>
           )}
         </div>
+        )}
 
         {phase === 'detecting' && (
           <div className="flex items-center justify-between text-[12.5px]">
