@@ -108,7 +108,7 @@ function RunModal({ open, onClose, onCreated }: { open: boolean; onClose: () => 
   );
 }
 
-const DAY_LABELS: Record<string, string> = { PRESENT: 'Present', LATE: 'Late', HALF_DAY: 'Half day', ABSENT: 'Absent', LEAVE: 'Leave', UNPAID_LEAVE: 'Unpaid leave', WFH: 'WFH', HOLIDAY: 'Holiday', WEEK_OFF: 'Week off', LOP: 'LOP' };
+const DAY_LABELS: Record<string, string> = { PRESENT: 'Present', LATE: 'Late', HALF_DAY: 'Half day', ABSENT: 'Absent', LEAVE: 'Leave', UNPAID_LEAVE: 'Unpaid leave', WFH: 'WFH', HOLIDAY: 'Holiday', WEEK_OFF: 'Week off', LOP: 'LOP', NOT_EMPLOYED: 'Not employed' };
 
 function AttendanceBasisPanel({ payslip }: { payslip: Payslip }) {
   const a = payslip.attendanceSummary;
@@ -116,7 +116,7 @@ function AttendanceBasisPanel({ payslip }: { payslip: Payslip }) {
     return <p className="text-[10.5px] text-fg-subtle mb-2">Days: {Number(payslip.paidDays ?? 0)} paid of {Number(payslip.workingDays ?? 0)} (calendar mode).</p>;
   }
   const n = (v: string | null | undefined) => Number(v ?? 0);
-  const order = ['PRESENT', 'LATE', 'WFH', 'HALF_DAY', 'LEAVE', 'UNPAID_LEAVE', 'ABSENT', 'LOP', 'HOLIDAY', 'WEEK_OFF'];
+  const order = ['PRESENT', 'LATE', 'WFH', 'HALF_DAY', 'LEAVE', 'UNPAID_LEAVE', 'ABSENT', 'LOP', 'NOT_EMPLOYED', 'HOLIDAY', 'WEEK_OFF'];
   return (
     <div className="mb-3 rounded-lg border border-line-subtle bg-surface p-2.5 text-[11px]">
       <div className="flex items-center justify-between mb-1.5">
@@ -135,6 +135,7 @@ function AttendanceBasisPanel({ payslip }: { payslip: Payslip }) {
       {(a.lateCount ?? 0) > 0 && <p className="mt-1 text-fg-muted">{a.lateCount} late arrival{a.lateCount === 1 ? '' : 's'}{a.lateConversion?.extraLopDays ? ` → ${a.lateConversion.extraLopDays} LOP day${a.lateConversion.extraLopDays === 1 ? '' : 's'} (${a.lateConversion.note})` : ''}</p>}
       {(a.futureDaysAssumedPaid ?? 0) > 0 && <p className="mt-1 text-warning">{a.futureDaysAssumedPaid} future day{a.futureDaysAssumedPaid === 1 ? '' : 's'} assumed paid — recalculate once the period ends.</p>}
       {(a.manualCorrections ?? 0) > 0 && <p className="mt-1 text-fg-subtle">{a.manualCorrections} manually corrected day{a.manualCorrections === 1 ? '' : 's'} included.</p>}
+      {(a.warnings ?? []).map((w, i) => <p key={i} className="mt-1 text-warning">{w}</p>)}
     </div>
   );
 }

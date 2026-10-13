@@ -141,7 +141,7 @@ export function FaceCaptureModal({ open, onClose, mode, samples = 3, onCaptured,
       onClose={onClose}
       title={title ?? (mode === 'enrol' ? 'Enrol your face' : 'Face verification')}
       subtitle={subtitle ?? (mode === 'enrol'
-        ? `We'll capture ${samples} quick samples. Only a numeric face signature is stored — not the photos — and you can remove it any time.`
+        ? `We'll capture ${samples} quick samples. A numeric face signature and one reference photo are stored for matching. To remove or replace them, ask HR.`
         : 'Look at the camera to confirm it\'s you. This is compared with your enrolled face.')}
       icon={<ScanFace size={16} />}
       size="md"

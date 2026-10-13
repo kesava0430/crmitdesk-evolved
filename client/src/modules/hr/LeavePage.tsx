@@ -13,7 +13,7 @@ import { useUsers } from '../../api/users';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
-interface LeaveType { id: string; name: string; annualQuota: number; isPaid: boolean; color: string; allowHalfDay?: boolean; isUnlimited?: boolean }
+interface LeaveType { id: string; name: string; annualQuota: number; isPaid: boolean; color: string; allowHalfDay?: boolean; isUnlimited?: boolean; isWfh?: boolean }
 interface Balance { leaveType: LeaveType; quota: number; carriedForward: number; adjustments: number; used: number; remaining: number | null; entitlement: number }
 interface LeaveRequest {
   id: string; startDate: string; endDate: string; days: number; reason?: string;
@@ -46,7 +46,7 @@ function BalanceCards({ userId, year }: { userId?: string; year?: number }) {
           }
           value={b.leaveType.isUnlimited
             ? <span className="tabular-nums">{b.used}<span className="text-xs font-normal text-fg-subtle"> used · unlimited</span></span>
-            : <span className="tabular-nums">{b.remaining}<span className="text-xs font-normal text-fg-subtle"> / {b.entitlement} left{b.carriedForward ? ` (+${b.carriedForward} c/f)` : ''}</span></span>}
+            : <span className={`tabular-nums ${(b.remaining ?? 0) < 0 ? 'text-danger' : ''}`} title={(b.remaining ?? 0) < 0 ? 'Overdrawn — more leave was approved than the entitlement' : undefined}>{b.remaining}<span className="text-xs font-normal text-fg-subtle"> / {b.entitlement} left{b.carriedForward ? ` (+${b.carriedForward} c/f)` : ''}</span></span>}
         />
       ))}
     </div>
@@ -62,6 +62,7 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
   const { data: types } = useQuery<LeaveType[]>({ queryKey: ['leave-types'], queryFn: () => api.get('/hr/leave/types').then(r => r.data) });
   const [form, setForm] = useState(EMPTY_APPLY);
   const [autoApprove, setAutoApprove] = useState(true);
+  const [allowNegative, setAllowNegative] = useState(false);
   const [error, setError] = useState('');
   const selectedType = types?.find(t => t.id === form.leaveTypeId);
 
@@ -69,7 +70,7 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
     mutationFn: () => {
       const body = { ...form, endDate: form.halfDay ? form.startDate : form.endDate, halfDayPeriod: form.halfDay ? form.halfDayPeriod : undefined };
       return onBehalfOf
-        ? api.post('/hr/leave/requests/on-behalf', { ...body, userId: onBehalfOf.id, autoApprove }).then(r => r.data)
+        ? api.post('/hr/leave/requests/on-behalf', { ...body, userId: onBehalfOf.id, autoApprove, allowNegative }).then(r => r.data)
         : api.post('/hr/leave/requests', body).then(r => r.data);
     },
     onSuccess: () => {
@@ -96,7 +97,7 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
           <SearchableSelect
             value={form.leaveTypeId}
             onChange={val => setForm(f => ({ ...f, leaveTypeId: val }))}
-            options={(types || []).map(t => ({ value: t.id, label: t.name }))}
+            options={(types || []).map(t => ({ value: t.id, label: t.isWfh ? `${t.name} (work from home)` : t.name }))}
             required
           />
         </Field>
@@ -120,10 +121,14 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
             </Field>
           )}
         </div>
+        <p className="text-[11.5px] text-fg-subtle">
+          {selectedType?.isWfh ? 'Work-from-home days are paid and don\'t use any leave balance.' : 'Only working days count — weekly offs and holidays in the range are not deducted.'}
+        </p>
         <Field label="Reason (optional)">
           <Textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} />
         </Field>
         {onBehalfOf && <Checkbox label="Approve immediately (skips the manager approval step)" checked={autoApprove} onChange={e => setAutoApprove(e.target.checked)} />}
+        {onBehalfOf && !selectedType?.isWfh && !selectedType?.isUnlimited && <Checkbox label="Allow going below zero balance (advance leave)" checked={allowNegative} onChange={e => setAllowNegative(e.target.checked)} />}
       </div>
     </Modal>
   );
@@ -302,9 +307,12 @@ function Approvals() {
     queryKey: ['leave-requests', 'org'],
     queryFn: () => api.get('/hr/leave/requests', { params: { scope: 'org' } }).then(r => r.data),
   });
+  const { user: me } = useAuth();
+  const [decideError, setDecideError] = useState('');
   const approve = useMutation({
     mutationFn: (id: string) => api.patch(`/hr/leave/requests/${id}/approve`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['leave-requests'] }),
+    onSuccess: () => { setDecideError(''); qc.invalidateQueries({ queryKey: ['leave-requests'] }); qc.invalidateQueries({ queryKey: ['attendance-register'] }); },
+    onError: (e: any) => setDecideError(e?.response?.data?.error || 'Could not approve'),
   });
   const reject = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => api.patch(`/hr/leave/requests/${id}/reject`, { reason }),
@@ -318,6 +326,7 @@ function Approvals() {
     <div className="space-y-5">
       <Card>
         <CardHeader title={`Pending Approval (${pending.length})`} icon={<Clock3 size={14} />} className="mb-3" />
+        {decideError && <Alert tone="danger" className="mb-2">{decideError}</Alert>}
         {isLoading ? <SkeletonTable rows={3} /> : pending.length === 0 ? (
           <EmptyState
             compact
@@ -327,10 +336,11 @@ function Approvals() {
           />
         ) : (
           <div>{pending.map(r => (
+            // Nobody decides or edits their own leave — someone else must (server enforces it too)
             <RequestRow key={r.id} req={r} showEmployee
-              onApprove={() => approve.mutate(r.id)}
-              onReject={() => setRejecting(r)}
-              onModify={() => setModifying(r)}
+              onApprove={r.user.id === me?.id ? undefined : () => approve.mutate(r.id)}
+              onReject={r.user.id === me?.id ? undefined : () => setRejecting(r)}
+              onModify={r.user.id === me?.id ? undefined : () => setModifying(r)}
             />
           ))}</div>
         )}
@@ -338,7 +348,7 @@ function Approvals() {
       {decided.length > 0 && (
         <Card>
           <CardHeader title="History" className="mb-3" />
-          <div>{decided.map(r => <RequestRow key={r.id} req={r} showEmployee onModify={() => setModifying(r)} onAdminCancel={() => setCancelling(r)} />)}</div>
+          <div>{decided.map(r => <RequestRow key={r.id} req={r} showEmployee onModify={r.user.id === me?.id ? undefined : () => setModifying(r)} onAdminCancel={() => setCancelling(r)} />)}</div>
         </Card>
       )}
 

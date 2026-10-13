@@ -75,14 +75,20 @@ test.describe('Attendance policy engine', () => {
   test('admin can apply half-day leave on behalf and cancel approved leave', async ({ page }) => {
     await login(page);
     const headers = { Authorization: `Bearer ${await token(page)}` };
-    const userId = await myId(page);
+    // Nobody may approve their own leave (ATT-22), so apply for someone else
+    const me = await myId(page);
+    const usersRes = await (await page.request.get(`${API}/api/users`, { headers })).json();
+    const users: any[] = Array.isArray(usersRes) ? usersRes : usersRes.data ?? [];
+    const other = users.find(u => u.id !== me && u.isActive !== false);
+    test.skip(!other, 'needs a second user in the org');
+    const userId = other.id as string;
     const types = await (await page.request.get(`${API}/api/hr/leave/types`, { headers })).json();
     const type = types[0];
     const d = new Date(); d.setMonth(d.getMonth() + 1); d.setDate(3);
     while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
     const date = ymd(d);
 
-    const res = await page.request.post(`${API}/api/hr/leave/requests/on-behalf`, { headers, data: { userId, leaveTypeId: type.id, startDate: date, endDate: date, halfDay: true, halfDayPeriod: 'AM', reason: 'e2e', autoApprove: true } });
+    const res = await page.request.post(`${API}/api/hr/leave/requests/on-behalf`, { headers, data: { userId, leaveTypeId: type.id, startDate: date, endDate: date, halfDay: true, halfDayPeriod: 'AM', reason: 'e2e', autoApprove: true, allowNegative: true } });
     expect(res.ok()).toBeTruthy();
     const req = await res.json();
     expect(req.status).toBe('APPROVED');
@@ -95,5 +101,16 @@ test.describe('Attendance policy engine', () => {
     const cancel = await page.request.post(`${API}/api/hr/leave/requests/${req.id}/admin-cancel`, { headers, data: { reason: 'e2e cleanup' } });
     expect(cancel.ok()).toBeTruthy();
     expect((await cancel.json()).status).toBe('CANCELLED');
+  });
+
+  test('nobody can approve their own leave', async ({ page }) => {
+    await login(page);
+    const headers = { Authorization: `Bearer ${await token(page)}` };
+    const userId = await myId(page);
+    const types = await (await page.request.get(`${API}/api/hr/leave/types`, { headers })).json();
+    const d = new Date(); d.setMonth(d.getMonth() + 2); d.setDate(5);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    const res = await page.request.post(`${API}/api/hr/leave/requests/on-behalf`, { headers, data: { userId, leaveTypeId: types[0].id, startDate: ymd(d), endDate: ymd(d), autoApprove: true, allowNegative: true } });
+    expect(res.status()).toBe(403);
   });
 });
