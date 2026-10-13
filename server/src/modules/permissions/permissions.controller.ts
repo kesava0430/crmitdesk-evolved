@@ -4,6 +4,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { logAction } from '../../utils/auditLog';
+import { assertSeatForTransition, withSeatLock } from '../../utils/licensing';
 import {
   getPermCtx,
   assertCan,
@@ -352,10 +353,17 @@ export async function assignRole(req: AuthRequest, res: Response, next: NextFunc
       if (role.legacyRole && LEGACY_ENUM.includes(role.legacyRole)) legacy = role.legacyRole;
     }
 
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { roleId, ...(legacy ? { role: legacy as any } : {}) },
-      select: { id: true, name: true, email: true, role: true, roleId: true },
+    // Rewriting User.role from the role's legacyRole can turn an EMPLOYEE into
+    // a billable seat — same seat check as every other path (LIC-2).
+    const updated = await withSeatLock(orgId, async tx => {
+      if (legacy) {
+        await assertSeatForTransition(orgId, { wasActive: user.isActive, wasRole: user.role, willBeActive: user.isActive, willBeRole: legacy }, tx);
+      }
+      return tx.user.update({
+        where: { id: userId },
+        data: { roleId, ...(legacy ? { role: legacy as any } : {}) },
+        select: { id: true, name: true, email: true, role: true, roleId: true },
+      });
     });
 
     invalidatePermCtx(userId);

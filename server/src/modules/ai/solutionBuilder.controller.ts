@@ -25,6 +25,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { logAction } from '../../utils/auditLog';
 import { generateSolutionBlueprint } from '../../utils/ai';
 import { slugify, FIELD_TYPES } from '../custom-modules/customModules.service';
+import { hasFeature } from '../../utils/licensing';
 
 // ─── Blueprint schema ────────────────────────────────────────────────────────
 // Everything optional-with-fallbacks except what would be dangerous to guess:
@@ -230,7 +231,11 @@ export async function applySolutionHandler(req: AuthRequest, res: Response, next
     // Automations — declarative shape → real WorkflowRules on the Phase 2
     // triggers. CREATE_NOTIFICATION only: visible, harmless, undoable.
     let workflowsCreated = 0;
-    for (const a of bp.automations ?? []) {
+    // Workflow automation is Pro+ (LIC-5): without it the blueprint's
+    // automations are skipped — modules, skin and labels still apply.
+    const canAutomate = await hasFeature(orgId, 'workflow_automation');
+    const automationsSkipped = canAutomate ? 0 : (bp.automations ?? []).length;
+    for (const a of canAutomate ? (bp.automations ?? []) : []) {
       const target = byName[a.module];
       if (!target) continue;
       if (a.event === 'stage_reached' && (!a.stage || !target.stageKeys.has(a.stage))) continue;
@@ -256,6 +261,10 @@ export async function applySolutionHandler(req: AuthRequest, res: Response, next
       workflowsCreated,
       workspaceApplied,
       labelsApplied: !!(bp.labels && Object.keys(bp.labels).length),
+      ...(automationsSkipped ? {
+        automationsSkipped,
+        note: `${automationsSkipped} automation${automationsSkipped === 1 ? ' was' : 's were'} not created — workflow automation isn't included in your plan.`,
+      } : {}),
     });
   } catch (err) { next(err); }
 }

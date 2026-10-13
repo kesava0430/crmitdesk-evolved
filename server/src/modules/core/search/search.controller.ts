@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { interpretSearchQuery, isAiConfigured } from '../../../utils/ai';
+import { hasFeature } from '../../../utils/licensing';
 
 /**
  * Normalizes an AI-extracted status/priority word (e.g. "open", "critical",
@@ -33,13 +34,17 @@ export async function search(req: AuthRequest, res: Response, next: NextFunction
 
     const orgId = req.user!.orgId;
     const mode = 'insensitive' as const;
-    const aiPowered = isAiConfigured();
+    // Natural-language interpretation is Advanced AI (LIC-4); without it the
+    // search is the plain substring match over every entity type.
+    const aiPowered = isAiConfigured() && await hasFeature(orgId, 'ai_advanced');
 
     // interpretSearchQuery() is a no-op passthrough when no AI provider is
     // configured (returns the raw query, all entity types, no filters) — so
     // this is always safe to call, and the search never regresses to worse
     // than the old plain-substring behavior.
-    const interpretation = await interpretSearchQuery(q);
+    const interpretation = aiPowered
+      ? await interpretSearchQuery(q)
+      : { keywords: q, entityTypes: [] as string[], status: null as string | null, priority: null as string | null };
     const term = interpretation.keywords || q;
     const wantAll = interpretation.entityTypes.length === 0;
     const wants = (type: string) => wantAll || interpretation.entityTypes.includes(type);

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, requireRole, ALL_USERS, MANAGERS } from '../../middleware/authenticate';
+import { requireFeature } from '../../utils/licensing';
 import * as c from './knowledge.controller';
 
 const router = Router();
@@ -8,7 +9,9 @@ router.use(authenticate);
 // Retrieval is permission-aware inside the retriever, so it's safe to expose
 // to every role — a user simply gets nothing back they aren't allowed to see.
 router.post('/search', requireRole(...ALL_USERS), c.search);
-router.post('/ask',    requireRole(...ALL_USERS), c.ask);
+// /ask generates an AI answer over the org's records (RAG) — Advanced AI;
+// /search is plain retrieval and stays open (LIC-4).
+router.post('/ask',    requireRole(...ALL_USERS), requireFeature('ai_advanced'), c.ask);
 router.post('/feedback/:id', requireRole(...ALL_USERS), c.submitFeedback);
 
 router.get('/documents',       requireRole(...MANAGERS), c.listDocuments);

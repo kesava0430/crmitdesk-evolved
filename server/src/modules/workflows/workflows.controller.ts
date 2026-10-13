@@ -4,6 +4,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { runDateRuleNow } from '../../utils/dateAutomation';
+import { getEffectiveLicense, featureNotIncludedMessage } from '../../utils/licensing';
 
 // Only present (and required) when trigger === 'DATE_FIELD_REACHED'. See
 // utils/dateAutomation.ts's DateConfig for the runtime shape this mirrors.
@@ -134,6 +135,12 @@ export async function toggleActive(req: AuthRequest, res: Response, next: NextFu
     const orgId = req.user!.orgId;
     const rule = await prisma.workflowRule.findFirst({ where: { id, orgId } });
     if (!rule) throw new AppError(404, 'Rule not found');
+    // Switching a rule OFF is always allowed; switching one ON needs the
+    // feature (otherwise disable → enable would bypass the create gate).
+    if (!rule.isActive) {
+      const lic = await getEffectiveLicense(orgId);
+      if (!lic.features.includes('workflow_automation')) throw new AppError(402, featureNotIncludedMessage(lic, 'workflow_automation'));
+    }
     const updated = await prisma.workflowRule.update({ where: { id }, data: { isActive: !rule.isActive } });
     res.json(updated);
   } catch (err) { next(err); }

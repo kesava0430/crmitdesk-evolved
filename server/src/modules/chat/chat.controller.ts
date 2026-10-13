@@ -31,6 +31,7 @@ import { sseManager, SSEEvent } from '../../utils/sse';
 import { routeChatTurn } from '../../utils/ai';
 import { getAiAction } from '../../utils/ai-actions';
 import { buildActionPlanForOrg } from '../ai/ai.controller';
+import { hasFeature } from '../../utils/licensing';
 
 const RECORD_TYPES = ['TICKET', 'DEAL', 'LEAD', 'CONTACT', 'ACCOUNT', 'CUSTOM_MODULE_RECORD'] as const;
 
@@ -216,6 +217,12 @@ async function handleAiMention(
   thread: { id: string; kind: string; participants: Array<{ userId: string }>; pendingPlan?: any },
   command: string,
 ) {
+  // The in-thread assistant is the NL command bar / copilot under another
+  // name — Advanced AI (Pro+), same as /api/ai (LIC-4).
+  if (!(await hasFeature(orgId, 'ai_advanced'))) {
+    return postAssistantMessage(orgId, thread, 'The @ai assistant is part of Advanced AI, which isn’t included in your current plan. An admin can upgrade under Billing to turn it on.');
+  }
+
   const current = await prisma.chatThread.findUnique({ where: { id: thread.id }, select: { pendingPlan: true } });
 
   // "@ai confirm" — run the thread's pending plan with the confirmer's role.
