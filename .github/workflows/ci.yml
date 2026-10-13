@@ -2,7 +2,7 @@
 #
 # Until now this repo had NO build/test CI at all (only the demo-reset and
 # directory-sync cron workflows) — a commit that broke the TypeScript build
-# or the unit tests was only discovered when Render's deploy failed, or
+# or the unit tests was only discovered when the deploy failed, or
 # worse, at runtime.
 #
 # Notes specific to this repo:

@@ -90,9 +90,9 @@ export default function WebFormsPage() {
     `<iframe src="${publicUrl(id)}" style="width:100%;max-width:560px;height:640px;border:0;border-radius:12px" title="Contact form"></iframe>`;
 
   // The public submit endpoint as an absolute URL — what Google Apps Script,
-  // Zoho webhooks and Zapier must POST to. VITE_API_URL is absolute in
-  // production (API and client are different Render services); the '/api'
-  // fallback is dev, where origin-relative works.
+  // Zoho webhooks and Zapier must POST to. VITE_API_URL may be relative
+  // (production uses /zenkara/api, dev '/api'), so prefix the page's origin
+  // when it isn't already absolute.
   const rawApi: string = (import.meta as any).env?.VITE_API_URL || '/api';
   const apiBase = rawApi.startsWith('http') ? rawApi : `${window.location.origin}${rawApi}`;
   const submitUrl = (id: string) => `${apiBase.replace(/\/$/, '')}/public/forms/${id}/submit`;

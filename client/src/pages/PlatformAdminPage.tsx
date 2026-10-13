@@ -367,7 +367,7 @@ interface SettingsFormState {
  * The platform-wide email/WhatsApp *fallback* config — the account used to
  * send on behalf of an org that hasn't connected its own (Tier 1
  * white-label mailer, Twilio WhatsApp fallback). Previously only settable
- * via Render env vars; this panel writes straight to the PlatformSettings
+ * via server env vars; this panel writes straight to the PlatformSettings
  * DB row, which takes effect immediately, no redeploy.
  */
 function PlatformSettingsPanel({ onClose }: { onClose: () => void }) {
@@ -434,7 +434,7 @@ function PlatformSettingsPanel({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       title="Platform settings"
-      subtitle="The shared sending account used when an org hasn't connected its own. Changes here take effect immediately — no redeploy needed. Leave a field blank to keep using its Render env var."
+      subtitle="The shared sending account used when an org hasn't connected its own. Changes here take effect immediately — no redeploy needed. Leave a field blank to keep using the server's environment variable."
       icon={<SettingsIcon size={16} />}
       size="lg"
       footer={

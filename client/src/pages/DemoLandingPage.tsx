@@ -128,7 +128,7 @@ export function DemoLandingPage() {
   const missing = (verticals ?? []).filter(v => v.available === false);
   // An admin looking at a greyed-out industry should be able to fix it from
   // right here. Creating missing workspaces is non-destructive, and hosts
-  // without shell access (Render's free tier, for one) have no other route.
+  // without shell access have no other route.
   const canSeed = user?.role === 'SUPER_ADMIN' || user?.role === 'PLATFORM_ADMIN';
 
   const seedMissing = useMutation({

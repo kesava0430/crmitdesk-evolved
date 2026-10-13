@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const login = useCallback(async (email: string, password: string, totpToken?: string) => {
-    // authPost retries on transient failures (Render cold-start wake) so a
+    // authPost retries on transient failures (e.g. a deploy restart) so a
     // login during a server boot doesn't spuriously fail. Real 401s (wrong
     // password) are not retried and surface immediately.
     const res = await authPost('/auth/login', { email, password, totpToken });

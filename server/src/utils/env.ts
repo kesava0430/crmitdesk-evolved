@@ -57,8 +57,8 @@ export function validateEnv(): void {
     console.error('FATAL: refusing to start — environment misconfigured:');
     for (const p of problems) console.error(`  - ${p}`);
     console.error(
-      'Set these in the Render dashboard (or your .env for local dev). ' +
-      'See .env.example and render.yaml for what each one does.',
+      'Set these in server/.env (on the EC2 instance: /opt/zenkara-crm/server/.env). ' +
+      'See .env.example for what each one does.',
     );
     process.exit(1);
   }

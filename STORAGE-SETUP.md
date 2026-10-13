@@ -70,8 +70,8 @@ Level 1 is **not needed at all** if your customers use their own S3 buckets.
 
 ### 1b. Set the environment variables
 
-On Render (or wherever the **server** runs) — Dashboard → your service →
-Environment:
+On the EC2 instance, in `/opt/zenkara-crm/server/.env` (restart the service
+afterwards):
 
 ```bash
 # Google Drive (bring-your-own, per client org)
@@ -81,10 +81,10 @@ GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxx
 # The backend's OWN public URL. The redirect URI is built from this as
 # `${APP_URL}/api/storage/google/callback`, so if this is wrong or still
 # localhost, Google returns redirect_uri_mismatch.
-APP_URL=https://your-backend.onrender.com
+APP_URL=https://app.zenkara.in/zenkara
 
 # Where the user's browser is sent back to after consent (the /storage page).
-FRONTEND_URL=https://your-frontend.onrender.com
+FRONTEND_URL=https://app.zenkara.in/zenkara
 
 # Refresh tokens are encrypted at rest with this before hitting the database.
 # Required — without it, connecting will fail.
@@ -283,8 +283,8 @@ because a write-only key looks fine until weeks later.
 ## What the code does with the files
 
 - Uploads never touch the server's local disk — the buffer goes straight from
-  the request to Drive or S3. Render wipes local disk on every redeploy, so a
-  local-disk path would silently lose every attachment.
+  the request to Drive or S3. Each deploy replaces the app directory, so a
+  local-disk path would silently lose attachments.
 - Downloads stream back **through** the API rather than redirecting to a Drive
   link, so access is governed by CRMITdesk's own org/permission checks, not by
   Google Drive sharing settings. Staff without a Google account can still

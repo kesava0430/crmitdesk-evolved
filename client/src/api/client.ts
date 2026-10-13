@@ -1,17 +1,12 @@
 import axios from 'axios';
 import { addToast } from '../shared/components/toastStore';
 
-// VITE_API_URL is required whenever the frontend and backend are on different
-// origins (e.g. Netlify frontend + Render backend) — this used to be
-// hardcoded to '/api', silently ignoring the env var entirely. That only
-// ever worked by accident on Render's own static-site option, which has an
-// explicit /api/* redirect proxy in render.yaml papering over it; any other
-// host (Netlify included) sent every request to its own domain instead of
-// the API, which doesn't exist there.
-// 60s timeout: long enough to survive a Render cold-start wake (the server
-// spins down when idle and the first request can take 30–40s to boot),
-// short enough that a genuinely hung request eventually fails instead of
-// spinning forever.
+// VITE_API_URL is where the API lives. Production builds set it to
+// /zenkara/api (nginx proxies that to the Node server on the same host — see
+// .github/workflows/deploy.yml); '/api' is the local dev default.
+// 60s timeout: generous for slow mobile networks and large uploads, short
+// enough that a genuinely hung request eventually fails instead of spinning
+// forever.
 export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api', timeout: 60_000 });
 
 api.interceptors.request.use((config) => {
@@ -20,9 +15,9 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// A "transient" failure is the server being unreachable or still waking up —
-// no HTTP response at all (network error / timeout), or a gateway status
-// Render returns while the instance boots (502/503/504). These are NOT
+// A "transient" failure is the server being briefly unreachable — no HTTP
+// response at all (network error / timeout), or a gateway status nginx
+// returns while the app restarts during a deploy (502/503/504). These are NOT
 // authentication failures: a login or refresh that hits one should be
 // retried, and must never be reported to the user as "invalid credentials"
 // or treated as an expired session.
@@ -36,7 +31,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /**
  * POST an auth endpoint (login / refresh) with a couple of automatic retries
- * on transient failures, so a Render cold-start wake shows up as "took a few
+ * on transient failures, so a deploy restart shows up as "took a few
  * seconds" rather than a spurious failure. Real 4xx (bad credentials,
  * invalid refresh token) are returned immediately — they are not retried.
  */

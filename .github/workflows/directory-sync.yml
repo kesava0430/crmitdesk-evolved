@@ -9,10 +9,11 @@ name: Directory sync
 # the live API, mirroring reset-demo.yml's cron + secret-header pattern.
 #
 # Requires a repo secret DIRECTORY_SYNC_SECRET whose value matches the
-# DIRECTORY_SYNC_SECRET environment variable set on the Render API service.
+# DIRECTORY_SYNC_SECRET environment variable in the server's .env on the EC2
+# instance (/opt/zenkara-crm/server/.env).
 # Without that secret configured, the API endpoint refuses every request
 # (404), so this workflow failing with a 404 almost always means the two
-# secrets don't match yet or DIRECTORY_SYNC_SECRET isn't set on Render.
+# secrets don't match yet or DIRECTORY_SYNC_SECRET isn't set on the server.
 #
 # Each org's Entra admin must also grant this app's Entra registration the
 # GroupMember.Read.All *application* permission (not just the delegated one
@@ -30,9 +31,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Call directory sync-all endpoint
+        env:
+          # Public base URL of the app. Defaults to production; set the repo
+          # variable SITE_URL (Settings → Variables) to point elsewhere.
+          SITE_URL: ${{ vars.SITE_URL || 'https://app.zenkara.in' }}
         run: |
           status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-            -X POST "https://crm-itdesk-server.onrender.com/api/directory/sync-all" \
+            -X POST "${SITE_URL%/}/zenkara/api/directory/sync-all" \
             -H "X-Directory-Sync-Secret: ${{ secrets.DIRECTORY_SYNC_SECRET }}")
           echo "HTTP status: $status"
           cat /tmp/response.json

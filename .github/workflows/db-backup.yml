@@ -8,7 +8,7 @@
 #
 # Setup (one-time): add a repo secret DATABASE_URL (GitHub → Settings →
 # Secrets and variables → Actions) with the same Neon DIRECT connection
-# string used on Render, including ?sslmode=require.
+# string the server uses, including ?sslmode=require.
 #
 # Restore: download the artifact from the workflow run page, then
 #   gunzip backup.sql.gz && psql "<new-database-url>" -f backup.sql
