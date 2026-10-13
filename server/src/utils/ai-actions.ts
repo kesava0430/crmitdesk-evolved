@@ -28,6 +28,9 @@ import { FIELD_TYPES, slugify, validateRecordData, recordTitle } from '../module
 import { pushCalendarEvent } from './googleCalendar';
 import { notifyOrgAdmins } from '../modules/notifications/notifications.controller';
 import { sendCampaignNow } from '../modules/campaigns/campaigns.controller';
+import { createManualSession } from './attendanceSessions';
+import { validateLeaveRequest } from './leaveRules';
+import { computeDays } from './attendanceRegister';
 
 export interface AiActionContext {
   orgId: string;
@@ -784,14 +787,13 @@ export const AI_ACTIONS: AiActionDefinition[] = [
       reason: z.string().max(500).optional(),
     }),
     handler: async (params, ctx) => {
-      const leaveType = await prisma.leaveType.findFirst({ where: { id: params.leaveTypeId, orgId: ctx.orgId, isActive: true } });
-      if (!leaveType) throw new AppError(404, 'Leave type not found');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(params.startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(params.endDate)) throw new AppError(400, 'Dates must be YYYY-MM-DD');
       const [sy, sm, sd] = params.startDate.split('-').map(Number);
       const [ey, em, ed] = params.endDate.split('-').map(Number);
       const startDate = new Date(Date.UTC(sy, sm - 1, sd));
       const endDate = new Date(Date.UTC(ey, em - 1, ed));
-      if (endDate < startDate) throw new AppError(400, 'End date must be on or after the start date');
-      const days = Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+      // Same rules as the Leave page: working days only, overlap, balance
+      const { leaveType, days } = await validateLeaveRequest(ctx.orgId, ctx.userId, { leaveTypeId: params.leaveTypeId, startDate, endDate, halfDay: false });
 
       const request = await prisma.leaveRequest.create({
         data: { orgId: ctx.orgId, userId: ctx.userId, leaveTypeId: params.leaveTypeId, startDate, endDate, days, reason: params.reason },
@@ -827,10 +829,12 @@ export const AI_ACTIONS: AiActionDefinition[] = [
       });
       if (!request) throw new AppError(404, 'Leave request not found');
       if (request.status !== 'PENDING') throw new AppError(400, `This request is already ${request.status.toLowerCase()}`);
+      if (request.userId === ctx.userId) throw new AppError(403, 'Someone else must approve your leave.');
       const updated = await prisma.leaveRequest.update({
         where: { id: request.id },
         data: { status: 'APPROVED', decidedBy: ctx.userId, decidedAt: new Date() },
       });
+      computeDays(ctx.orgId, request.userId, request.startDate, request.endDate).catch(() => {});
       await prisma.notification.create({
         data: { orgId: ctx.orgId, userId: request.userId, type: 'STATUS_CHANGE', title: `Your ${request.leaveType.name} request was approved`, entityId: request.id, entityType: 'LEAVE_REQUEST' },
       });
@@ -872,30 +876,26 @@ export const AI_ACTIONS: AiActionDefinition[] = [
     label: 'Add a manual attendance entry',
     description: 'Adds a manual attendance session for an employee, bypassing the usual office-location/network checks (e.g. "log John as present today from 9 to 5"). Match the employee by name from the orgUsers context list. Self check-in/out isn\'t an AI action — it requires the employee\'s real device location, which the AI has no way to provide.',
     example: 'Log John as present today from 9am to 5pm',
-    paramsHint: '{ userId: string, date: "YYYY-MM-DD", checkInAt?: ISO datetime string, checkOutAt?: ISO datetime string, notes?: string }',
+    paramsHint: '{ userId: string, date: "YYYY-MM-DD", checkInAt: ISO datetime string, checkOutAt?: ISO datetime string (required for past days), reason: string, notes?: string }',
     allowedRoles: MANAGERS,
     requiresConfirmation: true,
     schema: z.object({
       userId: z.string().min(1),
       date: z.string().min(1),
-      checkInAt: z.string().optional(),
+      checkInAt: z.string().min(1),
       checkOutAt: z.string().optional(),
+      // Mandatory and audited, same as a manual entry made from the register (ATT-19)
+      reason: z.string().min(1).max(300),
       notes: z.string().max(300).optional(),
     }),
     handler: async (params, ctx) => {
       const target = await prisma.user.findFirst({ where: { id: params.userId, orgId: ctx.orgId } });
       if (!target) throw new AppError(404, 'User not found');
-      const [y, m, d] = params.date.split('-').map(Number);
-      const date = new Date(Date.UTC(y, m - 1, d));
-      const record = await prisma.attendanceRecord.create({
-        data: {
-          orgId: ctx.orgId, userId: params.userId, date,
-          checkInAt: params.checkInAt ? new Date(params.checkInAt) : undefined,
-          checkOutAt: params.checkOutAt ? new Date(params.checkOutAt) : undefined,
-          notes: params.notes, source: 'MANUAL',
-        },
+      const record = await createManualSession(ctx.orgId, ctx.userId, {
+        userId: params.userId, checkInAt: new Date(params.checkInAt), checkOutAt: params.checkOutAt ? new Date(params.checkOutAt) : null,
+        notes: params.notes ?? null, reason: `${params.reason} (via AI assistant)`,
       });
-      return { summary: `Added a manual attendance entry for ${target.name} on ${params.date}.`, data: record };
+      return { summary: `Added a manual attendance session for ${target.name} on ${params.date}.`, data: record };
     },
   },
 ];

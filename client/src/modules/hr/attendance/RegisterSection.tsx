@@ -1,27 +1,37 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, History, RotateCcw, CalendarCheck, Pencil } from 'lucide-react';
+import { ChevronLeft, ChevronRight, History, RotateCcw, CalendarCheck, Pencil, Download, Plus, Camera, Lock } from 'lucide-react';
 import { api } from '../../../api/client';
 import {
   Card, CardHeader, Button, Modal, Badge, Field, Input, Select, Textarea, Alert, SkeletonTable, EmptyState, Avatar, IconButton,
 } from '../../../shared/components';
 import {
-  useRegister, useMarkDay, useResetDay, useConvertToLeave, useAttendanceAudit,
-  STATUS_LABEL, STATUS_SHORT, STATUS_CLASS, type DayStatus, type RegisterDay, type RegisterRow,
+  useRegister, useMarkDay, useResetDay, useConvertToLeave, useAttendanceAudit, useDayDetail, fetchSelfie, registerToCsv,
+  STATUS_LABEL, STATUS_SHORT, STATUS_CLASS, type DayStatus, type ManualStatus, type RegisterDay, type RegisterRow, type DaySession, type MarkDayInput,
 } from '../../../api/attendanceAdmin';
 import { useFormat } from '../../../hooks/useFormat';
 
-const MANUAL_STATUSES: DayStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'WFH', 'LEAVE', 'UNPAID_LEAVE', 'LOP', 'HOLIDAY', 'WEEK_OFF'];
+const MANUAL_STATUSES: ManualStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'WFH', 'LEAVE', 'UNPAID_LEAVE', 'LOP', 'HOLIDAY', 'WEEK_OFF'];
+const LEGEND: DayStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'LEAVE', 'UNPAID_LEAVE', 'WFH', 'HOLIDAY', 'WEEK_OFF', 'LOP', 'NOT_EMPLOYED'];
 
 function monthKey(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
 function shiftMonth(m: string, delta: number) { const [y, mo] = m.split('-').map(Number); return monthKey(new Date(y, mo - 1 + delta, 1)); }
 function monthLabel(m: string) { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }); }
+/** ISO instant → value for <input type="datetime-local"> (device time zone). */
 function toLocalInput(iso: string | null) {
   if (!iso) return '';
   const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+const fromLocalInput = (v: string) => new Date(v).toISOString();
 const fmtMin = (m: number) => (m ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : '—');
+
+function downloadCsv(name: string, csv: string) {
+  // BOM so Excel opens UTF-8 names correctly
+  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 interface RegisterSectionProps { canEdit: boolean; onlyUserId?: string }
 
@@ -39,16 +49,20 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
     return list.filter(r => r.user.name.toLowerCase().includes(q) || (r.user.department || '').toLowerCase().includes(q));
   }, [data, search]);
   const days = data?.rows?.[0]?.days ?? [];
-  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <Card>
       <CardHeader
         title={onlyUserId ? 'Monthly register' : 'Attendance register'}
-        subtitle={onlyUserId ? 'Day-wise status computed from your policy; corrections by HR are marked' : 'Click any day to correct it. Manual corrections are audited.'}
+        subtitle={onlyUserId
+          ? 'Day-wise status computed from your policy; tap a day for its sessions. Corrections by HR are marked.'
+          : 'Click any day to see its sessions and correct it. Manual corrections are audited. Totals are to date.'}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {!onlyUserId && <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter people…" className="w-44" />}
+            {!onlyUserId && rows.length > 0 && (
+              <IconButton label="Export CSV" icon={<Download size={16} />} onClick={() => downloadCsv(`attendance-register-${month}.csv`, registerToCsv(rows))} />
+            )}
             <IconButton label="Previous month" icon={<ChevronLeft size={16} />} onClick={() => setMonth(m => shiftMonth(m, -1))} />
             <span className="text-sm font-medium text-fg min-w-[9rem] text-center">{monthLabel(month)}</span>
             <IconButton label="Next month" icon={<ChevronRight size={16} />} onClick={() => setMonth(m => shiftMonth(m, 1))} />
@@ -65,14 +79,14 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                 <th className="sticky left-0 z-10 bg-surface text-left font-medium text-fg-muted px-3 py-2 border-b border-line-subtle min-w-[12rem]">Employee</th>
                 {days.map(d => {
                   const dt = new Date(d.date + 'T00:00:00');
-                  const isToday = d.date === today;
+                  const isToday = d.phase === 'today';
                   return (
                     <th key={d.date} className={`px-0.5 py-1 border-b border-line-subtle font-normal text-center ${isToday ? 'text-accent font-semibold' : 'text-fg-subtle'}`}>
                       <div className="leading-tight"><div>{dt.getDate()}</div><div className="text-[10px] uppercase">{dt.toLocaleDateString(undefined, { weekday: 'narrow' })}</div></div>
                     </th>
                   );
                 })}
-                <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted whitespace-nowrap">Paid / Work</th>
+                <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted whitespace-nowrap" title="Paid days / working days so far">Paid / Work</th>
                 <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted">LOP</th>
                 <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted">Late</th>
                 <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted">OT</th>
@@ -86,25 +100,27 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                     <div className="flex items-center gap-2">
                       <Avatar name={row.user.name} src={row.user.avatarUrl ?? undefined} size="xs" />
                       <div className="min-w-0">
-                        <div className="font-medium text-fg truncate">{row.user.name}</div>
+                        <div className="font-medium text-fg truncate">{row.user.name}{row.user.isActive === false && <span className="ml-1 text-[10px] text-fg-subtle">(inactive)</span>}</div>
                         <div className="text-[10px] text-fg-subtle truncate">{row.policyGroup}{row.user.department ? ` · ${row.user.department}` : ''}</div>
                       </div>
                     </div>
                   </td>
-                  {row.days.map(d => (
-                    <td key={d.date} className="p-0.5 border-b border-line-subtle text-center">
-                      <button
-                        type="button"
-                        disabled={!canEdit}
-                        title={`${d.date}: ${STATUS_LABEL[d.status]}${d.source === 'MANUAL' ? ' (manual)' : ''}${d.workedMinutes ? ` · ${fmtMin(d.workedMinutes)}` : ''}${d.lateMinutes ? ` · late ${d.lateMinutes}m` : ''}`}
-                        onClick={() => setSelected({ row, day: d })}
-                        className={`relative w-7 h-7 rounded font-semibold tabular-nums ${STATUS_CLASS[d.status]} ${canEdit ? 'hover:ring-2 hover:ring-accent/60 cursor-pointer' : 'cursor-default'}`}
-                      >
-                        {STATUS_SHORT[d.status]}
-                        {d.source === 'MANUAL' && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent" aria-label="Manually corrected" />}
-                      </button>
-                    </td>
-                  ))}
+                  {row.days.map(d => {
+                    const provisional = d.phase === 'today' && d.status !== 'PENDING';
+                    return (
+                      <td key={d.date} className="p-0.5 border-b border-line-subtle text-center">
+                        <button
+                          type="button"
+                          title={`${d.date}: ${STATUS_LABEL[d.status]}${provisional ? ' (so far — day in progress)' : ''}${d.source === 'MANUAL' ? ' (manual)' : ''}${d.workedMinutes ? ` · ${fmtMin(d.workedMinutes)}` : ''}${d.lateMinutes ? ` · late ${d.lateMinutes}m` : ''}${d.frozen ? ' · paid (locked)' : ''}`}
+                          onClick={() => setSelected({ row, day: d })}
+                          className={`relative w-7 h-7 rounded font-semibold tabular-nums hover:ring-2 hover:ring-accent/60 cursor-pointer ${STATUS_CLASS[d.status]} ${provisional ? 'opacity-70 italic ring-1 ring-dashed ring-accent/40' : ''}`}
+                        >
+                          {STATUS_SHORT[d.status]}
+                          {d.source === 'MANUAL' && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent" aria-label="Manually corrected" />}
+                        </button>
+                      </td>
+                    );
+                  })}
                   <td className="px-2 py-1.5 border-b border-line-subtle text-right tabular-nums font-medium text-fg whitespace-nowrap">{row.summary.paidDays} / {row.summary.workingDays}</td>
                   <td className={`px-2 py-1.5 border-b border-line-subtle text-right tabular-nums ${row.summary.lopDays ? 'text-danger font-medium' : 'text-fg-subtle'}`}>{row.summary.lopDays}</td>
                   <td className={`px-2 py-1.5 border-b border-line-subtle text-right tabular-nums ${row.summary.lateCount ? 'text-warning' : 'text-fg-subtle'}`}>{row.summary.lateCount}</td>
@@ -115,8 +131,10 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
             </tbody>
           </table>
           <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 py-2 text-[11px] text-fg-subtle border-t border-line-subtle">
-            {(Object.keys(STATUS_LABEL) as DayStatus[]).map(s => <span key={s} className="inline-flex items-center gap-1"><span className={`inline-flex w-4 h-4 rounded items-center justify-center font-semibold ${STATUS_CLASS[s]}`}>{STATUS_SHORT[s]}</span>{STATUS_LABEL[s]}</span>)}
+            {LEGEND.map(s => <span key={s} className="inline-flex items-center gap-1"><span className={`inline-flex w-4 h-4 rounded items-center justify-center font-semibold ${STATUS_CLASS[s]}`}>{STATUS_SHORT[s]}</span>{STATUS_LABEL[s]}</span>)}
+            <span className="inline-flex items-center gap-1"><span className={`inline-flex w-4 h-4 rounded ${STATUS_CLASS.PENDING}`} /> not yet</span>
             <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> manual correction</span>
+            <span className="inline-flex items-center gap-1 italic">italic = today so far</span>
           </div>
         </div>
       )}
@@ -127,25 +145,73 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
   );
 }
 
+/** Stored check-in/out photo, fetched only when asked for. */
+function SelfieButton({ session, which }: { session: DaySession; which: 'in' | 'out' }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  if (!(which === 'in' ? session.hasCheckInSelfie : session.hasCheckOutSelfie)) return null;
+  if (src) return <img src={src} alt={`Check-${which} photo`} className="w-12 h-12 rounded object-cover -scale-x-100 border border-line" />;
+  return (
+    <Button size="xs" variant="ghost" icon={<Camera size={12} />} loading={state === 'loading'}
+      onClick={() => { setState('loading'); fetchSelfie(session.id, which).then(s => { setSrc(s); setState('idle'); }).catch(() => setState('error')); }}>
+      {state === 'error' ? 'Unavailable' : `${which === 'in' ? 'In' : 'Out'} photo`}
+    </Button>
+  );
+}
+
+const SOURCE_LABEL: Record<string, string> = { AUTO_GEOFENCE: 'auto: left office', AUTO_TIMEOUT: 'auto: app silent', AUTO_CLOSE: 'auto: not checked out', DEDUPED: 'closed (duplicate)', MANUAL: 'set by HR' };
+
+type SessionDraft = { checkInAt: string; checkOutAt: string };
+
 function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: RegisterDay; canEdit: boolean; onClose: () => void }) {
-  const { dateTime } = useFormat();
+  const { dateTime, time } = useFormat();
   const mark = useMarkDay();
   const reset = useResetDay();
   const convert = useConvertToLeave();
-  const { data: leaveTypes } = useQuery<any[]>({ queryKey: ['leave-types'], queryFn: () => api.get('/hr/leave/types').then(r => r.data), enabled: canEdit });
-  const [mode, setMode] = useState<'view' | 'edit' | 'leave'>(canEdit ? 'edit' : 'view');
-  const [form, setForm] = useState({ status: day.status, checkInAt: toLocalInput(day.firstInAt), checkOutAt: toLocalInput(day.lastOutAt), notes: day.notes ?? '', reason: '' });
+  const { data: detail, isLoading: loadingDetail } = useDayDetail(row.user.id, day.date);
+  const current = detail?.day ?? day;
+  const editable = canEdit && !current.frozen;
+  const { data: leaveTypes } = useQuery<any[]>({ queryKey: ['leave-types'], queryFn: () => api.get('/hr/leave/types').then(r => r.data), enabled: editable });
+  const [mode, setMode] = useState<'edit' | 'leave'>('edit');
+  const [status, setStatus] = useState<ManualStatus | ''>('');
+  // Only sessions the user actually touched are sent (ATT-1): untouched
+  // punches are never re-submitted, so they can't be merged or cleared.
+  const [drafts, setDrafts] = useState<Record<string, Partial<SessionDraft>>>({});
+  const [adding, setAdding] = useState<SessionDraft | null>(null);
+  const [notes, setNotes] = useState(day.notes ?? '');
+  const [reason, setReason] = useState('');
   const [leave, setLeave] = useState({ leaveTypeId: '', halfDay: false, halfDayPeriod: 'AM' as 'AM' | 'PM', reason: '' });
   const [error, setError] = useState('');
-  const onErr = (e: any) => setError(e?.response?.data?.error || 'Could not save');
+  const onErr = (e: any) => setError(e?.response?.data?.error || e?.response?.data?.details?.[0]?.message || 'Could not save');
+  const sessions = detail?.sessions ?? [];
+
+  const setDraft = (s: DaySession, field: keyof SessionDraft, value: string) => setDrafts(d => {
+    const orig = field === 'checkInAt' ? toLocalInput(s.checkInAt) : toLocalInput(s.checkOutAt);
+    const next = { ...(d[s.id] ?? {}) };
+    if (value === orig) delete next[field]; else next[field] = value;
+    const out = { ...d };
+    if (Object.keys(next).length) out[s.id] = next; else delete out[s.id];
+    return out;
+  });
 
   const submitMark = () => {
-    if (!form.reason.trim()) return setError('A reason is required for every correction.');
-    mark.mutate({
-      userId: row.user.id, date: day.date, status: form.status, notes: form.notes || undefined, reason: form.reason,
-      checkInAt: form.checkInAt ? new Date(form.checkInAt).toISOString() : null,
-      checkOutAt: form.checkOutAt ? new Date(form.checkOutAt).toISOString() : null,
-    }, { onSuccess: onClose, onError: onErr });
+    setError('');
+    if (!reason.trim()) return setError('A reason is required for every correction.');
+    const edits: NonNullable<MarkDayInput['sessions']> = [];
+    for (const [recordId, d] of Object.entries(drafts)) {
+      const e: { recordId: string; checkInAt?: string; checkOutAt?: string | null } = { recordId };
+      if (d.checkInAt !== undefined) { if (!d.checkInAt) return setError('A session needs a check-in time.'); e.checkInAt = fromLocalInput(d.checkInAt); }
+      if (d.checkOutAt !== undefined) e.checkOutAt = d.checkOutAt ? fromLocalInput(d.checkOutAt) : null;
+      edits.push(e);
+    }
+    let addSession: MarkDayInput['addSession'];
+    if (adding) {
+      if (!adding.checkInAt) return setError('Enter the new session\'s check-in time.');
+      if (current.phase === 'past' && !adding.checkOutAt) return setError('Enter the new session\'s check-out time — a past session can\'t be left open.');
+      addSession = { checkInAt: fromLocalInput(adding.checkInAt), checkOutAt: adding.checkOutAt ? fromLocalInput(adding.checkOutAt) : null };
+    }
+    if (!status && !edits.length && !addSession) return setError('Nothing to save — pick a status, change a session time or add a session.');
+    mark.mutate({ userId: row.user.id, date: day.date, status: status || undefined, sessions: edits.length ? edits : undefined, addSession, notes: notes || undefined, reason }, { onSuccess: onClose, onError: onErr });
   };
   const submitLeave = () => {
     if (!leave.leaveTypeId) return setError('Pick a leave type.');
@@ -155,9 +221,9 @@ function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: Regis
 
   return (
     <Modal open onClose={onClose} title={`${row.user.name} · ${day.date}`} icon={<Pencil size={16} />} size="md"
-      footer={mode === 'view' ? <Button variant="secondary" onClick={onClose}>Close</Button> : (
+      footer={!editable ? <Button variant="secondary" onClick={onClose}>Close</Button> : (
         <>
-          {day.source === 'MANUAL' && <Button variant="ghost" icon={<RotateCcw size={14} />} loading={reset.isPending} onClick={() => reset.mutate({ userId: row.user.id, date: day.date, reason: form.reason || 'Reset to computed' }, { onSuccess: onClose, onError: onErr })}>Reset to computed</Button>}
+          {current.source === 'MANUAL' && <Button variant="ghost" icon={<RotateCcw size={14} />} loading={reset.isPending} onClick={() => reset.mutate({ userId: row.user.id, date: day.date, reason: reason || 'Reset to computed' }, { onSuccess: onClose, onError: onErr })}>Reset to computed</Button>}
           <span className="flex-1" />
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           {mode === 'edit' ? <Button loading={mark.isPending} onClick={submitMark}>Save correction</Button> : <Button loading={convert.isPending} onClick={submitLeave}>Convert to leave</Button>}
@@ -165,19 +231,61 @@ function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: Regis
       )}>
       <div className="space-y-3">
         {error && <Alert tone="danger">{error}</Alert>}
+        {current.frozen && <Alert tone="info"><Lock size={12} className="inline mr-1" />This day is in a payroll period that has been finalised, so it's locked. Adjust the next payroll run instead.</Alert>}
+        {current.phase === 'today' && current.status !== 'PENDING' && <p className="text-[11.5px] text-fg-muted">The day is still in progress — this status is provisional and is finalised after the shift.</p>}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          <Stat label="Status" value={<Badge className={STATUS_CLASS[day.status]}>{STATUS_LABEL[day.status]}</Badge>} />
-          <Stat label="Source" value={day.source === 'MANUAL' ? 'Manual' : 'Computed'} />
-          <Stat label="Worked" value={fmtMin(day.workedMinutes)} />
-          <Stat label="Paid" value={`${Math.round(day.paidFraction * 100)}%`} />
-          <Stat label="First in" value={day.firstInAt ? dateTime(day.firstInAt) : '—'} />
-          <Stat label="Last out" value={day.lastOutAt ? dateTime(day.lastOutAt) : '—'} />
-          <Stat label="Late by" value={day.lateMinutes ? `${day.lateMinutes} min` : '—'} />
-          <Stat label="Overtime" value={day.overtimeMinutes ? `${day.overtimeMinutes} min` : '—'} />
+          <Stat label="Status" value={<Badge className={STATUS_CLASS[current.status]}>{STATUS_LABEL[current.status]}</Badge>} />
+          <Stat label="Source" value={current.source === 'MANUAL' ? 'Manual' : 'Computed'} />
+          <Stat label="Worked" value={fmtMin(current.workedMinutes)} />
+          <Stat label="Paid" value={`${Math.round(current.paidFraction * 100)}%`} />
+          <Stat label="First in" value={current.firstInAt ? dateTime(current.firstInAt) : '—'} />
+          <Stat label="Last out" value={current.lastOutAt ? dateTime(current.lastOutAt) : '—'} />
+          <Stat label="Late by" value={current.lateMinutes ? `${current.lateMinutes} min` : '—'} />
+          <Stat label="Overtime" value={current.overtimeMinutes ? `${current.overtimeMinutes} min` : '—'} />
         </div>
-        {day.reason && <p className="text-xs text-fg-muted">Last correction: {day.reason}</p>}
+        {current.reason && <p className="text-xs text-fg-muted">{current.source === 'MANUAL' ? 'Last correction' : 'Why'}: {current.reason}</p>}
+        {current.notes && <p className="text-xs text-fg-muted">Notes: {current.notes}</p>}
 
-        {canEdit && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-fg-subtle mb-1">Sessions{detail?.timezone ? <span className="normal-case"> · policy time zone {detail.timezone}</span> : null}</p>
+          {loadingDetail ? <SkeletonTable rows={2} /> : sessions.length === 0 ? <p className="text-xs text-fg-subtle">No check-ins on this day.</p> : (
+            <ul className="space-y-2">
+              {sessions.map(s => (
+                <li key={s.id} className="rounded-lg border border-line-subtle p-2 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap text-xs">
+                    <span className="font-medium text-fg tabular-nums">{s.checkInAt ? time(s.checkInAt) : '—'} – {s.checkOutAt ? time(s.checkOutAt) : 'open'}</span>
+                    {s.source === 'MANUAL' && <Badge variant="gray">manual</Badge>}
+                    {s.checkOutSource && SOURCE_LABEL[s.checkOutSource] && <Badge variant="yellow">{SOURCE_LABEL[s.checkOutSource]}</Badge>}
+                    {s.checkInFaceOk && <Badge variant="teal">face ✓</Badge>}
+                    <span className="flex-1" />
+                    <SelfieButton session={s} which="in" />
+                    <SelfieButton session={s} which="out" />
+                  </div>
+                  {editable && mode === 'edit' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Check-in"><Input type="datetime-local" value={drafts[s.id]?.checkInAt ?? toLocalInput(s.checkInAt)} onChange={e => setDraft(s, 'checkInAt', e.target.value)} /></Field>
+                      <Field label="Check-out"><Input type="datetime-local" value={drafts[s.id]?.checkOutAt ?? toLocalInput(s.checkOutAt)} onChange={e => setDraft(s, 'checkOutAt', e.target.value)} /></Field>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {editable && mode === 'edit' && (adding ? (
+            <div className="mt-2 rounded-lg border border-dashed border-line p-2 space-y-2">
+              <p className="text-[11.5px] font-medium text-fg">New session <span className="font-normal text-fg-subtle">(added next to the ones above — nothing is merged)</span></p>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Check-in"><Input type="datetime-local" value={adding.checkInAt} onChange={e => setAdding(a => ({ ...a!, checkInAt: e.target.value }))} /></Field>
+                <Field label="Check-out"><Input type="datetime-local" value={adding.checkOutAt} onChange={e => setAdding(a => ({ ...a!, checkOutAt: e.target.value }))} /></Field>
+              </div>
+              <Button size="xs" variant="ghost" onClick={() => setAdding(null)}>Remove</Button>
+            </div>
+          ) : (
+            <Button size="xs" variant="secondary" className="mt-2" icon={<Plus size={12} />} onClick={() => setAdding({ checkInAt: `${day.date}T09:00`, checkOutAt: `${day.date}T18:00` })}>Add session</Button>
+          ))}
+        </div>
+
+        {editable && (
           <>
             <div className="flex gap-1 border-b border-line-subtle">
               {(['edit', 'leave'] as const).map(m => (
@@ -188,24 +296,21 @@ function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: Regis
             </div>
             {mode === 'edit' ? (
               <div className="space-y-3">
-                <Field label="Status">
-                  <Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as DayStatus }))}>
-                    {MANUAL_STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+                <Field label="Status" hint="Leave on the first option to only fix the punches above and let the policy decide.">
+                  <Select value={status} onChange={e => setStatus(e.target.value as ManualStatus | '')}>
+                    <option value="">{current.source === 'MANUAL' ? `No change (keep manual: ${STATUS_LABEL[current.status]})` : 'Computed from punches'}</option>
+                    {MANUAL_STATUSES.map(s => <option key={s} value={s}>Set manually: {STATUS_LABEL[s]}</option>)}
                   </Select>
                 </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Check-in" hint="Leave blank to keep punches as they are"><Input type="datetime-local" value={form.checkInAt} onChange={e => setForm(f => ({ ...f, checkInAt: e.target.value }))} /></Field>
-                  <Field label="Check-out"><Input type="datetime-local" value={form.checkOutAt} onChange={e => setForm(f => ({ ...f, checkOutAt: e.target.value }))} /></Field>
-                </div>
-                <Field label="Notes (visible to employee)"><Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="e.g. Client visit, regularised" /></Field>
-                <Field label="Reason for correction" required><Textarea rows={2} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Recorded in the audit log" /></Field>
+                <Field label="Notes (visible to employee)"><Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Client visit, regularised" /></Field>
+                <Field label="Reason for correction" required><Textarea rows={2} value={reason} onChange={e => setReason(e.target.value)} placeholder="Recorded in the audit log" /></Field>
               </div>
             ) : (
               <div className="space-y-3">
                 <Field label="Leave type">
                   <Select value={leave.leaveTypeId} onChange={e => setLeave(l => ({ ...l, leaveTypeId: e.target.value }))}>
                     <option value="">Select…</option>
-                    {(leaveTypes ?? []).map(t => <option key={t.id} value={t.id}>{t.name}{t.isPaid === false ? ' (unpaid)' : ''}</option>)}
+                    {(leaveTypes ?? []).map(t => <option key={t.id} value={t.id}>{t.name}{t.isWfh ? ' (work from home)' : t.isPaid === false ? ' (unpaid)' : ''}</option>)}
                   </Select>
                 </Field>
                 <div className="grid grid-cols-2 gap-3">

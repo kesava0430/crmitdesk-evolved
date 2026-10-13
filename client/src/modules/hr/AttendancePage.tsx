@@ -4,12 +4,13 @@ import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   PageHeader, PageBody, Card, CardHeader, Tabs, Button, Badge, Alert, Avatar,
-  DataTable, EmptyState,
+  DataTable, EmptyState, IconButton,
 } from '../../shared/components';
-import { LogIn, LogOut, MapPin, Users, Clock, ScanFace } from 'lucide-react';
+import { LogIn, LogOut, MapPin, Users, Clock, ScanFace, ChevronLeft, ChevronRight, PartyPopper } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { FaceCaptureModal, type FaceSample } from '../../shared/components/FaceCaptureModal';
 import { RegisterSection } from './attendance/RegisterSection';
+import { useMyPolicy, useOptionalHolidays, useSetOptionalHoliday } from '../../api/attendanceAdmin';
 const LiveMap = lazy(() => import('./LiveMap').then(m => ({ default: m.LiveMap })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
@@ -17,6 +18,8 @@ const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 interface AttendanceRecord {
   id: string;
   date: string;
+  /** Calendar day (YYYY-MM-DD) the session belongs to in the policy time zone — computed by the server */
+  day?: string;
   checkInAt: string | null;
   checkOutAt: string | null;
   checkInLocationOk: boolean | null;
@@ -75,16 +78,9 @@ function sumWorkedMinutes(sessions: AttendanceRecord[], now: Date = new Date()):
   return total;
 }
 
-function isSameDay(iso: string, ref: Date) {
-  // Compare UTC days, not the device's. The server stamps
-  // AttendanceRecord.date via todayDateOnly() = Date.UTC(...), so a session
-  // belongs to a UTC calendar day. toDateString() resolves in the device
-  // timezone, so east of UTC every session between 00:00 local and the UTC
-  // rollover looked like "yesterday": today's list came back empty, Check
-  // Out disabled itself, and Check In then failed with "you're already
-  // checked in" because the server saw an open session the client did not.
-  return new Date(iso).toISOString().slice(0, 10) === new Date(ref).toISOString().slice(0, 10);
-}
+/** GET /hr/attendance/me/today — the server decides what "today" is (policy time zone, night
+ *  shifts) and returns the open session from any day, so the client never compares dates itself. */
+interface TodayData { date: string; timezone: string; shiftStart: string; shiftEnd: string; sessions: AttendanceRecord[]; openSession: AttendanceRecord | null }
 
 /** "location and network", "location or face", "no verification" */
 function ruleSummary(r: VerificationRule) {
@@ -133,16 +129,17 @@ function CheckInWidget() {
     return () => clearInterval(t);
   }, []);
 
-  const { data: month } = useQuery<AttendanceRecord[]>({
-    queryKey: ['attendance-me'],
-    queryFn: () => api.get('/hr/attendance/me').then(r => r.data),
+  const { data: today } = useQuery<TodayData>({
+    queryKey: ['attendance-me', 'today'],
+    queryFn: () => api.get('/hr/attendance/me/today').then(r => r.data),
+    refetchInterval: 5 * 60_000,
   });
   const { data: policy } = useAttendancePolicy();
+  const { data: myPolicy } = useMyPolicy();
   const [face, setFace] = useState<{ mode: 'enrol' | 'verify'; action: 'in' | 'out' } | null>(null);
   // Multiple sessions can exist today — sorted newest-first by the API.
-  const todaysSessions = (month || []).filter(r => isSameDay(r.date, now));
-  const lastSession = todaysSessions[0] ?? null;
-  const isCheckedInNow = !!(lastSession?.checkInAt && !lastSession?.checkOutAt);
+  const todaysSessions = today?.sessions ?? [];
+  const isCheckedInNow = !!today?.openSession;
   const totalMinutesToday = sumWorkedMinutes(todaysSessions, now);
   const enrolled = !!policy?.myEnrollment;
   const ruleFor = (action: 'in' | 'out') => (action === 'in' ? policy?.checkInRule : policy?.checkOutRule);
@@ -150,7 +147,8 @@ function CheckInWidget() {
 
   async function postCheck(action: 'in' | 'out', extra: Record<string, unknown> = {}) {
     // Location is only requested when the rule uses it (or the network check, which is recorded alongside).
-    let coords = { lat: 0, lng: 0 };
+    // Otherwise none is sent at all — 0,0 used to be stored and plotted in the Atlantic.
+    let coords: { lat?: number; lng?: number } = {};
     if (needsLocation(action)) { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; }
     await api.post(`/hr/attendance/check-${action}`, { ...coords, ...extra });
     qc.invalidateQueries({ queryKey: ['attendance-me'] });
@@ -252,6 +250,7 @@ function CheckInWidget() {
           <>
             <MapPin size={11} /> Check-in: {ruleSummary(policy.checkInRule)} · Check-out: {ruleSummary(policy.checkOutRule)}
             {policy.faceVerificationRequired && <> · <ScanFace size={11} /> face</>}
+            {myPolicy && <> · shift {myPolicy.shiftStart}–{myPolicy.shiftEnd}{myPolicy.timezone && myPolicy.timezone !== timezone ? ` (${myPolicy.timezone})` : ''}</>}
             {policy.autoCheckoutOnLeave && <> · auto check-out after {policy.autoCheckoutAfterMinutes} min outside the office (keep the app open)</>}
             {policy.shareLiveLocation && <> · your location is shared with managers while you're checked in</>}
           </>
@@ -267,7 +266,7 @@ function CheckInWidget() {
           onCaptured={onFaceCaptured}
           title={face.mode === 'enrol' ? `Enrol your face to check ${face.action}` : 'Face verification'}
           subtitle={face.mode === 'enrol'
-            ? `Your organisation's check-${face.action} rule includes face verification. We'll capture 3 quick samples now and check you ${face.action} straight after. Only a numeric face signature is stored, never the photos.`
+            ? `Your organisation's check-${face.action} rule includes face verification. We'll capture 3 quick samples now and check you ${face.action} straight after. A numeric face signature and one reference photo are stored for matching${policy?.keepCheckInSelfie ? ', and a small photo is kept with each verified check-in for your manager to review' : ''}.`
             : undefined}
         />
       )}
@@ -327,7 +326,7 @@ function FaceIdCard() {
               <p className="text-[12px] text-fg-muted">
                 {pending
                   ? `Replacement submitted ${date(request!.createdAt)} — your current Face ID stays active until it's approved.`
-                  : `Since ${date(e.enrolledAt)}. Only a numeric signature is stored.`}
+                  : `Since ${date(e.enrolledAt)}. Your face signature and reference photo are stored for matching; ask HR to remove them.`}
               </p>
             </>
           ) : (
@@ -373,30 +372,43 @@ function FaceIdCard() {
 
 interface DayGroup { date: string; sessions: AttendanceRecord[] }
 
+/** Groups by the server-computed `day` key (policy time zone) — never by a device-local
+ *  toDateString() of a UTC date, which split or merged days east/west of UTC. */
 function groupByDate(records: AttendanceRecord[]): DayGroup[] {
   const map = new Map<string, AttendanceRecord[]>();
   for (const r of records) {
-    const key = new Date(r.date).toDateString();
+    const key = r.day ?? r.date.slice(0, 10);
     const list = map.get(key) || [];
     list.push(r);
     map.set(key, list);
   }
-  return Array.from(map.entries()).map(([, sessions]) => ({ date: sessions[0].date, sessions }));
+  return Array.from(map.entries()).map(([key, sessions]) => ({ date: key, sessions }));
 }
 
+const monthKeyOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+function shiftMonthKey(m: string, delta: number) { const [y, mo] = m.split('-').map(Number); return monthKeyOf(new Date(y, mo - 1 + delta, 1)); }
+
 function MyHistory() {
-  const { date } = useFormat();
+  const [month, setMonth] = useState(monthKeyOf(new Date()));
   const { data, isLoading } = useQuery<AttendanceRecord[]>({
-    queryKey: ['attendance-me'],
-    queryFn: () => api.get('/hr/attendance/me').then(r => r.data),
+    queryKey: ['attendance-me', 'month', month],
+    queryFn: () => api.get('/hr/attendance/me', { params: { month } }).then(r => r.data),
   });
 
   const days = groupByDate(data || []);
+  const label = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const isCurrent = month === monthKeyOf(new Date());
 
   return (
     <Card padding="none">
       <div className="p-card pb-0">
-        <CardHeader title="This month" />
+        <CardHeader title={isCurrent ? 'This month' : label} actions={
+          <div className="flex items-center gap-1">
+            <IconButton label="Previous month" icon={<ChevronLeft size={14} />} onClick={() => setMonth(m => shiftMonthKey(m, -1))} />
+            <span className="text-xs text-fg-muted min-w-[7.5rem] text-center">{label}</span>
+            <IconButton label="Next month" icon={<ChevronRight size={14} />} disabled={isCurrent} onClick={() => setMonth(m => shiftMonthKey(m, 1))} />
+          </div>
+        } />
       </div>
       <DataTable<DayGroup>
         minWidth={560}
@@ -407,12 +419,12 @@ function MyHistory() {
           <EmptyState
             compact
             icon={<Clock />}
-            title="No records yet this month"
+            title={isCurrent ? 'No records yet this month' : 'No records in this month'}
             description="Your check-ins will appear here day by day."
           />
         }
         columns={[
-          { key: 'date', header: 'Date', cell: d => <span className="tabular-nums">{date(d.date)}</span> },
+          { key: 'date', header: 'Date', cell: d => <span className="tabular-nums">{new Date(`${d.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</span> },
           {
             key: 'sessions',
             header: 'Sessions',
@@ -441,6 +453,42 @@ function MyHistory() {
           },
         ]}
       />
+    </Card>
+  );
+}
+
+/** Employee opt-in to optional (restricted) holidays, up to the policy's yearly allowance (ATT-26). */
+function OptionalHolidaysCard() {
+  const year = new Date().getFullYear();
+  const { data } = useOptionalHolidays(year);
+  const setChoice = useSetOptionalHoliday();
+  const [error, setError] = useState('');
+  if (!data || data.holidays.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader title="Optional holidays" icon={<PartyPopper size={14} />} subtitle={`Pick up to ${data.allowed} restricted holiday${data.allowed === 1 ? '' : 's'} in ${year} — ${data.used} chosen. A chosen day counts as a paid holiday for you.`} />
+      {error && <Alert tone="danger" className="mt-2">{error}</Alert>}
+      <ul className="divide-y divide-line-subtle mt-2">
+        {data.holidays.map(h => {
+          const key = h.date.slice(0, 10);
+          const past = key < data.today;
+          const full = !h.optedIn && data.used >= data.allowed;
+          return (
+            <li key={h.id} className="flex items-center justify-between gap-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm text-fg">{h.name} {h.optedIn && <Badge variant="green">chosen</Badge>}</p>
+                <p className="text-xs text-fg-subtle tabular-nums">{new Date(`${key}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+              </div>
+              {!past && (
+                <Button size="xs" variant={h.optedIn ? 'ghost' : 'secondary'} disabled={full || setChoice.isPending} title={full ? 'You have used your allowance' : undefined}
+                  onClick={() => { setError(''); setChoice.mutate({ id: h.id, optIn: !h.optedIn }, { onError: (e: any) => setError(e?.response?.data?.error || 'Could not save') }); }}>
+                  {h.optedIn ? 'Remove' : 'Take this day'}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </Card>
   );
 }
@@ -517,7 +565,7 @@ function TeamToday() {
           {
             key: 'status',
             header: 'Status',
-            cell: r => r.sessions.length === 0 ? <Badge variant="red">Absent</Badge>
+            cell: r => r.sessions.length === 0 ? <Badge variant="gray">Not checked in</Badge>
               : r.isCheckedInNow ? <Badge variant="green">On-site now</Badge>
               : <Badge variant="yellow">Checked out</Badge>,
           },
@@ -559,6 +607,7 @@ export default function AttendancePage() {
           <div className="space-y-5">
             <CheckInWidget />
             <FaceIdCard />
+            <OptionalHolidaysCard />
             <MyHistory />
             {user?.id && <RegisterSection canEdit={false} onlyUserId={user.id} />}
           </div>

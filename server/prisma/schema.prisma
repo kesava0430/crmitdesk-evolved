@@ -1760,6 +1760,10 @@ model AttendanceRecord {
   outsideSince          DateTime?    @map("outside_since")
   /// Last "open the app to update your location" push sent for this session
   lastNudgedAt          DateTime?    @map("last_nudged_at")
+  /// Set when the app reported it went to the background (Android pause) and
+  /// cleared by the next foreground heartbeat. While set, the silent-session
+  /// timeout doesn't apply — a paused WebView can't send pings (ATT-7).
+  backgroundedAt        DateTime?    @map("backgrounded_at")
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
   org                   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -1769,6 +1773,11 @@ model AttendanceRecord {
 
   @@index([userId, date])
   @@index([orgId, date])
+  @@index([orgId, checkInAt])
+  // At most one OPEN session per user is enforced by the partial unique index
+  // "attendance_records_one_open_per_user" (user_id WHERE check_in_at IS NOT
+  // NULL AND check_out_at IS NULL), created in migration
+  // 20261013110000_attendance_fixes — Prisma can't express partial indexes.
   @@map("attendance_records")
 }
 
@@ -1801,6 +1810,11 @@ model AttendancePolicy {
   /// app is closed). 0 = never nudge. Repeats at most every nudgeRepeatMinutes.
   nudgeAfterMinutes        Int          @default(10) @map("nudge_after_minutes")
   nudgeRepeatMinutes       Int          @default(30) @map("nudge_repeat_minutes")
+  /// Daily close-out: a session still open this many hours after its shift
+  /// ended is closed at shift end (checkOutSource AUTO_CLOSE). 0 = never.
+  autoCloseAfterHours      Int          @default(4) @map("auto_close_after_hours")
+  /// Check-in/out selfies older than this are deleted by the hourly purge.
+  selfieRetentionDays      Int          @default(90) @map("selfie_retention_days")
   /// Max euclidean distance between live and enrolled descriptors to count as
   /// a match. face-api's conventional threshold is 0.6; 0.5 is stricter.
   faceMatchThreshold       Float        @default(0.5) @map("face_match_threshold")
@@ -1919,6 +1933,9 @@ model LeaveType {
   allowHalfDay  Boolean        @default(true) @map("allow_half_day")
   /// Days available before any approval, for LOP-type leave (unpaid, unlimited)
   isUnlimited   Boolean        @default(false) @map("is_unlimited")
+  /// A work-from-home "type": approved requests mark the days WFH (paid) and
+  /// never consume a balance.
+  isWfh         Boolean        @default(false) @map("is_wfh")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -2022,6 +2039,8 @@ model AttendancePolicyGroup {
   weeklyOffs              Int[]        @default([0, 6]) @map("weekly_offs")
   /// Missing check-out: assume shiftEnd (true) or count as ABSENT for the day (false)
   assumeShiftEndOnMissingCheckout Boolean @default(false) @map("assume_shift_end_on_missing_checkout")
+  /// How many optional (restricted) holidays an employee may opt into per calendar year
+  optionalHolidaysAllowed Int          @default(2) @map("optional_holidays_allowed")
   /// { departmentIds, locationIds, employmentTypes, userIds }
   applicability           Json?
   createdAt               DateTime     @default(now()) @map("created_at")
@@ -2043,10 +2062,28 @@ model Holiday {
   isOptional  Boolean      @default(false) @map("is_optional")
   createdAt   DateTime     @default(now()) @map("created_at")
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  optionalChoices OptionalHolidayChoice[]
 
   @@unique([orgId, date, name])
   @@index([orgId, date])
   @@map("holidays")
+}
+
+/// An employee opting into an optional (restricted) holiday — that day then
+/// counts as HOLIDAY for them. Limited per year by the policy group's
+/// optionalHolidaysAllowed. org/user are plain columns (rows go with the
+/// holiday, which cascades from the org).
+model OptionalHolidayChoice {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  userId    String   @map("user_id")
+  holidayId String   @map("holiday_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  holiday   Holiday  @relation(fields: [holidayId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, holidayId])
+  @@index([orgId, userId])
+  @@map("optional_holiday_choices")
 }
 
 enum AttendanceStatus {

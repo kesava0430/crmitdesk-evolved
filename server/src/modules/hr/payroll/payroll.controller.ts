@@ -9,7 +9,7 @@ import { payrollSummary } from '../../../utils/attendanceRegister';
 import { ensureDefaultCycle, employeeContext, toDef } from './payrollConfig.controller';
 import { ensureDefaultTemplate, resolveTemplate } from './payslipTemplates.controller';
 
-const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
+import { isHrManager } from '../../../utils/hrAccess';
 
 // ─── Salary Structures ───────────────────────────────────────────────────────
 
@@ -129,6 +129,8 @@ async function buildPayslip(orgId: string, run: { id: string; periodStart: Date;
     attendanceSummary = {
       source: 'attendance', policyGroup: s.policyGroupName, byStatus: s.byStatus, absentDays: s.absentDays, unpaidLeaveDays: s.unpaidLeaveDays,
       lateCount: s.lateCount, lateConversion: s.lateConversion, futureDaysAssumedPaid: s.futureDaysAssumedPaid, manualCorrections: s.manualCorrections,
+      // Zero punches in the period / days outside employment (ATT-8) — shown on the run review
+      notEmployedDays: s.notEmployedDays, warnings: s.warnings,
     };
   }
   const ctx = await employeeContext(orgId, es.userId);
@@ -333,7 +335,7 @@ export async function listPayslips(req: AuthRequest, res: Response, next: NextFu
   try {
     const orgId = req.user!.orgId;
     const { scope, userId, month, year } = req.query as Record<string, string>;
-    const isManager = MANAGER_ROLES.includes(req.user!.role);
+    const isManager = isHrManager(req.user!.role);
 
     const where: any = { orgId };
     if (isManager && scope === 'org') {
@@ -358,7 +360,7 @@ export async function getPayslip(req: AuthRequest, res: Response, next: NextFunc
   try {
     const payslip = await prisma.payslip.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include: payslipInclude });
     if (!payslip) throw new AppError(404, 'Payslip not found');
-    const isManager = MANAGER_ROLES.includes(req.user!.role);
+    const isManager = isHrManager(req.user!.role);
     if (!isManager && payslip.userId !== req.user!.id) throw new AppError(403, 'You can only view your own payslips');
     if (!isManager && payslip.status === 'DRAFT') throw new AppError(404, 'Payslip not found');
     res.json(payslip);

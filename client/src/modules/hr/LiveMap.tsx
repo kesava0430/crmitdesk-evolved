@@ -15,6 +15,8 @@ interface Person {
   lat: number | null; lng: number | null;
   seenAt: string | null;
   stale: boolean;
+  /** The phone app reported it went to the background (screen locked) — no fixes until it's reopened */
+  backgroundedAt?: string | null;
   inside: boolean | null;
   nearestOffice: { name: string; distanceMeters: number } | null;
   outsideSince: string | null;
@@ -154,7 +156,7 @@ export function LiveMap() {
                     <span className="flex-1 min-w-0">
                       <span className="block text-[13px] font-medium text-fg truncate">{p.user.name}</span>
                       <span className="block text-[11.5px] text-fg-subtle truncate">
-                        {p.stale ? `no fix · last seen ${ago(p.seenAt)}` : p.inside ? `at ${p.nearestOffice?.name ?? 'office'}` : `${p.nearestOffice?.distanceMeters ?? '?'} m from ${p.nearestOffice?.name ?? 'office'}`}
+                        {p.stale ? `${p.backgroundedAt ? 'app in background' : 'no fix'} · last seen ${ago(p.seenAt)}` : p.inside ? `at ${p.nearestOffice?.name ?? 'office'}` : `${p.nearestOffice?.distanceMeters ?? '?'} m from ${p.nearestOffice?.name ?? 'office'}`}
                         {' · '}in since {time(p.checkInAt)}
                       </span>
                     </span>

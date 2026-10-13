@@ -192,7 +192,8 @@ export async function publicAccept(req: Request, res: Response, next: NextFuncti
     if (quote.status === 'ACCEPTED') throw new AppError(400, 'This quote has already been accepted');
     if (quote.status === 'REJECTED') throw new AppError(400, 'This quote was rejected and can no longer be accepted');
 
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
+    // req.ip honours `trust proxy`; the first X-Forwarded-For entry is client-supplied (spoofable).
+    const ip = req.ip || req.socket.remoteAddress || '';
     const updated = await prisma.quote.update({
       where: { id },
       data: {

@@ -15,11 +15,11 @@ interface OfficeLocation {
 }
 interface LeaveType {
   id: string; name: string; annualQuota: number; isPaid: boolean; color: string; isActive: boolean;
-  carryForward?: boolean; carryForwardMaxDays?: number; carryForwardExpiryMonths?: number; allowHalfDay?: boolean; isUnlimited?: boolean;
+  carryForward?: boolean; carryForwardMaxDays?: number; carryForwardExpiryMonths?: number; allowHalfDay?: boolean; isUnlimited?: boolean; isWfh?: boolean;
 }
 
 const emptyOffice = { name: '', latitude: '', longitude: '', radiusMeters: '150', allowedIps: '' };
-const emptyType = { name: '', annualQuota: '12', isPaid: true, color: '#4f46e5', carryForward: false, carryForwardMaxDays: '0', carryForwardExpiryMonths: '0', allowHalfDay: true, isUnlimited: false };
+const emptyType = { name: '', annualQuota: '12', isPaid: true, color: '#4f46e5', carryForward: false, carryForwardMaxDays: '0', carryForwardExpiryMonths: '0', allowHalfDay: true, isUnlimited: false, isWfh: false };
 
 function OfficeLocationsSection() {
   const qc = useQueryClient();
@@ -283,7 +283,7 @@ function LeaveTypesSection() {
 
   const save = useMutation({
     mutationFn: () => {
-      const payload = { name: form.name, annualQuota: Number(form.annualQuota), isPaid: form.isPaid, color: form.color, carryForward: form.carryForward, carryForwardMaxDays: Number(form.carryForwardMaxDays) || 0, carryForwardExpiryMonths: Number(form.carryForwardExpiryMonths) || 0, allowHalfDay: form.allowHalfDay, isUnlimited: form.isUnlimited };
+      const payload = { name: form.name, annualQuota: Number(form.annualQuota), isPaid: form.isPaid, color: form.color, carryForward: form.carryForward, carryForwardMaxDays: Number(form.carryForwardMaxDays) || 0, carryForwardExpiryMonths: Number(form.carryForwardExpiryMonths) || 0, allowHalfDay: form.allowHalfDay, isUnlimited: form.isUnlimited, isWfh: form.isWfh };
       return editing
         ? api.patch(`/hr/leave/types/${editing.id}`, payload)
         : api.post('/hr/leave/types', payload);
@@ -302,7 +302,7 @@ function LeaveTypesSection() {
   function openCreate() { setEditing(null); setForm(emptyType); setError(''); setModalOpen(true); }
   function openEdit(t: LeaveType) {
     setEditing(t);
-    setForm({ name: t.name, annualQuota: String(t.annualQuota), isPaid: t.isPaid, color: t.color, carryForward: !!t.carryForward, carryForwardMaxDays: String(t.carryForwardMaxDays ?? 0), carryForwardExpiryMonths: String(t.carryForwardExpiryMonths ?? 0), allowHalfDay: t.allowHalfDay !== false, isUnlimited: !!t.isUnlimited });
+    setForm({ name: t.name, annualQuota: String(t.annualQuota), isPaid: t.isPaid, color: t.color, carryForward: !!t.carryForward, carryForwardMaxDays: String(t.carryForwardMaxDays ?? 0), carryForwardExpiryMonths: String(t.carryForwardExpiryMonths ?? 0), allowHalfDay: t.allowHalfDay !== false, isUnlimited: !!t.isUnlimited, isWfh: !!t.isWfh });
     setError(''); setModalOpen(true);
   }
   function closeModal() { setModalOpen(false); setEditing(null); }
@@ -331,7 +331,7 @@ function LeaveTypesSection() {
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.color }} />
                 <span className="font-medium text-fg text-sm truncate" title={t.name}>{t.name}</span>
-                <span className="text-xs text-fg-subtle tabular-nums">{t.isUnlimited ? 'Unlimited' : `${t.annualQuota} days/yr`} · {t.isPaid ? 'Paid' : 'Unpaid'}{t.carryForward ? ' · carry-forward' : ''}</span>
+                <span className="text-xs text-fg-subtle tabular-nums">{t.isWfh ? 'Work from home · no balance' : <>{t.isUnlimited ? 'Unlimited' : `${t.annualQuota} days/yr`} · {t.isPaid ? 'Paid' : 'Unpaid'}{t.carryForward ? ' · carry-forward' : ''}</>}</span>
                 {!t.isActive && <Badge variant="gray">Inactive</Badge>}
               </div>
               <RowActions items={[
@@ -365,6 +365,7 @@ function LeaveTypesSection() {
           />
           <Checkbox label="Allow half days" checked={form.allowHalfDay} onChange={e => setForm(f => ({ ...f, allowHalfDay: e.target.checked }))} />
           <Checkbox label="No quota limit (e.g. Leave Without Pay)" checked={form.isUnlimited} onChange={e => setForm(f => ({ ...f, isUnlimited: e.target.checked }))} />
+          <Checkbox label="Work from home (not leave)" hint="Employees request WFH days through the Leave page; approved days show as WFH in the register, are paid and never use a balance." checked={form.isWfh} onChange={e => setForm(f => ({ ...f, isWfh: e.target.checked }))} />
           <Checkbox label="Carry unused days into next year" checked={form.carryForward} onChange={e => setForm(f => ({ ...f, carryForward: e.target.checked }))} />
           {form.carryForward && (
             <div className="grid grid-cols-2 gap-3">
@@ -400,6 +401,7 @@ interface AttendancePolicy {
   autoCheckoutOnLeave: boolean; autoCheckoutAfterMinutes: number; heartbeatTimeoutMinutes: number;
   shareLiveLocation: boolean; locationRetentionDays: number;
   nudgeAfterMinutes: number; nudgeRepeatMinutes: number;
+  autoCloseAfterHours: number; selfieRetentionDays: number;
 }
 
 const SIGNALS: { key: keyof Pick<VerificationRule, 'location' | 'network' | 'face'>; label: string; hint: string }[] = [
@@ -509,16 +511,23 @@ function FaceVerificationSection() {
               disabled={update.isPending}
               onChange={v => update.mutate({ autoCheckoutOnLeave: v })}
               label="Check out automatically when someone leaves the office"
-              hint="While the app is open, it sends a location ping every minute. Once every ping for the period below places the person outside all office radii, their session is closed at the moment they were first seen outside. Browsers can't track location with the app closed."
+              hint="While the app is open, it sends a location ping every minute. Once every ping for the period below places the person outside all office radii, their session is closed at the moment they were first seen outside."
             />
-            {policy.autoCheckoutOnLeave && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Alert tone="info">
+              Location only flows while the app is open on screen. A locked phone or a closed app sends nothing, so geofence check-out can't fire until the app is opened again —
+              the Android app tells us when it's put in the background and silent-session check-out then waits for it to come back. Background location tracking isn't available yet.
+            </Alert>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {policy.autoCheckoutOnLeave && (
                 <NumberSetting label="Outside for (minutes) before check-out" hint="Avoids false check-outs from a GPS blip or a step outside the door." value={policy.autoCheckoutAfterMinutes} min={1} max={240}
                   onSave={v => update.mutate({ autoCheckoutAfterMinutes: v })} saving={update.isPending} />
-                <NumberSetting label="Close silent sessions after (minutes, 0 = off)" hint="If no ping arrives for this long (app closed, phone off), check out at the last ping." value={policy.heartbeatTimeoutMinutes} min={0} max={1440}
-                  onSave={v => update.mutate({ heartbeatTimeoutMinutes: v })} saving={update.isPending} />
-              </div>
-            )}
+              )}
+              {/* Independent of geofence check-out (ATT-30) */}
+              <NumberSetting label="Close silent sessions after (minutes, 0 = off)" hint="If no ping arrives for this long while the app is in the foreground (browser tab closed, phone off), check out at the last ping. Not applied while the Android app reports it's in the background." value={policy.heartbeatTimeoutMinutes} min={0} max={1440}
+                onSave={v => update.mutate({ heartbeatTimeoutMinutes: v })} saving={update.isPending} />
+              <NumberSetting label="Close forgotten sessions after shift end (hours, 0 = never)" hint="A session still open this long after the shift ended is closed at shift end and marked 'not checked out' — the day stays Absent unless the policy assumes shift end. Stops weekend reminders for a forgotten check-out." value={policy.autoCloseAfterHours ?? 4} min={0} max={48}
+                onSave={v => update.mutate({ autoCloseAfterHours: v })} saving={update.isPending} />
+            </div>
           </div>
         )}
         {policy && (
@@ -546,7 +555,7 @@ function FaceVerificationSection() {
           </div>
         )}
         {policy?.faceVerificationRequired && (
-          <p className="text-[12px] text-fg-muted">Face verification: employees enrol once from the Attendance page (3 webcam samples). Only a numeric face signature is stored — not photos — and anyone can remove theirs; you can reset it below.</p>
+          <p className="text-[12px] text-fg-muted">Face verification: employees enrol once from the Attendance page (3 webcam samples). A numeric face signature and one reference photo are stored; replacing a face needs Super Admin approval and you can reset an enrolment below. Check-in photos (if kept) are deleted after the retention period.</p>
         )}
         {policy?.faceVerificationRequired && (
           <>
@@ -563,8 +572,12 @@ function FaceVerificationSection() {
                 disabled={update.isPending}
                 onChange={v => update.mutate({ keepCheckInSelfie: v })}
                 label="Keep the check-in selfie as evidence"
-                hint="A small photo is stored on each verified check-in for manager review. Turn off to store only the pass/fail result."
+                hint="A small photo is stored on each verified check-in for manager review (open a day in the Register). Turn off to store only the pass/fail result."
               />
+              {policy.keepCheckInSelfie && (
+                <NumberSetting label="Delete check-in photos after (days)" hint="Older photos are removed automatically; the pass/fail result stays." value={policy.selfieRetentionDays ?? 90} min={1} max={3650}
+                  onSave={v => update.mutate({ selfieRetentionDays: v })} saving={update.isPending} />
+              )}
             </div>
 
             <div className="border-t border-line-subtle pt-4">
