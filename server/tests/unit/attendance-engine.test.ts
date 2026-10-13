@@ -13,11 +13,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   evaluateDay, summarise, countWorkingDays, shiftDayKey, localDateKey, zonedDayStart, minutesIntoDay, dayPhase,
-  safeTimeZone, isValidTimeZone, isScoped, pickGroup, lateConversion, keyToDate, shiftEndInstant,
+  safeTimeZone, isValidTimeZone, isScoped, pickGroup, pickHoliday, lateConversion, keyToDate, shiftEndInstant,
   DEFAULT_POLICY, type Policy, type DayContext,
 } from '../../src/utils/attendanceEngine';
 import { verifyAgainstOffices, extractClientIp, requestIp } from '../../src/utils/attendanceVerification';
-import { closeOutPlan } from '../../src/utils/attendanceAutoCheckout';
+import { closeOutPlan, staleCloseAt } from '../../src/utils/attendanceAutoCheckout';
 
 const IST = 'Asia/Kolkata';
 const ist = (local: string) => new Date(`${local}:00+05:30`);
@@ -304,4 +304,61 @@ test('ATT-17: forgotten sessions close at shift end, after the grace hours', () 
   assert.equal(late.closeAt.toISOString(), ist(`${MON}T19:00`).toISOString());
   // Night shift ends the next morning
   assert.equal(shiftEndInstant(night(), MON).toISOString(), ist(`${TUE}T06:00`).toISOString());
+});
+
+// ─── Review follow-ups (H1, H2, M1, L9) ──────────────────────────────────────
+
+test('H2: an auto-closed session doesn\'t force ABSENT when the day has a complete session', () => {
+  const now = ist(`${WED}T12:00`);
+  const sessions = [
+    { checkInAt: ist(`${MON}T09:00`), checkOutAt: ist(`${MON}T18:00`), checkOutSource: 'AUTO_CLOSE' },
+    { checkInAt: ist(`${MON}T13:00`), checkOutAt: ist(`${MON}T18:00`) },
+  ];
+  const r = evaluateDay(policy(), day(MON, { sessions }), now);
+  assert.equal(r.workedMinutes, 300); // the auto-closed session contributes 0, never its stored check-out
+  assert.equal(r.status, 'HALF_DAY');
+  // Only the forgotten session that day → still "never checked out"
+  assert.equal(evaluateDay(policy(), day(MON, { sessions: [sessions[0]] }), now).status, 'ABSENT');
+});
+
+test('H2: a system close-out time is never treated as worked time without assume-shift-end', () => {
+  const now = ist(`${WED}T12:00`);
+  // Closed "late" at a last ping — must not turn into hours/overtime
+  const s = [{ checkInAt: ist(`${MON}T09:00`), checkOutAt: ist(`${MON}T23:30`), checkOutSource: 'AUTO_CLOSE' }];
+  const r = evaluateDay(policy({ overtimeAfterMinutes: 30 }), day(MON, { sessions: s }), now);
+  assert.equal(r.workedMinutes, 0);
+  assert.equal(r.overtimeMinutes, 0);
+  const assumed = evaluateDay(policy({ assumeShiftEndOnMissingCheckout: true, overtimeAfterMinutes: 30 }), day(MON, { sessions: s }), now);
+  assert.equal(assumed.workedMinutes, 540);
+  assert.equal(assumed.overtimeMinutes, 0);
+});
+
+test('M1: a DEDUPED (zero-length) session keeps assume-shift-end semantics', () => {
+  const now = ist(`${WED}T12:00`);
+  const s = [{ checkInAt: ist(`${MON}T09:00`), checkOutAt: ist(`${MON}T09:00`), checkOutSource: 'DEDUPED' }];
+  assert.equal(evaluateDay(policy({ assumeShiftEndOnMissingCheckout: true }), day(MON, { sessions: s }), now).status, 'PRESENT');
+  assert.equal(evaluateDay(policy(), day(MON, { sessions: s }), now).status, 'ABSENT');
+});
+
+test('H1: a session from last week is "past" and closes at its own shift end, never now', () => {
+  const p = policy();
+  const checkIn = ist('2026-10-05T09:00');
+  const now = ist(`${TUE}T10:00`);
+  assert.equal(dayPhase(p, '2026-10-05', now), 'past');
+  // A stray ping from a later day must not stretch the session
+  assert.equal(staleCloseAt(p, '2026-10-05', checkIn, ist(`${TUE}T09:55`)).toISOString(), ist('2026-10-05T18:00').toISOString());
+  // A ping later the same evening shows they were still there
+  assert.equal(staleCloseAt(p, '2026-10-05', checkIn, ist('2026-10-05T20:10')).toISOString(), ist('2026-10-05T20:10').toISOString());
+  assert.equal(staleCloseAt(p, '2026-10-05', checkIn, null).toISOString(), ist('2026-10-05T18:00').toISOString());
+  // Night shift: closes the next morning at 06:00
+  assert.equal(staleCloseAt(night(), '2026-10-05', ist('2026-10-05T22:00'), null).toISOString(), ist('2026-10-06T06:00').toISOString());
+});
+
+test('L9: a mandatory holiday wins over an optional one on the same date', () => {
+  const optional = { id: 'o', isOptional: true, locationIds: [] as string[], name: 'Optional' };
+  const mandatory = { id: 'm', isOptional: false, locationIds: [] as string[], name: 'Mandatory' };
+  const elsewhere = { id: 'x', isOptional: false, locationIds: ['blr'], name: 'Other branch' };
+  assert.equal(pickHoliday([optional, mandatory], 'hyd', new Set())!.id, 'm');
+  assert.equal(pickHoliday([optional, elsewhere], 'hyd', new Set(['o']))!.id, 'o');
+  assert.equal(pickHoliday([elsewhere], 'hyd', new Set()), null);
 });

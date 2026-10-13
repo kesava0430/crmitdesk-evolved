@@ -27,8 +27,8 @@ import { verifyAgainstOffices } from './attendanceVerification';
 import { sseManager, SSEEvent } from './sse';
 import { logAction } from './auditLog';
 import { sendPushToUser } from './webPush';
-import { policiesForOrg, recordDayKey } from './attendanceRegister';
-import { shiftEndInstant } from './attendanceEngine';
+import { policiesForOrg, policyForUser, recordDayKey } from './attendanceRegister';
+import { shiftEndInstant, shiftWindow, zonedDayStart, dayPhase, type Policy } from './attendanceEngine';
 
 /** Nudges only go to sessions that started within this window (one long shift plus slack). */
 const NUDGE_WINDOW_MS = 16 * 3_600_000;
@@ -77,6 +77,11 @@ export async function recordHeartbeat(orgId: string, userId: string, lat: number
     orderBy: { checkInAt: 'desc' },
   });
   if (!session) return { open: false, inside: null, nearestDistanceMeters: null, outsideSince: null, minutesUntilAutoCheckout: null };
+  // A session from a day that is already over is a forgotten one: close it at
+  // its shift end instead of extending it to now with today's pings (H1).
+  const { policy: dayPolicy } = await policyForUser(orgId, userId);
+  const staleAt = await closeIfStale(session, dayPolicy, now);
+  if (staleAt) return { open: false, inside: null, nearestDistanceMeters: null, outsideSince: null, checkedOut: { at: staleAt, source: 'AUTO_CLOSE' }, minutesUntilAutoCheckout: null };
   const backgroundedAt = state === 'background' ? (session.backgroundedAt ?? now) : null;
   if (lat == null || lng == null) {
     await prisma.attendanceRecord.update({ where: { id: session.id }, data: { lastSeenAt: now, backgroundedAt } });
@@ -154,24 +159,67 @@ export function closeOutPlan(checkInAt: Date, shiftEnd: Date, afterHours: number
 }
 
 /**
- * Daily close-out (hourly from index.ts): sessions still open more than
- * autoCloseAfterHours after their shift ended are closed at shift end with
- * checkOutSource AUTO_CLOSE. The engine treats that like a missing check-out
- * (ABSENT unless the policy assumes shift end), so pay doesn't change — the
- * session just stops being "on site", nudged, and blocking the next check-in.
+ * Pure: the check-out time given to a forgotten session — its shift end, or
+ * the last ping if the person was demonstrably still around later that same
+ * shift day (never a ping from a later day, never before check-in).
+ */
+export function staleCloseAt(policy: Policy, dayKey: string, checkInAt: Date, lastSeenAt: Date | null): Date {
+  const { closeAt } = closeOutPlan(checkInAt, shiftEndInstant(policy, dayKey), 0);
+  const dayWindowEnd = zonedDayStart(dayKey, policy.timezone).getTime() + Math.max(1440, shiftWindow(policy).end + 240) * 60_000;
+  if (lastSeenAt && lastSeenAt.getTime() <= dayWindowEnd && lastSeenAt.getTime() > closeAt.getTime()) return lastSeenAt;
+  return closeAt;
+}
+
+/** Pings this recent mean the person is still working — never auto-close then. */
+export const RECENTLY_SEEN_MS = 30 * 60_000;
+
+type OpenRow = { id: string; orgId: string; userId: string; date: Date; checkInAt: Date | null; lastSeenAt: Date | null; lastSeenLat: number | null; lastSeenLng: number | null; lastSeenInside: boolean | null };
+
+async function autoClose(r: OpenRow, at: Date): Promise<boolean> {
+  // Guarded update: the person may have checked out in the meantime
+  const res = await prisma.attendanceRecord.updateMany({
+    where: { id: r.id, checkOutAt: null },
+    data: { checkOutAt: at, checkOutSource: 'AUTO_CLOSE', checkOutLat: r.lastSeenLat, checkOutLng: r.lastSeenLng, checkOutLocationOk: r.lastSeenInside, checkOutPassed: null, outsideSince: null, backgroundedAt: null },
+  });
+  if (!res.count) return false;
+  logAction(r.userId, 'UPDATE', 'AttendanceRecord', r.id, { action: 'check_out', source: 'AUTO_CLOSE' });
+  sseManager.broadcastAll(r.orgId, SSEEvent.ATTENDANCE_UPDATED, { userId: r.userId, type: 'check_out', source: 'AUTO_CLOSE' });
+  return true;
+}
+
+/**
+ * If an open session belongs to a day that is already over (policy timezone,
+ * overnight shifts included), close it with AUTO_CLOSE at staleCloseAt() —
+ * whatever the org's auto-close setting, because a session from an earlier day
+ * must never stay open into today. Returns the check-out time, or null when
+ * the session's day isn't over (or it was closed meanwhile).
+ */
+export async function closeIfStale(r: OpenRow, policy: Policy, now = new Date()): Promise<Date | null> {
+  if (!r.checkInAt) return null;
+  const dayKey = recordDayKey(r, policy);
+  if (dayPhase(policy, dayKey, now) !== 'past') return null;
+  const at = staleCloseAt(policy, dayKey, r.checkInAt, r.lastSeenAt);
+  return (await autoClose(r, at)) ? at : null;
+}
+
+/**
+ * Close-out (at startup and hourly from index.ts):
+ *  - a session whose shift day is over is always closed (closeIfStale);
+ *  - for orgs with autoCloseAfterHours > 0 (default 4), a session still open
+ *    that long after shift end is closed too — but only if it is genuinely
+ *    silent: no ping and no background report in the last 30 minutes.
+ * The engine treats AUTO_CLOSE like a missing check-out, so pay doesn't change.
  */
 export async function closeForgottenSessions(now = new Date()): Promise<number> {
-  const policies = await prisma.attendancePolicy.findMany({ where: { autoCloseAfterHours: { gt: 0 } }, select: { orgId: true, autoCloseAfterHours: true } });
+  const DEFAULT_HOURS = 4; // orgs that never saved a policy
+  const policies = await prisma.attendancePolicy.findMany({ select: { orgId: true, autoCloseAfterHours: true } });
   const hoursByOrg = new Map(policies.map(p => [p.orgId, p.autoCloseAfterHours]));
-  // Orgs that never saved a policy get the default (4h) too
-  const DEFAULT_HOURS = 4;
-  const disabled = new Set((await prisma.attendancePolicy.findMany({ where: { autoCloseAfterHours: 0 }, select: { orgId: true } })).map(p => p.orgId));
   const open = await prisma.attendanceRecord.findMany({
     where: { checkInAt: { not: null, lt: new Date(now.getTime() - 4 * 3_600_000) }, checkOutAt: null },
-    select: { id: true, orgId: true, userId: true, date: true, checkInAt: true, lastSeenLat: true, lastSeenLng: true, lastSeenInside: true },
+    select: { id: true, orgId: true, userId: true, date: true, checkInAt: true, lastSeenAt: true, backgroundedAt: true, lastSeenLat: true, lastSeenLng: true, lastSeenInside: true },
   });
   const byOrg = new Map<string, typeof open>();
-  for (const r of open) { if (disabled.has(r.orgId)) continue; const l = byOrg.get(r.orgId) ?? []; l.push(r); byOrg.set(r.orgId, l); }
+  for (const r of open) { const l = byOrg.get(r.orgId) ?? []; l.push(r); byOrg.set(r.orgId, l); }
   let closed = 0;
   for (const [orgId, rows] of byOrg) {
     const policies = await policiesForOrg(orgId, [...new Set(rows.map(r => r.userId))]);
@@ -179,19 +227,14 @@ export async function closeForgottenSessions(now = new Date()): Promise<number> 
     for (const r of rows) {
       const policy = policies.get(r.userId);
       if (!policy) continue;
-      const end = shiftEndInstant(policy, recordDayKey(r, policy));
-      const plan = closeOutPlan(r.checkInAt!, end, hours);
+      if (await closeIfStale(r, policy, now)) { closed++; continue; }
+      if (hours <= 0) continue;
+      const recent = (d: Date | null) => !!d && now.getTime() - d.getTime() < RECENTLY_SEEN_MS;
+      if (recent(r.lastSeenAt) || recent(r.backgroundedAt)) continue;
+      const plan = closeOutPlan(r.checkInAt!, shiftEndInstant(policy, recordDayKey(r, policy)), hours);
       if (now.getTime() < plan.dueAt.getTime()) continue;
-      // Guarded update: the person may have checked out in the meantime
-      const res = await prisma.attendanceRecord.updateMany({
-        where: { id: r.id, checkOutAt: null },
-        data: { checkOutAt: plan.closeAt, checkOutSource: 'AUTO_CLOSE', checkOutLat: r.lastSeenLat, checkOutLng: r.lastSeenLng, checkOutLocationOk: r.lastSeenInside, checkOutPassed: null, outsideSince: null, backgroundedAt: null },
-      });
-      if (res.count) {
-        closed++;
-        logAction(r.userId, 'UPDATE', 'AttendanceRecord', r.id, { action: 'check_out', source: 'AUTO_CLOSE' });
-        sseManager.broadcastAll(orgId, SSEEvent.ATTENDANCE_UPDATED, { userId: r.userId, type: 'check_out', source: 'AUTO_CLOSE' });
-      }
+      const at = r.lastSeenAt && r.lastSeenAt > plan.closeAt ? r.lastSeenAt : plan.closeAt;
+      if (await autoClose(r, at)) closed++;
     }
   }
   return closed;

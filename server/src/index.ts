@@ -391,6 +391,11 @@ pollers.push(setInterval(() => {
   purgeOldSelfies().then(n => { if (n) console.log(`[attendance] cleared ${n} old check-in selfies`); }).catch(() => {});
   closeForgottenSessions().then(n => { if (n) console.log(`[attendance] closed ${n} forgotten session(s) after shift end`); }).catch(err => console.error('[attendance] close-out failed', err));
 }, 60 * 60 * 1000));
+// …and once shortly after boot, so a restart never delays closing sessions
+// forgotten on an earlier day by up to an hour.
+setTimeout(() => {
+  closeForgottenSessions().then(n => { if (n) console.log(`[attendance] closed ${n} forgotten session(s) at startup`); }).catch(err => console.error('[attendance] startup close-out failed', err));
+}, 30 * 1000);
 
 // Schedule reminders: check for due WhatsApp notifications every minute
 startSchedulePoller();

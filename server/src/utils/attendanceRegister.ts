@@ -16,7 +16,7 @@
 import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
 import {
-  evaluateDay, summarise, pickGroup, shiftDayKey, safeTimeZone, dateKey, keyToDate, addDaysKey, dayPhase, todayKeyFor,
+  evaluateDay, summarise, pickGroup, pickHoliday, shiftDayKey, safeTimeZone, dateKey, keyToDate, addDaysKey, dayPhase, todayKeyFor,
   DEFAULT_POLICY, DEFAULT_LATE_BANDS, NON_PERSISTED_STATUSES, isScoped,
   type Policy, type DayStatus, type PeriodSummary, type Session, type DayPhase, type SummaryDay,
 } from './attendanceEngine';
@@ -210,7 +210,7 @@ export async function computeDays(orgId: string, userId: string, from: Date, to:
     const dayLeaves = leaves.filter(l => l.startDate.getTime() <= t && l.endDate.getTime() >= t);
     const wfhLeave = dayLeaves.find(l => l.leaveType.isWfh);
     const leave = dayLeaves.find(l => !l.leaveType.isWfh);
-    const holiday = holidays.find(h => dateKey(h.date) === key && (h.locationIds.length === 0 || (locationId && h.locationIds.includes(locationId))));
+    const holiday = pickHoliday(holidays.filter(h => dateKey(h.date) === key), locationId, chosen);
     // Legacy heuristic kept for backward compatibility: a punched record noted "WFH"
     const wfh = dayRecords.some(r => r.notes?.toUpperCase().includes('WFH'));
     const res = evaluateDay(policy, {

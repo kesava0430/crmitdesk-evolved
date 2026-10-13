@@ -103,14 +103,20 @@ test.describe('Attendance policy engine', () => {
     expect((await cancel.json()).status).toBe('CANCELLED');
   });
 
-  test('nobody can approve their own leave', async ({ page }) => {
+  test('own leave needs another HR manager when one exists (sole manager may self-approve)', async ({ page }) => {
     await login(page);
     const headers = { Authorization: `Bearer ${await token(page)}` };
     const userId = await myId(page);
+    const usersRes = await (await page.request.get(`${API}/api/users`, { headers })).json();
+    const users: any[] = Array.isArray(usersRes) ? usersRes : usersRes.data ?? [];
+    const otherManager = users.some(u => u.id !== userId && u.isActive !== false && ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'].includes(u.role));
     const types = await (await page.request.get(`${API}/api/hr/leave/types`, { headers })).json();
     const d = new Date(); d.setMonth(d.getMonth() + 2); d.setDate(5);
     while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
     const res = await page.request.post(`${API}/api/hr/leave/requests/on-behalf`, { headers, data: { userId, leaveTypeId: types[0].id, startDate: ymd(d), endDate: ymd(d), autoApprove: true, allowNegative: true } });
-    expect(res.status()).toBe(403);
+    if (otherManager) { expect(res.status()).toBe(403); return; }
+    expect(res.status()).toBe(201);
+    const req = await res.json();
+    await page.request.post(`${API}/api/hr/leave/requests/${req.id}/admin-cancel`, { headers, data: { reason: 'e2e cleanup' } });
   });
 });
