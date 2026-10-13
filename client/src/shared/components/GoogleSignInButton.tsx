@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { isNative } from '../../native/platform';
 
 // Loads Google's Identity Services script on demand and renders the
 // official "Sign in with Google" button. The client ID is not a secret
@@ -35,7 +36,7 @@ export function GoogleSignInButton({ onIdToken, text = 'signin_with' }: { onIdTo
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
   useEffect(() => {
-    if (!clientId) return;
+    if (!clientId || isNative) return;
     let cancelled = false;
     loadGoogleScript().then(() => {
       if (cancelled || !ref.current) return;
@@ -52,6 +53,8 @@ export function GoogleSignInButton({ onIdToken, text = 'signin_with' }: { onIdTo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
-  if (!clientId) return null;
+  // Google refuses to run its sign-in inside an embedded WebView (the
+  // Android app), so the button would only ever show an error there.
+  if (!clientId || isNative) return null;
   return <div ref={ref} className={ready ? '' : 'h-10'} />;
 }

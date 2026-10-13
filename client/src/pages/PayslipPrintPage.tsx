@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Wallet, Printer, FileDown } from 'lucide-react';
 import { Button, EmptyState } from '../shared/components';
 import { usePayslipHtml, downloadPdf } from '../api/payslipTemplates';
+import { isNative } from '../native/platform';
 
 // Authenticated, in-app print view. Since phase 4 the document itself is
 // rendered on the server (utils/payslipRender.ts) from the payslip's pinned
@@ -41,7 +42,9 @@ export default function PayslipPrintPage() {
           <Button variant="secondary" icon={<FileDown size={14} />} loading={busy} onClick={async () => { setBusy(true); try { await downloadPdf(`/hr/payroll/payslips/${id}/pdf${templateId ? `?templateId=${templateId}` : ''}`, `payslip-${id}.pdf`); } finally { setBusy(false); } }}>
             Download PDF
           </Button>
-          <Button icon={<Printer size={14} />} onClick={() => window.print()}>Print</Button>
+          {/* window.print() is a no-op inside the Android WebView — the PDF
+              (opened through the share sheet) is the printable copy there. */}
+          {!isNative && <Button icon={<Printer size={14} />} onClick={() => window.print()}>Print</Button>}
         </div>
         <div className="rounded-card shadow-card overflow-hidden bg-white print:shadow-none print:rounded-none" dangerouslySetInnerHTML={{ __html: data.html }} />
       </div>

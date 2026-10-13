@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
+import { isNative } from '../native/platform';
 
 // Real browser/OS push notifications (Push API) — separate from the
 // in-app-only SSE + polling system in useSSE.ts/NotificationBell.tsx, which
@@ -9,7 +10,10 @@ import { api } from '../api/client';
 
 export type PushPermission = 'unsupported' | 'default' | 'granted' | 'denied';
 
+// Never in the Android app: its WebView has no Push API (and no service
+// worker any more — see main.tsx). The app uses FCM instead: native/push.ts.
 const isSupported =
+  !isNative &&
   typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
 /**

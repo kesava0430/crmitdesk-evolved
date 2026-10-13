@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
+import { saveOrShareBlob } from '../native/download';
+import { isNative } from '../native/platform';
 
 export type LayoutKey = 'STANDARD' | 'MODERN' | 'MINIMAL' | 'DETAILED' | 'COMPACT' | 'CORPORATE' | 'BRANCH' | 'STATEMENT';
 export interface LayoutInfo { key: LayoutKey; name: string; description: string; defaults: Record<string, boolean> }
@@ -37,13 +39,21 @@ export const usePayslipHtml = (id?: string, templateId?: string) => useQuery<{ h
   enabled: !!id,
 });
 
-/** Fetch a PDF through the authenticated client and hand it to the browser. */
+/** Fetch a PDF through the authenticated client and hand it to the user (share sheet in the app — see native/download.ts). */
 export async function downloadPdf(path: string, filename: string, open = false) {
   const res = await api.get(path, { responseType: 'blob', timeout: 120_000 });
-  const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-  if (open) window.open(url, '_blank');
-  else { const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); }
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  await saveOrShareBlob(new Blob([res.data], { type: 'application/pdf' }), filename, { open });
+}
+
+/**
+ * "Print view" for a payslip. On the web it opens the print page in a new
+ * tab — under the app's base path (a bare '/hr/...' 404'd on
+ * app.zenkara.in/zenkara). The app has no tabs and window.print() does
+ * nothing in a WebView, so there it opens the same server-rendered PDF.
+ */
+export function openPayslipPrintView(id: string, payslipNumber?: string) {
+  if (isNative) return downloadPdf(`/hr/payroll/payslips/${id}/pdf`, `${payslipNumber || `payslip-${id}`}.pdf`, true);
+  window.open(`${import.meta.env.BASE_URL}hr/payroll/payslips/${id}/print`, '_blank');
 }
 export function useEmailPayslip() { const qc = useQueryClient(); return useMutation({ mutationFn: (id: string) => api.post(`/hr/payroll/payslips/${id}/email`).then(r => r.data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['payroll-run'] }); qc.invalidateQueries({ queryKey: ['payslips'] }); } }); }
 export function useEmailRun() { const qc = useQueryClient(); return useMutation({ mutationFn: ({ id, onlyUnsent = true }: { id: string; onlyUnsent?: boolean }) => api.post(`/hr/payroll/runs/${id}/email`, { onlyUnsent }).then(r => r.data as { sent: number; skipped: number; failed: { id: string; reason?: string }[] }), onSuccess: () => qc.invalidateQueries({ queryKey: ['payroll-run'] }) }); }

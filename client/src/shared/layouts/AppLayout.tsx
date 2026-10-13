@@ -25,6 +25,7 @@ import { useLabels, type LabelEntityKey } from "../../hooks/useLabels";
 import { can } from "../permissions";
 import { useLicense } from "../../api/billing";
 import { useAttendanceHeartbeat } from "../../hooks/useAttendanceHeartbeat";
+import { useBackButtonClose } from "../../native/overlayStack";
 import { AlertTriangle } from "lucide-react";
 
 // Which nav routes / page-title routes correspond to a relabelable entity —
@@ -438,6 +439,9 @@ export function AppLayout() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  // Android Back closes the open drawer first (see native/overlayStack.ts).
+  useBackButtonClose(sidebarOpen, () => setSidebarOpen(false));
+
   // Close sidebar on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -460,7 +464,9 @@ export function AppLayout() {
   }, []);
 
   function handleLogout() {
-    logout();
+    // logout() clears the session locally at once; the server-side revoke
+    // it also fires is best-effort and needn't hold up the navigation.
+    void logout();
     navigate("/login");
   }
 
@@ -500,7 +506,7 @@ export function AppLayout() {
   }, [location.pathname, workspace.config]);
 
   return (
-    <div className="flex h-screen bg-canvas overflow-hidden">
+    <div className="flex app-viewport bg-canvas overflow-hidden">
 
       {/* Skip link for keyboard users */}
       <a
@@ -521,7 +527,7 @@ export function AppLayout() {
       {/* Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 w-sidebar flex flex-col bg-sidebar border-r border-sidebar-line shadow-ui-lg
+          fixed inset-y-0 left-0 z-50 w-sidebar flex flex-col bg-sidebar border-r border-sidebar-line shadow-ui-lg sidebar-safe
           transition-transform duration-200 ease-out
           lg:relative lg:translate-x-0 lg:shadow-none lg:z-auto lg:pointer-events-auto
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"}
@@ -534,10 +540,10 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Top bar */}
-        <header className="flex-shrink-0 flex items-center gap-3 px-4 h-topbar bg-surface/85 backdrop-blur-md border-b border-line-subtle z-30">
+        <header className="flex-shrink-0 flex items-center gap-3 px-4 h-topbar topbar-safe bg-surface/85 backdrop-blur-md border-b border-line-subtle z-30">
           {/* Hamburger — mobile only */}
           <button
-            className="lg:hidden p-1.5 -ml-1 rounded-md text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
+            className="lg:hidden p-1.5 -ml-1 rounded-md text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors icon-touch inline-flex items-center justify-center"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
           >
@@ -594,7 +600,7 @@ export function AppLayout() {
         <LicenceBanner role={user?.role} />
 
         {/* Page content */}
-        <main id="main-content" className="flex-1 overflow-y-auto">
+        <main id="main-content" className="flex-1 overflow-y-auto main-safe">
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

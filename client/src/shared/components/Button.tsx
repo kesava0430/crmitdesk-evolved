@@ -53,9 +53,9 @@ const variants: Record<Variant, string> = {
    row of buttons still lines up with inputs of the same size. */
 const sizes: Record<Size, string> = {
   xs: 'px-2.5 text-[11.5px] gap-1   h-ctl-xs',
-  sm: 'px-3   text-[12.5px] gap-1.5 h-ctl-sm',
-  md: 'px-3.5 text-[13px]   gap-1.5 h-ctl-md',
-  lg: 'px-4   text-[13.5px] gap-2   h-ctl-lg',
+  sm: 'px-3   text-[12.5px] gap-1.5 h-ctl-sm btn-touch',
+  md: 'px-3.5 text-[13px]   gap-1.5 h-ctl-md btn-touch',
+  lg: 'px-4   text-[13.5px] gap-2   h-ctl-lg btn-touch',
 };
 
 const spinnerSize: Record<Size, number> = { xs: 11, sm: 12, md: 13, lg: 14 };

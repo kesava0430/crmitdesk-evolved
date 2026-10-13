@@ -14,6 +14,8 @@ import { ToastContainer } from './shared/components/ToastContainer';
 // blank white screen with no way back. This outer boundary is the fallback
 // for everything the inner one can't see.
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
+import { isNative } from './native/platform';
+import { hydrateAuthFromDurable } from './api/authStorage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,7 +37,7 @@ const queryClient = new QueryClient({
   },
 });
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const render = () => ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <ThemeProvider>
@@ -54,3 +56,21 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+
+// Service worker (push notifications + precache) — web only; same
+// registration vite-plugin-pwa used to inject (see vite.config.ts). In the app,
+// remove any worker an older build registered so it can't serve a stale bundle.
+if ('serviceWorker' in navigator) {
+  if (!isNative && import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).catch(() => {});
+    });
+  } else if (isNative) {
+    navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+  }
+}
+
+// Android app: restore the session from native storage before the first
+// render reads localStorage (see api/authStorage.ts). The web renders at once.
+if (isNative) hydrateAuthFromDurable().finally(render);
+else render();

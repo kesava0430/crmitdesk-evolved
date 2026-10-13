@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect } from 'react';
+import { useBackButtonClose } from '../../native/overlayStack';
 
 interface ModalProps {
   open: boolean;
@@ -22,6 +23,9 @@ const sizes: Record<string, string> = {
 export function Modal({
   open, onClose, title, subtitle, icon, children, footer, size = 'md',
 }: ModalProps) {
+  // Android Back closes the modal (see native/overlayStack.ts).
+  useBackButtonClose(open, onClose);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     if (open) document.addEventListener('keydown', handler);
@@ -56,7 +60,7 @@ export function Modal({
 
       {/* Panel */}
       <div
-        className={`relative w-full sm:mx-4 ${sizes[size]} max-h-[92vh] sm:max-h-[88vh] flex flex-col animate-scale-in`}
+        className={`relative w-full sm:mx-4 ${sizes[size]} flex flex-col animate-scale-in modal-panel`}
         style={{
           background:   'rgb(var(--ui-modal-bg))',
           borderRadius: 'var(--ui-modal-radius, 18px)',

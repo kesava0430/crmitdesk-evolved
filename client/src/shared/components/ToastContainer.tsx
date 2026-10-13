@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { X, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { subscribe, removeToast, Toast } from './toastStore';
 
@@ -17,7 +18,7 @@ export function ToastContainer() {
   if (!toasts.length) return null;
 
   return (
-    <div role="region" aria-label="Notifications" aria-live="polite" className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 w-96 max-w-[calc(100vw-2rem)] pointer-events-none">
+    <div role="region" aria-label="Notifications" aria-live="polite" className="fixed top-4 toast-safe right-4 z-[9999] flex flex-col gap-2 w-96 max-w-[calc(100vw-2rem)] pointer-events-none">
       {toasts.map(t => {
         const { icon, bg, bar } = CONFIG[t.type];
         return (
@@ -31,9 +32,19 @@ export function ToastContainer() {
             <div className="flex-1 min-w-0">
               <p className="text-sm leading-snug">{t.message}</p>
               {t.actionHref && (
-                <a href={t.actionHref} className="inline-block mt-1 text-sm font-semibold underline underline-offset-2 hover:opacity-80">
-                  {t.actionLabel || 'View'}
-                </a>
+                /* In-app paths ('/billing', '/hr/attendance') go through the
+                   router so the deployment's base path (/zenkara/ on the web)
+                   is applied — a raw <a href="/billing"> 404'd there. Full
+                   URLs stay plain links. */
+                /^\/(?!\/)/.test(t.actionHref) ? (
+                  <Link to={t.actionHref} onClick={() => removeToast(t.id)} className="inline-block mt-1 text-sm font-semibold underline underline-offset-2 hover:opacity-80">
+                    {t.actionLabel || 'View'}
+                  </Link>
+                ) : (
+                  <a href={t.actionHref} className="inline-block mt-1 text-sm font-semibold underline underline-offset-2 hover:opacity-80">
+                    {t.actionLabel || 'View'}
+                  </a>
+                )
               )}
             </div>
             <button

@@ -9,7 +9,7 @@ import {
 } from '../../shared/components';
 import { Wallet, FileText, PlayCircle, CheckCircle2, Printer, RefreshCw, Send, XCircle, FileDown, Mail } from 'lucide-react';
 import { PayslipTemplatesSection } from './payroll/PayslipTemplatesSection';
-import { downloadPdf, useEmailPayslip, useEmailRun } from '../../api/payslipTemplates';
+import { downloadPdf, openPayslipPrintView, useEmailPayslip, useEmailRun } from '../../api/payslipTemplates';
 import { SalaryComponentsSection } from './payroll/SalaryComponentsSection';
 import { EmployeeSalariesSection, PayslipLines } from './payroll/EmployeeSalariesSection';
 import { PayrollCyclesSection } from './payroll/PayrollCyclesSection';
@@ -211,7 +211,7 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
               { key: 'status', header: '', cell: p => <span className="inline-flex items-center gap-1"><StatusBadge value={p.status} map={PAYSLIP_STATUS_VARIANT} fallback="yellow" />{p.lines?.some(l => l.adjusted) && <span title="Has manual adjustments" className="text-warning">●</span>}</span> },
               { key: 'actions', header: '', align: 'right', cell: p => !isDraft ? (
                 <span className="inline-flex items-center">
-                  <IconButton label="Open print view" tone="accent" icon={<Printer size={14} />} onClick={() => window.open(`/hr/payroll/payslips/${p.id}/print`, '_blank')} />
+                  <IconButton label="Open print view" tone="accent" icon={<Printer size={14} />} onClick={() => openPayslipPrintView(p.id, p.payslipNumber)} />
                   <IconButton label="Download PDF" icon={<FileDown size={14} />} onClick={() => downloadPdf(`/hr/payroll/payslips/${p.id}/pdf`, `${p.payslipNumber}.pdf`)} />
                   <IconButton label={p.emailedAt ? 'E-mailed — send again' : 'E-mail to employee'} tone={p.emailedAt ? 'success' : 'default'} icon={<Mail size={14} />} onClick={() => emailOne.mutate(p.id, { onSuccess: r => setMailNotice(r.ok ? `Sent to ${p.user.name}.` : `Could not send: ${r.reason}`), onError: onErr })} />
                 </span>
@@ -308,7 +308,7 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
     <Modal open onClose={onClose} title={payslip.payslipNumber} subtitle={periodLabel({ ...payslip, payrollCycle: payslip.payrollRun?.payrollCycle })} icon={<FileText size={16} />}
       footer={<>
         <Button variant="secondary" onClick={onClose}>Close</Button>
-        <Button variant="secondary" icon={<Printer size={13} />} onClick={() => window.open(`/hr/payroll/payslips/${payslip.id}/print`, '_blank')}>Print view</Button>
+        <Button variant="secondary" icon={<Printer size={13} />} onClick={() => openPayslipPrintView(payslip.id, payslip.payslipNumber)}>Print view</Button>
         <Button icon={<FileDown size={13} />} onClick={() => downloadPdf(`/hr/payroll/payslips/${payslip.id}/pdf`, `${payslip.payslipNumber}.pdf`)}>Download PDF</Button>
       </>}>
       <div className="space-y-4">

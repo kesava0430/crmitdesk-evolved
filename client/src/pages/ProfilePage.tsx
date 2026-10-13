@@ -8,6 +8,7 @@ import {
   Field, Input,
 } from '../shared/components';
 import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
+import { saveOrShareBlob } from '../native/download';
 
 /* ── tiny helpers ── */
 function Toast({ type, msg, onDismiss }: { type: 'ok' | 'err'; msg: string; onDismiss: () => void }) {
@@ -123,6 +124,7 @@ function ProfileForm() {
 
 /* ── Password form ── */
 function PasswordForm() {
+  const { user, setSession } = useAuth();
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
   const [show, setShow]   = useState({ current: false, next: false });
   const [busy, setBusy]   = useState(false);
@@ -141,10 +143,13 @@ function PasswordForm() {
     setBusy(true);
     setToast(null);
     try {
-      await api.put('/auth/me/password', {
+      const { data } = await api.put('/auth/me/password', {
         currentPassword: form.currentPassword,
         newPassword: form.newPassword,
       });
+      // The server revoked every session and issued this device a fresh
+      // pair — adopt it, or the next refresh would sign this device out too.
+      if (data?.access && data?.refresh && user) setSession(user, data.access, data.refresh);
       setToast({ type: 'ok', msg: 'Password changed! Other sessions have been signed out.' });
       setForm({ currentPassword: '', newPassword: '', confirm: '' });
     } catch (err: any) {
@@ -334,10 +339,7 @@ function PrivacyPanel() {
     try {
       const res = await api.get('/gdpr/export/me');
       const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'my-data-export.json'; a.click();
-      URL.revokeObjectURL(url);
+      await saveOrShareBlob(blob, 'my-data-export.json');
     } catch { setToast({ type: 'err', msg: 'Could not export your data.' }); }
   }
 

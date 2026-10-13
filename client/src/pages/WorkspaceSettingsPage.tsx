@@ -131,7 +131,7 @@ export default function WorkspaceSettingsPage() {
               <SlidersHorizontal size={15} className="text-accent" />
               <h2 className="text-[14px] font-semibold text-fg tracking-tight">Workspace identity</h2>
             </div>
-            <Field label="Product name" hint='Shown in the sidebar header and browser tab. Leave blank for "CRM & IT Desk".'>
+            <Field label="Product name" hint='Shown in the sidebar header and browser tab. Leave blank for "Zenkara 360".'>
               <Input
                 value={draft.appName}
                 onChange={e => setDraft(d => ({ ...d, appName: e.target.value }))}

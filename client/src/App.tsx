@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppLayout } from './shared/layouts/AppLayout';
 import { isRouteAllowed } from './shared/routeAccess';
 import { AccessDenied } from './shared/components/AccessDenied';
+import { NativeBridge } from './native/NativeBridge';
 
 // Eagerly loaded — shown before auth or as portal (must be small/fast)
 import { LoginPage } from './pages/LoginPage';
@@ -141,6 +142,8 @@ function RootRedirect() {
 export default function App() {
   return (
     <AuthProvider>
+      {/* Android app lifecycle, Back button, deep links, push — renders nothing, no-op on the web. */}
+      <NativeBridge />
       <Routes>
         {/* Public customer portal — outside main app layout */}
         <Route path="/portal" element={<CustomerPortal />} />

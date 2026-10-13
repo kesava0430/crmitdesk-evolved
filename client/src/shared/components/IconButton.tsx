@@ -25,8 +25,9 @@ const tones: Record<Tone, string> = {
 
 const sizes: Record<Size, string> = {
   xs: 'w-6 h-6',
-  sm: 'w-7 h-7',
-  md: 'w-8 h-8',
+  // icon-touch: a 40px hit area on phone touch screens (index.css).
+  sm: 'w-7 h-7 icon-touch',
+  md: 'w-8 h-8 icon-touch',
 };
 
 export interface IconButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> {
@@ -55,7 +56,9 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent',
         sizes[size],
         tones[tone],
-        revealOnRowHover ? 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100' : '',
+        // hover-reveal: always visible on touch screens (index.css), where
+        // there is no hover to reveal it — row actions were unreachable.
+        revealOnRowHover ? 'hover-reveal opacity-0 group-hover:opacity-100 focus-visible:opacity-100' : '',
         className,
       ].filter(Boolean).join(' ')}
     >

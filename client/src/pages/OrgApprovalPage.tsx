@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Alert, Button, Card, Spinner } from '../shared/components';
+import { APP_NAME } from '../shared/brand';
 
 type Status = 'validating' | 'ready' | 'invalid' | 'approved' | 'rejected' | 'already-decided';
 
@@ -106,7 +107,7 @@ export function OrgApprovalPage() {
       <Card padding="lg" className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2.5 mb-7">
           <img src={asset("logo.png")} alt="" className="w-9 h-9" />
-          <h1 className="text-xl font-semibold text-fg tracking-tight">CRM &amp; IT Desk</h1>
+          <h1 className="text-xl font-semibold text-fg tracking-tight">{APP_NAME}</h1>
         </div>
 
         {status === 'validating' && <Spinner label="Loading request…" compact />}

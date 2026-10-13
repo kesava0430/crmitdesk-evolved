@@ -67,7 +67,7 @@ export function Comments({ entityType, entityId }: CommentsProps) {
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-fg-subtle">{formatDistanceToNow(new Date(c.createdAt), { addSuffix: true })}</span>
                   {c.author?.id === user?.id && (
-                    <button onClick={() => remove.mutate(c.id)} className="opacity-0 group-hover:opacity-100 p-0.5 text-fg-subtle hover:text-danger transition-all">
+                    <button onClick={() => remove.mutate(c.id)} aria-label="Delete note" className="hover-reveal opacity-0 group-hover:opacity-100 p-0.5 text-fg-subtle hover:text-danger transition-all">
                       <Trash2 size={11} />
                     </button>
                   )}

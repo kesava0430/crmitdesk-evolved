@@ -6,6 +6,8 @@ import { Paperclip, Download, Trash2, Upload, FileText, Image, FileArchive, File
 import { formatDistanceToNow } from 'date-fns';
 import { IconButton, Spinner, FormError } from './index';
 import { can } from '../permissions';
+import { saveOrShareBlob } from '../../native/download';
+import { isNative } from '../../native/platform';
 
 /** Must stay in step with the server's EntityType enum + entityAccess.ENTITY_MODEL. */
 export type AttachmentEntityType =
@@ -147,16 +149,8 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
     setError('');
     try {
       const res = await api.get(`/attachments/${a.id}/download`, { responseType: 'blob' });
-      const url = URL.createObjectURL(res.data);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = a.fileName;
-      // Firefox ignores click() on a detached anchor, and revoking the URL in
-      // the same tick can cancel the download before it starts.
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      // Browser download on the web, share sheet in the Android app.
+      await saveOrShareBlob(res.data, a.fileName);
     } catch (err: any) {
       // The error body arrives as a Blob because of responseType, so the usual
       // err.response.data.error is a Blob, not a string — read it back.
@@ -178,6 +172,20 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
    *  fetch — or popup blockers kill it; its location is then pointed at the
    *  authenticated blob once the bytes arrive. */
   async function view(a: any) {
+    // The app has no tabs to open: fetch it and offer it to a viewer app.
+    if (isNative) {
+      setBusyId(a.id);
+      setError('');
+      try {
+        const res = await api.get(`/attachments/${a.id}/download`, { responseType: 'blob' });
+        await saveOrShareBlob(new Blob([res.data], { type: a.mimeType }), a.fileName, { open: true });
+      } catch {
+        setError('Could not open that file.');
+      } finally {
+        setBusyId(null);
+      }
+      return;
+    }
     const tab = window.open('', '_blank');
     if (tab) tab.document.write('Loading ' + a.fileName.replace(/[<>&]/g, '') + '…');
     setBusyId(a.id);

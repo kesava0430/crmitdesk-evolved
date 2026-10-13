@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { addToast } from '../shared/components/toastStore';
+import { getAuthItem, setAuthItems, clearAuthItems } from './authStorage';
+import { recordClockSkew, tokenExpiresSoon } from './jwt';
+import { clientHeader } from '../native/platform';
 
 // VITE_API_URL is where the API lives. Production builds set it to
 // /zenkara/api (nginx proxies that to the Node server on the same host — see
@@ -9,9 +12,41 @@ import { addToast } from '../shared/components/toastStore';
 // forever.
 export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api', timeout: 60_000 });
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+// Extra per-request flags understood by the interceptors below.
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /** Never try a token refresh / forced sign-out for this request (sign-out's own calls). */
+    _skipAuthRefresh?: boolean;
+    /** Don't raise an error toast for this request. */
+    _silent?: boolean;
+    _retry?: boolean;
+  }
+}
+
+// Endpoints that ARE the session machinery (or are called without one). A
+// 401 from these is an answer to show, not a reason to refresh or sign out.
+const AUTH_ENDPOINTS = [
+  '/auth/login', '/auth/refresh', '/auth/logout', '/auth/google', '/auth/demo-login',
+  '/auth/accept-invite', '/auth/sso/exchange', '/auth/reset-password', '/auth/forgot-password',
+];
+const isAuthEndpoint = (url: string | undefined) => !!url && AUTH_ENDPOINTS.some(e => url.includes(e));
+
+api.interceptors.request.use(async (config) => {
+  // The app identifies itself so the server gives it the long-lived native
+  // session (see native/platform.ts). Browsers send nothing new.
+  if (clientHeader) config.headers['X-Client'] = clientHeader;
+
+  if (!config.headers.Authorization) {
+    let token = getAuthItem('accessToken');
+    // Refresh BEFORE sending when the token is already expired (judged by
+    // its own exp claim) — e.g. the app coming back after hours in the
+    // background. Without this every screen's first wave of requests all
+    // 401 together and the interceptor has to untangle them.
+    if (token && !config._skipAuthRefresh && !isAuthEndpoint(config.url) && tokenExpiresSoon(token, 5_000)) {
+      token = (await ensureFreshToken()) ?? getAuthItem('accessToken');
+    }
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
@@ -35,11 +70,11 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
  * seconds" rather than a spurious failure. Real 4xx (bad credentials,
  * invalid refresh token) are returned immediately — they are not retried.
  */
-export async function authPost(url: string, body: any, retries = 2): Promise<any> {
+export async function authPost(url: string, body: any, retries = 2, timeout?: number): Promise<any> {
   let lastErr: any;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await api.post(url, body);
+      return await api.post(url, body, timeout ? { timeout } : undefined);
     } catch (err) {
       lastErr = err;
       if (!isTransientError(err) || attempt === retries) throw err;
@@ -49,110 +84,195 @@ export async function authPost(url: string, body: any, retries = 2): Promise<any
   throw lastErr;
 }
 
-// The refresh endpoint rotates the refresh token (invalidates the old one,
-// issues a new pair — see auth.controller.ts refreshToken). A page like the
-// dashboard fires several requests in parallel on mount; if the access token
-// happened to expire right then, EVERY one of those requests would 401 at
-// once and — without this — each would independently call /auth/refresh
-// with the same (soon-to-be-invalidated) refresh token. Only the first of
-// those calls succeeds; the rest get "Invalid refresh token" back, and each
-// one wiped localStorage and hard-redirected to /login in response — even
-// though the very first refresh had just succeeded and the session was
-// completely fine. That's the "loads, spins for a bit, then dumps you on
-// the login screen" bug: it wasn't really an expired session, just this
-// race. The fix is to share a single in-flight refresh across every
-// concurrent 401 instead of letting each request start its own.
-let refreshPromise: Promise<{ access: string; refresh?: string }> | null = null;
+// ─── Token refresh ──────────────────────────────────────────────────────────
+//
+// The refresh endpoint rotates the refresh token. Everything below exists so
+// that a rotation can never strand the client with a dead token — which is
+// what produced the "app logs me out at random" reports:
+//
+// * Single flight per tab. A dashboard fires many requests at once; if the
+//   access token expired right then, every one of them used to start its
+//   own refresh with the same token, and the losers logged the user out.
+//
+// * Idempotent rotation. Before sending, the client generates the successor
+//   token itself and persists it as `pendingRefresh` (durably, on native).
+//   The server stores only its hash as the successor. If the response is
+//   lost — app frozen or killed mid-request, data drop, timeout — the retry
+//   sends the same (refresh, next) pair and gets the same answer instead of
+//   a 401. Other tabs that start a refresh meanwhile reuse the same pending
+//   proposal, so they converge on one token.
+//
+// * Tokens are committed to storage BEFORE the shared promise is released,
+//   so a request queued behind the refresh never reads the old token.
+//
+// * A refresh only ends the session on a definitive 401, after re-reading
+//   storage (another tab may have rotated meanwhile) and trying the pending
+//   proposal on its own (the old row may have been purged after a long
+//   pause). Network errors, timeouts and 5xx keep the session.
+
+/** Thrown inside the refresh flow when the session is definitively over. */
+class SessionEndedError extends Error {}
+
+let refreshPromise: Promise<string> | null = null;
 let loggedOutFromExpiry = false;
-// Set by ensureFreshToken() when a refresh attempt comes back 401 — i.e. the
-// refresh token is genuinely invalid/expired, so the session really is over.
-// A transient failure (server waking up, network blip) leaves this false, so
-// the interceptor keeps the user signed in instead of dumping them to /login.
+// Set by ensureFreshToken() when the last refresh attempt proved the session
+// is over. A transient failure leaves it false so the user stays signed in.
 let refreshWasUnauthorized = false;
 
-// AuthContext's `accessToken` React state is only ever set by login/setSession
-// — a background refresh triggered here writes straight to localStorage and
-// has no way to tell React about it. Any consumer that reads the token from
-// `useAuth()` (useSSE's EventSource URL, notably) then keeps using the now-
-// replaced-but-still-in-state-as-old token indefinitely. AuthContext
-// subscribes to this on mount and mirrors whatever comes through into its
-// own state, so every consumer of useAuth().accessToken stays correct
-// without each of them needing their own refresh-awareness.
+// AuthContext mirrors background refreshes into its React state through this.
 let tokenListener: ((token: string) => void) | null = null;
 export function onAccessTokenRefreshed(cb: (token: string) => void) {
   tokenListener = cb;
 }
 
-function performRefresh() {
+function randomToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+const REFRESH_TIMEOUT_MS = 20_000;
+
+// Bumped by signOutLocally(). A refresh that was already in flight when the
+// user signed out must not write its tokens back afterwards (resurrecting a
+// session in storage that the UI and the server consider gone).
+let sessionEpoch = 0;
+
+/** Called by AuthContext.logout before it clears storage. */
+export function signOutLocally() {
+  sessionEpoch++;
+}
+
+async function commitTokens(access: string, refresh: string) {
+  recordClockSkew(access);
+  // Old pair out, new pair in, proposal cleared — one storage call so the
+  // native mirror gets all three together.
+  await setAuthItems({ accessToken: access, refreshToken: refresh, pendingRefresh: null });
+  tokenListener?.(access);
+}
+
+async function runRefresh(): Promise<string> {
+  const epoch = sessionEpoch;
+  let triedPendingAlone = false;
+  for (let round = 0; round < 3; round++) {
+    const refresh = getAuthItem('refreshToken');
+    if (!refresh) {
+      // No token at all: a session only "ends" if there was one to end.
+      if (getAuthItem('user')) throw new SessionEndedError('no refresh token');
+      throw new Error('not signed in');
+    }
+    let next = getAuthItem('pendingRefresh');
+    if (!next || next === refresh) {
+      next = randomToken();
+      await setAuthItems({ pendingRefresh: next }); // durable BEFORE the request leaves
+    }
+
+    try {
+      // authPost retries transient failures with the SAME pair — safe now,
+      // because the server answers a repeated pair idempotently.
+      const { data } = await authPost('/auth/refresh', { refresh, next }, 3, REFRESH_TIMEOUT_MS);
+      if (epoch !== sessionEpoch) throw new Error('signed out during refresh');
+      await commitTokens(data.access, data.refresh || refresh);
+      return data.access as string;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status !== 401 || epoch !== sessionEpoch) throw err; // transient / server error / signed out — not a session expiry
+
+      // Another tab may have rotated and stored a newer token while ours was in flight.
+      const current = getAuthItem('refreshToken');
+      if (current && current !== refresh) continue;
+
+      // The rotation we proposed may have landed in an earlier attempt whose
+      // response never arrived, and the old row has since been purged: the
+      // proposal itself would then be our live token.
+      const pending = getAuthItem('pendingRefresh');
+      if (!triedPendingAlone && pending && pending !== refresh) {
+        triedPendingAlone = true;
+        await setAuthItems({ refreshToken: pending, pendingRefresh: null });
+        continue;
+      }
+      throw new SessionEndedError(err?.response?.data?.error || 'refresh rejected');
+    }
+  }
+  throw new SessionEndedError('refresh rejected');
+}
+
+function performRefresh(): Promise<string> {
   if (!refreshPromise) {
-    const refresh = localStorage.getItem('refreshToken');
-    // authPost (not a bare axios call) so a refresh that lands mid-cold-start
-    // retries instead of failing — a failed refresh is what logs the user
-    // out, so it must not fail just because the server was waking up.
-    refreshPromise = authPost('/auth/refresh', { refresh })
-      .then(res => res.data)
-      .finally(() => { refreshPromise = null; });
+    // runRefresh() commits the new tokens before resolving, so clearing the
+    // shared promise afterwards can never expose the old token to a caller.
+    refreshPromise = runRefresh().finally(() => { refreshPromise = null; });
   }
   return refreshPromise;
 }
 
 /**
- * Public wrapper so code outside the 401 interceptor (useSSE's onerror) can
- * proactively trigger the same refresh instead of only ever reacting to a
- * failed REST call. Shares performRefresh()'s single in-flight promise, so
- * a proactive call here and an automatic one from a concurrent 401 never
- * race each other into two separate refresh requests. Returns null (never
- * throws) on failure — callers just treat that as "couldn't refresh, same
- * as before."
+ * Refresh now (sharing any refresh already in flight). Resolves to the new
+ * access token, or null on failure — never throws. After a null,
+ * `sessionEnded()` says whether that failure was final.
  */
 export async function ensureFreshToken(): Promise<string | null> {
   try {
-    const data = await performRefresh();
-    localStorage.setItem('accessToken', data.access);
-    if (data.refresh) localStorage.setItem('refreshToken', data.refresh);
-    tokenListener?.(data.access);
+    const access = await performRefresh();
     refreshWasUnauthorized = false;
-    return data.access;
+    return access;
   } catch (err) {
-    // Distinguish "the refresh token is dead" (real 401 → session is over)
-    // from "couldn't reach the server right now" (transient → keep the
-    // session). The interceptor uses this flag to decide whether to log out.
-    refreshWasUnauthorized = (err as any)?.response?.status === 401;
+    refreshWasUnauthorized = err instanceof SessionEndedError;
     return null;
   }
+}
+
+/** Refresh only if the stored access token expires within `withinMs` (resume, SSE reconnect). */
+export async function ensureTokenValidFor(withinMs: number): Promise<string | null> {
+  const token = getAuthItem('accessToken');
+  if (token && !tokenExpiresSoon(token, withinMs)) return token;
+  if (!getAuthItem('refreshToken')) return token;
+  return ensureFreshToken();
+}
+
+export function sessionEnded(): boolean {
+  return refreshWasUnauthorized;
+}
+
+/**
+ * The session is definitively over: tell the user, drop only the auth keys
+ * (theme/font/dark-mode preferences survive), and go to the login page
+ * under the app's base path (/zenkara/login on the web, /login in the app).
+ */
+export function forceLogout(message = 'Your session has expired — please sign in again.') {
+  if (loggedOutFromExpiry) return;
+  loggedOutFromExpiry = true;
+  addToast(message, 'warning', { duration: 6000 });
+  clearAuthItems().finally(() => {
+    window.location.href = `${import.meta.env.BASE_URL}login`;
+  });
 }
 
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
-    const original = error.config;
+    const original = error.config ?? {};
 
-    // 401: try token refresh first — but never intercept the login/refresh endpoints themselves
-    const requestUrl: string = original?.url ?? '';
-    const isAuthEndpoint =
-      requestUrl.includes('/auth/login') || requestUrl.includes('/auth/refresh');
-
-    if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
+    if (error.response?.status === 401 && !original._retry && !original._skipAuthRefresh && !isAuthEndpoint(original.url)) {
       original._retry = true;
-      const newToken = await ensureFreshToken();
+
+      // Another request already refreshed while this one was in flight:
+      // just resend with the current token, no new rotation needed.
+      const sentWith = String(original.headers?.Authorization || '').replace(/^Bearer /, '');
+      const current = getAuthItem('accessToken');
+      const newToken = current && current !== sentWith ? current : await ensureFreshToken();
       if (newToken) {
         original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
       }
-      // Only hard-log-out when the refresh token itself was rejected (401).
-      // If the refresh merely couldn't reach the server (cold start, network
-      // blip), keep the session and let this one request fail — clearing
-      // localStorage here is exactly what threw freshly-logged-in users back
-      // to the login screen "with a credentials error" when the server was
-      // waking up.
-      if (refreshWasUnauthorized && !loggedOutFromExpiry) {
-        loggedOutFromExpiry = true;
-        addToast('Your session has expired — please sign in again.', 'warning', { duration: 6000 });
-        localStorage.clear();
-        window.location.href = '/login';
-      }
+      // Only sign out when the refresh token itself was definitively
+      // rejected. If the refresh merely couldn't reach the server (cold
+      // start, network blip), keep the session and let this request fail.
+      if (refreshWasUnauthorized) forceLogout();
       return Promise.reject(error);
     }
+
+    if (original._silent) return Promise.reject(error);
 
     // Show toast for all other non-401 errors
     const status: number | undefined = error.response?.status;
@@ -194,7 +314,11 @@ api.interceptors.response.use(
         addToast(serverMsg || "You don't have permission to do that.", 'warning');
       }
     } else if (status === 402) {
-      addToast(serverMsg || "You've hit your plan's seat limit.", 'warning', {
+      // 402 covers seat limits, plan features and storage quotas alike —
+      // the server's message says which; the fallback must not assume.
+      // actionHref is an in-app path: ToastContainer routes it through the
+      // router, so the /zenkara/ base (web) is applied.
+      addToast(serverMsg || 'This needs a higher plan.', 'warning', {
         duration: 10000,
         actionLabel: 'Upgrade plan',
         actionHref: '/billing',

@@ -5,9 +5,10 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
+import { APP_NAME } from '../shared/brand';
 
 export interface WorkspaceConfig {
-  /** Product name shown in the sidebar header (falls back to "CRM & IT Desk"). */
+  /** Product name shown in the sidebar header (falls back to APP_NAME, "Zenkara 360"). */
   appName?: string;
   /** Nav item + page-title renames, keyed by route ("/itdesk/tickets": "Service Jobs"). */
   navRenames?: Record<string, string>;
@@ -44,7 +45,7 @@ export function useWorkspace() {
   const { data: config } = useWorkspaceConfig();
   return {
     config: config ?? null,
-    appName: config?.appName || 'CRM & IT Desk',
+    appName: config?.appName || APP_NAME,
     navLabel: (route: string, fallback: string) => config?.navRenames?.[route] || fallback,
     sectionLabel: (section: string, fallback?: string) => config?.sectionRenames?.[section] || fallback || section,
     isRouteHidden: (route: string) => !!config?.hiddenRoutes?.includes(route),

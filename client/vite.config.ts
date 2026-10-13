@@ -33,7 +33,12 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // Registered by hand in main.tsx, and only on the web. Inside the
+      // Android app the bundle is already local, and a service worker there
+      // keeps serving its precached copy of the PREVIOUS bundle after an app
+      // update until it notices — the app looked un-updated after installing
+      // a new version.
+      injectRegister: false,
       includeAssets: ['favicon.png', 'logo.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Zenkara 360',

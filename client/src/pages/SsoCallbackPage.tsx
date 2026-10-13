@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Alert, Button, Card, Spinner } from '../shared/components';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { APP_NAME } from '../shared/brand';
 
 // Public — where auth.controller.ts entraCallback lands the browser after a
 // Microsoft sign-in (or a failure). Tokens travel in the URL *fragment*
@@ -56,7 +57,7 @@ export default function SsoCallbackPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-canvas px-6">
       <div className="flex items-center gap-2.5 animate-fade-in">
         <img src={asset("logo.png")} alt="" className="w-9 h-9" />
-        <span className="text-xl font-semibold text-fg tracking-tight">CRM &amp; IT Desk</span>
+        <span className="text-xl font-semibold text-fg tracking-tight">{APP_NAME}</span>
       </div>
       <Spinner label="Finishing sign-in…" compact />
     </div>

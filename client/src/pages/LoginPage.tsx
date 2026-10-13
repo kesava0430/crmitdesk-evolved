@@ -9,6 +9,8 @@ import {
   Alert, Button, Card, Field, FormError, IconButton, Input, Tabs,
 } from '../shared/components';
 import type { TabItem } from '../shared/components';
+import { APP_NAME } from '../shared/brand';
+import { isNative } from '../native/platform';
 
 type Tab = 'login' | 'register';
 
@@ -24,7 +26,9 @@ const inlineLink =
   'focus-visible:ring-offset-2 focus-visible:ring-offset-surface';
 
 function GoogleDivider() {
-  if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return null;
+  // Google blocks its sign-in inside embedded WebViews, so the app never
+  // shows the Google button (see GoogleSignInButton) — nor this divider.
+  if (!import.meta.env.VITE_GOOGLE_CLIENT_ID || isNative) return null;
   return (
     <div className="flex items-center gap-3 -my-1">
       <div className="flex-1 h-px bg-line" />
@@ -92,6 +96,36 @@ const SSO_ERRORS: Record<string, string> = {
   sso_disabled: 'Single sign-on is currently turned off for your organization. Sign in with your password instead.',
   sso_error: 'Something went wrong starting Microsoft sign-in. Please try again.',
 };
+
+/**
+ * App only: there is no address bar to open the org-specific sign-in link
+ * (/login/:orgSlug) an admin shares, so let people type the last part of it.
+ * EntraLoginPage then runs Microsoft sign-in in a Custom Tab.
+ */
+function MicrosoftWorkAccount() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [slug, setSlug] = useState('');
+  if (!open) {
+    return (
+      <Button type="button" variant="secondary" block onClick={() => setOpen(true)}>
+        Sign in with Microsoft (work account)
+      </Button>
+    );
+  }
+  const clean = slug.trim().replace(/^.*\/login\//, '').replace(/[/?#].*$/, '');
+  return (
+    <div className="space-y-2">
+      <InputField
+        label="Organization sign-in ID" value={slug} onChange={setSlug}
+        placeholder="e.g. acme — the end of your sign-in link"
+      />
+      <Button type="button" block disabled={!clean} onClick={() => navigate(`/login/${encodeURIComponent(clean)}`)}>
+        Continue with Microsoft
+      </Button>
+    </div>
+  );
+}
 
 export function LoginPage() {
   const { login, register, googleLogin } = useAuth();
@@ -176,7 +210,7 @@ export function LoginPage() {
         <div className="flex items-center gap-3 mb-16 relative z-10">
           <img src={asset("logo.png")} alt="Logo" className="w-10 h-10" />
           <div>
-            <p className="font-bold text-lg leading-tight">CRM &amp; IT Desk</p>
+            <p className="font-bold text-lg leading-tight">{APP_NAME}</p>
             <p className="text-sidebar-muted text-xs">All-in-one business platform</p>
           </div>
         </div>
@@ -237,7 +271,7 @@ export function LoginPage() {
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 justify-center mb-6">
             <img src={asset("logo.png")} alt="Logo" className="w-9 h-9" />
-            <span className="font-bold text-xl text-fg tracking-tight">CRM &amp; IT Desk</span>
+            <span className="font-bold text-xl text-fg tracking-tight">{APP_NAME}</span>
           </div>
 
           {/* Mobile Try Demo CTA */}
@@ -329,6 +363,7 @@ export function LoginPage() {
                 <div className="flex justify-center">
                   <GoogleSignInButton onIdToken={handleGoogleToken} />
                 </div>
+                {isNative && <MicrosoftWorkAccount />}
 
                 <p className="text-center text-xs text-fg-subtle">
                   No account?{' '}

@@ -11,6 +11,7 @@
 // tsconfig.sw.json for its own (editor-only) type-checking.
 
 import { asset } from './shared/asset';
+import { APP_NAME } from './shared/brand';
 import { precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { NetworkOnly, CacheFirst } from 'workbox-strategies';
@@ -57,7 +58,7 @@ self.addEventListener('push', (event: PushEvent) => {
     // Non-JSON payload — fall back to defaults below rather than throwing.
   }
 
-  const title = data.title || 'CRM & IT Desk';
+  const title = data.title || APP_NAME;
   event.waitUntil((async () => {
     // Attendance "locate" pushes: if the app is open in any tab (even a
     // backgrounded one), hand the request straight to it so it can send a
@@ -82,7 +83,14 @@ self.addEventListener('push', (event: PushEvent) => {
 // navigating it to the relevant page, rather than always opening a new tab.
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
-  const url: string = event.notification.data?.url || '/';
+  // The server sends in-app paths ('/hr/attendance'). Resolve them against
+  // this worker's scope so they land under the deployment's base path
+  // (https://app.zenkara.in/zenkara/hr/attendance) — opened as-is they
+  // pointed at the domain root and 404'd. Absolute URLs pass through.
+  const raw: string = event.notification.data?.url || '/';
+  const url = /^[a-z][a-z0-9+.-]*:/i.test(raw)
+    ? raw
+    : new URL(raw.replace(/^\/+/, ''), self.registration.scope).href;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

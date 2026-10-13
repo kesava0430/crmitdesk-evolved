@@ -13,6 +13,7 @@ import { useChartTheme, type ChartTheme } from '../shared/chartTheme';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { saveOrShareBlob } from '../native/download';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,9 +24,7 @@ function downloadCsv(data: any[], filename: string) {
   const keys = Object.keys(data[0]);
   const rows = [keys.join(','), ...data.map(r => keys.map(k => String(r[k] ?? '')).join(','))];
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+  saveOrShareBlob(blob, filename).catch(() => {});
 }
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
