@@ -386,13 +386,38 @@ export async function getHostedStorageUsageBytes(orgId: string): Promise<number>
   return result._sum.fileSize ?? 0;
 }
 
+// Bytes of uploads that passed the quota check but whose Attachment row isn't
+// written yet. Without this, two concurrent uploads both see the same
+// "used" total and together overshoot the quota (LIC-22). In-process only —
+// the deployment runs one API process; a multi-instance setup would need a
+// shared counter.
+const pendingHostedBytes = new Map<string, number>();
+const RESERVATION_TTL_MS = 2 * 60_000;
+
+function reserveHostedBytes(orgId: string, bytes: number): () => void {
+  pendingHostedBytes.set(orgId, (pendingHostedBytes.get(orgId) ?? 0) + bytes);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    const left = (pendingHostedBytes.get(orgId) ?? 0) - bytes;
+    if (left > 0) pendingHostedBytes.set(orgId, left); else pendingHostedBytes.delete(orgId);
+  };
+  // Safety net if a caller never releases (crash between upload and insert).
+  setTimeout(release, RESERVATION_TTL_MS).unref?.();
+  return release;
+}
+
 /**
  * Throws AppError(402) before an upload would push the org over its plan's
  * hosted-storage quota (or if the plan doesn't include hosted storage at
  * all, i.e. quota is 0 — FREE orgs must use their own Google Drive).
  * `additionalBytes` is the size of the file about to be uploaded.
+ *
+ * Reserves the bytes until the returned function is called — call it once
+ * the Attachment row is written (or the upload failed).
  */
-export async function assertHostedStorageAvailable(orgId: string, additionalBytes: number): Promise<void> {
+export async function assertHostedStorageAvailable(orgId: string, additionalBytes: number): Promise<() => void> {
   const lic = await getEffectiveLicense(orgId);
   const sub = { plan: PLANS[lic.effectivePlan].name };
   const quotaBytes = lic.storageQuotaGB * 1024 * 1024 * 1024;
@@ -404,15 +429,25 @@ export async function assertHostedStorageAvailable(orgId: string, additionalByte
     );
   }
 
-  const usedBytes = await getHostedStorageUsageBytes(orgId);
-  if (usedBytes + additionalBytes > quotaBytes) {
-    const usedGB = (usedBytes / (1024 * 1024 * 1024)).toFixed(2);
-    const quotaGB = (quotaBytes / (1024 * 1024 * 1024)).toFixed(0);
-    throw new AppError(
-      402,
-      `This upload would exceed your ${sub.plan} plan's ${quotaGB}GB hosted storage quota (${usedGB}GB used). Delete some files, switch to your own Google Drive, or upgrade your plan.`
-    );
+  // Reserve synchronously BEFORE the await, so a concurrent upload's check
+  // already counts this one.
+  const release = reserveHostedBytes(orgId, additionalBytes);
+  try {
+    const usedBytes = await getHostedStorageUsageBytes(orgId);
+    const pending = pendingHostedBytes.get(orgId) ?? additionalBytes; // includes this upload
+    if (usedBytes + pending > quotaBytes) {
+      const usedGB = (usedBytes / (1024 * 1024 * 1024)).toFixed(2);
+      const quotaGB = (quotaBytes / (1024 * 1024 * 1024)).toFixed(0);
+      throw new AppError(
+        402,
+        `This upload would exceed your ${sub.plan} plan's ${quotaGB}GB hosted storage quota (${usedGB}GB used). Delete some files, switch to your own Google Drive, or upgrade your plan.`
+      );
+    }
+  } catch (err) {
+    release();
+    throw err;
   }
+  return release;
 }
 
 // ─── Platform-fallback send quotas (LIC-18) ──────────────────────────────────

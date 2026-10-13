@@ -25,6 +25,9 @@ export interface UploadResult {
   provider: string;
   providerFileId: string;
   fileUrl: string;
+  /** Hosted uploads hold a quota reservation until the caller has written the
+   *  Attachment row — call this then (see assertHostedStorageAvailable). */
+  releaseReservation?: () => void;
 }
 
 async function getConfig(orgId: string) {
@@ -187,9 +190,11 @@ export async function uploadAttachment(orgId: string, file: { buffer: Buffer; fi
     if (!(await isHostedStorageConfigured())) {
       throw new AppError(400, 'No storage connected for this organization. An admin needs to connect a storage provider in Settings → Storage first.');
     }
-    await assertHostedStorageAvailable(orgId, file.buffer.length);
-    const key = await s3Storage.uploadObject(await hostedTarget(), orgId, file);
-    return { provider: 'HOSTED_S3', providerFileId: key, fileUrl: '' };
+    const releaseReservation = await assertHostedStorageAvailable(orgId, file.buffer.length);
+    try {
+      const key = await s3Storage.uploadObject(await hostedTarget(), orgId, file);
+      return { provider: 'HOSTED_S3', providerFileId: key, fileUrl: '', releaseReservation };
+    } catch (err) { releaseReservation(); throw err; }
   }
 
   if (config.provider === 'GOOGLE_DRIVE') {
@@ -198,9 +203,11 @@ export async function uploadAttachment(orgId: string, file: { buffer: Buffer; fi
     return { provider: config.provider, providerFileId: uploaded.id, fileUrl: uploaded.webViewLink };
   }
   if (config.provider === 'HOSTED_S3') {
-    await assertHostedStorageAvailable(orgId, file.buffer.length);
-    const key = await s3Storage.uploadObject(await hostedTarget(), orgId, file);
-    return { provider: config.provider, providerFileId: key, fileUrl: '' };
+    const releaseReservation = await assertHostedStorageAvailable(orgId, file.buffer.length);
+    try {
+      const key = await s3Storage.uploadObject(await hostedTarget(), orgId, file);
+      return { provider: config.provider, providerFileId: key, fileUrl: '', releaseReservation };
+    } catch (err) { releaseReservation(); throw err; }
   }
   if (config.provider === 'CUSTOM_S3') {
     // No quota check: it is the customer's own bucket and their own bill, so

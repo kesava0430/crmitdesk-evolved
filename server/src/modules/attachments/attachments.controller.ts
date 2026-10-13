@@ -95,6 +95,9 @@ export async function upload(req: AuthRequest, res: Response, next: NextFunction
       await storage.deleteAttachmentFile(req.user!.orgId, uploaded.provider, uploaded.providerFileId)
         .catch(() => {});
       throw err;
+    } finally {
+      // The row (or the cleanup) now reflects these bytes — drop the quota hold.
+      uploaded.releaseReservation?.();
     }
   } catch (err) { next(err); }
 }
