@@ -5,24 +5,26 @@
   login by calling POST /api/platform/bootstrap.
 
   Requires PLATFORM_BOOTSTRAP_SECRET to be set as an env var on the live
-  server (Render -> crm-itdesk-server -> Environment). The endpoint returns
-  404 if it is not set.
+  server (EC2: /opt/zenkara-crm/server/.env, then restart the service). The
+  endpoint returns 404 if it is not set. Simpler alternative that needs no
+  secret: on the instance, run `npm run platform:admin` in the server folder
+  (see server/scripts/platform-admin.ts).
 
   SECURITY: never write the real secret or password into this file - it is
   committed to git. Set them for the current PowerShell session only:
 
-      $env:PLATFORM_BOOTSTRAP_SECRET = "<the secret from Render>"
+      $env:PLATFORM_BOOTSTRAP_SECRET = "<the secret from server/.env>"
       $env:PLATFORM_ADMIN_EMAIL      = "you@example.com"
       $env:PLATFORM_ADMIN_PASSWORD   = "<a strong password>"
       $env:PLATFORM_ADMIN_NAME       = "Your Name"
       .\bootstrap-platform-admin.ps1
 
   Safe to re-run later (e.g. to reset the password) - it upserts by email.
-  Remove PLATFORM_BOOTSTRAP_SECRET from Render after use to disable the
+  Remove PLATFORM_BOOTSTRAP_SECRET from server/.env after use to disable the
   endpoint.
 #>
 
-$ServerUrl = if ($env:PLATFORM_SERVER_URL) { $env:PLATFORM_SERVER_URL } else { "https://crm-itdesk-server.onrender.com" }
+$ServerUrl = if ($env:PLATFORM_SERVER_URL) { $env:PLATFORM_SERVER_URL } else { "https://app.zenkara.in/zenkara" }
 $Secret    = $env:PLATFORM_BOOTSTRAP_SECRET
 $Email     = $env:PLATFORM_ADMIN_EMAIL
 $Password  = $env:PLATFORM_ADMIN_PASSWORD
