@@ -219,6 +219,7 @@ export async function invite(req: AuthRequest, res: Response, next: NextFunction
     // Send invite email (silently skipped if SMTP is not configured)
     await sendMail({
       orgId: req.user!.orgId,
+      essential: true, // account access — never held back by the platform send quota
       to: email,
       subject: `You've been invited to join ${org?.name || 'CRM & IT Desk'}`,
       html: `

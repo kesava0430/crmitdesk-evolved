@@ -377,6 +377,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
       const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
       sendMail({
         orgId,
+        essential: true, // account access — never held back by the platform send quota
         to: data.email!,
         subject: `You've been invited to join ${org?.name ?? 'the team'}`,
         html: `<div style="font-family:sans-serif;max-width:500px;margin:0 auto">
