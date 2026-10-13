@@ -14,7 +14,7 @@ import {
   LAYOUTS, PAYSLIP_FIELDS, buildPayslipDoc, samplePayslipDoc, renderPayslipHtml, renderPayslipPdf, renderPayslipBundlePdf, type PayslipDoc,
 } from '../../../utils/payslipRender';
 
-const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
+import { isHrManager } from '../../../utils/hrAccess';
 const emptyToNull = (v: unknown) => (v === '' ? null : v);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
@@ -165,7 +165,7 @@ const payslipInclude = {
 async function loadPayslipForRender(req: AuthRequest, id: string, templateOverride?: string) {
   const payslip = await prisma.payslip.findFirst({ where: { id, orgId: req.user!.orgId }, include: payslipInclude });
   if (!payslip) throw new AppError(404, 'Payslip not found');
-  const isManager = MANAGER_ROLES.includes(req.user!.role);
+  const isManager = isHrManager(req.user!.role);
   if (!isManager && payslip.userId !== req.user!.id) throw new AppError(403, 'You can only view your own payslips');
   if (!isManager && payslip.status === 'DRAFT') throw new AppError(404, 'Payslip not found');
   return docFor(payslip, isManager && templateOverride ? templateOverride : undefined);

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
-import { verifyAgainstOfficesResolved, extractClientIp, sumWorkedMinutes, detectPtrHostname, checkHostnameAgainstIp, distanceMeters } from '../../../utils/attendanceVerification';
+import { verifyAgainstOfficesResolved, requestIp, sumWorkedMinutes, detectPtrHostname, checkHostnameAgainstIp, distanceMeters } from '../../../utils/attendanceVerification';
 import { sseManager, SSEEvent } from '../../../utils/sse';
 import { logAction } from '../../../utils/auditLog';
 import {
@@ -16,15 +16,18 @@ import {
 } from '../../../utils/attendanceRules';
 import { recordHeartbeat } from '../../../utils/attendanceAutoCheckout';
 import { sendPushToUser } from '../../../utils/webPush';
+import { policyForUser, policiesForOrg, recordsForDays, recordDayKey, RECORD_PUBLIC_SELECT } from '../../../utils/attendanceRegister';
+import { shiftDayKey, todayKeyFor, keyToDate, zonedDayStart, addDaysKey, dateKey } from '../../../utils/attendanceEngine';
+import { createManualSession } from '../../../utils/attendanceSessions';
+import { isHrManager } from '../../../utils/hrAccess';
 
-function todayDateOnly(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
+/** A GPS fix at exactly 0,0 is what older face-only clients sent for "no location" (ATT-33). */
+const isNullIsland = (lat: number | null | undefined, lng: number | null | undefined) => lat === 0 && lng === 0;
 
 const CheckSchema = z.object({
-  lat: z.number(),
-  lng: z.number(),
+  /** Omitted/null when the rule doesn't use location (e.g. face-only) — never 0,0 */
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
   /** 128-float descriptor from the browser face model — required when the org's AttendancePolicy demands it */
   faceDescriptor: DescriptorSchema.optional(),
   /** Small JPEG data URL captured with the descriptor; stored as evidence when the policy keeps selfies */
@@ -51,7 +54,7 @@ interface VerifiedSignals {
 async function verifySignals(
   action: 'in' | 'out',
   req: AuthRequest,
-  input: { lat: number; lng: number; faceDescriptor?: number[] },
+  input: { lat: number | null; lng: number | null; faceDescriptor?: number[] },
 ): Promise<VerifiedSignals> {
   const orgId = req.user!.orgId;
   const userId = req.user!.id;
@@ -63,13 +66,16 @@ async function verifySignals(
   if (rule.enforce && rule.location && rule.mode === 'ALL' && offices.length === 0) {
     throw new AppError(400, 'No office location is configured yet — ask an admin to set one up in HR Settings.');
   }
-  const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
+  const ip = requestIp(req);
   // Resolved variant: DDNS hostname entries in an office's allowlist are
   // expanded to their current IPs at verification time (attendanceVerification.ts).
-  const geo = await verifyAgainstOfficesResolved(offices, input.lat, input.lng, ip);
+  // Without coordinates the location signal simply fails; the network signal
+  // is still evaluated against every office's allowlist.
+  const hasCoords = input.lat != null && input.lng != null;
+  const geo = await verifyAgainstOfficesResolved(offices, hasCoords ? input.lat! : NaN, hasCoords ? input.lng! : NaN, ip);
 
   const results: SignalResults = {
-    location: rule.location ? (offices.length > 0 && geo.locationOk) : null,
+    location: rule.location ? (offices.length > 0 && hasCoords && geo.locationOk) : null,
     // No allowlist anywhere = the signal doesn't exist for this org; never count it against the user
     network: rule.network ? (geo.networkStatus === 'not_configured' ? null : geo.networkStatus === 'matched') : null,
     face: null,
@@ -104,7 +110,7 @@ async function verifySignals(
 
   return {
     rule, passed: outcome.passed, ip,
-    locationOk: geo.locationOk, networkOk: geo.networkOk,
+    locationOk: hasCoords && geo.locationOk, networkOk: geo.networkOk,
     faceOk: rule.face ? results.face : null, faceDistance,
   };
 }
@@ -112,33 +118,48 @@ async function verifySignals(
 /** POST /hr/attendance/check-in — starts a new session; a day can have several. */
 export async function checkIn(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { lat, lng, faceDescriptor, selfie } = CheckSchema.parse(req.body);
+    const body = CheckSchema.parse(req.body);
+    const lat = body.lat ?? null, lng = body.lng ?? null;
+    const { faceDescriptor, selfie } = body;
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
-    const date = todayDateOnly();
 
-    // Block only if there's already an OPEN session today (checked in, not
-    // yet checked out) — a completed earlier session (lunch break, a
-    // finished half-shift) no longer blocks a new check-in the way a single
-    // check-in/out pair per day used to.
+    // Block only if there's already an OPEN session (checked in, not yet
+    // checked out) — on any day: a session left open across midnight must be
+    // closed, not doubled. A completed earlier session (lunch break) doesn't block.
     const openSession = await prisma.attendanceRecord.findFirst({
-      where: { userId, date, checkInAt: { not: null }, checkOutAt: null },
+      where: { userId, orgId, checkInAt: { not: null }, checkOutAt: null },
+      select: { id: true },
     });
     if (openSession) throw new AppError(400, "You're already checked in — check out first before starting a new session.");
 
     const policy = await getOrCreateAttendancePolicy(orgId);
     const v = await verifySignals('in', req, { lat, lng, faceDescriptor });
 
-    const record = await prisma.attendanceRecord.create({
-      data: {
-        orgId, userId, date,
-        checkInAt: new Date(), checkInLat: lat, checkInLng: lng, checkInIp: v.ip,
-        checkInLocationOk: v.locationOk, checkInNetworkOk: v.networkOk,
-        checkInFaceOk: v.faceOk, checkInFaceDistance: v.faceDistance, checkInPassed: v.passed,
-        ...(v.faceOk && policy.keepCheckInSelfie && selfie ? { checkInSelfie: selfie } : {}),
-        source: 'SELF',
-      },
-    });
+    // The record's day is the shift day in the employee's policy timezone
+    // (IST for an Indian office), not the UTC date (ATT-4).
+    const now = new Date();
+    const { policy: dayPolicy } = await policyForUser(orgId, userId);
+    const date = keyToDate(shiftDayKey(now, dayPolicy));
+
+    let record;
+    try {
+      record = await prisma.attendanceRecord.create({
+        data: {
+          orgId, userId, date,
+          checkInAt: now, checkInLat: lat, checkInLng: lng, checkInIp: v.ip,
+          checkInLocationOk: v.locationOk, checkInNetworkOk: v.networkOk,
+          checkInFaceOk: v.faceOk, checkInFaceDistance: v.faceDistance, checkInPassed: v.passed,
+          ...(v.faceOk && policy.keepCheckInSelfie && selfie ? { checkInSelfie: selfie } : {}),
+          source: 'SELF',
+        },
+        select: RECORD_PUBLIC_SELECT,
+      });
+    } catch (err: any) {
+      // Partial unique index: a second, concurrent check-in lost the race (ATT-21)
+      if (err?.code === 'P2002') throw new AppError(400, "You're already checked in — check out first before starting a new session.");
+      throw err;
+    }
 
     logAction(userId, 'CREATE', 'AttendanceRecord', record.id, { action: 'check_in', passed: v.passed, faceVerified: v.faceOk ?? undefined });
     sseManager.broadcastAll(orgId, SSEEvent.ATTENDANCE_UPDATED, { userId, type: 'check_in' });
@@ -149,14 +170,19 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
 /** POST /hr/attendance/check-out — closes the currently-open session. */
 export async function checkOut(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { lat, lng, faceDescriptor, selfie } = CheckSchema.parse(req.body);
+    const body = CheckSchema.parse(req.body);
+    const lat = body.lat ?? null, lng = body.lng ?? null;
+    const { faceDescriptor, selfie } = body;
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
-    const date = todayDateOnly();
 
+    // The latest open session regardless of its date — a night shift that
+    // started yesterday (or a session stamped with an old UTC date) must still
+    // be closable (ATT-4).
     const openSession = await prisma.attendanceRecord.findFirst({
-      where: { userId, date, checkInAt: { not: null }, checkOutAt: null },
+      where: { userId, orgId, checkInAt: { not: null }, checkOutAt: null },
       orderBy: { checkInAt: 'desc' },
+      select: { id: true },
     });
     if (!openSession) throw new AppError(400, "You haven't checked in yet — nothing to check out of.");
 
@@ -172,9 +198,10 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
         checkOutAt: new Date(), checkOutLat: lat, checkOutLng: lng, checkOutIp: v.ip,
         checkOutLocationOk: v.locationOk, checkOutNetworkOk: v.networkOk,
         checkOutFaceOk: v.faceOk, checkOutFaceDistance: v.faceDistance, checkOutPassed: v.passed,
-        checkOutSource: 'SELF', outsideSince: null,
+        checkOutSource: 'SELF', outsideSince: null, backgroundedAt: null,
         ...(v.faceOk && policy.keepCheckInSelfie && selfie ? { checkOutSelfie: selfie } : {}),
       },
+      select: RECORD_PUBLIC_SELECT,
     });
 
     logAction(userId, 'UPDATE', 'AttendanceRecord', record.id, { action: 'check_out', passed: v.passed, faceVerified: v.faceOk ?? undefined });
@@ -183,21 +210,38 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
   } catch (err) { next(err); }
 }
 
-/** GET /hr/attendance/me?month=YYYY-MM — every session, grouped client-side by date. */
+/** GET /hr/attendance/me?month=YYYY-MM — every session of the month, each tagged with the
+ *  calendar `day` it belongs to in the policy timezone (the client groups by it). */
 export async function myAttendance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
-    const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+    const { policy } = await policyForUser(orgId, userId);
+    const q = req.query.month as string;
+    const month = /^\d{4}-\d{2}$/.test(q || '') ? q : todayKeyFor(policy).slice(0, 7);
     const [y, m] = month.split('-').map(Number);
-    const from = new Date(Date.UTC(y, m - 1, 1));
-    const to = new Date(Date.UTC(y, m, 1));
-
-    const records = await prisma.attendanceRecord.findMany({
-      where: { orgId, userId, date: { gte: from, lt: to } },
-      orderBy: [{ date: 'desc' }, { checkInAt: 'desc' }],
-    });
+    const fromKey = dateKey(new Date(Date.UTC(y, m - 1, 1))), toKey = dateKey(new Date(Date.UTC(y, m, 0)));
+    const records = await recordsForDays(orgId, userId, policy, fromKey, toKey, RECORD_PUBLIC_SELECT);
+    records.sort((a, b) => (a.day === b.day ? (b.checkInAt?.getTime() ?? 0) - (a.checkInAt?.getTime() ?? 0) : a.day < b.day ? 1 : -1));
     res.json(records);
+  } catch (err) { next(err); }
+}
+
+/** GET /hr/attendance/me/today — today's sessions (policy timezone) plus the open session from any day. */
+export async function myToday(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.user!.orgId;
+    const userId = req.user!.id;
+    const { policy } = await policyForUser(orgId, userId);
+    const today = todayKeyFor(policy);
+    const [sessions, open] = await Promise.all([
+      recordsForDays(orgId, userId, policy, today, today, RECORD_PUBLIC_SELECT),
+      prisma.attendanceRecord.findFirst({ where: { orgId, userId, checkInAt: { not: null }, checkOutAt: null }, orderBy: { checkInAt: 'desc' }, select: RECORD_PUBLIC_SELECT }),
+    ]);
+    const list = [...sessions];
+    if (open && !list.some(s => s.id === open.id)) list.push({ ...open, day: recordDayKey(open, policy) });
+    list.sort((a, b) => (b.checkInAt?.getTime() ?? 0) - (a.checkInAt?.getTime() ?? 0));
+    res.json({ date: today, timezone: policy.timezone, shiftStart: policy.shiftStart, shiftEnd: policy.shiftEnd, sessions: list, openSession: open ? { ...open, day: recordDayKey(open, policy) } : null });
   } catch (err) { next(err); }
 }
 
@@ -205,14 +249,22 @@ export async function myAttendance(req: AuthRequest, res: Response, next: NextFu
 export async function todayStatus(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const date = todayDateOnly();
-
-    const [users, records] = await Promise.all([
-      prisma.user.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true, role: true, avatarUrl: true } }),
-      prisma.attendanceRecord.findMany({ where: { orgId, date }, orderBy: { checkInAt: 'asc' } }),
+    const now = new Date();
+    const users = await prisma.user.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true, role: true, avatarUrl: true } });
+    const [policies, records] = await Promise.all([
+      policiesForOrg(orgId, users.map(u => u.id)),
+      // Wide enough for any timezone's "today" and an overnight shift; open sessions from any day.
+      prisma.attendanceRecord.findMany({
+        where: { orgId, OR: [{ checkInAt: { gte: new Date(now.getTime() - 40 * 3_600_000) } }, { checkInAt: { not: null }, checkOutAt: null }] },
+        orderBy: { checkInAt: 'asc' }, select: RECORD_PUBLIC_SELECT,
+      }),
     ]);
     const byUser = new Map<string, typeof records>();
     for (const r of records) {
+      const policy = policies.get(r.userId);
+      if (!policy) continue;
+      const isOpen = !!r.checkInAt && !r.checkOutAt;
+      if (!isOpen && recordDayKey(r, policy) !== todayKeyFor(policy, now)) continue;
       const list = byUser.get(r.userId) || [];
       list.push(r);
       byUser.set(r.userId, list);
@@ -226,7 +278,7 @@ export async function todayStatus(req: AuthRequest, res: Response, next: NextFun
         // Kept for any caller still expecting a single "today's record" —
         // the most recent session, same shape as before this feature.
         record: last,
-        isCheckedInNow: !!(last && last.checkInAt && !last.checkOutAt),
+        isCheckedInNow: sessions.some(s => s.checkInAt && !s.checkOutAt),
         totalMinutes: sumWorkedMinutes(sessions),
       };
     });
@@ -241,14 +293,15 @@ export async function listAttendance(req: AuthRequest, res: Response, next: Next
     const { userId, from, to } = req.query as Record<string, string>;
     const where: any = { orgId };
     if (userId) where.userId = userId;
-    if (from || to) {
+    const valid = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    if (valid(from) || valid(to)) {
       where.date = {};
-      if (from) where.date.gte = new Date(from);
-      if (to) where.date.lte = new Date(to);
+      if (valid(from)) where.date.gte = keyToDate(from);
+      if (valid(to)) where.date.lte = keyToDate(to);
     }
     const records = await prisma.attendanceRecord.findMany({
       where,
-      include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+      select: { ...RECORD_PUBLIC_SELECT, user: { select: { id: true, name: true, avatarUrl: true } } },
       orderBy: [{ date: 'desc' }, { checkInAt: 'desc' }],
       take: 500,
     });
@@ -258,39 +311,37 @@ export async function listAttendance(req: AuthRequest, res: Response, next: Next
 
 const ManualEntrySchema = z.object({
   userId: z.string(),
-  date: z.string(), // YYYY-MM-DD
-  checkInAt: z.string().nullable().optional(),
-  checkOutAt: z.string().nullable().optional(),
-  notes: z.string().optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // informational; the day is derived from checkInAt
+  checkInAt: z.string().datetime(),
+  /** Required unless the session is today and still running */
+  checkOutAt: z.string().datetime().nullable().optional(),
+  notes: z.string().max(500).optional(),
+  reason: z.string().trim().min(1, 'A reason is required').max(500),
 });
 
 /** POST /hr/attendance/manual — manager adds a session for an employee, bypassing geofence/IP checks.
- *  Always creates a new session row rather than upserting one-per-day — a
- *  day can have several sessions now, so there's no longer a single slot to
- *  overwrite; use this to add a missed/forgotten session alongside whatever
- *  the employee already logged themselves. */
+ *  Always a new MANUAL session next to whatever the employee logged; mandatory
+ *  reason, audited, the day recomputed (ATT-19). See utils/attendanceSessions.ts. */
 export async function manualEntry(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = ManualEntrySchema.parse(req.body);
-    const orgId = req.user!.orgId;
-    const target = await prisma.user.findFirst({ where: { id: data.userId, orgId } });
-    if (!target) throw new AppError(404, 'User not found');
-
-    const [y, m, d] = data.date.split('-').map(Number);
-    const date = new Date(Date.UTC(y, m - 1, d));
-
-    const record = await prisma.attendanceRecord.create({
-      data: {
-        orgId, userId: data.userId, date,
-        checkInAt: data.checkInAt ? new Date(data.checkInAt) : undefined,
-        checkOutAt: data.checkOutAt ? new Date(data.checkOutAt) : undefined,
-        notes: data.notes, source: 'MANUAL',
-      },
+    const record = await createManualSession(req.user!.orgId, req.user!.id, {
+      userId: data.userId, checkInAt: new Date(data.checkInAt), checkOutAt: data.checkOutAt ? new Date(data.checkOutAt) : null,
+      notes: data.notes ?? null, reason: data.reason,
     });
-
-    logAction(req.user!.id, 'CREATE', 'AttendanceRecord', record.id, { action: 'manual_entry', targetUserId: data.userId });
-    sseManager.broadcastAll(orgId, SSEEvent.ATTENDANCE_UPDATED, { userId: data.userId, type: 'manual' });
     res.json(record);
+  } catch (err) { next(err); }
+}
+
+/** GET /hr/attendance/records/:id/selfie?which=in|out — the stored check-in/out photo (managers, or the owner). */
+export async function recordSelfie(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const rec = await prisma.attendanceRecord.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, select: { userId: true, checkInSelfie: true, checkOutSelfie: true } });
+    if (!rec || (rec.userId !== req.user!.id && !isHrManager(req.user!.role))) throw new AppError(404, 'Record not found');
+    const selfie = req.query.which === 'out' ? rec.checkOutSelfie : rec.checkInSelfie;
+    if (!selfie) throw new AppError(404, 'No photo stored for this session');
+    res.set('Cache-Control', 'private, max-age=300');
+    res.json({ selfie });
   } catch (err) { next(err); }
 }
 
@@ -313,11 +364,11 @@ export async function listOfficeLocations(req: AuthRequest, res: Response, next:
 }
 
 // Returns the caller's public IP exactly as check-in/check-out will see it —
-// reuses extractClientIp so "populate automatically" in the Allowed IPs field
+// reuses requestIp so "populate automatically" in the Allowed IPs field
 // can never disagree with what actually gets verified at check-in time.
 export async function myIp(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
+    const ip = requestIp(req);
     res.json({ ip });
   } catch (err) { next(err); }
 }
@@ -330,7 +381,7 @@ export async function myIp(req: AuthRequest, res: Response, next: NextFunction) 
 // the admin to a DDNS hostname instead.
 export async function myHost(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
+    const ip = requestIp(req);
     const ptr = await detectPtrHostname(ip);
     res.json({ ip, host: ptr?.host ?? null, verified: ptr?.verified ?? false });
   } catch (err) { next(err); }
@@ -345,7 +396,7 @@ const CheckHostSchema = z.object({ host: z.string().min(1).max(253).regex(/^[a-z
 export async function checkHost(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { host } = CheckHostSchema.parse({ host: req.query.host });
-    const ip = extractClientIp(req.headers as Record<string, unknown>, req.socket.remoteAddress);
+    const ip = requestIp(req);
     const result = await checkHostnameAgainstIp(host, ip);
     res.json({ ...result, yourIp: ip });
   } catch (err) { next(err); }
@@ -420,20 +471,28 @@ const PolicySchema = z.object({
   locationRetentionDays: z.number().int().min(1).max(365).optional(),
   nudgeAfterMinutes: z.number().int().min(0).max(24 * 60).optional(),
   nudgeRepeatMinutes: z.number().int().min(5).max(24 * 60).optional(),
+  autoCloseAfterHours: z.number().int().min(0).max(48).optional(),
+  selfieRetentionDays: z.number().int().min(1).max(3650).optional(),
 });
 
 const HeartbeatSchema = z.object({
-  lat: z.number(),
-  lng: z.number(),
+  /** Optional on a 'background' ping — the app may be paused before a fix arrives */
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
   /** GPS accuracy radius in metres, from the Geolocation API */
-  accuracy: z.number().min(0).optional(),
+  accuracy: z.number().min(0).nullable().optional(),
+  /** 'background' = the Android app is being paused (screen locked / app switched); the
+   *  silent-session timeout is suspended until a foreground ping arrives (ATT-7). */
+  state: z.enum(['foreground', 'background']).optional(),
 });
 
 /** POST /hr/attendance/heartbeat — location ping while checked in; may auto check-out (see attendanceAutoCheckout.ts). */
 export async function heartbeat(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { lat, lng, accuracy } = HeartbeatSchema.parse(req.body);
-    res.json(await recordHeartbeat(req.user!.orgId, req.user!.id, lat, lng, accuracy));
+    const { lat, lng, accuracy, state } = HeartbeatSchema.parse(req.body);
+    const coords = lat != null && lng != null && !isNullIsland(lat, lng) ? { lat, lng } : null;
+    if (!coords && state !== 'background') throw new AppError(400, 'lat and lng are required');
+    res.json(await recordHeartbeat(req.user!.orgId, req.user!.id, coords?.lat ?? null, coords?.lng ?? null, accuracy ?? undefined, state ?? 'foreground'));
   } catch (err) { next(err); }
 }
 
@@ -714,7 +773,7 @@ export async function liveLocations(req: AuthRequest, res: Response, next: NextF
     const [sessions, offices] = await Promise.all([
       prisma.attendanceRecord.findMany({
         where: { orgId, checkInAt: { not: null }, checkOutAt: null },
-        include: { user: { select: { id: true, name: true, role: true, avatarUrl: true, department: true } } },
+        select: { ...RECORD_PUBLIC_SELECT, user: { select: { id: true, name: true, role: true, avatarUrl: true, department: true } } },
         orderBy: { checkInAt: 'asc' },
       }),
       prisma.officeLocation.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true, latitude: true, longitude: true, radiusMeters: true } }),
@@ -724,8 +783,11 @@ export async function liveLocations(req: AuthRequest, res: Response, next: NextF
       generatedAt: new Date(),
       offices,
       people: sessions.map(s => {
-        const lat = s.lastSeenLat ?? s.checkInLat;
-        const lng = s.lastSeenLng ?? s.checkInLng;
+        // 0,0 is the "no location" placeholder older face-only clients sent — never plot it
+        const seen = s.lastSeenLat != null && s.lastSeenLng != null && !isNullIsland(s.lastSeenLat, s.lastSeenLng);
+        const atIn = s.checkInLat != null && s.checkInLng != null && !isNullIsland(s.checkInLat, s.checkInLng);
+        const lat = seen ? s.lastSeenLat : atIn ? s.checkInLat : null;
+        const lng = seen ? s.lastSeenLng : atIn ? s.checkInLng : null;
         const seenAt = s.lastSeenAt ?? s.checkInAt;
         const nearest = lat != null && lng != null && offices.length
           ? offices.reduce((best, o) => { const d = distanceMeters(lat, lng, o.latitude, o.longitude); return d < best.d ? { d, name: o.name } : best; }, { d: Infinity, name: '' })
@@ -741,6 +803,8 @@ export async function liveLocations(req: AuthRequest, res: Response, next: NextF
           inside: s.lastSeenInside ?? s.checkInLocationOk,
           nearestOffice: nearest && Number.isFinite(nearest.d) ? { name: nearest.name, distanceMeters: Math.round(nearest.d) } : null,
           outsideSince: s.outsideSince,
+          /** The app reported it went to the background (screen locked) — no pings until it's reopened */
+          backgroundedAt: s.backgroundedAt,
         };
       }),
     });
@@ -755,12 +819,14 @@ export async function locationTrail(req: AuthRequest, res: Response, next: NextF
     if (!policy.shareLiveLocation) throw new AppError(403, 'Live location sharing is switched off for your organisation.');
     const user = await prisma.user.findFirst({ where: { id: req.params.userId, orgId }, select: { id: true, name: true } });
     if (!user) throw new AppError(404, 'User not found');
-    const dateStr = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : new Date().toISOString().slice(0, 10);
-    const from = new Date(`${dateStr}T00:00:00.000Z`);
-    const to = new Date(from.getTime() + 86_400_000);
+    const { policy: dayPolicy } = await policyForUser(orgId, user.id);
+    const dateStr = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : todayKeyFor(dayPolicy);
+    // The day in the employee's timezone, extended to the next morning for overnight shifts
+    const from = zonedDayStart(dateStr, dayPolicy.timezone);
+    const to = new Date(zonedDayStart(addDaysKey(dateStr, 1), dayPolicy.timezone).getTime() + 12 * 3_600_000);
     const [pings, sessions] = await Promise.all([
       prisma.attendanceLocationPing.findMany({ where: { orgId, userId: user.id, at: { gte: from, lt: to } }, orderBy: { at: 'asc' }, select: { at: true, lat: true, lng: true, accuracy: true, inside: true } }),
-      prisma.attendanceRecord.findMany({ where: { orgId, userId: user.id, date: from }, orderBy: { checkInAt: 'asc' } }),
+      recordsForDays(orgId, user.id, dayPolicy, dateStr, dateStr, RECORD_PUBLIC_SELECT),
     ]);
     res.json({ user, date: dateStr, pings, sessions });
   } catch (err) { next(err); }

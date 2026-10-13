@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { authenticate, requireRole, ALL_USERS, MANAGERS } from '../../../middleware/authenticate';
+import { authenticate, requireRole, ALL_USERS } from '../../../middleware/authenticate';
+// HR-manager role set lives in one place (utils/hrAccess.ts)
+import { HR_MANAGERS as MANAGERS } from '../../../utils/hrAccess';
 import * as c from './payroll.controller';
 import * as cfg from './payrollConfig.controller';
 import * as tpl from './payslipTemplates.controller';

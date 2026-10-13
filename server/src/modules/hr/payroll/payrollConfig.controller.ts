@@ -279,7 +279,7 @@ export async function previewPayslip(req: AuthRequest, res: Response, next: Next
     if (body.userId && body.attendance !== false) {
       const s = await payrollSummary(orgId, body.userId, period.start, period.end);
       base = inputsFromAttendance(period, s);
-      attendance = { policyGroup: s.policyGroupName, byStatus: s.byStatus, lateCount: s.lateCount, lateConversion: s.lateConversion, futureDaysAssumedPaid: s.futureDaysAssumedPaid, manualCorrections: s.manualCorrections };
+      attendance = { policyGroup: s.policyGroupName, byStatus: s.byStatus, lateCount: s.lateCount, lateConversion: s.lateConversion, futureDaysAssumedPaid: s.futureDaysAssumedPaid, manualCorrections: s.manualCorrections, notEmployedDays: s.notEmployedDays, warnings: s.warnings };
     }
     const inputs = { ...base, ...(body.inputs ?? {}) };
     if (body.inputs?.lopDays != null && body.inputs.paidDays == null) inputs.paidDays = inputs.workingDays - body.inputs.lopDays;

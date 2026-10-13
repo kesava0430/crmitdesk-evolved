@@ -33,7 +33,7 @@ import { webFormsRouter, publicFormsRouter } from './modules/webforms/webforms.r
 import { portalRouter } from './modules/portal/portal.routes';
 import { portalUsersRouter } from './modules/portal/portalUsers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
-import { sweepAutoCheckouts, purgeOldLocationPings } from './utils/attendanceAutoCheckout';
+import { sweepAutoCheckouts, purgeOldLocationPings, purgeOldSelfies, closeForgottenSessions } from './utils/attendanceAutoCheckout';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { eventsRouter } from './modules/events/events.routes';
 import { slackRouter } from './modules/slack/slack.routes';
@@ -384,9 +384,12 @@ pollers.push(setInterval(() => {
     .catch(err => console.error('[attendance] auto check-out sweep failed', err));
 }, 60 * 1000));
 
-// Attendance: drop location pings past each org's retention, hourly
+// Attendance: drop location pings / selfies past each org's retention, and
+// close sessions left open long after their shift ended (daily close-out), hourly
 pollers.push(setInterval(() => {
   purgeOldLocationPings().then(n => { if (n) console.log(`[attendance] purged ${n} old location pings`); }).catch(() => {});
+  purgeOldSelfies().then(n => { if (n) console.log(`[attendance] cleared ${n} old check-in selfies`); }).catch(() => {});
+  closeForgottenSessions().then(n => { if (n) console.log(`[attendance] closed ${n} forgotten session(s) after shift end`); }).catch(err => console.error('[attendance] close-out failed', err));
 }, 60 * 60 * 1000));
 
 // Schedule reminders: check for due WhatsApp notifications every minute
