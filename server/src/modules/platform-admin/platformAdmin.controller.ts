@@ -364,6 +364,14 @@ export async function updateSubscription(req: AuthRequest, res: Response, next: 
       }
     }
 
+    // Switching a manual licence to a fixed plan takes that plan's seat count
+    // (comps go through seatsOverride); only CUSTOM takes the seats typed in.
+    // Unchanged plans keep their row as-is, so an older comp isn't reset.
+    if (!stripeSubId && typeof payload.plan === 'string' && payload.plan !== 'CUSTOM' && payload.plan !== (before?.plan ?? 'FREE')) {
+      payload.seats = PLANS[payload.plan as 'FREE' | 'PRO' | 'ENTERPRISE'].seats;
+      payload.features = [];
+    }
+
     const sub = await prisma.subscription.upsert({
       where: { orgId },
       create: { orgId, plan: 'FREE', status: 'active', seats: 5, ...(payload as any) },
