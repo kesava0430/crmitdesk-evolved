@@ -33,6 +33,7 @@ import { webFormsRouter, publicFormsRouter } from './modules/webforms/webforms.r
 import { portalRouter } from './modules/portal/portal.routes';
 import { portalUsersRouter } from './modules/portal/portalUsers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
+import { requireFeatureAtMount } from './utils/licensing';
 import { sweepAutoCheckouts, purgeOldLocationPings } from './utils/attendanceAutoCheckout';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { eventsRouter } from './modules/events/events.routes';
@@ -318,14 +319,18 @@ app.use('/api/push', pushRouter);
 app.use('/api/platform', platformAdminRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/gdpr', gdprRouter);
-app.use('/api/hr/attendance', attendanceRouter);
-app.use('/api/hr/leave', leaveRouter);
-app.use('/api/hr/payroll', payrollRouter);
+// Licensed areas (utils/licensing.ts, LIC-8): every plan includes them by
+// default (PricingConfig.planFeatures), so this changes nothing until the
+// platform operator unticks one in Platform Admin → Pricing. Gated at the
+// mount so the HR routers themselves stay untouched.
+app.use('/api/hr/attendance', requireFeatureAtMount('attendance'), attendanceRouter);
+app.use('/api/hr/leave', requireFeatureAtMount('hr_core'), leaveRouter);
+app.use('/api/hr/payroll', requireFeatureAtMount('payroll'), payrollRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/jobs', jobsRouter);
-app.use('/api/hr/employees', employeesRouter);
-app.use('/api/people', peopleRouter);
-app.use('/api/hr/org', orgStructureRouter);
+app.use('/api/hr/employees', requireFeatureAtMount('hr_core'), employeesRouter);
+app.use('/api/people', requireFeatureAtMount('hr_core'), peopleRouter);
+app.use('/api/hr/org', requireFeatureAtMount('hr_core'), orgStructureRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/permissions', permissionsRouter);
