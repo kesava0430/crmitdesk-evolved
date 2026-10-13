@@ -54,7 +54,11 @@ function handleAIError(err: any, res: Response): boolean {
     return true;
   }
   if (err?.status === 401) {
-    res.status(401).json({ error: usingGroq ? 'Invalid API key. Check GROQ_API_KEY in server/.env and restart the server.' : 'Invalid API key. Check OPENAI_API_KEY in server/.env and restart the server.' });
+    // 502, not 401: the AI provider rejected OUR server's key. A 401 from
+    // this API means "your session expired" to the client (api/client.ts
+    // refreshes and, if that fails, signs the user out) — a misconfigured
+    // provider key must never look like that.
+    res.status(502).json({ error: usingGroq ? 'Invalid API key. Check GROQ_API_KEY in server/.env and restart the server.' : 'Invalid API key. Check OPENAI_API_KEY in server/.env and restart the server.' });
     return true;
   }
   return false; // caller must call next(err)
