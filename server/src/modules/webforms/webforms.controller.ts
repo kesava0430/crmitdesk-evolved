@@ -168,7 +168,9 @@ export async function publicFormSubmit(req: Request, res: Response, next: NextFu
     if (trusted) {
       if (limited(formHits, `${form.id}:intake`, 600, 60 * 60_000)) throw new AppError(429, 'This form is receiving too many submissions — try again later');
     } else {
-      const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? 'unknown').split(',')[0].trim();
+      // req.ip honours `trust proxy`; the first X-Forwarded-For entry is client-supplied, so keying
+      // the limiter on it let anyone dodge the limit by rotating that header.
+      const ip = req.ip || req.socket.remoteAddress || 'unknown';
       if (limited(ipHits, ip, 10, 10 * 60_000)) throw new AppError(429, 'Too many submissions — try again later');
       if (limited(formHits, form.id, 60, 60 * 60_000)) throw new AppError(429, 'This form is receiving too many submissions — try again later');
     }

@@ -169,11 +169,30 @@ export function checkNetworkAllowlist(ip: string | undefined | null, allowlist: 
   return matched ? 'matched' : 'not_matched';
 }
 
-/** Extracts the caller's public IP the same way the rest of this codebase does (see quotes.controller.ts publicAccept). */
+/**
+ * The caller's public IP as seen by our own reverse proxy.
+ *
+ * nginx forwards `$proxy_add_x_forwarded_for`, i.e. whatever X-Forwarded-For
+ * the client sent with the real peer address APPENDED. The first entry is
+ * therefore attacker-controlled — taking it let anyone send
+ * "X-Forwarded-For: <office IP>" and pass the office-network check (ATT-3).
+ * Express already resolves this correctly: with `trust proxy` = N hops
+ * (index.ts) `req.ip` is the entry N from the right. Prefer it.
+ */
+export function requestIp(req: { ip?: string; headers: Record<string, unknown>; socket?: { remoteAddress?: string } }): string {
+  const ip = req.ip || extractClientIp(req.headers, req.socket?.remoteAddress);
+  return (ip || '').replace(/^::ffff:/i, '');
+}
+
+/**
+ * Fallback for callers without an Express request: the LAST X-Forwarded-For
+ * entry (the one our single proxy hop appended), never the first.
+ */
 export function extractClientIp(headers: Record<string, unknown>, socketRemoteAddress?: string): string {
   const forwarded = headers['x-forwarded-for'];
-  const forwardedStr = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  return (typeof forwardedStr === 'string' ? forwardedStr.split(',')[0]?.trim() : '') || socketRemoteAddress || '';
+  const forwardedStr = Array.isArray(forwarded) ? forwarded[forwarded.length - 1] : forwarded;
+  const parts = typeof forwardedStr === 'string' ? forwardedStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+  return parts[parts.length - 1] || socketRemoteAddress || '';
 }
 
 export interface VerificationResult {
@@ -241,8 +260,16 @@ export function verifyAgainstOffices(
     }
   }
 
+  // The network signal is about the request's IP, not about which office is
+  // nearest (ATT-15): it matches if the IP is on ANY office's allowlist, fails
+  // if at least one office has an allowlist and none match, and is
+  // 'not_configured' only when no office has an allowlist at all. Taking it
+  // from the nearest office alone meant a nearest office without an allowlist
+  // made the check vacuously pass.
   const { distance, ...result } = best;
-  return result;
+  const statuses = offices.map(o => checkNetworkAllowlist(ip, o.allowedIps));
+  const networkStatus: NetworkCheckStatus = statuses.includes('matched') ? 'matched' : statuses.includes('not_matched') ? 'not_matched' : 'not_configured';
+  return { ...result, networkStatus, networkOk: networkStatus !== 'not_matched' };
 }
 
 /**
