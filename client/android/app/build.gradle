@@ -18,6 +18,15 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Play rejects an upload whose versionCode isn't higher than the last one,
+// and a hardcoded number meant every tagged CI build had to be bumped by
+// hand first (or it failed on upload). CI passes ANDROID_VERSION_CODE (derived
+// from the workflow run number) and ANDROID_VERSION_NAME (the tag) — see
+// .github/workflows/android.yml. Local builds keep the fallback values.
+def envVersionCode = System.getenv("ANDROID_VERSION_CODE")
+def appVersionCode = (envVersionCode != null && envVersionCode.isInteger()) ? envVersionCode.toInteger() : 3
+def appVersionName = System.getenv("ANDROID_VERSION_NAME") ?: "1.1"
+
 android {
     namespace "com.zenkara.app"
 
@@ -36,8 +45,8 @@ android {
         applicationId "com.zenkara.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.1"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

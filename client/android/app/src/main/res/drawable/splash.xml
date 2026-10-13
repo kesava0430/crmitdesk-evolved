@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launch screen: the Zenkara mark centred on the brand slate (#0f172a), the
+  same colours as the PWA splash and the system bars (MainActivity). Replaces
+  Capacitor's stock splash bitmaps. A layer-list instead of per-density PNGs:
+  it reuses the launcher foreground already shipped at every density, and
+  <bitmap gravity="center"> keeps it unscaled on every API level (item-level
+  gravity needs API 23; minSdk is 22).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <color android:color="@color/zenkara_splash_background" />
+    </item>
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/ic_launcher_foreground" />
+    </item>
+</layer-list>

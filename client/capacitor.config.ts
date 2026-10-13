@@ -1,27 +1,29 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 /**
- * Capacitor turns this same React app into native Android and iOS builds.
- * The web deployment is untouched: `npm run build` still produces the exact
- * `dist/` nginx serves today. A native build is the same `dist/`, copied
- * into a native shell by `npx cap sync`.
+ * Capacitor turns this same React app into the native Android build
+ * ("Zenkara 360", com.zenkara.app). The web deployment is untouched:
+ * `npm run build` still produces the exact `dist/` nginx serves. A native
+ * build is a `dist/` built for the app, copied into android/ by
+ * `npx cap sync` — .github/workflows/android.yml does both.
  *
- * ── Two things a native build must do differently ───────────────────────
+ * ── What a native build does differently ───────────────────────────────
  *
- * 1. THE API URL MUST BE ABSOLUTE.
- *    On the web, VITE_API_URL is "/api" and nginx proxies it. Inside the
- *    app the WebView's origin is http://localhost (Android), so "/api"
- *    would resolve to the device itself and 404. Build native with:
+ * 1. ABSOLUTE API URL, ROOT BASE PATH.
+ *    The WebView serves the bundle from http://localhost, so a relative
+ *    "/zenkara/api" would resolve to the phone itself. Build with:
  *
- *      VITE_API_URL=http://13.48.19.159:4000/api npm run build
+ *      VITE_API_URL=https://app.zenkara.in/zenkara/api npm run build
  *
- * 2. CORS WOULD OTHERWISE BLOCK EVERY REQUEST.
- *    That WebView origin (http://localhost) is not the server's single
- *    CORS_ORIGIN value, so the browser would refuse every call. Enabling
- *    CapacitorHttp below routes requests through the NATIVE HTTP stack
- *    instead of the WebView — no preflight, no CORS, and no change needed
- *    on the server. It patches fetch and XMLHttpRequest, so the existing
- *    axios client in src/api/client.ts is carried along unmodified.
+ *    and WITHOUT VITE_BASE_PATH (the app lives at the WebView root).
+ *
+ * 2. THE BUNDLE SHIPS INSIDE THE APP.
+ *    A web deploy never changes an installed app; users only get new client
+ *    code with a new APK/AAB (tag vX.Y.Z to build a Play bundle).
+ *
+ * 3. NATIVE-ONLY CODE lives in src/native/ and is always guarded by
+ *    Capacitor.isNativePlatform() (native/platform.ts) — session storage
+ *    mirror, resume handling, Back button, downloads, Microsoft sign-in, push.
  */
 const config: CapacitorConfig = {
   appId: 'com.zenkara.app',
@@ -29,18 +31,28 @@ const config: CapacitorConfig = {
   webDir: 'dist',
 
   plugins: {
-    // See note 2 above — this is what makes the app work against a server
-    // whose CORS_ORIGIN names only the web front end.
+    // Routes fetch/XMLHttpRequest (so the axios client) through the native
+    // HTTP stack. Originally this was the way around CORS; the server now
+    // also allows the app's WebView origins (server utils/corsOrigins.ts),
+    // which EventSource (live updates) needs since CapacitorHttp doesn't
+    // patch it. Kept on because it has been what every installed build uses
+    // — turning it off now would change how every request (cookies, headers,
+    // uploads) is made at once. When touching uploads/downloads, test
+    // multipart and blob responses on a device: those are where the native
+    // bridge has historically differed from the browser.
     CapacitorHttp: {
       enabled: true,
     },
   },
 
   android: {
-    // Plain http://localhost rather than the https scheme: the API is
-    // currently served over http, and a secure WebView origin would block
-    // it as mixed content. Switch this to 'https' once the backend is
-    // behind TLS.
+    // Keep 'http'. The WebView origin (http://localhost) is also the
+    // localStorage bucket that holds existing sessions; switching to
+    // 'https' changes the origin and would sign every installed user out.
+    // Sessions are now mirrored to native Preferences (api/authStorage.ts)
+    // and restored on launch, so a future switch is possible — but only
+    // after a release with that mirror has been out long enough for users
+    // to have opened it at least once.
     androidScheme: 'http',
   },
 };
