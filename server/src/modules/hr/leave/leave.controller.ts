@@ -27,7 +27,7 @@ const LeaveTypeSchema = z.object({
   /** Work-from-home "type": approved days are WFH (paid), no balance consumed */
   isWfh: z.boolean().optional(),
 });
-import { audit, parseDateOnly as parseD, computeDays } from '../../../utils/attendanceRegister';
+import { audit, parseDateOnly as parseD, computeDays, frozenUntil } from '../../../utils/attendanceRegister';
 import { computeBalances, validateLeaveRequest } from '../../../utils/leaveRules';
 import { HR_MANAGERS, isHrManager } from '../../../utils/hrAccess';
 
@@ -369,6 +369,8 @@ export async function convertAttendanceToLeave(req: AuthRequest, res: Response, 
     if (data.userId === req.user!.id) throw new AppError(403, SELF_APPROVAL);
     if (data.halfDay && !leaveType.allowHalfDay) throw new AppError(400, `${leaveType.name} cannot be taken as a half day`);
     const date = parseD(data.date);
+    const frozen = await frozenUntil(orgId, data.userId);
+    if (frozen && data.date <= frozen) throw new AppError(409, `${data.date} is in a payroll period that has already been finalised, so it can no longer be changed.`);
     const existing = await prisma.leaveRequest.findFirst({ where: { orgId, userId: data.userId, status: { in: ['PENDING', 'APPROVED'] }, startDate: { lte: date }, endDate: { gte: date } } });
     if (existing) throw new AppError(400, 'There is already leave on that date');
     const dayBefore = await prisma.attendanceDay.findUnique({ where: { userId_date: { userId: data.userId, date } } });
