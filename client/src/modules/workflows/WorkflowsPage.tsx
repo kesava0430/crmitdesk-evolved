@@ -21,6 +21,7 @@ import { useFormat } from '../../hooks/useFormat';
 import { addToast } from '../../shared/components/toastStore';
 import { useAuth } from '../../contexts/AuthContext';
 import { can } from '../../shared/permissions';
+import { PlanFeatureNotice } from '../../shared/components/PlanFeatureNotice';
 
 // ─── Config maps ──────────────────────────────────────────────────────────────
 
@@ -769,6 +770,7 @@ export function WorkflowsPage() {
 
       <div className="flex-1 overflow-auto">
         <PageBody>
+          <PlanFeatureNotice feature="workflow_automation" />
           {/* Stats bar */}
           {rules.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

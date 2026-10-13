@@ -8,7 +8,7 @@ import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../utils/pagination';
 import { logAction } from '../../utils/auditLog';
-import { assertSeatAvailable } from '../../utils/licensing';
+import { assertSeatAvailable, assertSeatForTransition, withSeatLock } from '../../utils/licensing';
 import { sendMail } from '../../utils/mailer';
 import {
   getPermCtx,
@@ -377,6 +377,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
       const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
       sendMail({
         orgId,
+        essential: true, // account access — never held back by the platform send quota
         to: data.email!,
         subject: `You've been invited to join ${org?.name ?? 'the team'}`,
         html: `<div style="font-family:sans-serif;max-width:500px;margin:0 auto">
@@ -526,7 +527,7 @@ export async function assignRole(req: AuthRequest, res: Response, next: NextFunc
 
     const employee = await prisma.employee.findFirst({
       where: { id: req.params.id, orgId },
-      select: { userId: true },
+      select: { userId: true, user: { select: { isActive: true, role: true } } },
     });
     if (!employee?.userId) throw new AppError(400, 'This person does not have a login to assign a role to');
 
@@ -537,9 +538,17 @@ export async function assignRole(req: AuthRequest, res: Response, next: NextFunc
     if (!role) throw new AppError(404, 'Role not found');
     if (!role.isActive) throw new AppError(400, 'That role is deactivated');
 
-    await prisma.user.update({
-      where: { id: employee.userId },
-      data: { roleId: role.id, role: (role.legacyRole ?? 'EMPLOYEE') as any },
+    const legacyRole = (role.legacyRole ?? 'EMPLOYEE') as any;
+    // Promoting an EMPLOYEE into a billable role takes a seat (LIC-2).
+    await withSeatLock(orgId, async tx => {
+      await assertSeatForTransition(orgId, {
+        wasActive: !!employee.user?.isActive, wasRole: employee.user?.role ?? null,
+        willBeActive: !!employee.user?.isActive, willBeRole: legacyRole,
+      }, tx);
+      await tx.user.update({
+        where: { id: employee.userId! },
+        data: { roleId: role.id, role: legacyRole },
+      });
     });
     invalidatePermCtx(employee.userId);
 

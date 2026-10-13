@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { sendWhatsApp } from './whatsapp';
 import { resolveRecipientPhone } from './notification-recipient';
 import { scoreLead, pickAssignment } from './ai';
+import { getAiContext, runWithAiContext } from './aiContext';
 import { sendPushToUser } from './webPush';
 import { sendMail, emailTemplates } from './mailer';
 
@@ -595,6 +596,11 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
 // ─── Main runner ─────────────────────────────────────────────────────────────
 
 export async function runWorkflows(ctx: WorkflowContext): Promise<void> {
+  // Workflows also run from cron / queue workers, outside any request. Attach
+  // the org so AI actions (score lead, smart assignment) are logged and
+  // count against the org's allowance instead of calling the provider
+  // ungoverned (LIC-19).
+  if (!getAiContext()) return runWithAiContext({ orgId: ctx.orgId, userId: null }, () => runWorkflows(ctx));
   try {
     const rules = await prisma.workflowRule.findMany({
       where: {

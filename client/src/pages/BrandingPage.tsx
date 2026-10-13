@@ -5,6 +5,7 @@ import { Eye, CheckCircle } from 'lucide-react';
 import {
   PageHeader, PageBody, Card, CardHeader, Button, Field, Input, Textarea,
 } from '../shared/components';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 interface Branding {
   primaryColor: string;
@@ -55,6 +56,7 @@ export default function BrandingPage() {
       />
 
       <PageBody>
+        <PlanFeatureNotice feature="custom_branding" />
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Form */}
           <div className="lg:col-span-3 space-y-5">

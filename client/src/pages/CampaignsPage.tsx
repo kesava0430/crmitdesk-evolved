@@ -10,6 +10,7 @@ import { useEmailTemplates } from '../api/templates';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 interface Campaign {
   id: string;
@@ -166,6 +167,7 @@ export default function CampaignsPage() {
       />
 
       <PageBody>
+      <PlanFeatureNotice feature="campaigns" />
       {isLoading ? (
         <div className="space-y-3">
           <SkeletonCard lines={3} />

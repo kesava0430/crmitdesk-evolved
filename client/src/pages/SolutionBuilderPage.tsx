@@ -32,7 +32,7 @@ interface Blueprint {
   modules: BlueprintModule[];
   automations?: { name: string; module: string; event: string; stage?: string; notifyTitle: string; notifyBody: string }[];
 }
-interface ApplyResult { modules: { id: string; name: string; slug: string }[]; workflowsCreated: number; workspaceApplied: boolean; labelsApplied: boolean }
+interface ApplyResult { modules: { id: string; name: string; slug: string }[]; workflowsCreated: number; workspaceApplied: boolean; labelsApplied: boolean; automationsSkipped?: number; note?: string }
 interface TemplateRow { id: string; name: string; description?: string | null; isShared: boolean; mine: boolean; from: string; moduleCount: number; appName?: string | null }
 
 const EXAMPLES = [
@@ -300,6 +300,8 @@ export default function SolutionBuilderPage() {
                   `${result.workflowsCreated ? `, ${result.workflowsCreated} automation${result.workflowsCreated === 1 ? '' : 's'} armed` : ''}. ` +
                   'The sidebar has already updated — everything stays editable in Custom Modules and Workspace Settings.'}
               />
+              {/* Automations need workflow_automation (Pro+); the server skips them otherwise. */}
+              {result.note && <p className="text-center text-[12.5px] text-warning">{result.note}</p>}
               <div className="flex flex-wrap justify-center gap-2">
                 {result.modules.map(m => (
                   <Link

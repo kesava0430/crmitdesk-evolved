@@ -182,7 +182,9 @@ async function chat(
     if (res.blocked) {
       // Surfaced as 402 by handleAIError, so the user is told the budget was
       // reached instead of receiving a confidently empty answer.
-      const err: any = new Error('Monthly AI budget reached. Raise the limit in AI Governance, or wait for the next billing period.');
+      const err: any = new Error(res.blockedBy === 'TOKEN_LIMIT'
+        ? "Your plan's monthly AI allowance is used up. Upgrade under Billing, or wait for next month."
+        : 'Monthly AI budget reached. Raise the limit in AI Governance, or wait for the next billing period.');
       err.status = 402;
       throw err;
     }

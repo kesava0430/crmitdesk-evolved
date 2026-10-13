@@ -12,6 +12,7 @@ import { useCsatResponses, useCsatStats } from '../api/csat';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 /**
  * Chart card. This was a local `Card` const shadowing the shared one plus a
@@ -111,6 +112,7 @@ export function ReportsPage() {
       />
 
       <PageBody>
+        <PlanFeatureNotice feature="advanced_analytics" />
         {tab === 'tickets' && (
           ticketsLoading ? <ReportSkeleton /> : (
             <div className="space-y-section">

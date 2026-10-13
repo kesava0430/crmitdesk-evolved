@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CreditCard, CheckCircle, Zap, Building2, Star, ExternalLink, Sparkles, AlertTriangle } from 'lucide-react';
-import { useSubscription, useCreateCheckout, useCreatePortal, usePricing, fmtUsd, BillingInterval } from '../api/billing';
+import { CreditCard, CheckCircle, Zap, Building2, Star, ExternalLink, Sparkles, AlertTriangle, Gift } from 'lucide-react';
 import {
-  PageHeader, PageBody, Card, StatTile, SectionHeader, Button, Badge, Alert, SkeletonCard, AccessDenied,
+  useSubscription, useCreateCheckout, useCreatePortal, usePricing, fmtMoney, fmtLimit, BillingInterval, PlanCard,
+} from '../api/billing';
+import {
+  PageHeader, PageBody, Card, StatTile, SectionHeader, Button, Badge, Alert, SkeletonCard, AccessDenied, Modal,
 } from '../shared/components';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { featureLabel } from '../shared/licenseFeatures';
 
 const PLAN_ICONS = { FREE: Star, PRO: Zap, ENTERPRISE: Building2, CUSTOM: Sparkles };
 
@@ -22,18 +25,48 @@ const PLAN_ICON_TINT = {
 const PLAN_BADGE = { FREE: 'gray', PRO: 'purple', ENTERPRISE: 'blue', CUSTOM: 'yellow' } as const;
 const PLAN_NAMES = { FREE: 'Free', PRO: 'Pro', ENTERPRISE: 'Enterprise', CUSTOM: 'Custom' } as const;
 
-/** Labels for licensed feature keys (server utils/pricing.ts MODULES + hosted storage). */
-const FEATURE_LABELS: Record<string, string> = {
-  ai_advanced: 'Advanced AI', workflow_automation: 'Workflow automation', customer_portal: 'Customer portal',
-  advanced_analytics: 'Advanced analytics', custom_branding: 'Custom branding', hosted_storage: 'Hosted storage',
-};
+/** Core areas shown as one line instead of five badges. */
+const CORE_AREAS = new Set(['hr_core', 'attendance', 'payroll', 'campaigns', 'custom_modules', 'api_access']);
 
-const FEATURES: Record<string, string[]> = {
-  FREE:       ['5 billable seats (Employees are unlimited)', 'CRM + IT Desk', 'Email notifications', 'AI features (limited)', 'Attachments via your own Google Drive', 'Community support'],
-  PRO:        ['25 billable seats (Employees are unlimited)', 'Everything in Free', 'Unlimited inbox messages', 'Workflow automation', 'Customer portal', 'Advanced analytics', '5GB hosted attachment storage (or keep using your own Drive)', 'Priority support'],
-  ENTERPRISE: ['Unlimited billable seats', 'Everything in Pro', 'SSO / SAML', 'Custom branding', '50GB hosted attachment storage', 'SLA guarantees', 'Dedicated account manager'],
-  CUSTOM:     ['Pick exactly the modules you need', 'Any number of billable seats, priced per seat', 'Volume discounts from 51 seats', 'Monthly or yearly billing', 'Optional hosted attachment storage'],
-};
+/** Plan card bullets, built from GET /billing/pricing so the copy can never
+ *  promise something the server doesn't enforce (LIC-27). */
+function planBullets(card: PlanCard | undefined, prev: PlanCard | undefined): string[] {
+  if (!card) return [];
+  const out: string[] = [];
+  out.push(`${card.seats >= 999 ? 'Up to ' : ''}${card.seats} billable seats (Employees are unlimited)`);
+  out.push(prev ? `Everything in ${prev.name}` : 'CRM + IT Desk, core AI (lead scoring, sentiment, routing, tagging)');
+  const prevSet = new Set(prev?.features ?? []);
+  const fresh = card.features.filter(f => !prevSet.has(f));
+  const core = fresh.filter(f => CORE_AREAS.has(f));
+  if (core.length) out.push(core.map(featureLabel).join(', '));
+  for (const f of fresh.filter(f => !CORE_AREAS.has(f))) out.push(featureLabel(f));
+  out.push(card.storageQuotaGB > 0 ? `${card.storageQuotaGB}GB hosted attachment storage` : 'Attachments via your own Google Drive or S3');
+  out.push(card.aiTokensMonthly === null ? 'Unlimited AI tokens' : `${fmtLimit(card.aiTokensMonthly)} AI tokens / month`);
+  if (card.platformEmailMonthly !== null || card.platformWhatsAppMonthly !== null) {
+    out.push(`${fmtLimit(card.platformEmailMonthly)} emails · ${fmtLimit(card.platformWhatsAppMonthly)} WhatsApp / month via our sender (unlimited with your own)`);
+  }
+  return out;
+}
+
+function UsageMeter({ label, used, limit, hint }: { label: string; used: number; limit: number | null; hint?: string }) {
+  const pct = limit ? Math.min(100, (used / limit) * 100) : 0;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[11.5px] font-medium text-fg-muted">{label}</p>
+        <p className={`text-[11.5px] font-semibold tabular-nums ${limit !== null && used >= limit ? 'text-danger' : 'text-fg'}`}>
+          {used.toLocaleString()} / {limit === null ? 'unlimited' : limit.toLocaleString()}
+        </p>
+      </div>
+      {limit !== null && (
+        <div className="w-full h-1.5 bg-surface-sunken rounded-full overflow-hidden">
+          <div className={`h-full rounded-full ${pct >= 100 ? 'bg-danger' : pct >= 80 ? 'bg-warning' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {hint && <p className="text-[11px] text-fg-subtle mt-1">{hint}</p>}
+    </div>
+  );
+}
 
 export function BillingPage() {
   const { date, timezone } = useFormat();
@@ -50,6 +83,9 @@ export function BillingPage() {
   const checkout = useCreateCheckout();
   const portal = useCreatePortal();
   const [interval, setInterval] = useState<BillingInterval>('month');
+  /** Plan change on an existing subscription is applied in place — confirm first. */
+  const [confirmPlan, setConfirmPlan] = useState<'PRO' | 'ENTERPRISE' | null>(null);
+  const [changed, setChanged] = useState(false);
 
   const success = searchParams.get('success') === '1';
   const canceled = searchParams.get('canceled') === '1';
@@ -72,6 +108,9 @@ export function BillingPage() {
     );
   }
 
+  const currency = pricing?.currency ?? 'usd';
+  const money = (cents: number) => fmtMoney(cents, currency);
+  const billingEnabled = pricing?.billingEnabled ?? sub?.billingEnabled ?? false;
   const current = sub?.plan || 'FREE';
   const lic = sub?.license;
   const monthsCharged = pricing?.yearlyMonthsCharged ?? 10;
@@ -79,13 +118,25 @@ export function BillingPage() {
   const licensedFeatures = lic?.features ?? sub?.planConfig.features ?? [];
   const storageGb = lic?.storageQuotaGB ?? sub?.planConfig.storageQuotaGB ?? 0;
   const statusVariant = sub?.status === 'active' || sub?.status === 'trialing' ? 'green' : sub?.status === 'past_due' ? 'yellow' : 'red';
+  // Enforcement reads the EFFECTIVE seats (lapse → 5, operator comps …), never the raw row (LIC-15).
+  const seatLimit = lic?.seats ?? sub?.seats ?? 5;
+  const seatsUsed = sub?.seatsUsed ?? 0;
+  const hasLiveStripeSub = !!sub?.stripeSubscriptionId && ['active', 'trialing', 'past_due'].includes(sub.status);
+  const contact = pricing?.contactEmail;
+  const cards = pricing?.plans ?? [];
+  const cardFor = (k: string) => cards.find(p => p.key === k);
+
+  const startCheckout = (plan: 'PRO' | 'ENTERPRISE') => {
+    if (hasLiveStripeSub) { setConfirmPlan(plan); return; }
+    checkout.mutate({ plan, interval });
+  };
 
   return (
     <div>
       <PageHeader
         title="Billing & Plans"
         subtitle="Manage your subscription and billing details."
-        actions={sub?.stripeCustomerId ? (
+        actions={sub?.stripeCustomerId && billingEnabled ? (
           <Button
             variant="secondary"
             icon={<ExternalLink size={14} />}
@@ -99,14 +150,32 @@ export function BillingPage() {
 
       <PageBody>
         {/* Flash messages */}
-        {success && (
+        {(success || changed) && (
           <Alert tone="success" icon={<CheckCircle size={18} />}>
-            Subscription updated successfully! Your plan is now active.
+            {changed
+              ? 'Your subscription was updated. Stripe prorates the difference on your next invoice.'
+              : 'Subscription updated successfully! Your plan is now active.'}
           </Alert>
         )}
         {canceled && (
           <Alert tone="warning">
             Checkout was cancelled. Your current plan is unchanged.
+          </Alert>
+        )}
+
+        {/* No Stripe keys on the server: say so plainly instead of failing at checkout (LIC-16). */}
+        {!billingEnabled && (
+          <div data-testid="billing-unavailable">
+            <Alert tone="info" icon={<CreditCard size={15} />} title="Online payment isn't available">
+              Plan changes are handled by our team for now — contact us{contact ? <> at <a className="underline font-medium" href={`mailto:${contact}`}>{contact}</a></> : ''} and we'll set up the licence you need.
+            </Alert>
+          </div>
+        )}
+
+        {/* Trial */}
+        {sub?.status === 'trialing' && sub.trialEndsAt && (
+          <Alert tone="info" icon={<Gift size={16} />} title="Free trial">
+            Your {sub.planConfig.name} trial ends on {date(sub.trialEndsAt)}. Add a payment method under "Manage billing" to keep it after that.
           </Alert>
         )}
 
@@ -139,16 +208,25 @@ export function BillingPage() {
                   {sub.interval === 'year' && <Badge variant="gray">Yearly</Badge>}
                 </div>
                 <p className="text-[13px] text-fg-muted mt-1 tabular-nums">
-                  {sub.seats} seats · {sub.plan === 'CUSTOM'
-                    ? `${fmtUsd(sub.amountCents)}/${sub.interval === 'year' ? 'year' : 'month'} (${fmtUsd(Math.round(sub.amountCents / (sub.interval === 'year' ? 12 : 1) / Math.max(1, sub.seats)))}/seat/month)`
-                    : sub.planConfig.price > 0 ? `$${sub.planConfig.price}/mo` : 'Free forever'}
+                  {seatLimit} seats{seatLimit !== sub.seats && sub.plan !== 'FREE' ? ` (subscription: ${sub.seats})` : ''} · {sub.plan === 'CUSTOM'
+                    ? `${money(sub.amountCents)}/${sub.interval === 'year' ? 'year' : 'month'} (${money(Math.round(sub.amountCents / (sub.interval === 'year' ? 12 : 1) / Math.max(1, sub.seats)))}/seat/month)`
+                    : sub.planConfig.price > 0 ? `${money(sub.planConfig.price * 100)}/mo` : 'Free forever'}
                 </p>
+                {sub.lastInvoiceAmountCents != null && sub.lastInvoiceAmountCents !== sub.amountCents && sub.lastInvoiceAmountCents > 0 && (
+                  <p className="text-[11.5px] text-fg-subtle mt-0.5 tabular-nums">Last invoice: {money(sub.lastInvoiceAmountCents)} (incl. tax / proration)</p>
+                )}
               </div>
               <div className="text-right">
-                {sub.currentPeriodEnd && (
+                {sub.currentPeriodEnd && sub.stripeSubscriptionId && (
                   <>
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">{sub.cancelAtPeriodEnd ? 'Access until' : 'Next billing date'}</p>
                     <p className="text-[13px] font-medium text-fg mt-0.5 tabular-nums">{date(sub.currentPeriodEnd)}</p>
+                  </>
+                )}
+                {lic?.manualExpiresAt && (
+                  <>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Licence valid until</p>
+                    <p className="text-[13px] font-medium text-fg mt-0.5 tabular-nums">{date(lic.manualExpiresAt)}</p>
                   </>
                 )}
                 {sub.plan === 'CUSTOM' && (
@@ -162,7 +240,7 @@ export function BillingPage() {
               <p className="text-[11.5px] font-medium text-fg-muted mb-1.5">Licensed modules</p>
               <div className="flex flex-wrap gap-1.5" data-testid="licensed-modules">
                 <Badge variant="green">CRM + IT Desk core</Badge>
-                {licensedFeatures.map(k => <Badge key={k} variant="gray">{FEATURE_LABELS[k] ?? k}</Badge>)}
+                {licensedFeatures.map(k => <Badge key={k} variant="gray">{featureLabel(k)}</Badge>)}
                 {storageGb > 0 && <Badge variant="gray">{storageGb}GB hosted storage</Badge>}
                 {lic?.access === 'lapsed' && <Badge variant="red">Limited to Free until payment is restored</Badge>}
               </div>
@@ -172,26 +250,25 @@ export function BillingPage() {
             <div className="mt-4 pt-4 border-t border-line-subtle">
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[11.5px] font-medium text-fg-muted">Billable seats used</p>
-                <p className={`text-[11.5px] font-semibold tabular-nums ${sub.seatsUsed >= sub.seats ? 'text-danger' : 'text-fg'}`}>
-                  {sub.seatsUsed} / {sub.seats}
+                <p className={`text-[11.5px] font-semibold tabular-nums ${seatsUsed >= seatLimit ? 'text-danger' : 'text-fg'}`} data-testid="seat-usage">
+                  {seatsUsed} / {seatLimit}
                 </p>
               </div>
               <div className="w-full h-2 bg-surface-sunken rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${sub.seatsUsed >= sub.seats ? 'bg-danger' : sub.seatsUsed / sub.seats >= 0.8 ? 'bg-warning' : 'bg-accent'}`}
-                  style={{ width: `${Math.min(100, (sub.seatsUsed / sub.seats) * 100)}%` }}
+                  className={`h-full rounded-full transition-all ${seatsUsed >= seatLimit ? 'bg-danger' : seatsUsed / seatLimit >= 0.8 ? 'bg-warning' : 'bg-accent'}`}
+                  style={{ width: `${Math.min(100, (seatsUsed / Math.max(1, seatLimit)) * 100)}%` }}
                 />
               </div>
               <p className="text-[11.5px] text-fg-subtle mt-1.5">
                 Every role counts except Employee — those logins are free and unlimited.
-                {sub.seatsUsed >= sub.seats && ' You\'re at your limit; upgrade to add more people in a billable role.'}
+                {seatsUsed >= seatLimit && ' You\'re at your limit; upgrade to add more people in a billable role.'}
               </p>
             </div>
           </Card>
         )}
 
-        {/* Usage this month — informational only, nothing here is billed or
-            capped yet. Purely visibility until real limits get set. */}
+        {/* Usage this month, against the plan's allowances (null = unlimited). */}
         {sub && (
           <Card>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mb-3">
@@ -201,7 +278,11 @@ export function BillingPage() {
               <StatTile tone="sunken" label="AI calls" value={sub.usage.aiCalls.toLocaleString()} />
               <StatTile tone="sunken" label="WhatsApp messages sent" value={sub.usage.whatsappSends.toLocaleString()} />
             </div>
-            <p className="text-[11.5px] text-fg-subtle mt-3">Not currently limited or billed separately — shown for visibility only.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+              <UsageMeter label="AI tokens" used={sub.usage.aiTokens ?? 0} limit={sub.usage.aiTokensLimit ?? null} />
+              <UsageMeter label="Emails via our sender" used={sub.usage.platformEmails ?? 0} limit={sub.usage.platformEmailsLimit ?? null} hint="Unlimited through your own connected mailbox." />
+              <UsageMeter label="WhatsApp via our number" used={sub.usage.platformWhatsApp ?? 0} limit={sub.usage.platformWhatsAppLimit ?? null} hint="Unlimited through your own WhatsApp number." />
+            </div>
           </Card>
         )}
 
@@ -221,13 +302,27 @@ export function BillingPage() {
             </div>
           }
         />
+        {sub?.trialEligible && billingEnabled && (pricing?.trialDays ?? 0) > 0 && (
+          <p className="text-[12.5px] text-success font-medium -mt-2"><Gift size={13} className="inline mr-1" />Paid plans start with a {pricing!.trialDays}-day free trial.</p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {(['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM'] as const).map(plan => {
             const isCurrent = plan === current;
             const Icon = PLAN_ICONS[plan];
-            const monthly = plan === 'PRO' || plan === 'ENTERPRISE' ? (pricing?.plans.find(p => p.key === plan)?.price ?? (plan === 'PRO' ? 49 : 149)) : 0;
-            const price = interval === 'year' ? Math.round(monthly * monthsCharged / 12) : monthly;
+            const card = plan === 'CUSTOM' ? undefined : cardFor(plan);
+            const monthly = card?.price ?? 0;
+            const monthlyCents = Math.round(monthly * 100);
+            const priceCents = interval === 'year' ? Math.round(monthlyCents * monthsCharged / 12) : monthlyCents;
             const locked = isCurrent || plan === 'FREE';
+            const bullets = plan === 'CUSTOM'
+              ? [
+                  'Pick exactly the modules you need',
+                  'Billable seats priced per seat',
+                  ...(pricing?.volumeTiers?.length ? [`Volume discounts from ${Math.min(...pricing.volumeTiers.map(t => t.minSeats))} seats`] : []),
+                  'Monthly or yearly billing',
+                  ...(pricing?.modules?.some(m => m.key === 'hosted_storage') ? ['Optional hosted attachment storage'] : []),
+                ]
+              : planBullets(card, plan === 'PRO' ? cardFor('FREE') : plan === 'ENTERPRISE' ? cardFor('PRO') : undefined);
 
             return (
               <Card
@@ -258,20 +353,20 @@ export function BillingPage() {
                   {plan === 'CUSTOM' ? (
                     <>
                       <span className="text-[13px] text-fg-subtle">from </span>
-                      <span className="text-[28px] font-semibold text-fg tracking-tight tabular-nums">{fmtUsd(interval === 'year' ? Math.round((pricing?.baseSeatPriceCents ?? 800) * monthsCharged / 12) : (pricing?.baseSeatPriceCents ?? 800))}</span>
+                      <span className="text-[28px] font-semibold text-fg tracking-tight tabular-nums">{money(interval === 'year' ? Math.round((pricing?.baseSeatPriceCents ?? 800) * monthsCharged / 12) : (pricing?.baseSeatPriceCents ?? 800))}</span>
                       <span className="text-[13px] text-fg-subtle">/seat/mo</span>
                     </>
                   ) : (
                     <>
-                      <span className="text-[28px] font-semibold text-fg tracking-tight tabular-nums">${price}</span>
+                      <span className="text-[28px] font-semibold text-fg tracking-tight tabular-nums">{money(priceCents)}</span>
                       <span className="text-[13px] text-fg-subtle">/mo</span>
-                      {interval === 'year' && monthly > 0 && <p className="text-[11.5px] text-success mt-0.5">billed ${monthly * monthsCharged}/year</p>}
+                      {interval === 'year' && monthly > 0 && <p className="text-[11.5px] text-success mt-0.5">billed {money(Math.round(monthlyCents * monthsCharged))}/year</p>}
                     </>
                   )}
                 </div>
 
                 <ul className="space-y-2 flex-1 mb-6">
-                  {FEATURES[plan].map(f => (
+                  {bullets.map(f => (
                     <li key={f} className="flex items-start gap-2 text-[13px] text-fg-muted leading-relaxed">
                       <CheckCircle size={13} className="text-success flex-shrink-0 mt-0.5" /> <span>{f}</span>
                     </li>
@@ -291,7 +386,12 @@ export function BillingPage() {
                     {isCurrent ? 'Current plan' : 'Downgrade via Manage billing'}
                   </Button>
                 ) : (
-                  <Button block loading={checkout.isPending} onClick={() => checkout.mutate({ plan, interval })}>
+                  <Button
+                    block loading={checkout.isPending && checkout.variables?.plan === plan}
+                    disabled={!billingEnabled}
+                    title={!billingEnabled ? "Online payment isn't available — contact us" : undefined}
+                    onClick={() => startCheckout(plan)}
+                  >
                     {current === 'FREE' ? 'Upgrade to' : 'Switch to'} {PLAN_NAMES[plan]}
                   </Button>
                 )}
@@ -299,14 +399,36 @@ export function BillingPage() {
             );
           })}
         </div>
-
-        {/* Stripe setup note */}
-        {!sub?.stripeCustomerId && sub?.plan === 'FREE' && (
-          <Alert tone="warning" icon={<CreditCard size={15} />} title="Configure Stripe to enable payments">
-            <p>Add <code className="bg-warning/15 px-1 rounded">STRIPE_SECRET_KEY</code> and <code className="bg-warning/15 px-1 rounded">STRIPE_WEBHOOK_SECRET</code> to <code className="bg-warning/15 px-1 rounded">server/.env</code>. Yearly and custom licences are priced dynamically; <code className="bg-warning/15 px-1 rounded">STRIPE_PRO_PRICE_ID</code> / <code className="bg-warning/15 px-1 rounded">STRIPE_ENTERPRISE_PRICE_ID</code> are optional monthly Prices.</p>
-          </Alert>
-        )}
       </PageBody>
+
+      {/* In-place change of an existing subscription (no second subscription, LIC-1) */}
+      {confirmPlan && (
+        <Modal
+          open
+          onClose={() => setConfirmPlan(null)}
+          title={`Switch to ${PLAN_NAMES[confirmPlan]}?`}
+          icon={<CreditCard size={16} />}
+          size="md"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setConfirmPlan(null)} disabled={checkout.isPending}>Cancel</Button>
+              <Button
+                loading={checkout.isPending}
+                onClick={() => checkout.mutate({ plan: confirmPlan, interval }, {
+                  onSuccess: data => { setConfirmPlan(null); if (data.updated) setChanged(true); },
+                })}
+              >
+                Confirm change
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[13px] text-fg-muted leading-relaxed">
+            Your current subscription is changed to <strong className="text-fg">{PLAN_NAMES[confirmPlan]}</strong>, billed {interval === 'year' ? 'yearly' : 'monthly'}, straight away — using the card already on file.
+            Stripe credits the unused part of your current plan and charges the difference on your next invoice. You keep a single subscription.
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

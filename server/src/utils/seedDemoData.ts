@@ -913,7 +913,10 @@ async function buildOrg(preset: VerticalPreset) {
 
   await prisma.orgBranding.create({ data: { orgId: org.id, primaryColor: preset.primaryColor, supportEmail: preset.supportEmail, portalTitle: `${preset.orgName} Support`, portalWelcome: 'Welcome! Submit and track your requests here.' } });
 
-  await prisma.subscription.create({ data: { orgId: org.id, plan: 'ENTERPRISE', status: 'active', seats: 999, currentPeriodEnd: daysFromNow(30) } });
+  // A manual (non-Stripe) licence: no currentPeriodEnd / manualExpiresAt, so
+  // it never expires — a period end 30 days out used to drop demo orgs to
+  // Free a week after that date unless they were re-seeded (LIC-20).
+  await prisma.subscription.create({ data: { orgId: org.id, plan: 'ENTERPRISE', status: 'active', seats: 999 } });
 
   const [tagVip, tagHot, tagEnterprise, tagUrgent] = await Promise.all([
     prisma.tag.create({ data: { orgId: org.id, name: 'VIP', color: '#F59E0B', module: 'CRM' } }),

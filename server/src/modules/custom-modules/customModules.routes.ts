@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, requireRole, ALL_STAFF, CRM_MANAGERS } from '../../middleware/authenticate';
+import { requireFeature } from '../../utils/licensing';
 import * as c from './customModules.controller';
 import * as sync from './externalSync.controller';
 
@@ -11,13 +12,15 @@ customModulesRouter.get('/',                          requireRole(...ALL_STAFF),
 // Must be registered before GET /:id — otherwise Express would match
 // "templates" as an :id value and route here to getModule instead.
 customModulesRouter.get('/templates',                 requireRole(...CRM_MANAGERS), c.listModuleTemplates);
-customModulesRouter.post('/',                          requireRole(...CRM_MANAGERS), c.createModule);
+// Building a module / adding fields is the licensed step (custom_modules,
+// LIC-8); existing modules and their records keep working on any plan.
+customModulesRouter.post('/',                          requireRole(...CRM_MANAGERS), requireFeature('custom_modules'), c.createModule);
 customModulesRouter.get('/:id',                        requireRole(...ALL_STAFF),    c.getModule);
 customModulesRouter.patch('/:id',                      requireRole(...CRM_MANAGERS), c.updateModule);
 customModulesRouter.delete('/:id',                     requireRole(...CRM_MANAGERS), c.deleteModule);
 
 // Field schema
-customModulesRouter.post('/:id/fields',                requireRole(...CRM_MANAGERS), c.addField);
+customModulesRouter.post('/:id/fields',                requireRole(...CRM_MANAGERS), requireFeature('custom_modules'), c.addField);
 customModulesRouter.patch('/:id/fields/:fieldId',      requireRole(...CRM_MANAGERS), c.updateField);
 customModulesRouter.delete('/:id/fields/:fieldId',     requireRole(...CRM_MANAGERS), c.removeField);
 

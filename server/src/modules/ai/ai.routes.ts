@@ -131,7 +131,8 @@ aiRouter.post('/studio/scripts/validate',    requireRole(...MANAGERS),  aiAdvanc
 aiRouter.post('/solution/generate',          requireRole(...MANAGERS),  aiAdvanced, trackAiCall, solution.generateSolutionHandler);
 // apply makes no AI call (it validates and writes config), so it carries no
 // aiAdvanced gate — stamping a template must work on AI-less plans too.
-aiRouter.post('/solution/apply',             requireRole(...MANAGERS),  solution.applySolutionHandler);
+// It does create custom modules, so it needs custom_modules (on every plan by default).
+aiRouter.post('/solution/apply',             requireRole(...MANAGERS),  requireFeature('custom_modules'), solution.applySolutionHandler);
 
 // Solution templates (platform Phase 4) — snapshot this workspace as a
 // reusable blueprint, list own + shared, load one for preview, delete own.

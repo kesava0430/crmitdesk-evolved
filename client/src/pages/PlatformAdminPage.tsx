@@ -26,6 +26,7 @@ import {
   type Column,
 } from '../shared/components';
 import { useAuth } from '../contexts/AuthContext';
+import { FEATURE_KEYS, featureLabel } from '../shared/licenseFeatures';
 
 const GB = 1024 * 1024 * 1024;
 const gbLabel = (bytes: number) => `${(bytes / GB).toFixed(bytes < GB ? 2 : 1)}GB`;
@@ -184,31 +185,87 @@ function OrgNameEditor({ org }: { org: PlatformOrgDetail }) {
   );
 }
 
-/** License / plan section — plan/seats/status/renewal-cancel toggle (PATCH /platform/orgs/:id/subscription). */
-function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
-  const [editing, setEditing] = useState(false);
-  const [plan, setPlan] = useState(org.subscription?.plan ?? org.plan);
-  const [seats, setSeats] = useState(org.subscription?.seats ?? 5);
-  const [status, setStatus] = useState(org.subscription?.status ?? 'active');
-  const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(org.subscription?.cancelAtPeriodEnd ?? false);
-  // License limits set here beat plan defaults. Kept as strings in the form
-  // so an emptied input round-trips as null ("no override") rather than 0.
-  const [storageOverrideGb, setStorageOverrideGb] = useState<string>(
-    (org.subscription as any)?.storageQuotaOverrideGb != null ? String((org.subscription as any).storageQuotaOverrideGb) : ''
-  );
-  const [aiTokenLimit, setAiTokenLimit] = useState<string>(
-    (org.subscription as any)?.aiTokenLimitMonthly != null ? String((org.subscription as any).aiTokenLimitMonthly) : ''
-  );
-  const mutation = useUpdatePlatformSubscription();
+const LICENSE_STATUSES = ['active', 'trialing', 'past_due', 'incomplete', 'canceled', 'unpaid', 'paused'];
+const ACCESS_BADGE: Record<string, 'green' | 'yellow' | 'red'> = { full: 'green', grace: 'yellow', lapsed: 'red' };
+/** "" ⇄ null for optional numeric inputs. */
+const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v));
+const strOf = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v));
+const dateInput = (v: string | null | undefined) => (v ? new Date(v).toISOString().slice(0, 10) : '');
+const limitLabel = (n: number | null | undefined) => (n === null || n === undefined ? 'unlimited' : n.toLocaleString());
 
-  const startEdit = () => {
-    setPlan(org.subscription?.plan ?? org.plan);
-    setSeats(org.subscription?.seats ?? 5);
-    setStatus(org.subscription?.status ?? 'active');
-    setCancelAtPeriodEnd(org.subscription?.cancelAtPeriodEnd ?? false);
-    setStorageOverrideGb((org.subscription as any)?.storageQuotaOverrideGb != null ? String((org.subscription as any).storageQuotaOverrideGb) : '');
-    setAiTokenLimit((org.subscription as any)?.aiTokenLimitMonthly != null ? String((org.subscription as any).aiTokenLimitMonthly) : '');
-    setEditing(true);
+function FeaturePicker({ value, onChange, options }: { value: string[]; onChange: (v: string[]) => void; options: readonly string[] }) {
+  const toggle = (k: string) => onChange(value.includes(k) ? value.filter(x => x !== k) : [...value, k]);
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map(k => (
+        <button
+          key={k} type="button" role="checkbox" aria-checked={value.includes(k)} onClick={() => toggle(k)}
+          className={`px-2 py-1 rounded-md text-[11.5px] border transition ${value.includes(k) ? 'bg-accent-soft border-accent text-fg' : 'bg-surface border-line text-fg-muted hover:border-line-strong'}`}
+        >
+          {featureLabel(k)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Licence section (PATCH /platform/orgs/:id/subscription). Two kinds of fields:
+ *  - the licence itself (plan, seats, modules, interval, status, expiry) —
+ *    editable only on MANUAL licences; on a Stripe-billed one Stripe owns them
+ *    (the server returns 409) and only cancel-at-period-end is passed to Stripe;
+ *  - operator overrides (seat / module comps, storage, AI, send quotas, note)
+ *    that apply on top of any licence and survive every Stripe webhook.
+ */
+function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
+  const sub = org.subscription;
+  const lic = org.license;
+  const stripeManaged = !!sub?.stripeSubscriptionId;
+  const initial = () => ({
+    plan: sub?.plan ?? org.plan ?? 'FREE',
+    seats: String(sub?.seats ?? 5),
+    features: [...(sub?.features ?? [])],
+    interval: (sub?.interval ?? 'month') as 'month' | 'year',
+    status: sub?.status ?? 'active',
+    cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false,
+    manualExpiresAt: dateInput(sub?.manualExpiresAt),
+    graceUntil: dateInput(sub?.graceUntil),
+    seatsOverride: strOf(sub?.seatsOverride),
+    extraFeatures: [...(sub?.extraFeatures ?? [])],
+    storageQuotaOverrideGb: strOf(sub?.storageQuotaOverrideGb),
+    aiTokenLimitMonthly: strOf(sub?.aiTokenLimitMonthly),
+    platformEmailQuotaMonthly: strOf(sub?.platformEmailQuotaMonthly),
+    platformWhatsAppQuotaMonthly: strOf(sub?.platformWhatsAppQuotaMonthly),
+    manualNote: sub?.manualNote ?? '',
+  });
+  const [editing, setEditing] = useState(false);
+  const [f, setF] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const mutation = useUpdatePlatformSubscription();
+  const set = <K extends keyof ReturnType<typeof initial>>(k: K, v: ReturnType<typeof initial>[K]) => setF(prev => ({ ...prev, [k]: v }));
+
+  const save = () => {
+    setError(null);
+    const overrides = {
+      seatsOverride: numOrNull(f.seatsOverride),
+      extraFeatures: f.extraFeatures,
+      storageQuotaOverrideGb: numOrNull(f.storageQuotaOverrideGb),
+      aiTokenLimitMonthly: numOrNull(f.aiTokenLimitMonthly),
+      platformEmailQuotaMonthly: numOrNull(f.platformEmailQuotaMonthly),
+      platformWhatsAppQuotaMonthly: numOrNull(f.platformWhatsAppQuotaMonthly),
+      manualNote: f.manualNote.trim() || null,
+      cancelAtPeriodEnd: f.cancelAtPeriodEnd,
+    };
+    const licence = stripeManaged ? {} : {
+      plan: f.plan, seats: Math.max(1, Number(f.seats) || 1), features: f.plan === 'CUSTOM' ? f.features : [],
+      interval: f.interval, status: f.status,
+      manualExpiresAt: f.manualExpiresAt ? new Date(`${f.manualExpiresAt}T23:59:59Z`).toISOString() : null,
+      graceUntil: f.graceUntil ? new Date(`${f.graceUntil}T23:59:59Z`).toISOString() : null,
+    };
+    mutation.mutate({ id: org.id, ...overrides, ...licence }, {
+      onSuccess: () => setEditing(false),
+      onError: (e: any) => setError(e?.response?.data?.error ?? 'Could not save the licence'),
+    });
   };
 
   return (
@@ -217,65 +274,149 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
         actions={
           <SectionEditToggle
             editing={editing}
-            onEdit={startEdit}
+            onEdit={() => { setF(initial()); setError(null); setEditing(true); }}
             onCancel={() => setEditing(false)}
             saving={mutation.isPending}
-            onSave={() => mutation.mutate({
-              id: org.id, plan: plan as 'FREE' | 'PRO' | 'ENTERPRISE' | 'CUSTOM', seats, status, cancelAtPeriodEnd,
-              storageQuotaOverrideGb: storageOverrideGb.trim() === '' ? null : Number(storageOverrideGb),
-              aiTokenLimitMonthly: aiTokenLimit.trim() === '' ? null : Number(aiTokenLimit),
-            } as any, { onSuccess: () => setEditing(false) })}
+            onSave={save}
           />
         }
       >
-        License / plan
+        Licence {stripeManaged && <Badge variant="purple">Stripe-managed</Badge>}
       </PanelHeading>
+
+      {/* What the org can actually do right now */}
+      {lic && (
+        <Card tone="sunken" padding="sm" flat className="text-sm space-y-1 mb-2" data-testid="effective-licence">
+          <div className="flex justify-between items-center gap-2">
+            <span className="text-fg-muted">Effective access</span>
+            <span className="flex items-center gap-1.5">
+              <Badge variant={PLAN_BADGE[lic.effectivePlan] ?? 'gray'}>{lic.effectivePlan}</Badge>
+              <Badge variant={ACCESS_BADGE[lic.access]}>{lic.access}</Badge>
+            </span>
+          </div>
+          {lic.reason && <p className="text-xs text-fg-muted">{lic.reason}</p>}
+          <div className="flex justify-between"><span className="text-fg-muted">Billable seats</span><span className={`font-medium tabular-nums ${(org.seatsUsed ?? 0) > lic.seats ? 'text-danger' : 'text-fg'}`}>{org.seatsUsed ?? 0} used / {lic.seats}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-fg-muted shrink-0">Features</span><span className="text-xs text-fg text-right">{lic.features.map(featureLabel).join(', ') || '—'}</span></div>
+        </Card>
+      )}
+
       {editing ? (
         <Card tone="sunken" padding="sm" flat className="space-y-3">
-          <Field label="Plan">
-            <Select
-              value={plan}
-              onChange={e => setPlan(e.target.value)}
-              options={[
-                { value: 'FREE', label: 'FREE' },
-                { value: 'PRO', label: 'PRO' },
-                { value: 'ENTERPRISE', label: 'ENTERPRISE' },
-                { value: 'CUSTOM', label: 'CUSTOM (self-serve licence — modules/seats set at checkout)' },
-              ]}
-            />
-          </Field>
-          <Field label="Seats">
-            <Input type="number" min={1} value={seats} onChange={e => setSeats(Number(e.target.value))} />
-          </Field>
-          <Field label="Status">
-            <Input value={status} onChange={e => setStatus(e.target.value)} />
-          </Field>
-          <Checkbox
-            label="Cancel at period end"
-            checked={cancelAtPeriodEnd}
-            onChange={e => setCancelAtPeriodEnd(e.target.checked)}
-          />
-          <Field label="Storage quota override (GB)" hint="Blank = plan default. 0 removes hosted storage for this org entirely.">
-            <Input type="number" min={0} placeholder="plan default" value={storageOverrideGb}
-              onChange={e => setStorageOverrideGb(e.target.value)} />
-          </Field>
-          <Field label="AI tokens / month" hint="Blank = unlimited. Hard cap — AI calls are refused once the org uses this many tokens in a month.">
-            <Input type="number" min={0} placeholder="unlimited" value={aiTokenLimit}
-              onChange={e => setAiTokenLimit(e.target.value)} />
-          </Field>
+          {error && <Alert tone="danger">{error}</Alert>}
+          {stripeManaged ? (
+            <Alert tone="info" title="Billed through Stripe">
+              Plan, seats, modules and status follow the Stripe subscription — change them in Billing (customer) or the Stripe dashboard. "Cancel at period end" below is sent to Stripe. Use the overrides to comp extras.
+            </Alert>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Plan">
+                  <Select value={f.plan} onChange={e => set('plan', e.target.value)} options={['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM'].map(v => ({ value: v, label: v }))} />
+                </Field>
+                <Field label="Status">
+                  <Select value={f.status} onChange={e => set('status', e.target.value)} options={LICENSE_STATUSES.map(v => ({ value: v, label: v.replace(/_/g, ' ') }))} />
+                </Field>
+                <Field label="Seats" hint={f.plan === 'FREE' ? 'Free is always 5 — use the seat override to comp more.' : f.plan === 'CUSTOM' ? undefined : 'Switching to a fixed plan sets its own seat count; use the seat override to comp more.'}>
+                  <Input type="number" min={1} value={f.seats} disabled={f.plan !== 'CUSTOM'} onChange={e => set('seats', e.target.value)} />
+                </Field>
+                <Field label="Billing interval">
+                  <Select value={f.interval} onChange={e => set('interval', e.target.value as 'month' | 'year')} options={[{ value: 'month', label: 'Monthly' }, { value: 'year', label: 'Yearly' }]} />
+                </Field>
+                <Field label="Licence expires" hint="Blank = never. After this date the org drops to Free limits.">
+                  <Input type="date" value={f.manualExpiresAt} onChange={e => set('manualExpiresAt', e.target.value)} />
+                </Field>
+                <Field label="Grace until" hint="Only used while status is past due / incomplete.">
+                  <Input type="date" value={f.graceUntil} onChange={e => set('graceUntil', e.target.value)} />
+                </Field>
+              </div>
+              {f.plan === 'CUSTOM' && (
+                <Field label="Custom licence modules">
+                  <FeaturePicker value={f.features} onChange={v => set('features', v)} options={[...FEATURE_KEYS, 'hosted_storage']} />
+                </Field>
+              )}
+            </>
+          )}
+          <Checkbox label="Cancel at period end" checked={f.cancelAtPeriodEnd} onChange={e => set('cancelAtPeriodEnd', e.target.checked)} />
+
+          <div className="border-t border-line pt-3 space-y-3">
+            <p className="text-[11.5px] font-medium text-fg-muted">Operator overrides — applied on top of the licence, never touched by Stripe</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Seat override" hint="Blank = plan / subscription seats.">
+                <Input type="number" min={1} placeholder="no override" value={f.seatsOverride} onChange={e => set('seatsOverride', e.target.value)} />
+              </Field>
+              <Field label="Storage quota override (GB)" hint="Blank = plan default. 0 removes hosted storage.">
+                <Input type="number" min={0} placeholder="plan default" value={f.storageQuotaOverrideGb} onChange={e => set('storageQuotaOverrideGb', e.target.value)} />
+              </Field>
+              <Field label="AI tokens / month" hint={`Blank = plan default (${limitLabel(lic?.aiTokensMonthly)} now). 0 = unlimited.`}>
+                <Input type="number" min={0} placeholder="plan default" value={f.aiTokenLimitMonthly} onChange={e => set('aiTokenLimitMonthly', e.target.value)} />
+              </Field>
+              <Field label="Platform emails / month" hint="Blank = plan default. Own SMTP is never counted.">
+                <Input type="number" min={0} placeholder="plan default" value={f.platformEmailQuotaMonthly} onChange={e => set('platformEmailQuotaMonthly', e.target.value)} />
+              </Field>
+              <Field label="Platform WhatsApp / month" hint="Blank = plan default. Own number is never counted.">
+                <Input type="number" min={0} placeholder="plan default" value={f.platformWhatsAppQuotaMonthly} onChange={e => set('platformWhatsAppQuotaMonthly', e.target.value)} />
+              </Field>
+            </div>
+            <Field label="Extra features (comped)">
+              <FeaturePicker value={f.extraFeatures} onChange={v => set('extraFeatures', v)} options={FEATURE_KEYS} />
+            </Field>
+            <Field label="Note" hint="Internal — deal reference, why it was comped. Never shown to the customer.">
+              <Input value={f.manualNote} onChange={e => set('manualNote', e.target.value)} placeholder="e.g. Annual deal INV-2041, invoiced offline" />
+            </Field>
+          </div>
         </Card>
       ) : (
         <Card tone="sunken" padding="sm" flat className="text-sm space-y-1">
-          <div className="flex justify-between items-center"><span className="text-fg-muted">Plan</span><Badge variant={PLAN_BADGE[org.subscription?.plan ?? org.plan] ?? 'gray'}>{org.subscription?.plan ?? org.plan}</Badge></div>
-          <div className="flex justify-between"><span className="text-fg-muted">Status</span><span className="font-medium text-fg">{org.subscription?.status ?? '—'}</span></div>
-          <div className="flex justify-between"><span className="text-fg-muted">Seats</span><span className="font-medium text-fg tabular-nums">{org.subscription?.seats ?? '—'}</span></div>
-          <div className="flex justify-between"><span className="text-fg-muted">Renews</span><span className="font-medium text-fg tabular-nums">{org.subscription?.currentPeriodEnd ? new Date(org.subscription.currentPeriodEnd).toLocaleDateString() : '—'}{org.subscription?.cancelAtPeriodEnd ? ' (cancelling)' : ''}</span></div>
-          <div className="flex justify-between gap-3"><span className="text-fg-muted shrink-0">Stripe customer</span><span className="font-mono text-xs text-fg-muted truncate" title={org.subscription?.stripeCustomerId ?? undefined}>{org.subscription?.stripeCustomerId ?? 'not connected'}</span></div>
-          <div className="flex justify-between"><span className="text-fg-muted">Storage quota</span><span className="font-medium text-fg tabular-nums">{(org.subscription as any)?.storageQuotaOverrideGb != null ? `${(org.subscription as any).storageQuotaOverrideGb} GB (override)` : 'plan default'}</span></div>
-          <div className="flex justify-between"><span className="text-fg-muted">AI tokens / month</span><span className="font-medium text-fg tabular-nums">{(org.subscription as any)?.aiTokenLimitMonthly != null ? (org.subscription as any).aiTokenLimitMonthly.toLocaleString() : 'unlimited'}</span></div>
-          {(org as any).aiUsage && (
-            <div className="flex justify-between"><span className="text-fg-muted">AI tokens used (month)</span><span className="font-medium text-fg tabular-nums">{((org as any).aiUsage.tokensUsedThisMonth ?? 0).toLocaleString()}{(org as any).aiUsage.tokenLimitMonthly ? ` / ${(org as any).aiUsage.tokenLimitMonthly.toLocaleString()}` : ''}</span></div>
+          <div className="flex justify-between items-center"><span className="text-fg-muted">Plan</span><Badge variant={PLAN_BADGE[sub?.plan ?? org.plan] ?? 'gray'}>{sub?.plan ?? org.plan}</Badge></div>
+          <div className="flex justify-between"><span className="text-fg-muted">Status</span><span className="font-medium text-fg">{sub?.status ?? '—'}</span></div>
+          <div className="flex justify-between"><span className="text-fg-muted">Seats (licence)</span><span className="font-medium text-fg tabular-nums">{sub?.seats ?? '—'}{sub?.seatsOverride ? ` → ${sub.seatsOverride} (override)` : ''}</span></div>
+          {sub?.plan === 'CUSTOM' && <div className="flex justify-between gap-3"><span className="text-fg-muted shrink-0">Modules</span><span className="text-xs text-fg text-right">{sub.features.map(featureLabel).join(', ') || '—'}</span></div>}
+          {!!sub?.extraFeatures?.length && <div className="flex justify-between gap-3"><span className="text-fg-muted shrink-0">Comped features</span><span className="text-xs text-fg text-right">{sub.extraFeatures.map(featureLabel).join(', ')}</span></div>}
+          <div className="flex justify-between"><span className="text-fg-muted">Interval</span><span className="font-medium text-fg">{sub?.interval === 'year' ? 'Yearly' : 'Monthly'}</span></div>
+          {stripeManaged
+            ? <div className="flex justify-between"><span className="text-fg-muted">Renews</span><span className="font-medium text-fg tabular-nums">{sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : '—'}{sub?.cancelAtPeriodEnd ? ' (cancelling)' : ''}</span></div>
+            : <div className="flex justify-between"><span className="text-fg-muted">Expires</span><span className="font-medium text-fg tabular-nums">{sub?.manualExpiresAt ? new Date(sub.manualExpiresAt).toLocaleDateString() : 'never'}</span></div>}
+          {sub?.graceUntil && <div className="flex justify-between"><span className="text-fg-muted">Grace until</span><span className="font-medium text-fg tabular-nums">{new Date(sub.graceUntil).toLocaleDateString()}</span></div>}
+          <div className="flex justify-between gap-3"><span className="text-fg-muted shrink-0">Stripe customer</span><span className="font-mono text-xs text-fg-muted truncate" title={sub?.stripeCustomerId ?? undefined}>{sub?.stripeCustomerId ?? 'not connected'}</span></div>
+          <div className="flex justify-between"><span className="text-fg-muted">Storage quota</span><span className="font-medium text-fg tabular-nums">{sub?.storageQuotaOverrideGb != null ? `${sub.storageQuotaOverrideGb} GB (override)` : `${lic?.storageQuotaGB ?? 0} GB (plan)`}</span></div>
+          {org.aiUsage && (
+            <div className="flex justify-between"><span className="text-fg-muted">AI tokens this month</span><span className="font-medium text-fg tabular-nums">{(org.aiUsage.tokensUsedThisMonth ?? 0).toLocaleString()} / {limitLabel(org.aiUsage.tokenLimitMonthly)}{sub?.aiTokenLimitMonthly != null ? ' (override)' : ''}</span></div>
           )}
+          {org.platformSendsThisMonth && (
+            <>
+              <div className="flex justify-between"><span className="text-fg-muted">Platform emails this month</span><span className="font-medium text-fg tabular-nums">{org.platformSendsThisMonth.email.toLocaleString()} / {limitLabel(org.platformSendsThisMonth.emailLimit)}</span></div>
+              <div className="flex justify-between"><span className="text-fg-muted">Platform WhatsApp this month</span><span className="font-medium text-fg tabular-nums">{org.platformSendsThisMonth.whatsapp.toLocaleString()} / {limitLabel(org.platformSendsThisMonth.whatsappLimit)}</span></div>
+            </>
+          )}
+          {sub?.manualNote && <p className="text-xs text-fg-muted pt-1 border-t border-line-subtle mt-1">Note: {sub.manualNote}</p>}
+        </Card>
+      )}
+    </section>
+  );
+}
+
+/** Audit trail of licence edits made in this console (LIC-17). */
+function LicenceHistory({ org }: { org: PlatformOrgDetail }) {
+  const entries = org.licenceHistory ?? [];
+  const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : Array.isArray(v) ? (v.length ? v.join(', ') : '—') : typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) ? new Date(v).toLocaleDateString() : String(v));
+  return (
+    <section>
+      <PanelHeading>Licence history</PanelHeading>
+      {entries.length === 0 ? (
+        <p className="text-xs text-fg-subtle">No licence changes made from this console yet.</p>
+      ) : (
+        <Card padding="none" flat className="divide-y divide-line-subtle overflow-hidden">
+          {entries.map(e => (
+            <div key={e.id} className="px-3 py-2 text-xs">
+              <div className="flex justify-between text-fg-muted mb-0.5">
+                <span>{e.user?.name ?? e.user?.email ?? 'Platform admin'}</span>
+                <span className="tabular-nums">{new Date(e.createdAt).toLocaleString()}</span>
+              </div>
+              {Object.entries(e.changes?.changes ?? {}).map(([k, c]) => (
+                <div key={k} className="text-fg"><span className="text-fg-muted">{k}:</span> {show(c.from)} → {show(c.to)}</div>
+              ))}
+            </div>
+          ))}
         </Card>
       )}
     </section>
@@ -651,6 +792,8 @@ function OrgDetailPanel({ orgId, onClose }: { orgId: string; onClose: () => void
 
           <SubscriptionEditor org={org} />
 
+          <LicenceHistory org={org} />
+
           <section>
             <PanelHeading>Email sending</PanelHeading>
             <Card tone="sunken" padding="sm" flat className="text-sm space-y-1">
@@ -761,15 +904,21 @@ export function PlatformAdminPage() {
           {org.subscription?.status && org.subscription.status !== 'active' && (
             <Badge variant="yellow">{org.subscription.status}</Badge>
           )}
+          {org.license && org.license.access !== 'full' && (
+            <span title={org.license.reason ?? undefined}><Badge variant={org.license.access === 'lapsed' ? 'red' : 'yellow'}>{org.license.access}</Badge></span>
+          )}
+          {org.license?.stripeManaged && <Badge variant="gray">Stripe</Badge>}
         </div>
       ),
     },
     {
       key: 'users',
-      header: 'Users',
+      header: 'Seats',
       cell: org => (
-        <span className="inline-flex items-center gap-1 text-fg tabular-nums">
-          <UsersIcon size={13} className="text-fg-subtle" />{org.counts.users}
+        <span className="inline-flex items-center gap-1 text-fg tabular-nums" title={`${org.counts.users} users in total (Employees don't use a seat)`}>
+          <UsersIcon size={13} className="text-fg-subtle" />
+          <span className={org.license && (org.seatsUsed ?? 0) > org.license.seats ? 'text-danger' : ''}>{org.seatsUsed ?? '—'}</span>
+          <span className="text-fg-subtle">/ {org.license?.seats ?? org.subscription?.seats ?? '—'}</span>
         </span>
       ),
     },
@@ -897,7 +1046,24 @@ export function PlatformAdminPage() {
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
 
+const LIMIT_PLANS = ['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM'] as const;
+type LimitPlanKey = typeof LIMIT_PLANS[number];
+type LimitForm = Record<LimitPlanKey, string>; // '' = unlimited
+const CURRENCIES = ['usd', 'inr', 'eur', 'gbp', 'aud', 'cad', 'sgd', 'aed'];
+
+const limitsToForm = (l: Record<LimitPlanKey, number | null>): LimitForm =>
+  ({ FREE: strOf(l.FREE), PRO: strOf(l.PRO), ENTERPRISE: strOf(l.ENTERPRISE), CUSTOM: strOf(l.CUSTOM) });
+const formToLimits = (l: LimitForm) =>
+  Object.fromEntries(LIMIT_PLANS.map(p => [p, l[p].trim() === '' ? null : Math.max(0, Math.round(Number(l[p]) || 0))])) as Record<LimitPlanKey, number | null>;
+
 type PricingForm = {
+  currency: string;
+  trialDays: string;
+  contactEmail: string;
+  planFeatures: Record<LimitPlanKey, string[]>;
+  emailLimits: LimitForm;
+  whatsappLimits: LimitForm;
+  aiLimits: LimitForm;
   baseSeatPrice: string;       // dollars
   proPrice: string;            // dollars / month
   enterprisePrice: string;     // dollars / month
@@ -912,6 +1078,16 @@ type PricingForm = {
 
 function toForm(cfg: PricingConfig): PricingForm {
   return {
+    currency: cfg.currency ?? 'usd',
+    trialDays: String(cfg.trialDays ?? 0),
+    contactEmail: cfg.contactEmail ?? '',
+    planFeatures: {
+      FREE: [...(cfg.planFeatures?.FREE ?? [])], PRO: [...(cfg.planFeatures?.PRO ?? [])],
+      ENTERPRISE: [...(cfg.planFeatures?.ENTERPRISE ?? [])], CUSTOM: [...(cfg.planFeatures?.CUSTOM ?? [])],
+    },
+    emailLimits: limitsToForm(cfg.platformEmailMonthly ?? { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null }),
+    whatsappLimits: limitsToForm(cfg.platformWhatsAppMonthly ?? { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null }),
+    aiLimits: limitsToForm(cfg.aiTokensMonthly ?? { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null }),
     baseSeatPrice: (cfg.baseSeatPriceCents / 100).toString(),
     proPrice: String(cfg.planPrices.PRO),
     enterprisePrice: String(cfg.planPrices.ENTERPRISE),
@@ -939,12 +1115,23 @@ function PricingPanel({ onClose }: { onClose: () => void }) {
     setForm(f => (f ? { ...f, [key]: e.target.value } : f));
   const setModule = (key: string, patch: Partial<PricingForm['modules'][number]>) =>
     setForm(f => (f ? { ...f, modules: f.modules.map(m => (m.key === key ? { ...m, ...patch } : m)) } : f));
+  const togglePlanFeature = (plan: LimitPlanKey, key: string) =>
+    setForm(f => (f ? { ...f, planFeatures: { ...f.planFeatures, [plan]: f.planFeatures[plan].includes(key) ? f.planFeatures[plan].filter(k => k !== key) : [...f.planFeatures[plan], key] } } : f));
+  const setLimit = (which: 'emailLimits' | 'whatsappLimits' | 'aiLimits', plan: LimitPlanKey, value: string) =>
+    setForm(f => (f ? { ...f, [which]: { ...f[which], [plan]: value } } : f));
   const setTier = (i: number, patch: Partial<PricingForm['tiers'][number]>) =>
     setForm(f => (f ? { ...f, tiers: f.tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)) } : f));
 
   const submit = () => {
     if (!form) return;
     const payload: PricingUpdate = {
+      currency: form.currency,
+      trialDays: Math.max(0, Math.round(Number(form.trialDays) || 0)),
+      contactEmail: form.contactEmail.trim(),
+      planFeatures: form.planFeatures,
+      platformEmailMonthly: formToLimits(form.emailLimits),
+      platformWhatsAppMonthly: formToLimits(form.whatsappLimits),
+      aiTokensMonthly: formToLimits(form.aiLimits),
       baseSeatPriceCents: toCents(form.baseSeatPrice),
       planPrices: { PRO: Number(form.proPrice) || 0, ENTERPRISE: Number(form.enterprisePrice) || 0 },
       customStorageGb: Math.round(Number(form.customStorageGb) || 0),
@@ -1001,21 +1188,94 @@ function PricingPanel({ onClose }: { onClose: () => void }) {
           <section>
             <PanelHeading>Fixed plans (flat monthly price)</PanelHeading>
             <Card tone="sunken" padding="sm" flat className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Pro — $ / month" hint={`Default $${data.defaults.planPrices.PRO} · 25 billable seats`}>
+              <Field label={`Pro — ${form.currency.toUpperCase()} / month`} hint={`Default ${data.defaults.planPrices.PRO} · 25 billable seats`}>
                 <Input type="number" min={0} step="1" value={form.proPrice} onChange={setField('proPrice')} />
               </Field>
-              <Field label="Enterprise — $ / month" hint={`Default $${data.defaults.planPrices.ENTERPRISE} · unlimited seats`}>
+              <Field label={`Enterprise — ${form.currency.toUpperCase()} / month`} hint={`Default ${data.defaults.planPrices.ENTERPRISE} · 999 billable seats`}>
                 <Input type="number" min={0} step="1" value={form.enterprisePrice} onChange={setField('enterprisePrice')} />
               </Field>
             </Card>
-            <p className="text-[11.5px] text-fg-subtle mt-2">If <code>STRIPE_PRO_PRICE_ID</code> / <code>STRIPE_ENTERPRISE_PRICE_ID</code> are set, Stripe's own monthly Price wins for monthly checkouts — keep them in sync or leave those env vars empty so these numbers are used everywhere.</p>
+            <p className="text-[11.5px] text-fg-subtle mt-2">Every checkout is priced from these numbers (STRIPE_*_PRICE_ID env vars are no longer used). A price change applies to new checkouts and plan changes; existing subscriptions keep their price until they change plan.</p>
+          </section>
+
+          <section>
+            <PanelHeading>Currency, trial & contact</PanelHeading>
+            <Card tone="sunken" padding="sm" flat className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Field label="Currency" hint="All prices above are in this currency. Existing subscriptions keep theirs.">
+                <Select value={form.currency} onChange={e => setForm(f => (f ? { ...f, currency: e.target.value } : f))} options={CURRENCIES.map(c => ({ value: c, label: c.toUpperCase() }))} />
+              </Field>
+              <Field label="Free trial — days" hint="0 = off. Offered at first checkout to orgs that never paid.">
+                <Input type="number" min={0} max={365} value={form.trialDays} onChange={e => setForm(f => (f ? { ...f, trialDays: e.target.value } : f))} />
+              </Field>
+              <Field label="Sales / billing contact" hint="Shown to customers when online payment isn't available.">
+                <Input type="email" value={form.contactEmail} placeholder="billing@…" onChange={e => setForm(f => (f ? { ...f, contactEmail: e.target.value } : f))} />
+              </Field>
+            </Card>
+          </section>
+
+          <section>
+            <PanelHeading>Features per plan</PanelHeading>
+            <Card tone="sunken" padding="sm" flat className="overflow-x-auto">
+              <table className="w-full text-[12px]" data-testid="plan-feature-grid">
+                <thead>
+                  <tr className="text-fg-muted">
+                    <th className="text-left font-medium py-1 pr-2">Feature</th>
+                    {LIMIT_PLANS.map(p => <th key={p} className="font-medium px-2 py-1">{p === 'CUSTOM' ? 'Custom (base)' : p}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {FEATURE_KEYS.map(k => (
+                    <tr key={k} className="border-t border-line-subtle">
+                      <td className="py-1 pr-2 text-fg">{featureLabel(k)}</td>
+                      {LIMIT_PLANS.map(p => (
+                        <td key={p} className="text-center px-2 py-1">
+                          <input type="checkbox" aria-label={`${featureLabel(k)} on ${p}`} checked={form.planFeatures[p].includes(k)} onChange={() => togglePlanFeature(p, k)} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+            <p className="text-[11.5px] text-fg-subtle mt-2">Applies to every org on that plan on its next request. Unticking an area blocks it for those orgs (HR, attendance and payroll block the whole area, data included; elsewhere only creating new things is blocked). "Custom (base)" is what every custom licence includes before its purchased modules. SSO / directory-sync: orgs that already configured them keep managing them, and Microsoft sign-in itself is never blocked.</p>
+          </section>
+
+          <section>
+            <PanelHeading>Monthly allowances (blank = unlimited)</PanelHeading>
+            <Card tone="sunken" padding="sm" flat className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="text-fg-muted">
+                    <th className="text-left font-medium py-1 pr-2">Allowance</th>
+                    {LIMIT_PLANS.map(p => <th key={p} className="font-medium px-1 py-1">{p}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {([
+                    ['emailLimits', 'Emails via platform mailer'],
+                    ['whatsappLimits', 'WhatsApp via platform number'],
+                    ['aiLimits', 'AI tokens'],
+                  ] as const).map(([which, label]) => (
+                    <tr key={which} className="border-t border-line-subtle">
+                      <td className="py-1 pr-2 text-fg">{label}</td>
+                      {LIMIT_PLANS.map(p => (
+                        <td key={p} className="px-1 py-1">
+                          <Input aria-label={`${label} ${p}`} type="number" min={0} placeholder="unlimited" value={form[which][p]} onChange={e => setLimit(which, p, e.target.value)} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+            <p className="text-[11.5px] text-fg-subtle mt-2">Only sends through OUR mailer / WhatsApp number count — an org's own SMTP or Twilio account is never limited. Account emails (invites, password resets, portal login links) always go out. Per-org overrides live in each org's licence.</p>
           </section>
 
           <section>
             <PanelHeading>Custom licence — per seat / month</PanelHeading>
             <Card tone="sunken" padding="sm" flat className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Field label="Platform base — $ / seat / month" hint={`Default ${usd(data.defaults.baseSeatPriceCents)}. Always charged; covers CRM + IT Desk core.`}>
+                <Field label={`Platform base — ${form.currency.toUpperCase()} / seat / month`} hint={`Default ${usd(data.defaults.baseSeatPriceCents)}. Always charged; covers CRM + IT Desk core.`}>
                   <Input type="number" min={0} step="0.5" value={form.baseSeatPrice} onChange={setField('baseSeatPrice')} />
                 </Field>
                 <Field label="Min seats"><Input type="number" min={1} value={form.minSeats} onChange={setField('minSeats')} /></Field>
@@ -1023,7 +1283,7 @@ function PricingPanel({ onClose }: { onClose: () => void }) {
               </div>
 
               <div className="border-t border-line pt-3">
-                <p className="text-[11.5px] font-medium text-fg-muted mb-2">Module add-ons — $ / seat / month. Switch a module off to stop selling it (orgs that already have it keep it).</p>
+                <p className="text-[11.5px] font-medium text-fg-muted mb-2">Module add-ons — {form.currency.toUpperCase()} / seat / month. Switch a module off to stop selling it (orgs that already have it keep it).</p>
                 <div className="space-y-2">
                   {form.modules.map(m => (
                     <div key={m.key} className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_110px_auto] gap-2 items-center" data-testid={`pricing-module-${m.key}`}>

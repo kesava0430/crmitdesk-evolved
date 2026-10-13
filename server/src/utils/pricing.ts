@@ -5,15 +5,17 @@
 // layered over the code/env defaults below, so a blank field keeps the default.
 // A customer org's SUPER_ADMIN can only *buy* at these prices — never set them.
 //
-// Fixed plans (FREE / PRO / ENTERPRISE) keep their seat allowances and feature
-// lists in utils/stripe.ts PLANS; their monthly list price is editable here.
+// Fixed plans (FREE / PRO / ENTERPRISE) keep their seat allowances in
+// utils/stripe.ts PLANS; their monthly list price, their feature list
+// (planFeatures) and their usage allowances (platform email / WhatsApp sends,
+// AI tokens) are editable here.
 // The CUSTOM licence is priced per seat: base + an add-on per enabled module,
 // with a volume discount on seat count and a yearly discount (12 months for
-// the price of yearlyMonthsCharged). All amounts are USD cents unless the
-// field name says otherwise.
+// the price of yearlyMonthsCharged). All amounts are in the minor unit
+// (cents / paise) of `currency` unless the field name says otherwise.
 
 import { prisma } from './prisma';
-import { FeatureKey } from './stripe';
+import { FeatureKey, DEFAULT_PLAN_FEATURES, isFeatureKey } from './stripe';
 
 export type BillingInterval = 'month' | 'year';
 export type ModuleKey = FeatureKey | 'hosted_storage';
@@ -28,7 +30,26 @@ export interface ModuleDef {
   enabled: boolean;
 }
 
+export type LimitPlan = 'FREE' | 'PRO' | 'ENTERPRISE' | 'CUSTOM';
+/** Monthly allowance per plan; null = unlimited. */
+export type PlanLimits = Record<LimitPlan, number | null>;
+
 export interface PricingConfig {
+  /** ISO currency (lowercase) every checkout and price is in. Changing it does
+   *  not convert existing Stripe subscriptions — see deploy/README.md. */
+  currency: string;
+  /** Free trial length offered at first checkout (orgs that never paid). 0 = off. */
+  trialDays: number;
+  /** Shown to customers when online payment isn't available. */
+  contactEmail: string;
+  /** Plan → feature keys. CUSTOM = base areas every custom licence gets on top of its modules. */
+  planFeatures: Record<LimitPlan, FeatureKey[]>;
+  /** Email sent through the PLATFORM fallback mailer per month (own SMTP is never counted). */
+  platformEmailMonthly: PlanLimits;
+  /** WhatsApp sent through the PLATFORM Twilio number per month (own number is never counted). */
+  platformWhatsAppMonthly: PlanLimits;
+  /** Default AI token allowance per month, used when the org has no per-org override. */
+  aiTokensMonthly: PlanLimits;
   /** Platform base per seat per month for custom licences */
   baseSeatPriceCents: number;
   /** Monthly list price (dollars) of the fixed plans — used for dynamic Stripe pricing and the Billing page */
@@ -54,13 +75,41 @@ export const DEFAULT_MODULES: ModuleDef[] = [
   { key: 'workflow_automation', name: 'Workflow Automation',  description: 'Create rule-based automations and triggers', pricePerSeatCents: 400, enabled: true },
   { key: 'customer_portal',     name: 'Customer Portal',      description: 'Self-service portal accounts for your customers', pricePerSeatCents: 400, enabled: true },
   { key: 'advanced_analytics',  name: 'Advanced Analytics',   description: 'Analytics dashboards and ticket / CRM reports', pricePerSeatCents: 400, enabled: true },
-  { key: 'custom_branding',     name: 'Custom Branding',      description: 'Your logo and colours on the customer portal', pricePerSeatCents: 300, enabled: true },
+  // Enterprise-tier capabilities are off by default so a custom licence can't
+  // undercut Enterprise by buying them à la carte; the operator can switch
+  // any of them on in Platform Admin → Pricing (orgs that already have one keep it).
+  { key: 'custom_branding',     name: 'Custom Branding',      description: 'Your logo and colours on the customer portal', pricePerSeatCents: 300, enabled: false },
+  { key: 'sso',                 name: 'Single Sign-On',       description: 'Microsoft Entra ID sign-in configuration', pricePerSeatCents: 300, enabled: false },
+  { key: 'directory_sync',      name: 'Directory Sync',       description: 'Provision and deprovision users from Entra ID groups', pricePerSeatCents: 300, enabled: false },
   { key: 'hosted_storage',      name: 'Hosted Storage',       description: 'Hosted attachment storage (no Google Drive needed)', pricePerSeatCents: 200, enabled: true },
 ];
 
 export const MODULE_KEYS: string[] = DEFAULT_MODULES.map(m => m.key);
 
+const envInt = (name: string, fallback: number) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && process.env[name] !== undefined && process.env[name] !== '' ? n : fallback;
+};
+
+/** Generous defaults: these only bound sends that go through OUR accounts and
+ *  AI calls on orgs without a per-org override — normal use never meets them. */
+export const DEFAULT_PLATFORM_EMAIL_MONTHLY: PlanLimits = { FREE: 500, PRO: 5_000, ENTERPRISE: 50_000, CUSTOM: 5_000 };
+export const DEFAULT_PLATFORM_WHATSAPP_MONTHLY: PlanLimits = { FREE: 100, PRO: 1_000, ENTERPRISE: 10_000, CUSTOM: 1_000 };
+export const DEFAULT_AI_TOKENS_MONTHLY: PlanLimits = { FREE: 500_000, PRO: 5_000_000, ENTERPRISE: null, CUSTOM: 5_000_000 };
+
 export const DEFAULT_PRICING: PricingConfig = {
+  currency: (process.env.LICENSE_CURRENCY || 'usd').toLowerCase(),
+  trialDays: envInt('LICENSE_TRIAL_DAYS', 0),
+  contactEmail: process.env.BILLING_CONTACT_EMAIL || '',
+  planFeatures: {
+    FREE: [...DEFAULT_PLAN_FEATURES.FREE],
+    PRO: [...DEFAULT_PLAN_FEATURES.PRO],
+    ENTERPRISE: [...DEFAULT_PLAN_FEATURES.ENTERPRISE],
+    CUSTOM: [...DEFAULT_PLAN_FEATURES.CUSTOM],
+  },
+  platformEmailMonthly: DEFAULT_PLATFORM_EMAIL_MONTHLY,
+  platformWhatsAppMonthly: DEFAULT_PLATFORM_WHATSAPP_MONTHLY,
+  aiTokensMonthly: DEFAULT_AI_TOKENS_MONTHLY,
   baseSeatPriceCents: Number(process.env.LICENSE_BASE_SEAT_PRICE_CENTS || 800),
   planPrices: { PRO: 49, ENTERPRISE: 149 },
   customStorageGb: Number(process.env.LICENSE_CUSTOM_STORAGE_GB || 10),
@@ -79,10 +128,40 @@ export const DEFAULT_PRICING: PricingConfig = {
 
 /** Shape accepted from Platform Admin → Pricing (every field optional; modules merged by key). */
 export type ModuleOverride = { key: string } & Partial<Pick<ModuleDef, 'name' | 'description' | 'pricePerSeatCents' | 'enabled'>>;
-export type PricingOverride = Partial<Omit<PricingConfig, 'modules' | 'planPrices'>> & {
+export type PricingOverride = Partial<Omit<PricingConfig, 'modules' | 'planPrices' | 'planFeatures' | 'platformEmailMonthly' | 'platformWhatsAppMonthly' | 'aiTokensMonthly'>> & {
   planPrices?: Partial<PricingConfig['planPrices']>;
   modules?: ModuleOverride[];
+  planFeatures?: Partial<Record<LimitPlan, string[]>>;
+  platformEmailMonthly?: Partial<PlanLimits>;
+  platformWhatsAppMonthly?: Partial<PlanLimits>;
+  aiTokensMonthly?: Partial<PlanLimits>;
 };
+
+export const LIMIT_PLANS: LimitPlan[] = ['FREE', 'PRO', 'ENTERPRISE', 'CUSTOM'];
+/** Currencies offered in Platform Admin → Pricing (Stripe supports many more). */
+export const SUPPORTED_CURRENCIES = ['usd', 'inr', 'eur', 'gbp', 'aud', 'cad', 'sgd', 'aed'];
+
+/** null stays null (= unlimited); a number is clamped; anything else falls back. */
+function mergeLimits(o: Partial<PlanLimits> | undefined, d: PlanLimits): PlanLimits {
+  const out = { ...d };
+  if (!o || typeof o !== 'object') return out;
+  for (const p of LIMIT_PLANS) {
+    const v = (o as any)[p];
+    if (v === null) out[p] = null;
+    else if (typeof v === 'number' && Number.isFinite(v)) out[p] = Math.round(Math.min(2_000_000_000, Math.max(0, v)));
+  }
+  return out;
+}
+
+function mergePlanFeatures(o: PricingOverride['planFeatures'], d: PricingConfig['planFeatures']): PricingConfig['planFeatures'] {
+  const out = { FREE: [...d.FREE], PRO: [...d.PRO], ENTERPRISE: [...d.ENTERPRISE], CUSTOM: [...d.CUSTOM] };
+  if (!o || typeof o !== 'object') return out;
+  for (const p of LIMIT_PLANS) {
+    const v = (o as any)[p];
+    if (Array.isArray(v)) out[p] = [...new Set(v.filter(isFeatureKey))];
+  }
+  return out;
+}
 
 const num = (v: unknown, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER) => {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : fallback;
@@ -109,7 +188,15 @@ export function mergePricing(override: PricingOverride | null | undefined): Pric
     .filter(t => t.discountPct > 0)
     .sort((a, b) => b.minSeats - a.minSeats);
   const minSeats = Math.round(num(o.minSeats, d.minSeats, 1, 100_000));
+  const currency = typeof o.currency === 'string' && /^[a-z]{3}$/i.test(o.currency.trim()) ? o.currency.trim().toLowerCase() : d.currency;
   return {
+    currency,
+    trialDays: Math.round(num(o.trialDays, d.trialDays, 0, 365)),
+    contactEmail: typeof o.contactEmail === 'string' ? o.contactEmail.trim().slice(0, 200) : d.contactEmail,
+    planFeatures: mergePlanFeatures(o.planFeatures, d.planFeatures),
+    platformEmailMonthly: mergeLimits(o.platformEmailMonthly, d.platformEmailMonthly),
+    platformWhatsAppMonthly: mergeLimits(o.platformWhatsAppMonthly, d.platformWhatsAppMonthly),
+    aiTokensMonthly: mergeLimits(o.aiTokensMonthly, d.aiTokensMonthly),
     baseSeatPriceCents: Math.round(num(o.baseSeatPriceCents, d.baseSeatPriceCents, 0, 1_000_000)),
     planPrices: {
       PRO: num(o.planPrices?.PRO, d.planPrices.PRO, 0, 1_000_000),
@@ -159,7 +246,7 @@ export interface Quote {
   seats: number;
   interval: BillingInterval;
   modules: string[];
-  currency: 'usd';
+  currency: string;
   lines: QuoteLine[];
   perSeatMonthlyCents: number;
   subtotalMonthlyCents: number;
@@ -209,7 +296,7 @@ export function computeQuote(input: QuoteInput, cfg: PricingConfig): Quote {
   const intervalSavingCents = interval === 'year' ? Math.round(totalMonthlyCents * 12 - totalPerIntervalCents) : 0;
 
   return {
-    seats, interval, modules, currency: 'usd', lines,
+    seats, interval, modules, currency: cfg.currency, lines,
     perSeatMonthlyCents, subtotalMonthlyCents, volumeDiscountPct, volumeDiscountMonthlyCents,
     totalMonthlyCents, monthsCharged, intervalSavingCents, totalPerIntervalCents, unitAmountPerIntervalCents,
   };
@@ -218,7 +305,9 @@ export function computeQuote(input: QuoteInput, cfg: PricingConfig): Quote {
 /** Client-safe catalogue for the licence builder — only purchasable modules. */
 export function pricingCatalogue(cfg: PricingConfig) {
   return {
-    currency: 'usd',
+    currency: cfg.currency,
+    trialDays: cfg.trialDays,
+    contactEmail: cfg.contactEmail,
     baseSeatPriceCents: cfg.baseSeatPriceCents,
     minSeats: cfg.minSeats,
     maxSeats: cfg.maxSeats,

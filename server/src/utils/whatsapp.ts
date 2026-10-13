@@ -2,6 +2,7 @@ import https from 'https';
 import { prisma } from './prisma';
 import { recordUsage } from './usageTracking';
 import { getPlatformWhatsAppConfig } from './platformSettings';
+import { assertPlatformSendQuota } from './licensing';
 
 /**
  * Low-level Twilio REST call (no SDK — direct HTTPS request). Mirrors the
@@ -99,6 +100,9 @@ export async function sendWhatsApp(orgId: string, toNumber: string, body: string
   if (!platformCfg.accountSid || !platformCfg.authToken || !platformCfg.fromNumber) {
     throw new Error('No WhatsApp account connected for this organization, and no platform fallback is configured. Go to Inbox → Settings to connect one.');
   }
+  // Sending through OUR number costs us per message — bounded by the org's
+  // monthly allowance (LIC-18). The org's own number above is never limited.
+  await assertPlatformSendQuota(orgId, 'whatsapp');
 
   // Best-effort branding: WhatsApp has no "From Name" the way email does —
   // the sender the recipient sees is just the platform's shared number — so

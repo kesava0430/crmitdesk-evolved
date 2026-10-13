@@ -26,7 +26,7 @@ import { can } from "../permissions";
 import { useLicense } from "../../api/billing";
 import { useAttendanceHeartbeat } from "../../hooks/useAttendanceHeartbeat";
 import { useBackButtonClose } from "../../native/overlayStack";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Lock } from "lucide-react";
 
 // Which nav routes / page-title routes correspond to a relabelable entity —
 // same 4 entities the AI Setup Generator can propose overrides for
@@ -49,6 +49,10 @@ type NavItem = {
   /** Tailwind text-* class tinting the item's icon when inactive. Mid-tone
       (≈500) hues are used so they read on both the light and dark rails. */
   tint?: string;
+  /** Licence feature key (server utils/stripe.ts FEATURE_KEYS). When the
+      org's licence lacks it the item stays visible with a lock — the page
+      explains the upgrade — rather than vanishing. */
+  feature?: string;
 };
 
 type NavSection = {
@@ -73,12 +77,12 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: "/inbox",        label: "Inbox",       icon: Inbox, tint: "text-sky-500",     roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER', 'IT_AGENT', 'SALES_REP'] },
       // Team chat is for every org member — employees included.
       { to: "/chat",         label: "Chat",        icon: MessageSquare, tint: "text-violet-500" },
-      { to: "/workflows",    label: "Automation",  icon: Zap,   tint: "text-amber-500",   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/portal-users", label: "Portal",      icon: Globe, tint: "text-cyan-500",    roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
-      { to: "/ai-builder",   label: "AI Builder",  icon: Wand2, tint: "text-fuchsia-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/workflows",    label: "Automation",  icon: Zap,   tint: "text-amber-500",   roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'workflow_automation' },
+      { to: "/portal-users", label: "Portal",      icon: Globe, tint: "text-cyan-500",    roles: ['SUPER_ADMIN', 'IT_MANAGER'], feature: 'customer_portal' },
+      { to: "/ai-builder",   label: "AI Builder",  icon: Wand2, tint: "text-fuchsia-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'ai_advanced' },
       // Platform Phase 3 — describe the business, get the whole workspace.
       { to: "/solution-builder", label: "Solution Builder", icon: Rocket, tint: "text-rose-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/ai-studio",    label: "AI Studio",   icon: Brain, tint: "text-violet-500",  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/ai-studio",    label: "AI Studio",   icon: Brain, tint: "text-violet-500",  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'ai_advanced' },
     ],
   },
   {
@@ -90,19 +94,19 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: "/crm/deals",    label: "Pipeline",  icon: TrendingUp, tint: "text-emerald-500" },
       { to: "/quotes",       label: "Quotes",    icon: FileText,   tint: "text-indigo-500" },
       { to: "/invoices",     label: "Invoices",  icon: Receipt,    tint: "text-rose-500" },
-      { to: "/campaigns",    label: "Campaigns", icon: Mail,       tint: "text-pink-500" },
+      { to: "/campaigns",    label: "Campaigns", icon: Mail,       tint: "text-pink-500", feature: 'campaigns' },
     ],
   },
   {
     label: "HR",
     items: [
-      { to: "/people",        label: "People",      icon: UserSquare2, tint: "text-violet-500" },
-      { to: "/hr/directory",  label: "Org Chart",   icon: Network,     tint: "text-cyan-500" },
-      { to: "/hr/org",        label: "Org Structure", icon: Network,   tint: "text-teal-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/hr/attendance", label: "Attendance",  icon: Clock,        tint: "text-amber-500" },
-      { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck, tint: "text-green-500" },
-      { to: "/hr/payroll",    label: "Payroll",     icon: Wallet,        tint: "text-emerald-500" },
-      { to: "/hr/settings",   label: "HR Settings", icon: Building2,     tint: "text-slate-400", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/people",        label: "People",      icon: UserSquare2, tint: "text-violet-500", feature: 'hr_core' },
+      { to: "/hr/directory",  label: "Org Chart",   icon: Network,     tint: "text-cyan-500", feature: 'hr_core' },
+      { to: "/hr/org",        label: "Org Structure", icon: Network,   tint: "text-teal-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'hr_core' },
+      { to: "/hr/attendance", label: "Attendance",  icon: Clock,        tint: "text-amber-500", feature: 'attendance' },
+      { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck, tint: "text-green-500", feature: 'hr_core' },
+      { to: "/hr/payroll",    label: "Payroll",     icon: Wallet,        tint: "text-emerald-500", feature: 'payroll' },
+      { to: "/hr/settings",   label: "HR Settings", icon: Building2,     tint: "text-slate-400", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'hr_core' },
     ],
   },
   {
@@ -119,21 +123,21 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Admin",
     items: [
       { to: "/admin/users",   label: "Logins & Invites", icon: UserCog,  roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/analytics",     label: "Analytics",     icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/reports",       label: "Reports",       icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/analytics",     label: "Analytics",     icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'advanced_analytics' },
+      { to: "/reports",       label: "Reports",       icon: BarChart2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'advanced_analytics' },
       { to: "/import",        label: "Import CSV",    icon: Upload,    roles: ['SUPER_ADMIN', 'CRM_MANAGER'] },
       // Same shape as Branding: the definitions list is readable by anyone,
       // but creating/editing/deleting a field is MANAGERS-only, and that is
       // the entire purpose of this admin screen.
       { to: "/custom-fields", label: "Custom Fields", icon: Settings2, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/custom-modules", label: "Custom Modules", icon: Layers, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/custom-modules", label: "Custom Modules", icon: Layers, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'custom_modules' },
       // Every /templates/* endpoint is ALL_STAFF — the page is unusable for
       // an EMPLOYEE, who saw four empty tabs and four permission errors.
       { to: "/templates",     label: "Templates",     icon: LayoutTemplate, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER', 'IT_AGENT', 'SALES_REP'] },
       // Reading branding is open, but every write (PUT /branding) is MANAGERS.
       // It is an org-settings screen: showing it to staff who cannot save
       // anything is a dead end, so it follows the same roles as its writes.
-      { to: "/branding",      label: "Branding",      icon: Palette, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
+      { to: "/branding",      label: "Branding",      icon: Palette, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'custom_branding' },
       // Workspace identity (platform Phase 1) — rename/hide anything above.
       // Never listed as hideable in its own settings page, so admins can't
       // strand themselves.
@@ -145,7 +149,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: "/admin/roles",   label: "Roles & Permissions", icon: Shield, roles: ['SUPER_ADMIN'] },
       { to: "/admin/ai-governance", label: "AI Governance", icon: Brain, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/audit-logs",    label: "Audit Log",     icon: Shield,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
-      { to: "/api-keys",      label: "API Keys",      icon: Key,       roles: ['SUPER_ADMIN'] },
+      { to: "/api-keys",      label: "API Keys",      icon: Key,       roles: ['SUPER_ADMIN'], feature: 'api_access' },
       { to: "/jobs",          label: "Background Jobs", icon: RefreshCw, roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
     ],
   },
@@ -154,7 +158,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: "/slack",        label: "Slack",        icon: Slack,        roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
       { to: "/teams",        label: "Teams",        icon: MessageSquare, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
-      { to: "/directory-sso", label: "Single Sign-On", icon: KeyRound,   roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
+      { to: "/directory-sso", label: "Single Sign-On", icon: KeyRound,   roles: ['SUPER_ADMIN', 'IT_MANAGER'], feature: 'sso' },
       { to: "/storage",      label: "Storage",      icon: HardDrive,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/billing",      label: "Billing",      icon: CreditCard,   roles: ['SUPER_ADMIN'] },
       { to: "/security/2fa", label: "2FA Security", icon: Shield },
@@ -234,13 +238,14 @@ function readCollapsed(): string[] {
 
 // Sidebar nav item
 
-function SideNavItem({ to, label, icon: Icon, tint, onClick }: {
-  to: string; label: string; icon: React.ElementType; tint?: string; onClick?: () => void;
+function SideNavItem({ to, label, icon: Icon, tint, onClick, locked }: {
+  to: string; label: string; icon: React.ElementType; tint?: string; onClick?: () => void; locked?: boolean;
 }) {
   return (
     <NavLink
       to={to}
       onClick={onClick}
+      title={locked ? "Not included in your plan" : undefined}
       className={({ isActive }) =>
         `group relative flex items-center gap-2.5 h-8 px-2.5 rounded-md text-[13px] transition-colors duration-100 ${
           isActive
@@ -265,6 +270,7 @@ function SideNavItem({ to, label, icon: Icon, tint, onClick }: {
             } transition-colors duration-100`}
           />
           <span className="truncate flex-1">{label}</span>
+          {locked && <Lock size={11} className="shrink-0 text-sidebar-heading" aria-label="Not included in your plan" />}
         </>
       )}
     </NavLink>
@@ -281,6 +287,9 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   const workspace = useWorkspace();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<string[]>(readCollapsed);
+  // Licence-gated items get a lock (LIC-13). While loading / on error nothing is locked.
+  const { data: licence } = useLicense(!!userRole);
+  const isLocked = (item: NavItem) => !!item.feature && !!licence && !licence.features.includes(item.feature);
 
   function toggleSection(label: string) {
     setCollapsed(prev => {
@@ -383,7 +392,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
                     // set) choice; entity labels remain the fallback.
                     const base = override ? entityLabel(override.key, override.form, item.label) : item.label;
                     const label = workspace.navLabel(item.to, base);
-                    return <SideNavItem key={item.to} to={item.to} label={label} icon={item.icon} tint={item.tint} onClick={onNavClick} />;
+                    return <SideNavItem key={item.to} to={item.to} label={label} icon={item.icon} tint={item.tint} onClick={onNavClick} locked={isLocked(item)} />;
                   })}
                 </div>
               )}

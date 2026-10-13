@@ -28,6 +28,7 @@ import OpenAI from 'openai';
 import { prisma } from './prisma';
 import { decryptSecretOrPlain } from './crypto';
 import type { PermCtx } from './permissions';
+import { getEffectiveLicense } from './licensing';
 
 // ─── Task types ───────────────────────────────────────────────────────────────
 
@@ -177,8 +178,8 @@ export interface BudgetState {
   limitUsd: number;
   spendUsd: number;
   percentUsed: number;
-  /** Monthly token allowance from the org's license (Subscription row), set
-   *  by the platform operator. 0 = no token limit configured. Enforced as a
+  /** Monthly token allowance from the org's license: per-org override, else
+   *  the plan default. 0 = no token limit. Enforced as a
    *  HARD cap — unlike the USD budget's advisory mode, a license limit is a
    *  commercial term, not a preference. */
   tokenLimitMonthly: number;
@@ -205,9 +206,9 @@ function monthWindow(now: Date): { start: Date; end: Date } {
  */
 export async function checkBudget(orgId: string): Promise<BudgetState> {
   const { start, end } = monthWindow(new Date());
-  const [budget, subscription, agg] = await Promise.all([
+  const [budget, license, agg] = await Promise.all([
     prisma.aiBudget.findFirst({ where: { orgId, period: 'MONTHLY', periodStart: start } }),
-    prisma.subscription.findUnique({ where: { orgId } }),
+    getEffectiveLicense(orgId),
     prisma.aiInteractionLog.aggregate({
       where: { orgId, createdAt: { gte: start, lt: end } },
       _sum: { costUsd: true, totalTokens: true },
@@ -219,11 +220,14 @@ export async function checkBudget(orgId: string): Promise<BudgetState> {
   const limit = budget ? Number(budget.limitUsd) : 0;
   const pct = limit > 0 ? (spend / limit) * 100 : 0;
 
-  // License-level token allowance (platform operator sets it on the org's
-  // subscription). Independent of, and checked alongside, the org's own USD
-  // budget: the USD budget is the customer's self-imposed guardrail, the
-  // token limit is the platform's commercial term — either can block.
-  const tokenLimitMonthly = Number((subscription as any)?.aiTokenLimitMonthly ?? 0) || 0;
+  // License-level token allowance: the per-org override the platform
+  // operator set on the subscription, else the plan's default allowance
+  // (PricingConfig.aiTokensMonthly; null = unlimited) — resolved by
+  // evaluateLicense (LIC-19). Independent of, and checked alongside, the
+  // org's own USD budget: the USD budget is the customer's self-imposed
+  // guardrail, the token limit is the platform's commercial term — either
+  // can block.
+  const tokenLimitMonthly = license.aiTokensMonthly ?? 0;
   const tokenPct = tokenLimitMonthly > 0 ? (tokensUsed / tokenLimitMonthly) * 100 : 0;
 
   const usdBlocked = !!budget && budget.hardStop && spend >= limit;
@@ -274,6 +278,7 @@ export interface CompleteResult {
   logId: string | null;
   /** True when the budget hard-stopped the call and no model ran. */
   blocked: boolean;
+  blockedBy?: 'USD_BUDGET' | 'TOKEN_LIMIT';
 }
 
 function costOf(m: ResolvedModel, promptTokens: number, completionTokens: number): number {
@@ -322,6 +327,7 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
       latencyMs: 0,
       logId,
       blocked: true,
+      blockedBy: budget.blockedBy,
     };
   }
 

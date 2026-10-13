@@ -49,6 +49,7 @@ export async function requestAccess(req: Request, res: Response, next: NextFunct
 
     await sendMail({
       orgId,
+      essential: true, // account access — never held back by the platform send quota
       to: email,
       subject: 'Your portal login link',
       html: `

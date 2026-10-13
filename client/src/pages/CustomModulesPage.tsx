@@ -16,6 +16,7 @@ import { STAGE_DOT } from '../shared/components/CustomModuleKanban';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 const FIELD_TYPES = ['TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN', 'DROPDOWN', 'EMAIL', 'PHONE', 'URL', 'RELATION'];
 const TYPE_LABELS: Record<string, string> = {
@@ -603,6 +604,7 @@ export default function CustomModulesPage() {
       />
 
       <PageBody width="full" className="flex-1 min-h-0 flex flex-col">
+      <PlanFeatureNotice feature="custom_modules" />
       {isLoading ? (
         <div className="flex flex-col sm:flex-row gap-4" aria-hidden="true">
           <div className="skeleton w-full sm:w-60 h-48 sm:h-72 rounded-card shrink-0" />

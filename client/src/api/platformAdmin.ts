@@ -74,7 +74,12 @@ export interface PlatformOrgSummary {
     /** Per-org license limits set by the platform operator; null = plan default / unlimited. */
     storageQuotaOverrideGb: number | null;
     aiTokenLimitMonthly: number | null;
+    stripeSubscriptionId?: string | null;
   } | null;
+  /** Effective licence right now (payment state + operator overrides applied). */
+  license?: { effectivePlan: string; access: 'full' | 'grace' | 'lapsed'; seats: number; reason: string | null; stripeManaged: boolean };
+  /** Active billable users (every role except Employee). */
+  seatsUsed?: number;
   branding: { companyName: string; logoUrl: string | null; primaryColor: string; supportEmail: string | null } | null;
   emailSending: { connected: boolean; email: string | null; smtpHost: string | null; lastSyncAt: string | null };
   whatsappSending: { connected: boolean; phoneNumber: string | null; notifyNumber: string | null };
@@ -87,7 +92,59 @@ export interface PlatformOrgSummary {
   counts: { users: number; contacts: number; tickets: number };
 }
 
-export interface PlatformOrgDetail extends Omit<PlatformOrgSummary, 'emailSending' | 'whatsappSending' | 'storageLicense' | 'counts'> {
+/** Full Subscription row as the console edits it. */
+export interface PlatformSubscriptionRow {
+  plan: string;
+  status: string;
+  seats: number;
+  features: string[];
+  interval: 'month' | 'year';
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  graceUntil: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  storageQuotaOverrideGb: number | null;
+  aiTokenLimitMonthly: number | null;
+  seatsOverride: number | null;
+  extraFeatures: string[];
+  manualNote: string | null;
+  manualExpiresAt: string | null;
+  trialEndsAt: string | null;
+  platformEmailQuotaMonthly: number | null;
+  platformWhatsAppQuotaMonthly: number | null;
+  amountCents: number;
+  lastInvoiceAmountCents: number | null;
+}
+
+export interface EffectiveLicenseView {
+  effectivePlan: string;
+  access: 'full' | 'grace' | 'lapsed';
+  reason: string | null;
+  seats: number;
+  features: string[];
+  storageQuotaGB: number;
+  stripeManaged: boolean;
+  aiTokensMonthly: number | null;
+  platformEmailMonthly: number | null;
+  platformWhatsAppMonthly: number | null;
+  graceUntil: string | null;
+  manualExpiresAt: string | null;
+}
+
+export interface LicenceHistoryEntry {
+  id: string;
+  createdAt: string;
+  changes: { changes?: Record<string, { from: unknown; to: unknown }>; stripeManaged?: boolean } | null;
+  user: { name: string; email: string } | null;
+}
+
+export interface PlatformOrgDetail extends Omit<PlatformOrgSummary, 'emailSending' | 'whatsappSending' | 'storageLicense' | 'counts' | 'subscription' | 'license'> {
+  subscription: PlatformSubscriptionRow | null;
+  license?: EffectiveLicenseView;
+  licenceHistory?: LicenceHistoryEntry[];
+  platformSendsThisMonth?: { email: number; emailLimit: number | null; whatsapp: number; whatsappLimit: number | null };
+  aiUsage?: { tokensUsedThisMonth: number; callsThisMonth: number; tokenLimitMonthly: number | null; tokenLimitOverride: number | null };
   emailAccount: { email: string; imapHost: string; smtpHost: string; smtpPort: number; lastSyncAt: string | null } | null;
   whatsAppConfig: { phoneNumber: string; notifyNumber: string | null; createdAt: string } | null;
   storageConfig: { provider: 'GOOGLE_DRIVE' | 'HOSTED_S3'; connectedEmail: string | null; rootFolderId: string | null; updatedAt: string } | null;
@@ -129,10 +186,18 @@ export const useUpdatePlatformOrg = () => {
   });
 };
 
+export interface SubscriptionUpdate {
+  plan?: string; seats?: number; features?: string[]; interval?: 'month' | 'year'; status?: string; cancelAtPeriodEnd?: boolean;
+  storageQuotaOverrideGb?: number | null; aiTokenLimitMonthly?: number | null;
+  seatsOverride?: number | null; extraFeatures?: string[]; manualNote?: string | null;
+  manualExpiresAt?: string | null; graceUntil?: string | null;
+  platformEmailQuotaMonthly?: number | null; platformWhatsAppQuotaMonthly?: number | null;
+}
+
 export const useUpdatePlatformSubscription = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; plan?: string; seats?: number; status?: string; cancelAtPeriodEnd?: boolean; storageQuotaOverrideGb?: number | null; aiTokenLimitMonthly?: number | null }) =>
+    mutationFn: ({ id, ...data }: { id: string } & SubscriptionUpdate) =>
       api.patch(`/platform/orgs/${id}/subscription`, data).then(r => r.data),
     onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: ['platform-orgs'] });
@@ -194,7 +259,17 @@ export interface PricingModule {
   enabled: boolean;
 }
 
+export type LimitPlan = 'FREE' | 'PRO' | 'ENTERPRISE' | 'CUSTOM';
+export type PlanLimits = Record<LimitPlan, number | null>;
+
 export interface PricingConfig {
+  currency: string;
+  trialDays: number;
+  contactEmail: string;
+  planFeatures: Record<LimitPlan, string[]>;
+  platformEmailMonthly: PlanLimits;
+  platformWhatsAppMonthly: PlanLimits;
+  aiTokensMonthly: PlanLimits;
   baseSeatPriceCents: number;
   planPrices: { PRO: number; ENTERPRISE: number };
   customStorageGb: number;
@@ -214,8 +289,12 @@ export interface PlatformPricing {
 }
 
 /** The operator sends the full desired config; the server layers it over code defaults. */
-export type PricingUpdate = Partial<Omit<PricingConfig, 'modules' | 'planPrices'>> & {
+export type PricingUpdate = Partial<Omit<PricingConfig, 'modules' | 'planPrices' | 'planFeatures' | 'platformEmailMonthly' | 'platformWhatsAppMonthly' | 'aiTokensMonthly'>> & {
   planPrices?: Partial<PricingConfig['planPrices']>;
+  planFeatures?: Partial<Record<LimitPlan, string[]>>;
+  platformEmailMonthly?: Partial<PlanLimits>;
+  platformWhatsAppMonthly?: Partial<PlanLimits>;
+  aiTokensMonthly?: Partial<PlanLimits>;
   modules?: ({ key: string } & Partial<Omit<PricingModule, 'key'>>)[];
 };
 

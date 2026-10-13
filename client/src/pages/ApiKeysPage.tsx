@@ -9,6 +9,7 @@ import {
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 interface ApiKey {
   id: string;
@@ -160,6 +161,7 @@ export default function ApiKeysPage() {
       />
 
       <PageBody>
+        <PlanFeatureNotice feature="api_access" />
         {/* New Key Banner */}
         {newKey && (
           <Alert

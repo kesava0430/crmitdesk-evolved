@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { prisma } from './prisma';
 import { decryptSecretOrPlain } from './crypto';
 import { recordUsage } from './usageTracking';
+import { assertPlatformSendQuota, PlatformQuotaExceededError } from './licensing';
 import { getPlatformMailConfig, type PlatformMailConfig } from './platformSettings';
 import { enqueueJob, registerJobHandler } from './jobQueue';
 
@@ -18,6 +19,10 @@ interface MailOptions {
   orgId?: string;
   /** Base64 so the payload survives the job-queue JSON round trip on retry. */
   attachments?: { filename: string; contentBase64: string; contentType?: string }[];
+  /** Account-access mail (invites, password reset/changed, signup approval):
+   *  never held back by the platform send quota — nobody gets locked out of
+   *  their account because their org sent a lot of campaign mail. */
+  essential?: boolean;
 }
 
 const nodemailerAttachments = (opts: MailOptions) => opts.attachments?.map(a => ({ filename: a.filename, content: Buffer.from(a.contentBase64, 'base64'), contentType: a.contentType }));
@@ -175,6 +180,12 @@ async function performSendMail(opts: MailOptions): Promise<void> {
     }
   }
 
+  // Platform fallback = our Resend/SMTP account: bounded by the org's monthly
+  // allowance (LIC-18). Throws PlatformQuotaExceededError, which sendMail()
+  // logs instead of retrying. Mail without an org (platform notices) and
+  // account-access mail are never limited.
+  if (opts.orgId && !opts.essential) await assertPlatformSendQuota(opts.orgId, 'email');
+
   // Tier 1 white-label: still sending through the platform's own domain/
   // account below, but dressed as the org wherever we have branding for it.
   const [branding, cfg] = await Promise.all([
@@ -219,13 +230,26 @@ export async function sendMail(opts: MailOptions): Promise<void> {
   try {
     await performSendMail(opts);
   } catch (err) {
+    if (err instanceof PlatformQuotaExceededError) {
+      // Retrying can't help until next month (or until the org connects its own mailbox).
+      console.warn(`[Email not sent — platform quota] org ${opts.orgId} To: ${opts.to} | ${opts.subject}: ${err.message}`);
+      return;
+    }
     console.error('[Email error — queuing retry]', err);
     await enqueueJob('send_email', opts, { orgId: opts.orgId ?? null });
   }
 }
 
 registerJobHandler('send_email', async (payload: MailOptions) => {
-  await performSendMail(payload);
+  try {
+    await performSendMail(payload);
+  } catch (err) {
+    if (err instanceof PlatformQuotaExceededError) {
+      console.warn(`[Email retry dropped — platform quota] org ${payload.orgId}: ${err.message}`);
+      return;
+    }
+    throw err;
+  }
 });
 
 // ─── Reusable HTML templates ─────────────────────────────────────────────────
@@ -249,6 +273,7 @@ const btn = (href: string, label: string, color = '#4f46e5') =>
 
 export const emailTemplates = {
   invite: (to: string, orgName: string, role: string, link: string) => ({
+    essential: true,
     to,
     subject: `You've been invited to join ${orgName}`,
     html: base(`
@@ -323,6 +348,7 @@ export const emailTemplates = {
   },
 
   orgSignupRequest: (adminEmail: string, req: { organizationName: string; name: string; email: string }, approveLink: string) => ({
+    essential: true,
     to: adminEmail,
     subject: `New org signup request: ${req.organizationName}`,
     html: base(`
@@ -339,6 +365,7 @@ export const emailTemplates = {
   }),
 
   orgSignupApproved: (requesterEmail: string, requesterName: string, orgName: string, loginLink: string) => ({
+    essential: true,
     to: requesterEmail,
     subject: `You're approved — ${orgName} is ready`,
     html: base(`
@@ -350,6 +377,7 @@ export const emailTemplates = {
   }),
 
   passwordReset: (to: string, name: string, resetLink: string) => ({
+    essential: true,
     to,
     subject: 'Reset your password',
     html: base(`
@@ -362,6 +390,7 @@ export const emailTemplates = {
   }),
 
   passwordChanged: (to: string, name: string) => ({
+    essential: true,
     to,
     subject: 'Your password was changed',
     html: base(`

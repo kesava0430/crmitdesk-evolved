@@ -9,6 +9,7 @@ import {
 import { AITypewriter } from '../shared/components/AITypewriter';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 const TRIGGERS = [
   { value: 'TICKET_CREATED',       label: 'Ticket Created',        icon: <Ticket size={16} />,       desc: 'Fires when a new support ticket is submitted' },
@@ -302,6 +303,7 @@ export function AIFeaturePage() {
       />
 
       <PageBody width="narrow">
+        <PlanFeatureNotice feature="ai_advanced" />
         {/* Bulk score result */}
         {bulkResult && (
           <Alert tone="success" title="Bulk scoring complete!" icon={<Sparkles size={18} />}>

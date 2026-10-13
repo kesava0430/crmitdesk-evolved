@@ -7,6 +7,7 @@ import {
   PageBody, Card, CardHeader, Field, Input, Select, Checkbox,
   Button, IconButton, Badge, Alert, Spinner, SkeletonCard,
 } from '../shared/components';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 /**
  * Microsoft's brand blue.
@@ -313,6 +314,8 @@ export default function DirectorySSOPage() {
 
   return (
     <PageBody width="narrow">
+      {/* An org that already set up SSO keeps managing it on any plan (server grandfathers it). */}
+      {!connected && <PlanFeatureNotice feature="sso" what="Single sign-on setup" />}
       <div className="flex items-center gap-3">
         <div className={`w-10 h-10 rounded-card flex items-center justify-center shrink-0 ${MICROSOFT_BRAND_TILE}`}>
           <KeyRound size={20} className="text-white" />

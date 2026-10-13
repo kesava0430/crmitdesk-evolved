@@ -8,7 +8,7 @@ import { parsePagination, paginate } from '../../../utils/pagination';
 import { sendMail } from '../../../utils/mailer';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
-import { assertSeatAvailable, isMeteredRole } from '../../../utils/licensing';
+import { assertSeatAvailable, assertSeatForTransition, withSeatLock } from '../../../utils/licensing';
 import { emailTemplates } from '../../../utils/mailer';
 // Keeps User and Employee in step so an admin never adds the same person
 // twice — see utils/employeeProvisioning.ts for why the split is invisible
@@ -172,15 +172,20 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 
     const resolved = await resolveRole(req.user!.orgId, data);
     assertCanAssign(req.user!.role, resolved.role);
-    // Seats are metered against the legacy role, so resolve first.
-    await assertSeatAvailable(req.user!.orgId, resolved.role);
     // Destructure password out so it is not spread into the Prisma create call
     // (the User model has `passwordHash`, not `password`)
     const { password, createEmployee, roleId: _roleId, role: _role, ...rest } = data;
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await prisma.user.create({
-      data: { ...rest, ...resolved, passwordHash, orgId: req.user!.orgId },
-      select,
+    // Seats are metered against the legacy role, so resolve first. The check
+    // and the insert share one per-org advisory lock (LIC-22) so two
+    // concurrent creates can't both take the last seat.
+    const orgId = req.user!.orgId;
+    const user = await withSeatLock(orgId, async tx => {
+      await assertSeatAvailable(orgId, resolved.role, tx);
+      return tx.user.create({
+        data: { ...rest, ...resolved, passwordHash, orgId },
+        select,
+      });
     });
 
     // Adding someone in Administration → Users also makes them an employee, so
@@ -214,6 +219,7 @@ export async function invite(req: AuthRequest, res: Response, next: NextFunction
     // Send invite email (silently skipped if SMTP is not configured)
     await sendMail({
       orgId: req.user!.orgId,
+      essential: true, // account access — never held back by the platform send quota
       to: email,
       subject: `You've been invited to join ${org?.name || 'CRM & IT Desk'}`,
       html: `
@@ -238,12 +244,14 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const target = await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!target) throw new AppError(404, 'User not found');
     assertCanManage(req.user!.role, target.role);
-    // Only re-check the seat limit if this update actually turns someone INTO
-    // a billable role (anything but EMPLOYEE) who wasn't one already. A
-    // lateral move between two billable roles (e.g. SALES_REP -> CRM_MANAGER)
-    // doesn't change the billable headcount, so it must NOT be re-checked
-    // here — the target's own existing seat would otherwise cause a false
-    // "at limit" block.
+    // Re-check the seat limit whenever this update newly makes someone a
+    // billable seat: EMPLOYEE -> billable role, or REACTIVATING a billable
+    // user (deactivate → add someone → reactivate used to bypass the limit
+    // entirely, LIC-2). A lateral move between two billable roles (e.g.
+    // SALES_REP -> CRM_MANAGER) or a demotion doesn't change the billable
+    // headcount, so it must NOT be re-checked — the target's own existing
+    // seat would otherwise cause a false "at limit" block. See
+    // consumesNewSeat() in utils/licensing.ts.
     // Only resolve when the caller actually submitted a role change; an
     // untouched role must not be rewritten by a lookup.
     const changingRole = data.roleId !== undefined || data.role !== undefined;
@@ -256,15 +264,18 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const resolved = changingRole ? await resolveRole(req.user!.orgId, data) : null;
     if (resolved) assertCanAssign(req.user!.role, resolved.role);
 
-    if (resolved && resolved.role !== target.role && !isMeteredRole(target.role)) {
-      await assertSeatAvailable(req.user!.orgId, resolved.role);
-    }
-
     const { roleId: _rid, role: _r, ...rest } = data;
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: { ...rest, ...(resolved ?? {}) },
-      select,
+    const transition = {
+      wasActive: target.isActive, wasRole: target.role,
+      willBeActive: data.isActive ?? target.isActive, willBeRole: resolved?.role ?? target.role,
+    };
+    const user = await withSeatLock(req.user!.orgId, async tx => {
+      await assertSeatForTransition(req.user!.orgId, transition, tx);
+      return tx.user.update({
+        where: { id: req.params.id },
+        data: { ...rest, ...(resolved ?? {}) },
+        select,
+      });
     });
     if (resolved) invalidatePermCtx(user.id);
 
