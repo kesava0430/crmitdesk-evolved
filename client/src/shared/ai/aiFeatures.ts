@@ -17,7 +17,9 @@
  *              product changes a record for you). Four features write without
  *              asking; users deserve to know which.
  *   `tier`   — 'free' or 'paid'. Paid features are blocked on the Free plan by
- *              `requireFeature('ai')`, so the label prevents a confusing 402.
+ *              `requireFeature('ai_advanced')` (Pro and Enterprise, or a
+ *              custom licence with Advanced AI), so the label prevents a
+ *              confusing 402.
  *
  * KEEP IN SYNC with the server: `server/src/utils/ai.ts`,
  * `server/src/modules/ai/ai.routes.ts` (which routes are `requireFeature`-gated),

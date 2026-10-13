@@ -13,6 +13,7 @@ import { useChartTheme, type ChartTheme } from '../shared/chartTheme';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,7 @@ export function AnalyticsPage() {
       />
 
       <PageBody>
+        <PlanFeatureNotice feature="advanced_analytics" />
         {/* KPI row — /analytics/overview is MANAGERS-only */}
         {showOverview && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

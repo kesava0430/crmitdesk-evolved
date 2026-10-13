@@ -19,6 +19,7 @@ import {
   useCustomScripts, useCreateScript, useUpdateScript, useDeleteScript, useValidateScript,
   type CustomAIFunction, type CustomScript, type InputField,
 } from '../api/aiStudio';
+import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -741,6 +742,7 @@ export default function AIStudioPage() {
       />
 
       <PageBody width="narrow">
+        <PlanFeatureNotice feature="ai_advanced" />
         {tab === 'context'   && <BusinessContextTab />}
         {tab === 'functions' && <FunctionsTab />}
         {tab === 'scripts'   && <ScriptsTab />}

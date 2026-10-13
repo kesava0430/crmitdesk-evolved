@@ -12,6 +12,7 @@ import {
 } from '../../shared/components';
 import { useFormat } from '../../hooks/useFormat';
 import { can } from '../../shared/permissions';
+import { PlanFeatureNotice } from '../../shared/components/PlanFeatureNotice';
 
 export function PortalUsersPage() {
   const { user } = useAuth();
@@ -105,6 +106,7 @@ export function PortalUsersPage() {
 
       <div className="flex-1 overflow-auto">
         <PageBody width="full" className="max-w-4xl mx-auto">
+      <PlanFeatureNotice feature="customer_portal" />
       {/* Portal Link Banner */}
       <Alert
         tone="accent"
