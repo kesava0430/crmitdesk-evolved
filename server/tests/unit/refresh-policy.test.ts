@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
   decideRefresh, clientTypeFromHeader, refreshTtlDays, refreshExpiry, isValidProposedToken,
-  rotatedRetentionMs, DEFAULT_GRACE_MS, DEFAULT_MAX_GRACE_USES,
+  rotatedRetentionMs, refreshGraceMs, envNumber, DEFAULT_GRACE_MS, DEFAULT_MAX_GRACE_USES,
 } from '../../src/modules/core/auth/refreshPolicy';
 import { resolveCorsOrigins } from '../../src/utils/corsOrigins';
 import {
@@ -82,7 +82,10 @@ test('refresh TTL: 7d web / 90d native by default, env-overridable, junk ignored
   assert.equal(refreshTtlDays('web', { REFRESH_TTL_DAYS: '14' }), 14);
   assert.equal(refreshTtlDays('native', { REFRESH_TTL_DAYS_NATIVE: '180' }), 180);
   assert.equal(refreshTtlDays('web', { REFRESH_TTL_DAYS: 'abc' }), 7);
-  assert.equal(refreshTtlDays('native', { REFRESH_TTL_DAYS_NATIVE: '-3' }), 90);
+  assert.equal(refreshTtlDays('native', { REFRESH_TTL_DAYS_NATIVE: '-3' }), 1, 'clamped to >= 1 day');
+  assert.equal(refreshTtlDays('web', { REFRESH_TTL_DAYS: '' }), 7, 'blank means default');
+  assert.equal(refreshTtlDays('native', { REFRESH_TTL_DAYS_NATIVE: '  ' }), 90);
+  assert.equal(refreshTtlDays('web', { REFRESH_TTL_DAYS: '0.2' }), 1);
   assert.equal(refreshExpiry('native', NOW, {}).getTime(), NOW.getTime() + 90 * 86_400_000);
 });
 
@@ -95,20 +98,35 @@ test('proposed successors must be long hex strings', () => {
   assert.ok(!isValidProposedToken({}));
 });
 
+test('grace window env: blank/non-numeric = default 120s, clamped to 10s..600s', () => {
+  assert.equal(refreshGraceMs({}), 120_000);
+  assert.equal(refreshGraceMs({ REFRESH_GRACE_SECONDS: '' }), 120_000);
+  assert.equal(refreshGraceMs({ REFRESH_GRACE_SECONDS: 'abc' }), 120_000);
+  assert.equal(refreshGraceMs({ REFRESH_GRACE_SECONDS: '0' }), 10_000);
+  assert.equal(refreshGraceMs({ REFRESH_GRACE_SECONDS: '30' }), 30_000);
+  assert.equal(refreshGraceMs({ REFRESH_GRACE_SECONDS: '9999' }), 600_000);
+  assert.equal(envNumber(undefined, 5, 1, 10), 5);
+});
+
 test('rotated-row retention defaults to 72h', () => {
   assert.equal(rotatedRetentionMs({}), 72 * 3_600_000);
+  assert.equal(rotatedRetentionMs({ REFRESH_ROTATED_RETENTION_HOURS: '' }), 72 * 3_600_000);
   assert.equal(rotatedRetentionMs({ REFRESH_ROTATED_RETENTION_HOURS: '24' }), 24 * 3_600_000);
 });
 
 test('CORS: comma-separated origins plus the Capacitor WebView origins', () => {
-  const o = resolveCorsOrigins({ CORS_ORIGIN: 'https://app.zenkara.in, https://other.example/' });
+  const o = resolveCorsOrigins({ CORS_ORIGIN: 'https://app.zenkara.in, https://other.example/' }) as string[];
   assert.ok(o.includes('https://app.zenkara.in'));
   assert.ok(o.includes('https://other.example'));
   assert.ok(o.includes('http://localhost'));
   assert.ok(o.includes('capacitor://localhost'));
   const off = resolveCorsOrigins({ CORS_ORIGIN: 'https://app.zenkara.in', CORS_ALLOW_APP_ORIGINS: 'false' });
   assert.deepEqual(off, ['https://app.zenkara.in']);
-  assert.ok(resolveCorsOrigins({}).includes('http://localhost:5173'));
+  assert.ok((resolveCorsOrigins({}) as string[]).includes('http://localhost:5173'));
+  // '*' reflects the request origin (works with credentials); a literal '*'
+  // in the list would match nothing.
+  assert.equal(resolveCorsOrigins({ CORS_ORIGIN: '*' }), true);
+  assert.equal(resolveCorsOrigins({ CORS_ORIGIN: 'https://a.example, *' }), true);
 });
 
 test('FCM: service account parsing (raw / base64 / absent / junk)', () => {

@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
+import { AppError } from '../../middleware/errorHandler';
 import { AuthRequest } from '../../middleware/authenticate';
 import { getVapidPublicKey, appPushConfigured } from '../../utils/webPush';
 
@@ -57,6 +58,9 @@ export async function getAppPushConfig(_req: AuthRequest, res: Response) {
 export async function registerDevice(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { token, platform } = DeviceSchema.parse(req.body);
+    // Platform admins have no org (orgId ''), which the org foreign key
+    // rejects — they get no org notifications anyway.
+    if (!req.user!.orgId) throw new AppError(400, 'Push registration needs an organization account.');
     await prisma.deviceToken.upsert({
       where: { token },
       update: { userId: req.user!.id, orgId: req.user!.orgId, platform },

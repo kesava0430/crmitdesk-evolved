@@ -104,13 +104,28 @@ export function clientTypeFromHeader(value: unknown): ClientType {
  * times a week — a 7-day window meant anyone who didn't open it for a week
  * had to sign in again, which reads as "the app keeps logging me out".
  */
+/**
+ * Numeric env var with a default. Unset, blank ('' — what an empty line in
+ * .env yields) or non-numeric means "use the default"; anything else is
+ * clamped into [min, max]. Number('') is 0, which used to silently turn a
+ * blank REFRESH_GRACE_SECONDS= line into "no grace window at all".
+ */
+export function envNumber(raw: string | undefined, fallback: number, min: number, max: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 export function refreshTtlDays(clientType: ClientType, env: Record<string, string | undefined> = process.env): number {
-  const parse = (raw: string | undefined, fallback: number) => {
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 && n <= 3650 ? n : fallback;
-  };
-  const web = parse(env.REFRESH_TTL_DAYS, 7);
-  return clientType === 'native' ? parse(env.REFRESH_TTL_DAYS_NATIVE, 90) : web;
+  return clientType === 'native'
+    ? envNumber(env.REFRESH_TTL_DAYS_NATIVE, 90, 1, 3650)
+    : envNumber(env.REFRESH_TTL_DAYS, 7, 1, 3650);
+}
+
+/** Grace window for rotated tokens: default 120s, never below 10s (concurrent old clients) or above 10 min. */
+export function refreshGraceMs(env: Record<string, string | undefined> = process.env): number {
+  return envNumber(env.REFRESH_GRACE_SECONDS, DEFAULT_GRACE_MS / 1000, 10, 600) * 1000;
 }
 
 export function refreshExpiry(clientType: ClientType, now = new Date(), env: Record<string, string | undefined> = process.env): Date {
@@ -128,6 +143,5 @@ export function isValidProposedToken(value: unknown): value is string {
 
 /** Rotated rows are kept this long for replay before the hourly purge drops them. */
 export function rotatedRetentionMs(env: Record<string, string | undefined> = process.env): number {
-  const hours = Number(env.REFRESH_ROTATED_RETENTION_HOURS);
-  return (Number.isFinite(hours) && hours > 0 ? hours : 72) * 60 * 60 * 1000;
+  return envNumber(env.REFRESH_ROTATED_RETENTION_HOURS, 72, 1, 24 * 365) * 60 * 60 * 1000;
 }

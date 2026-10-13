@@ -229,10 +229,15 @@ model RefreshToken {
   /// 'web' | 'native' — picks the sliding TTL (REFRESH_TTL_DAYS vs
   /// REFRESH_TTL_DAYS_NATIVE) and is carried across rotations.
   clientType     String    @default("web") @map("client_type")
+  /// One sign-in = one family: set at login, inherited by every successor
+  /// (rotated or grace-issued) so logout can revoke them all. NULL on rows
+  /// that predate it; their successors use the row's id as family id.
+  familyId       String?   @map("family_id")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([rotatedAt])
+  @@index([familyId])
   @@map("refresh_tokens")
 }
 
