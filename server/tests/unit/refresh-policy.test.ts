@@ -149,3 +149,22 @@ test('FCM: failure classification and message shape', () => {
   assert.deepEqual(m.message.data, { url: '/hr/attendance', type: 'attendance:locate' });
   assert.equal(m.message.notification.body, '');
 });
+
+test('authenticate() accepts only staff access tokens, not other JWTs signed with JWT_SECRET', async () => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'unit-test-secret';
+  const jwt = (await import('jsonwebtoken')).default;
+  const { authenticate } = await import('../../src/middleware/authenticate');
+  const run = (token: string) => {
+    const req: any = { headers: { authorization: `Bearer ${token}` } };
+    let passed = false;
+    try { authenticate(req, {} as any, () => { passed = true; }); } catch { /* rejected */ }
+    return { passed, user: req.user };
+  };
+  const secret = process.env.JWT_SECRET!;
+  const staff = run(jwt.sign({ id: 'u1', role: 'EMPLOYEE', email: 'a@b.c', orgId: 'o1' }, secret));
+  assert.ok(staff.passed);
+  assert.equal(staff.user.id, 'u1');
+  assert.equal(run(jwt.sign({ sub: 'p1', orgId: 'o1', iss: 'portal' }, secret)).passed, false, 'portal session');
+  assert.equal(run(jwt.sign({ orgId: 'o1' }, secret)).passed, false, 'OAuth state');
+  assert.equal(run(jwt.sign({ userId: 'u1' }, secret)).passed, false, 'calendar state');
+});

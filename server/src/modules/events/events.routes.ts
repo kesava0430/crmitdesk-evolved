@@ -13,6 +13,10 @@ router.get('/stream', (req: Request, res: Response) => {
   let payload: { id: string; orgId: string; role: string };
   try {
     payload = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    // Same rule as middleware/authenticate.ts: only a staff access token
+    // (id + role) may open the org's event stream — not a portal session or
+    // an OAuth state value signed with the same secret.
+    if (!payload?.id || !payload?.role || (payload as any).iss === 'portal') throw new Error('not an access token');
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }

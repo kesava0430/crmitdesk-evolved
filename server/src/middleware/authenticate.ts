@@ -52,8 +52,19 @@ export function authenticate(req: AuthRequest, _res: Response, next: NextFunctio
   if (!token) throw new AppError(401, 'Authentication required');
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET!) as {
-      id: string; role: string; email: string; orgId: string;
+      id: string; role: string; email: string; orgId: string; iss?: string;
     };
+    /* Several other JWTs are signed with the same JWT_SECRET — customer
+       portal sessions ({sub, orgId, iss:'portal'}), OAuth `state` values
+       ({orgId} / {userId}) that travel in public redirect URLs. None of
+       them is a staff session, but each verified here as one: req.user got
+       an orgId with no user id or role, and any route guarded only by
+       authenticate() served that org's data to whoever held the token.
+       Only a real access token (auth.controller signAccessToken) carries
+       both id and role. */
+    if (!payload || typeof payload.id !== 'string' || !payload.id || typeof payload.role !== 'string' || !payload.role || payload.iss === 'portal') {
+      throw new Error('not an access token');
+    }
     req.user = payload;
     /* Everything downstream of this call runs inside the store, so
        utils/ai.ts can find the org without every AI helper taking an orgId

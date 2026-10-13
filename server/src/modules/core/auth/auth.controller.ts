@@ -885,6 +885,13 @@ export async function unlinkGoogleAccount(req: AuthRequest, res: Response, next:
 // app (`app_challenge` = base64url(sha256(verifier))) at POST /auth/sso/exchange.
 const APP_SSO_REDIRECT_URL = process.env.APP_SSO_REDIRECT_URL || 'com.zenkara.app://sso-callback';
 const APP_CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
+// Entra `state` values and app exchange codes are signed with a key DERIVED
+// from JWT_SECRET, never JWT_SECRET itself: both appear in public redirect
+// URLs, and anything signed with JWT_SECRET would also verify as a staff
+// access token in middleware/authenticate.ts.
+// Computed per call, not at import time, so it can never be derived from a
+// JWT_SECRET that wasn't loaded yet.
+const ssoSigningKey = () => crypto.createHash('sha256').update(`${process.env.JWT_SECRET!}:entra-sso`).digest('hex');
 // One-time use for exchange codes. In-memory is enough: codes live 2 minutes
 // and are also bound to the verifier, so this only stops a replay by the
 // same holder within that window on this process.
@@ -908,7 +915,7 @@ export async function entraLoginRedirect(req: Request, res: Response) {
     if (!config) return failTo('sso_not_found');
     if (!config.isEnabled) return failTo('sso_disabled');
 
-    const state = jwt.sign(appChallenge ? { orgId: config.orgId, ac: appChallenge } : { orgId: config.orgId }, process.env.JWT_SECRET!, { expiresIn: '10m' });
+    const state = jwt.sign(appChallenge ? { orgId: config.orgId, ac: appChallenge } : { orgId: config.orgId }, ssoSigningKey(), { expiresIn: '10m' });
     res.redirect(buildEntraAuthUrl({ tenantId: config.tenantId, clientId: config.clientId, state }));
   } catch (err) {
     console.error('[entra] login redirect failed:', err);
@@ -932,7 +939,7 @@ export async function entraCallback(req: Request, res: Response) {
     let orgId: string;
     let appChallenge: string | undefined;
     try {
-      ({ orgId, ac: appChallenge } = jwt.verify(state, process.env.JWT_SECRET!) as { orgId: string; ac?: string });
+      ({ orgId, ac: appChallenge } = jwt.verify(state, ssoSigningKey()) as { orgId: string; ac?: string });
     } catch {
       return fail('Your sign-in link expired — please try again.');
     }
@@ -1011,7 +1018,7 @@ export async function entraCallback(req: Request, res: Response) {
       // Native: hand the app a one-time code, not tokens (see above).
       const exchangeCode = jwt.sign(
         { uid: user.id, ac: appChallenge, typ: 'entra-app', jti: crypto.randomBytes(12).toString('hex') },
-        process.env.JWT_SECRET!, { expiresIn: '2m' },
+        ssoSigningKey(), { expiresIn: '2m' },
       );
       return res.redirect(`${APP_SSO_REDIRECT_URL}#code=${encodeURIComponent(exchangeCode)}`);
     }
@@ -1043,7 +1050,7 @@ export async function ssoExchange(req: Request, res: Response, next: NextFunctio
     const { code, verifier } = SsoExchangeSchema.parse(req.body);
     let claims: { uid: string; ac: string; typ: string; jti: string; exp: number };
     try {
-      claims = jwt.verify(code, process.env.JWT_SECRET!) as any;
+      claims = jwt.verify(code, ssoSigningKey()) as any;
     } catch {
       throw new AppError(401, 'Sign-in code expired — please try again.');
     }
