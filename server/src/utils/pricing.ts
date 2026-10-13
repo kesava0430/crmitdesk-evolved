@@ -91,11 +91,16 @@ const envInt = (name: string, fallback: number) => {
   return Number.isFinite(n) && process.env[name] !== undefined && process.env[name] !== '' ? n : fallback;
 };
 
-/** Generous defaults: these only bound sends that go through OUR accounts and
- *  AI calls on orgs without a per-org override — normal use never meets them. */
-export const DEFAULT_PLATFORM_EMAIL_MONTHLY: PlanLimits = { FREE: 500, PRO: 5_000, ENTERPRISE: 50_000, CUSTOM: 5_000 };
-export const DEFAULT_PLATFORM_WHATSAPP_MONTHLY: PlanLimits = { FREE: 100, PRO: 1_000, ENTERPRISE: 10_000, CUSTOM: 1_000 };
-export const DEFAULT_AI_TOKENS_MONTHLY: PlanLimits = { FREE: 500_000, PRO: 5_000_000, ENTERPRISE: null, CUSTOM: 5_000_000 };
+/** Defaults are UNLIMITED so that deploying this changes nothing for existing
+ *  customers — the platform operator sets real allowances in Platform Admin →
+ *  Pricing (or per org). They only bound sends that go through OUR accounts
+ *  and AI calls on orgs without a per-org override.
+ *  Suggested starting points: email FREE 500 · PRO 5,000 · ENTERPRISE 50,000 ·
+ *  CUSTOM 5,000; WhatsApp 100/1,000/10,000/1,000; AI tokens FREE 500k ·
+ *  PRO 5M · ENTERPRISE — · CUSTOM 5M. */
+export const DEFAULT_PLATFORM_EMAIL_MONTHLY: PlanLimits = { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null };
+export const DEFAULT_PLATFORM_WHATSAPP_MONTHLY: PlanLimits = { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null };
+export const DEFAULT_AI_TOKENS_MONTHLY: PlanLimits = { FREE: null, PRO: null, ENTERPRISE: null, CUSTOM: null };
 
 export const DEFAULT_PRICING: PricingConfig = {
   currency: (process.env.LICENSE_CURRENCY || 'usd').toLowerCase(),
