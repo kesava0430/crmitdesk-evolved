@@ -19,11 +19,16 @@
  */
 export const APP_WEBVIEW_ORIGINS = ['http://localhost', 'https://localhost', 'capacitor://localhost'];
 
-export function resolveCorsOrigins(env: Record<string, string | undefined> = process.env): string[] {
+export function resolveCorsOrigins(env: Record<string, string | undefined> = process.env): string[] | true {
   const configured = (env.CORS_ORIGIN || 'http://localhost:5173')
     .split(',')
     .map(o => o.trim().replace(/\/+$/, ''))
     .filter(Boolean);
+  // '*' inside an array is compared literally by the cors package and would
+  // match nothing. `true` reflects the request's Origin instead — the only
+  // form of "any origin" that is valid together with credentials: true
+  // (a literal '*' Access-Control-Allow-Origin is rejected by browsers then).
+  if (configured.includes('*')) return true;
   const app = env.CORS_ALLOW_APP_ORIGINS === 'false' ? [] : APP_WEBVIEW_ORIGINS;
   return Array.from(new Set([...configured, ...app]));
 }

@@ -21,7 +21,7 @@ import { buildEntraAuthUrl, exchangeEntraCode, fetchEntraProfile, fetchEntraGrou
 import { resolveRoleForGroups } from '../../directory/roleMapping';
 import {
   ClientType, clientTypeFromHeader, decideRefresh, isValidProposedToken, refreshExpiry, rotatedRetentionMs,
-  DEFAULT_GRACE_MS, DEFAULT_MAX_GRACE_USES,
+  refreshGraceMs, DEFAULT_MAX_GRACE_USES,
 } from './refreshPolicy';
 
 const RegisterSchema = z.object({
@@ -114,32 +114,41 @@ function reqClientType(req: Request): ClientType {
 // sliding: every rotation issues a fresh full window.
 async function storeRefreshToken(userId: string, rawToken: string, clientType: ClientType = 'web') {
   await prisma.refreshToken.create({
-    data: { userId, tokenHash: hashToken(rawToken), expiresAt: refreshExpiry(clientType), clientType },
+    // A fresh sign-in starts a new token family (see revokeTokenFamilies).
+    data: { userId, tokenHash: hashToken(rawToken), expiresAt: refreshExpiry(clientType), clientType, familyId: crypto.randomUUID() },
   });
 }
 
-const REFRESH_GRACE_MS = (() => {
-  const n = Number(process.env.REFRESH_GRACE_SECONDS);
-  return Number.isFinite(n) && n >= 0 && n <= 600 ? n * 1000 : DEFAULT_GRACE_MS;
-})();
+const REFRESH_GRACE_MS = refreshGraceMs();
 
 /**
- * Deletes the given refresh tokens AND every successor they were rotated
- * into. Logging out with a token that was rotated a moment ago (another tab
- * refreshed it, or the refresh response was still in flight) must not leave
- * the newer token alive.
+ * Revokes every token in the families of the given tokens. A family is one
+ * sign-in: the token issued at login plus everything rotated from it —
+ * including extra successors handed out in the grace window, which are
+ * siblings, not part of the replacedByHash chain. Logging out with any
+ * member (even one rotated a moment ago by another tab) must not leave a
+ * newer member alive. Tokens issued before family ids existed are their own
+ * family root (successors inherit `familyId ?? id`).
  */
-async function revokeTokenChain(tokenHashes: string[]) {
-  let frontier = tokenHashes.filter(Boolean);
-  for (let hop = 0; hop < 20 && frontier.length; hop++) {
-    const rows = await prisma.refreshToken.findMany({
-      where: { tokenHash: { in: frontier } },
-      select: { id: true, replacedByHash: true },
-    });
-    if (!rows.length) break;
-    await prisma.refreshToken.deleteMany({ where: { id: { in: rows.map(r => r.id) } } });
-    frontier = rows.map(r => r.replacedByHash).filter((h): h is string => !!h);
-  }
+async function revokeTokenFamilies(tokenHashes: string[]) {
+  const rows = await prisma.refreshToken.findMany({
+    where: { tokenHash: { in: tokenHashes.filter(Boolean) } },
+    select: { id: true, familyId: true, replacedByHash: true },
+  });
+  if (!rows.length) return;
+  const families = Array.from(new Set(rows.map(r => r.familyId ?? r.id)));
+  // replacedByHash too, for a successor of a legacy row created before its
+  // family id was known (defensive — rotation always sets familyId now).
+  const successors = rows.map(r => r.replacedByHash).filter((h): h is string => !!h);
+  await prisma.refreshToken.deleteMany({
+    where: {
+      OR: [
+        { familyId: { in: families } },
+        { id: { in: families } },
+        ...(successors.length ? [{ tokenHash: { in: successors } }] : []),
+      ],
+    },
+  });
 }
 
 /**
@@ -605,7 +614,11 @@ export async function refreshToken(req: Request, res: Response, next: NextFuncti
         if (claimed.count === 0) continue; // lost the race — decide again on fresh state
 
         await tx.refreshToken.create({
-          data: { userId: user.id, tokenHash: hashToken(raw), expiresAt: refreshExpiry(clientType, now), clientType },
+          data: {
+            userId: user.id, tokenHash: hashToken(raw), expiresAt: refreshExpiry(clientType, now), clientType,
+            // Same sign-in family as the parent, so logout revokes grace siblings too.
+            familyId: s.familyId ?? s.id,
+          },
         });
         return { user, refresh: raw } as const;
       }
@@ -638,7 +651,7 @@ export async function refreshToken(req: Request, res: Response, next: NextFuncti
 export async function logout(req: Request, res: Response) {
   const { refresh, pending } = req.body ?? {};
   const hashes = [refresh, pending].filter((t): t is string => typeof t === 'string' && t.length > 0).map(hashToken);
-  if (hashes.length) await revokeTokenChain(hashes).catch(() => {});
+  if (hashes.length) await revokeTokenFamilies(hashes).catch(() => {});
   res.json({ message: 'Logged out' });
 }
 
