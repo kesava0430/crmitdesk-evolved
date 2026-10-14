@@ -103,7 +103,7 @@ export default function WorkspaceSettingsPage() {
         title="Workspace Settings"
         subtitle="Make this product yours — rename anything, hide what your team doesn't use"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {saved && (
               <span className="flex items-center gap-1 text-[12.5px] font-medium text-success">
                 <CheckCircle size={14} /> Saved — everyone sees it now

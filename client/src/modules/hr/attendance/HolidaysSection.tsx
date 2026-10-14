@@ -60,7 +60,7 @@ export function HolidaysSection() {
   return (
     <Card>
       <CardHeader title="Holidays" subtitle="Paid holidays for the year; scope a holiday to specific branches or leave it for everyone." icon={<CalendarDays size={14} />} className="mb-3"
-        actions={<div className="flex items-center gap-2"><Input type="number" className="w-24" value={year} onChange={e => setYear(Number(e.target.value) || year)} /><Button size="sm" variant="secondary" icon={<ClipboardList size={13} />} onClick={() => { setBulkMsg(null); setBulkOpen(true); }}>Import list</Button><Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add holiday</Button></div>} />
+        actions={<div className="flex flex-wrap items-center gap-2"><Input type="number" className="w-24" value={year} onChange={e => setYear(Number(e.target.value) || year)} /><Button size="sm" variant="secondary" icon={<ClipboardList size={13} />} onClick={() => { setBulkMsg(null); setBulkOpen(true); }}>Import list</Button><Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add holiday</Button></div>} />
       {isLoading ? <SkeletonTable rows={3} /> : !data?.length ? <EmptyState compact icon={<CalendarDays />} title={`No holidays for ${year}`} action={{ label: 'Add holiday', onClick: openCreate }} /> : (
         <ul className="divide-y divide-line-subtle">
           {data.map(h => (

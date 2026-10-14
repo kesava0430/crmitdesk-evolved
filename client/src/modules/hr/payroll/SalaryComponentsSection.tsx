@@ -111,7 +111,7 @@ export function SalaryComponentsSection() {
         subtitle="Every earning, deduction, reimbursement and employer contribution your payslips can show. Employees get values per component; formulas may reference other components by code."
         icon={<Layers size={14} />}
         className="mb-3"
-        actions={<div className="flex items-center gap-2"><Checkbox label="Show inactive" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} /><Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add component</Button></div>}
+        actions={<div className="flex flex-wrap items-center gap-2"><Checkbox label="Show inactive" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} /><Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Add component</Button></div>}
       />
       {isLoading ? <SkeletonTable rows={6} /> : components.length === 0 ? (
         <EmptyState compact icon={<Layers />} title="No components yet" action={{ label: 'Add component', onClick: openCreate }} />
