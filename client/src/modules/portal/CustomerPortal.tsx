@@ -444,7 +444,7 @@ function PortalChatWidget({ session }: { session: PortalSession }) {
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="fixed bottom-5 right-5 w-14 h-14 rounded-full bg-accent text-accent-fg shadow-ui-lg flex items-center justify-center hover:bg-accent-hover active:bg-accent-active transition-colors z-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        className="fixed fab-safe w-14 h-14 rounded-full bg-accent text-accent-fg shadow-ui-lg flex items-center justify-center hover:bg-accent-hover active:bg-accent-active transition-colors z-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
         aria-label="Open live chat"
       >
         {open ? <X size={20} /> : <MessageCircle size={20} />}

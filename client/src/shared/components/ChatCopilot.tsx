@@ -114,7 +114,7 @@ export function ChatCopilot() {
           type="button"
           aria-label="Open AI chat"
           onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-40 h-12 w-12 rounded-full bg-accent text-accent-fg shadow-lg
+          className="fixed fab-safe z-40 h-12 w-12 rounded-full bg-accent text-accent-fg shadow-lg
                      border border-accent-active/50 flex items-center justify-center
                      hover:bg-accent-hover active:scale-95 transition-all"
         >
@@ -124,7 +124,7 @@ export function ChatCopilot() {
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-5 right-5 z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[520px] max-h-[calc(100vh-6rem)]
+        <div className="fixed fab-safe z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[520px] max-h-[calc(100dvh-6rem)]
                         flex flex-col rounded-modal border border-line bg-surface shadow-2xl overflow-hidden">
           <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-line-subtle bg-surface-sunken">
             <Sparkles size={14} className="text-accent shrink-0" />

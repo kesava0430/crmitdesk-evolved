@@ -1183,6 +1183,11 @@ html.dark .skeleton {
   padding-left: env(safe-area-inset-left, 0px);
 }
 .main-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+/* Phones/tablets: leave room under the last row for the floating chat
+   launcher (48px at bottom 1.25rem) so it never covers a row's actions. */
+@media (max-width: 1023px) {
+  .main-safe { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
+}
 .toast-safe { top: calc(1rem + env(safe-area-inset-top, 0px)); }
 
 /* Modal: a bottom sheet on phones, so it must clear the gesture bar and fit
@@ -1217,3 +1222,39 @@ html.dark .skeleton {
   /* Drawer navigation rows and the sign-out button. */
   .sidebar-safe a, .sidebar-safe button { min-height: 40px; }
 }
+
+/* Fixed bottom-right floaters (chat launcher/panel, toast stacks) must clear
+   the gesture bar and notch. Pair with Tailwind's `fixed`; the 1.25rem /
+   1rem base matches the bottom-5/right-5 and bottom-4/right-4 they replace. */
+.fab-safe {
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  right: calc(1.25rem + env(safe-area-inset-right, 0px));
+}
+.fixed-br-safe {
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  right: calc(1rem + env(safe-area-inset-right, 0px));
+}
+
+/* Tab strips: scroll inside the strip, never widen the page. The scrollbar
+   is hidden (swiping is the affordance on touch; the active tab is scrolled
+   into view by Tabs.tsx). */
+.tabs-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tabs-scroll::-webkit-scrollbar { display: none; }
+
+/* Opt-out tables that keep the grid on phones (DataTable mobile="scroll",
+   or <Table stickyFirst>): the first column stays pinned while the rest
+   scrolls inside the card. */
+.ui-table--sticky-first thead th:first-child,
+.ui-table--sticky-first tbody td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: rgb(var(--ui-surface));
+  box-shadow: inset -1px 0 0 rgb(var(--ui-line-subtle));
+}
+.ui-table--sticky-first tbody tr:hover td:first-child { background: rgb(var(--ui-surface-hover)); }

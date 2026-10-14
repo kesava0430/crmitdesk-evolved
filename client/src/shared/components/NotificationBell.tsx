@@ -43,7 +43,7 @@ function toastContent(event: SSEEventType, data: any): { icon: React.ReactNode; 
 function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
   if (!toasts.length) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <div className="fixed fixed-br-safe z-50 flex flex-col gap-2 pointer-events-none">
       {toasts.map(t => {
         const { icon, text } = toastContent(t.event, t.data);
         return (
