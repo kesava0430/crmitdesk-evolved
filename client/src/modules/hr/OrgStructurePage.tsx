@@ -95,8 +95,8 @@ function DepartmentsPanel() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[12.5px] text-fg-muted">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 mb-3">
+        <p className="text-[12.5px] text-fg-muted min-w-0">
           Departments nest, so you can model Sales → Inside Sales → SDR.
         </p>
         <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
@@ -215,8 +215,8 @@ function TeamsPanel() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[12.5px] text-fg-muted">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 mb-3">
+        <p className="text-[12.5px] text-fg-muted min-w-0">
           Team membership drives TEAM-scoped permissions — members can see each other's records where a role allows it.
         </p>
         <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
@@ -395,8 +395,8 @@ function LocationsPanel() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[12.5px] text-fg-muted">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 mb-3">
+        <p className="text-[12.5px] text-fg-muted min-w-0">
           A location is the HR/asset concept. Attendance geo-fences stay where they are and can roll up to one.
         </p>
         <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>

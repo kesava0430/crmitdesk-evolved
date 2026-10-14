@@ -68,13 +68,13 @@ export function PolicyGroupsSection() {
       {isLoading ? <SkeletonTable rows={2} /> : (
         <div className="space-y-2">
           {(data?.groups ?? []).map(g => (
-            <div key={g.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
-              <div className="min-w-0">
+            <div key={g.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap"><span className="text-sm font-medium text-fg">{g.name}</span>{g.isDefault && <Badge variant="accent">default</Badge>}{!g.isActive && <Badge variant="red">inactive</Badge>}</div>
                 <p className="text-xs text-fg-subtle mt-0.5 tabular-nums">{g.shiftStart}–{g.shiftEnd} · grace {g.graceMinutes}m · full day ≥ {Math.round(g.minFullDayMinutes / 60)}h · offs {(g.weeklyOffs ?? []).map(d => WEEKDAYS[d]).join(', ') || 'none'}
                   {g.applicability?.locationIds?.length ? ` · ${g.applicability.locationIds.length} location(s)` : ''}{g.applicability?.departmentIds?.length ? ` · ${g.applicability.departmentIds.length} dept(s)` : ''}{g.applicability?.userIds?.length ? ` · ${g.applicability.userIds.length} person(s)` : ''}{g.timezone ? ` · ${g.timezone}` : ''}</p>
               </div>
-              <span className="inline-flex gap-1"><IconButton label="Edit" icon={<Pencil size={13} />} onClick={() => openEdit(g)} />{!g.isDefault && <IconButton label="Deactivate" tone="danger" icon={<Trash2 size={13} />} onClick={() => remove.mutate(g.id)} />}</span>
+              <span className="inline-flex gap-1 shrink-0"><IconButton label="Edit" icon={<Pencil size={13} />} onClick={() => openEdit(g)} />{!g.isDefault && <IconButton label="Deactivate" tone="danger" icon={<Trash2 size={13} />} onClick={() => remove.mutate(g.id)} />}</span>
             </div>
           ))}
         </div>

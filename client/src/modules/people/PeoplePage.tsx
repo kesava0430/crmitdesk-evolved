@@ -246,7 +246,7 @@ function AddPersonModal({ open, onClose }: { open: boolean; onClose: () => void 
                   </Select>
                 </Field>
                 {form.loginMode === 'password' && (
-                  <Field label="Password" required className="col-span-2">
+                  <Field label="Password" required className="sm:col-span-2">
                     <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="At least 8 characters" />
                   </Field>
                 )}
@@ -573,7 +573,7 @@ export default function PeoplePage() {
             </Card>
           )}
 
-          {canManagePeople && !!data?.data.some(p => p.hasLogin) && (
+          {canManagePeople && tab !== 'face' && !!data?.data.some(p => p.hasLogin) && (
             <p className="text-[11.5px] text-fg-subtle">
               Change a role from the selector on any row. Create and edit the roles themselves under{' '}
               <span className="font-medium">Administration → Roles &amp; Permissions</span>.

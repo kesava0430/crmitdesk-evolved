@@ -200,13 +200,13 @@ export function FaceApprovals() {
   return (
     <Card>
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <div>
+        <div className="min-w-0 basis-[16rem] grow">
           <p className="text-[13px] font-medium text-fg">Face ID re-enrollment requests</p>
           <p className="text-[12px] text-fg-muted">
             An employee&apos;s existing Face ID keeps working for attendance until you approve a replacement.
           </p>
         </div>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {(['PENDING', 'APPROVED', 'REJECTED', 'ALL'] as const).map(s => (
             <Button key={s} size="sm" variant={status === s ? 'secondary' : 'ghost'} onClick={() => setStatus(s)}>
               {s === 'ALL' ? 'All' : STATUS_LABEL[s].replace(' Verification', '')}

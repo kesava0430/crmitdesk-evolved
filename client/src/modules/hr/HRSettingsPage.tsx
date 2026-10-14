@@ -182,8 +182,8 @@ function OfficeLocationsSection() {
       ) : (
         <div className="space-y-2">
           {(data || []).map(loc => (
-            <div key={loc.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
-              <div className="min-w-0">
+            <div key={loc.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-fg text-sm">{loc.name}</span>
                   <Badge variant={loc.isActive ? 'green' : 'gray'}>{loc.isActive ? 'Active' : 'Inactive'}</Badge>
@@ -327,11 +327,12 @@ function LeaveTypesSection() {
       ) : (
         <div className="space-y-2">
           {(data || []).map(t => (
-            <div key={t.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
-              <div className="flex items-center gap-2 min-w-0">
+            <div key={t.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card">
+              {/* Wraps inside itself so the row menu never drops to its own line. */}
+              <div className="flex items-center gap-x-2 gap-y-0.5 min-w-0 flex-1 flex-wrap">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.color }} />
                 <span className="font-medium text-fg text-sm truncate" title={t.name}>{t.name}</span>
-                <span className="text-xs text-fg-subtle tabular-nums">{t.isWfh ? 'Work from home · no balance' : <>{t.isUnlimited ? 'Unlimited' : `${t.annualQuota} days/yr`} · {t.isPaid ? 'Paid' : 'Unpaid'}{t.carryForward ? ' · carry-forward' : ''}</>}</span>
+                <span className="text-xs text-fg-subtle tabular-nums basis-full pl-[18px] sm:basis-auto sm:pl-0">{t.isWfh ? 'Work from home · no balance' : <>{t.isUnlimited ? 'Unlimited' : `${t.annualQuota} days/yr`} · {t.isPaid ? 'Paid' : 'Unpaid'}{t.carryForward ? ' · carry-forward' : ''}</>}</span>
                 {!t.isActive && <Badge variant="gray">Inactive</Badge>}
               </div>
               <RowActions items={[
