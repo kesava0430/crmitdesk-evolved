@@ -245,7 +245,7 @@ export default function AssetsPage() {
         </div>
 
         {/* Filters */}
-        <Toolbar right={<p className="text-sm text-fg-subtle tabular-nums">{data?.total ?? 0} assets</p>}>
+        <Toolbar right={<p className="text-sm text-fg-subtle tabular-nums">{data?.total ?? assets.length} assets</p>}>
           <SearchInput
             value={search}
             onChange={setSearch}
