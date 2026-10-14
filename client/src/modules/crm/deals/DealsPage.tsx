@@ -421,7 +421,9 @@ function StageRow({ pipelineId, stage, index, total, allLabels, onMoved }: any) 
 
   return (
     <Card padding="sm" flat>
-      <div className="flex items-center gap-2">
+      {/* Wraps on phones: probability, Save and Remove drop to a second line
+          instead of squeezing the stage name to a few characters. */}
+      <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-col">
           <IconButton
             label="Move stage up"
@@ -442,8 +444,8 @@ function StageRow({ pipelineId, stage, index, total, allLabels, onMoved }: any) 
         </div>
         <GripVertical size={14} className="text-fg-subtle" />
         <Input type="color" aria-label={`Stage colour ${index + 1}`} value={color} onChange={e => setColor(e.target.value)} className="w-7 h-7 shrink-0 !p-0.5 cursor-pointer" />
-        <Input className="flex-1" value={label} onChange={e => setLabel(e.target.value)} aria-label={`Stage name ${index + 1}`} />
-        <Input type="number" min={0} max={100} className="w-20" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
+        <Input className="flex-1 min-w-[9rem]" value={label} onChange={e => setLabel(e.target.value)} aria-label={`Stage name ${index + 1}`} />
+        <Input type="number" min={0} max={100} className="w-20 ml-auto" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
         <span className="text-xs text-fg-subtle">%</span>
         {dirty && <Button size="sm" onClick={save} loading={updateStage.isPending}>Save</Button>}
         <IconButton label="Remove stage" tone="danger" icon={<Trash2 size={14} />} onClick={remove} />
@@ -629,7 +631,7 @@ export function DealsPage() {
       {isLoading ? (
         <div className="flex gap-4 overflow-hidden flex-1" aria-hidden="true">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex-shrink-0 w-[280px] space-y-2" style={{ opacity: 1 - i * 0.18 }}>
+            <div key={i} className="flex-shrink-0 w-[85vw] max-w-[340px] md:w-[280px] space-y-2" style={{ opacity: 1 - i * 0.18 }}>
               <div className="skeleton h-10 w-full rounded-card" />
               <div className="skeleton h-28 w-full rounded-card" />
               <div className="skeleton h-28 w-full rounded-card" />
@@ -637,7 +639,7 @@ export function DealsPage() {
           ))}
         </div>
       ) : (view === 'kanban' || !canReadReports) ? (
-        <div className="flex gap-4 overflow-x-auto pb-4 flex-1 -mx-1 px-1">
+        <div className="flex gap-3 md:gap-4 overflow-x-auto pb-4 flex-1 -mx-1 px-1 snap-x snap-mandatory scroll-px-1 overscroll-x-contain md:snap-none">
           {pipelineData?.columns?.map(({ stage, color, deals }: any) => {
             const total = deals.reduce((s: number, d: any) => s + Number(d.value), 0);
             // Stage colors now come from the pipeline's own stage config
@@ -646,7 +648,7 @@ export function DealsPage() {
             // names, which breaks the moment a stage is renamed or added.
             const headerColor = color || '#6b7280';
             return (
-              <div key={stage} className="flex-shrink-0 min-w-[260px] max-w-[300px] flex flex-col rounded-card transition-all"
+              <div key={stage} className="flex-shrink-0 w-[85vw] max-w-[340px] snap-start md:w-auto md:min-w-[260px] md:max-w-[300px] flex flex-col rounded-card transition-all"
                 onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('ring-2', 'ring-accent/40', 'bg-accent-soft/40'); }}
                 onDragLeave={e => e.currentTarget.classList.remove('ring-2', 'ring-accent/40', 'bg-accent-soft/40')}
                 onDrop={e => handleDrop(e, stage)}>
