@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, History, RotateCcw, CalendarCheck, Pencil, Download, Plus, Camera, Lock } from 'lucide-react';
 import { api } from '../../../api/client';
@@ -10,6 +10,7 @@ import {
   STATUS_LABEL, STATUS_SHORT, STATUS_CLASS, type DayStatus, type ManualStatus, type RegisterDay, type RegisterRow, type DaySession, type MarkDayInput,
 } from '../../../api/attendanceAdmin';
 import { useFormat } from '../../../hooks/useFormat';
+import { useMediaQuery, MD_UP } from '../../../hooks/useMediaQuery';
 
 const MANUAL_STATUSES: ManualStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'WFH', 'LEAVE', 'UNPAID_LEAVE', 'LOP', 'HOLIDAY', 'WEEK_OFF'];
 const LEGEND: DayStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'LEAVE', 'UNPAID_LEAVE', 'WFH', 'HOLIDAY', 'WEEK_OFF', 'LOP', 'NOT_EMPLOYED'];
@@ -49,6 +50,25 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
     return list.filter(r => r.user.name.toLowerCase().includes(q) || (r.user.department || '').toLowerCase().includes(q));
   }, [data, search]);
   const days = data?.rows?.[0]?.days ?? [];
+  const mdUp = useMediaQuery(MD_UP);
+  // An employee's own register reads best as a month calendar on a phone; the
+  // days × people grid stays for HR and for wider screens.
+  const calendar = !!onlyUserId && !mdUp && rows.length === 1;
+
+  // Keep today's column in view: on a phone only 6–8 day columns fit next to
+  // the pinned employee column, so open the grid scrolled to today.
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    const today = el.querySelector<HTMLElement>('th[data-today]');
+    const sticky = el.querySelector<HTMLElement>('th[data-sticky]');
+    if (!today) { el.scrollLeft = 0; return; }
+    const pinned = sticky?.offsetWidth ?? 0;
+    const visible = today.offsetLeft >= el.scrollLeft + pinned && today.offsetLeft + today.offsetWidth <= el.scrollLeft + el.clientWidth;
+    // Past days matter more than future ones: put today near the right edge.
+    if (!visible) el.scrollLeft = Math.max(0, Math.min(today.offsetLeft - pinned, today.offsetLeft + today.offsetWidth * 3 - el.clientWidth));
+  }, [data, month, calendar]);
 
   return (
     <Card>
@@ -58,30 +78,35 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
           ? 'Day-wise status computed from your policy; tap a day for its sessions. Corrections by HR are marked.'
           : 'Click any day to see its sessions and correct it. Manual corrections are audited. Totals are to date.'}
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
-            {!onlyUserId && <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter people…" className="w-44" />}
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+            {!onlyUserId && <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter people…" className="flex-1 min-w-0 sm:flex-none sm:w-44" />}
             {!onlyUserId && rows.length > 0 && (
               <IconButton label="Export CSV" icon={<Download size={16} />} onClick={() => downloadCsv(`attendance-register-${month}.csv`, registerToCsv(rows))} />
             )}
-            <IconButton label="Previous month" icon={<ChevronLeft size={16} />} onClick={() => setMonth(m => shiftMonth(m, -1))} />
-            <span className="text-sm font-medium text-fg min-w-[9rem] text-center">{monthLabel(month)}</span>
-            <IconButton label="Next month" icon={<ChevronRight size={16} />} onClick={() => setMonth(m => shiftMonth(m, 1))} />
+            {/* Phones: month switcher on its own full-width row, above the filter. */}
+            <div className="flex items-center justify-between gap-2 w-full order-first sm:order-none sm:w-auto sm:justify-start">
+              <IconButton label="Previous month" icon={<ChevronLeft size={16} />} onClick={() => setMonth(m => shiftMonth(m, -1))} />
+              <span className="text-sm font-medium text-fg min-w-[9rem] text-center">{monthLabel(month)}</span>
+              <IconButton label="Next month" icon={<ChevronRight size={16} />} onClick={() => setMonth(m => shiftMonth(m, 1))} />
+            </div>
           </div>
         }
       />
       {isLoading ? <SkeletonTable rows={6} /> : isError ? <Alert tone="danger">Could not load the register.</Alert> : rows.length === 0 ? (
         <EmptyState icon={<CalendarCheck size={20} />} title="No people in this register" description="Nothing to show for this month." />
+      ) : calendar ? (
+        <MonthCalendar row={rows[0]} onPick={day => setSelected({ row: rows[0], day })} />
       ) : (
-        <div className="overflow-x-auto">
+        <div ref={scroller} className="overflow-x-auto overscroll-x-contain -mx-card sm:mx-0">
           <table className="text-xs border-separate border-spacing-0 min-w-full">
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 bg-surface text-left font-medium text-fg-muted px-3 py-2 border-b border-line-subtle min-w-[12rem]">Employee</th>
+                <th data-sticky className="sticky left-0 z-10 bg-surface text-left font-medium text-fg-muted pl-card pr-2 sm:px-3 py-2 border-b border-r sm:border-r-0 border-line-subtle w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] sm:w-auto sm:max-w-none sm:min-w-[12rem]">Employee</th>
                 {days.map(d => {
                   const dt = new Date(d.date + 'T00:00:00');
                   const isToday = d.phase === 'today';
                   return (
-                    <th key={d.date} className={`px-0.5 py-1 border-b border-line-subtle font-normal text-center ${isToday ? 'text-accent font-semibold' : 'text-fg-subtle'}`}>
+                    <th key={d.date} data-today={isToday || undefined} className={`px-0.5 py-1 border-b border-line-subtle font-normal text-center ${isToday ? 'text-accent font-semibold' : 'text-fg-subtle'}`}>
                       <div className="leading-tight"><div>{dt.getDate()}</div><div className="text-[10px] uppercase">{dt.toLocaleDateString(undefined, { weekday: 'narrow' })}</div></div>
                     </th>
                   );
@@ -96,12 +121,14 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
             <tbody>
               {rows.map(row => (
                 <tr key={row.user.id} className="group">
-                  <td className="sticky left-0 z-10 bg-surface px-3 py-1.5 border-b border-line-subtle">
-                    <div className="flex items-center gap-2">
-                      <Avatar name={row.user.name} src={row.user.avatarUrl ?? undefined} size="xs" />
+                  <td className="sticky left-0 z-10 bg-surface pl-card pr-2 sm:px-3 py-1.5 border-b border-r sm:border-r-0 border-line-subtle w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] sm:w-auto sm:max-w-none">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="hidden sm:inline-flex shrink-0"><Avatar name={row.user.name} src={row.user.avatarUrl ?? undefined} size="xs" /></span>
                       <div className="min-w-0">
-                        <div className="font-medium text-fg truncate">{row.user.name}{row.user.isActive === false && <span className="ml-1 text-[10px] text-fg-subtle">(inactive)</span>}</div>
-                        <div className="text-[10px] text-fg-subtle truncate">{row.policyGroup}{row.user.department ? ` · ${row.user.department}` : ''}</div>
+                        <div className="font-medium text-fg truncate" title={row.user.name}>{row.user.name}{row.user.isActive === false && <span className="ml-1 text-[10px] text-fg-subtle">(inactive)</span>}</div>
+                        <div className="hidden sm:block text-[10px] text-fg-subtle truncate">{row.policyGroup}{row.user.department ? ` · ${row.user.department}` : ''}</div>
+                        {/* The totals columns sit off-screen on a phone — show the key one here. */}
+                        <div className="sm:hidden text-[10px] text-fg-muted tabular-nums truncate">Paid {row.summary.paidDays}/{row.summary.workingDays}{row.summary.lopDays ? ` · LOP ${row.summary.lopDays}` : ''}</div>
                       </div>
                     </div>
                   </td>
@@ -130,18 +157,72 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
               ))}
             </tbody>
           </table>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 py-2 text-[11px] text-fg-subtle border-t border-line-subtle">
-            {LEGEND.map(s => <span key={s} className="inline-flex items-center gap-1"><span className={`inline-flex w-4 h-4 rounded items-center justify-center font-semibold ${STATUS_CLASS[s]}`}>{STATUS_SHORT[s]}</span>{STATUS_LABEL[s]}</span>)}
-            <span className="inline-flex items-center gap-1"><span className={`inline-flex w-4 h-4 rounded ${STATUS_CLASS.PENDING}`} /> not yet</span>
-            <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> manual correction</span>
-            <span className="inline-flex items-center gap-1 italic">italic = today so far</span>
-          </div>
+          <Legend />
         </div>
       )}
 
       {selected && <DayModal row={selected.row} day={selected.day} canEdit={canEdit} onClose={() => setSelected(null)} />}
       {historyFor && <HistoryModal row={historyFor} onClose={() => setHistoryFor(null)} />}
     </Card>
+  );
+}
+
+function Legend() {
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 py-2 text-[11px] text-fg-subtle border-t border-line-subtle sticky left-0">
+      {LEGEND.map(s => <span key={s} className="inline-flex items-center gap-1"><span className={`inline-flex w-4 h-4 rounded items-center justify-center font-semibold ${STATUS_CLASS[s]}`}>{STATUS_SHORT[s]}</span>{STATUS_LABEL[s]}</span>)}
+      <span className="inline-flex items-center gap-1"><span className={`inline-flex w-4 h-4 rounded ${STATUS_CLASS.PENDING}`} /> not yet</span>
+      <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> manual correction</span>
+      <span className="inline-flex items-center gap-1 italic">italic = today so far</span>
+    </div>
+  );
+}
+
+/** Monday-first weekday initials in the user's locale (2024-01-01 was a Monday). */
+const WEEKDAYS = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(undefined, { weekday: 'narrow' }));
+
+/**
+ * One person's month as a 7-column calendar — the phone view of an employee's
+ * own register. Same data, colours and "tap a day to open it" as the grid.
+ */
+function MonthCalendar({ row, onPick }: { row: RegisterRow; onPick: (day: RegisterDay) => void }) {
+  const first = row.days[0] ? new Date(row.days[0].date + 'T00:00:00') : null;
+  const lead = first ? (first.getDay() + 6) % 7 : 0;
+  const s = row.summary;
+  return (
+    <div className="mt-3">
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase text-fg-subtle mb-1">
+        {WEEKDAYS.map((w, i) => <div key={i}>{w}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: lead }, (_, i) => <div key={`b${i}`} />)}
+        {row.days.map(d => {
+          const dt = new Date(d.date + 'T00:00:00');
+          const isToday = d.phase === 'today';
+          const provisional = isToday && d.status !== 'PENDING';
+          return (
+            <button
+              key={d.date}
+              type="button"
+              aria-label={`${dt.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}: ${STATUS_LABEL[d.status] || 'not yet'}${d.source === 'MANUAL' ? ' (manual)' : ''}`}
+              onClick={() => onPick(d)}
+              className={`relative h-12 rounded-lg flex flex-col items-center justify-center tabular-nums ${STATUS_CLASS[d.status]} ${isToday ? 'ring-2 ring-accent' : ''} ${provisional ? 'italic' : ''}`}
+            >
+              <span className={`text-[10px] leading-none ${isToday ? 'text-accent font-semibold' : 'opacity-70'}`}>{dt.getDate()}</span>
+              <span className="text-[12px] font-semibold leading-tight mt-0.5 min-h-[1em]">{STATUS_SHORT[d.status]}</span>
+              {d.source === 'MANUAL' && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" aria-hidden="true" />}
+            </button>
+          );
+        })}
+      </div>
+      <div className="grid grid-cols-4 gap-2 mt-3 text-xs">
+        <Stat label="Paid / work" value={<span className="tabular-nums">{s.paidDays} / {s.workingDays}</span>} />
+        <Stat label="LOP" value={<span className={`tabular-nums ${s.lopDays ? 'text-danger' : ''}`}>{s.lopDays}</span>} />
+        <Stat label="Late" value={<span className={`tabular-nums ${s.lateCount ? 'text-warning' : ''}`}>{s.lateCount}</span>} />
+        <Stat label="OT" value={<span className="tabular-nums">{s.overtimeHours ? `${s.overtimeHours}h` : '—'}</span>} />
+      </div>
+      <div className="-mx-3 mt-3"><Legend /></div>
+    </div>
   );
 }
 
@@ -343,8 +424,8 @@ function HistoryModal({ row, onClose }: { row: RegisterRow; onClose: () => void 
       {isLoading ? <SkeletonTable rows={4} /> : !data?.length ? <EmptyState icon={<History size={20} />} title="No changes yet" description="Manual corrections, leave changes and resets will appear here." /> : (
         <ul className="divide-y divide-line-subtle text-xs">
           {data.map(a => (
-            <li key={a.id} className="py-2.5 flex gap-3">
-              <div className="w-36 shrink-0 text-fg-subtle tabular-nums">{dateTime(a.changedAt)}</div>
+            <li key={a.id} className="py-2.5 flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+              <div className="sm:w-36 shrink-0 text-fg-subtle tabular-nums">{dateTime(a.changedAt)}</div>
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-fg"><Badge variant="gray">{a.entityType}</Badge> <span className="ml-1">{a.action.replace(/_/g, ' ').toLowerCase()}</span>{a.date ? <span className="text-fg-subtle"> · {a.date.slice(0, 10)}</span> : null}</div>
                 {(a.before?.status || a.after?.status) && <div className="text-fg-muted mt-0.5">{a.before?.status ?? '—'} → <strong>{a.after?.status ?? '—'}</strong></div>}

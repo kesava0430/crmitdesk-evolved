@@ -199,7 +199,7 @@ function CheckInWidget() {
         {new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric' }).format(now)}
       </p>
 
-      <div className="flex items-center justify-center gap-6 mt-5 text-sm">
+      <div className="flex items-center justify-center gap-3 sm:gap-6 mt-5 text-sm">
         <div>
           <p className="text-fg-subtle text-xs uppercase tracking-wide">Status</p>
           <p className={`font-semibold mt-0.5 ${isCheckedInNow ? 'text-success' : 'text-fg'}`}>
@@ -570,6 +570,7 @@ function TeamToday() {
           {
             key: 'status',
             header: 'Status',
+            mobile: 'actions',
             cell: r => r.sessions.length === 0 ? <Badge variant="gray">Not checked in</Badge>
               : r.isCheckedInNow ? <Badge variant="green">On-site now</Badge>
               : <Badge variant="yellow">Checked out</Badge>,
