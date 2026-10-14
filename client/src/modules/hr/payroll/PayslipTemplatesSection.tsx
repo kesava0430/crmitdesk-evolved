@@ -1,30 +1,35 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Palette, Plus, Pencil, Copy, Trash2, Star, Eye, FileDown } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Palette, Plus, Pencil, Copy, Trash2, Star, Eye, FileDown, Upload, X, Droplets } from 'lucide-react';
 import {
-  Card, CardHeader, Button, Modal, Badge, Field, Input, Textarea, Checkbox, Alert, SkeletonTable, IconButton, EmptyState, Label,
+  Card, CardHeader, Button, Modal, Badge, Field, Input, Textarea, Checkbox, Alert, SkeletonTable, IconButton, EmptyState, Label, Toggle,
 } from '../../../shared/components';
 import { useDepartments, useLocations } from '../../../api/people';
 import {
   usePayslipTemplates, useSaveTemplate, useDeleteTemplate, useDuplicateTemplate, useTemplatePreview, downloadPdf,
-  type PayslipTemplate, type TemplateInput, type LayoutKey,
+  WATERMARK_LIMITS, type PayslipTemplate, type TemplateInput, type LayoutKey,
 } from '../../../api/payslipTemplates';
 import { useDebounce } from '../../../hooks/useDebounce';
+import { fileToDataUrl, isDataUrl, dataUrlKb } from './imageUpload';
 
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'CONSULTANT', 'TEMPORARY'];
 const human = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
 
-type Nullable = 'companyName' | 'companyAddress' | 'logoUrl' | 'accentColor' | 'headerNote' | 'footerNote' | 'signatoryName' | 'signatureUrl';
+type Nullable = 'companyName' | 'companyAddress' | 'logoUrl' | 'accentColor' | 'headerNote' | 'footerNote' | 'signatoryName' | 'signatureUrl' | 'watermarkImageUrl';
 type Form = Omit<TemplateInput, 'showFields' | 'applicability' | Nullable> & Record<Nullable, string> & { showFields: Record<string, boolean>; departmentIds: string[]; locationIds: string[]; employmentTypes: string[] };
 
 const emptyForm = (layout: LayoutKey = 'STANDARD'): Form => ({
   name: '', layout, isDefault: false, isActive: true, companyName: '', companyAddress: '', logoUrl: '', primaryColor: '#2563eb', accentColor: '',
   headerTitle: 'Payslip', headerNote: '', footerNote: '', showSignature: true, signatureLabel: 'Authorized Signatory', signatoryName: '', signatureUrl: '',
+  watermarkEnabled: false, watermarkSource: 'LOGO', watermarkImageUrl: '', watermarkOpacity: 0.08, watermarkSize: 55, watermarkRotation: 0, watermarkRepeat: false,
   showFields: {}, departmentIds: [], locationIds: [], employmentTypes: [],
 });
 const fromTemplate = (t: PayslipTemplate): Form => ({
   name: t.name, layout: t.layout, isDefault: t.isDefault, isActive: t.isActive, companyName: t.companyName ?? '', companyAddress: t.companyAddress ?? '', logoUrl: t.logoUrl ?? '',
   primaryColor: t.primaryColor, accentColor: t.accentColor ?? '', headerTitle: t.headerTitle, headerNote: t.headerNote ?? '', footerNote: t.footerNote ?? '',
   showSignature: t.showSignature, signatureLabel: t.signatureLabel, signatoryName: t.signatoryName ?? '', signatureUrl: t.signatureUrl ?? '',
+  // `?? default` keeps the editor working against an API that predates the watermark columns.
+  watermarkEnabled: t.watermarkEnabled ?? false, watermarkSource: t.watermarkSource ?? 'LOGO', watermarkImageUrl: t.watermarkImageUrl ?? '',
+  watermarkOpacity: t.watermarkOpacity ?? 0.08, watermarkSize: t.watermarkSize ?? 55, watermarkRotation: t.watermarkRotation ?? 0, watermarkRepeat: t.watermarkRepeat ?? false,
   showFields: t.showFields ?? {}, departmentIds: t.applicability?.departmentIds ?? [], locationIds: t.applicability?.locationIds ?? [], employmentTypes: t.applicability?.employmentTypes ?? [],
 });
 const toPayload = (f: Form): Partial<TemplateInput> => {
@@ -165,10 +170,10 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
               </div>
               <Field label="Company name"><Input value={form.companyName} onChange={e => set('companyName', e.target.value)} placeholder="Defaults to your org name" /></Field>
               <Field label="Company address"><Textarea rows={2} value={form.companyAddress} onChange={e => set('companyAddress', e.target.value)} /></Field>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Logo URL"><Input value={form.logoUrl} onChange={e => set('logoUrl', e.target.value)} placeholder="https://…" /></Field>
-                <Field label="Document title"><Input value={form.headerTitle} onChange={e => set('headerTitle', e.target.value)} placeholder="Payslip" /></Field>
-              </div>
+              <Field label="Logo" hint="Upload a PNG/JPEG (resized automatically) or paste an https:// link. Not shown on the Minimal layout's header.">
+                <ImageInput value={form.logoUrl} onChange={v => set('logoUrl', v)} label="logo" />
+              </Field>
+              <Field label="Document title"><Input value={form.headerTitle} onChange={e => set('headerTitle', e.target.value)} placeholder="Payslip" /></Field>
               <Field label="Header note" hint="Printed under the letterhead, e.g. 'Confidential — for the employee only'"><Input value={form.headerNote} onChange={e => set('headerNote', e.target.value)} /></Field>
               <Field label="Footer note"><Textarea rows={2} value={form.footerNote} onChange={e => set('footerNote', e.target.value)} placeholder="This is a computer-generated document and does not require a signature." /></Field>
               <Checkbox label="Show a signature block" checked={form.showSignature} onChange={e => set('showSignature', e.target.checked)} />
@@ -176,9 +181,12 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Signatory name"><Input value={form.signatoryName} onChange={e => set('signatoryName', e.target.value)} placeholder="e.g. R. Menon" /></Field>
                   <Field label="Signature label"><Input value={form.signatureLabel} onChange={e => set('signatureLabel', e.target.value)} /></Field>
-                  <Field label="Signature image URL" className="sm:col-span-2"><Input value={form.signatureUrl} onChange={e => set('signatureUrl', e.target.value)} placeholder="https://… (PNG with transparent background)" /></Field>
+                  <Field label="Signature image" hint="PNG with a transparent background looks best" className="sm:col-span-2">
+                    <ImageInput value={form.signatureUrl} onChange={v => set('signatureUrl', v)} label="signature" />
+                  </Field>
                 </div>
               )}
+              <WatermarkSection form={form} set={set} />
             </div>
           )}
 
@@ -212,7 +220,8 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
           )}
         </div>
 
-        <div className="min-w-0">
+        {/* Sticky on desktop so the preview stays in view while editing settings further down (e.g. the watermark). */}
+        <div className="min-w-0 lg:sticky lg:top-0 lg:self-start">
           <div className="flex items-center justify-between mb-1.5">
             <Label>Live preview{isFetching ? ' · updating…' : ''}</Label>
             <span className="text-[11px] text-fg-subtle">Sample data · the PDF uses the same layout</span>
@@ -250,6 +259,104 @@ function LayoutThumb({ layout, color }: { layout: LayoutKey; color: string }) {
         )}
       </div>
       <div className="h-2 rounded-sm" style={{ background: band ? c : 'transparent', borderTop: band ? 'none' : `1px solid ${c}` }} />
+    </div>
+  );
+}
+
+/**
+ * Upload-or-link control for template images. Uploads are resized in the
+ * browser to a small PNG/JPEG data URL (see imageUpload.ts) and stored on the
+ * template; a link is kept as typed. A data URL is never shown in the text
+ * box — it's hundreds of KB — just a thumbnail and its size.
+ */
+function ImageInput({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setError('');
+    try { onChange(await fileToDataUrl(file)); } catch (e: any) { setError(e?.message || 'Could not read that image'); } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
+  const uploaded = isDataUrl(value);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 min-w-0">
+        {value ? (
+          <span className="w-10 h-10 rounded-input border border-line-subtle bg-white shrink-0 flex items-center justify-center overflow-hidden" style={{ backgroundImage: 'repeating-conic-gradient(#f3f4f6 0 25%, #fff 0 50%)', backgroundSize: '10px 10px' }}>
+            <img src={value} alt="" className="max-w-full max-h-full object-contain" onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />
+          </span>
+        ) : null}
+        {uploaded ? (
+          <span className="flex-1 min-w-0 text-xs text-fg-muted truncate">Uploaded {label} · {dataUrlKb(value)} KB</span>
+        ) : (
+          <Input className="flex-1 min-w-0" value={value} onChange={e => onChange(e.target.value)} placeholder="https://…" aria-label={`${label} link`} />
+        )}
+        <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" className="hidden" onChange={e => pick(e.target.files?.[0])} />
+        <Button size="sm" variant="secondary" icon={<Upload size={13} />} loading={busy} onClick={() => fileRef.current?.click()} className="shrink-0">{value ? 'Replace' : 'Upload'}</Button>
+        {value && <IconButton label={`Remove ${label}`} icon={<X size={14} />} onClick={() => onChange('')} />}
+      </div>
+      {error && <p className="text-[11.5px] text-danger">{error}</p>}
+    </div>
+  );
+}
+
+const ROTATION_PRESETS = [0, -30, -45];
+
+function Slider({ label, value, min, max, step, format, onChange }: { label: string; value: number; min: number; max: number; step: number; format: (v: number) => string; onChange: (v: number) => void }) {
+  return (
+    <label className="block">
+      <span className="flex items-center justify-between text-[12.5px] text-fg mb-1"><span>{label}</span><span className="tabular-nums text-fg-muted">{format(value)}</span></span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))} className="w-full h-6 cursor-pointer" aria-label={label} />
+    </label>
+  );
+}
+
+/** Design-tab section: faded logo / image behind the payslip content. */
+function WatermarkSection({ form, set }: { form: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void }) {
+  const L = WATERMARK_LIMITS;
+  const missing = form.watermarkSource === 'LOGO' ? !form.logoUrl : !form.watermarkImageUrl;
+  return (
+    <div className="rounded-lg border border-line-subtle p-3 space-y-3">
+      <Toggle
+        label={<span className="inline-flex items-center gap-1.5"><Droplets size={13} className="text-fg-subtle" />Watermark</span>}
+        hint="A faded logo behind the payslip — on screen, when printed, in PDFs and in e-mailed payslips."
+        checked={form.watermarkEnabled} onChange={v => set('watermarkEnabled', v)}
+      />
+      {form.watermarkEnabled && (
+        <div className="space-y-3">
+          <div role="radiogroup" aria-label="Watermark image" className="grid grid-cols-2 gap-1 p-0.5 rounded-input bg-surface-sunken">
+            {([['LOGO', 'Use logo'], ['IMAGE', 'Upload image']] as const).map(([k, l]) => (
+              <button key={k} type="button" role="radio" aria-checked={form.watermarkSource === k} onClick={() => set('watermarkSource', k)}
+                className={`px-2 py-1.5 text-xs font-medium rounded-[6px] transition ${form.watermarkSource === k ? 'bg-surface text-fg shadow-sm' : 'text-fg-subtle hover:text-fg'}`}>{l}</button>
+            ))}
+          </div>
+          {form.watermarkSource === 'IMAGE' && (
+            <Field label="Watermark image" hint="A different mark from the header logo, e.g. a seal or emblem">
+              <ImageInput value={form.watermarkImageUrl} onChange={v => set('watermarkImageUrl', v)} label="watermark" />
+            </Field>
+          )}
+          {missing && (
+            <Alert tone="warning">
+              {form.watermarkSource === 'LOGO' ? 'Add a logo above (upload or link) — the watermark uses it.' : 'Upload a watermark image or paste a link.'} Until then no watermark prints.
+            </Alert>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+            <Slider label="Opacity" value={form.watermarkOpacity} min={L.opacity.min} max={L.opacity.max} step={0.01} format={v => `${Math.round(v * 100)}%`} onChange={v => set('watermarkOpacity', v)} />
+            <Slider label={form.watermarkRepeat ? 'Size (tile)' : 'Size'} value={form.watermarkSize} min={L.size.min} max={L.size.max} step={1} format={v => `${v}% of width`} onChange={v => set('watermarkSize', v)} />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+              <span className="text-[12.5px] text-fg mr-1">Rotation</span>
+              {ROTATION_PRESETS.map(r => (
+                <Button key={r} size="xs" variant={form.watermarkRotation === r ? 'primary' : 'secondary'} onClick={() => set('watermarkRotation', r)}>{r === 0 ? 'Straight' : `${r}°`}</Button>
+              ))}
+            </div>
+            <Slider label="Angle" value={form.watermarkRotation} min={L.rotation.min} max={L.rotation.max} step={1} format={v => `${v}°`} onChange={v => set('watermarkRotation', v)} />
+          </div>
+          <Toggle label="Tile across the page" hint="Repeat the mark in a pattern instead of one centred mark" checked={form.watermarkRepeat} onChange={v => set('watermarkRepeat', v)} />
+        </div>
+      )}
     </div>
   );
 }

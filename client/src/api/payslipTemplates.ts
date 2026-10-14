@@ -4,6 +4,9 @@ import { saveOrShareBlob } from '../native/download';
 import { isNative } from '../native/platform';
 
 export type LayoutKey = 'STANDARD' | 'MODERN' | 'MINIMAL' | 'DETAILED' | 'COMPACT' | 'CORPORATE' | 'BRANCH' | 'STATEMENT';
+export type WatermarkSource = 'LOGO' | 'IMAGE';
+/** Mirrors server/src/utils/payslipWatermark.ts — the server clamps to the same ranges. */
+export const WATERMARK_LIMITS = { opacity: { min: 0.03, max: 0.3 }, size: { min: 20, max: 90 }, rotation: { min: -45, max: 45 } } as const;
 export interface LayoutInfo { key: LayoutKey; name: string; description: string; defaults: Record<string, boolean> }
 export interface FieldInfo { key: string; label: string; group: 'Employee' | 'Blocks'; default: boolean }
 export interface Applicability { departmentIds?: string[]; locationIds?: string[]; employmentTypes?: string[] }
@@ -13,6 +16,9 @@ export interface PayslipTemplate {
   primaryColor: string; accentColor: string | null; headerTitle: string; headerNote: string | null; footerNote: string | null;
   showSignature: boolean; signatureLabel: string; signatoryName: string | null; signatureUrl: string | null;
   showFields: Record<string, boolean> | null; applicability: Applicability | null;
+  /** Faded mark behind the payslip content (HTML + PDF). LOGO reuses logoUrl. */
+  watermarkEnabled: boolean; watermarkSource: WatermarkSource; watermarkImageUrl: string | null;
+  watermarkOpacity: number; watermarkSize: number; watermarkRotation: number; watermarkRepeat: boolean;
   payslipCount?: number; createdAt: string; updatedAt: string;
 }
 export type TemplateInput = Omit<PayslipTemplate, 'id' | 'payslipCount' | 'createdAt' | 'updatedAt'>;
