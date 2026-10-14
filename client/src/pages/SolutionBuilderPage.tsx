@@ -138,12 +138,12 @@ export default function SolutionBuilderPage() {
 
           {/* Solution templates (Phase 4) — stamp a saved workspace, or save this one. */}
           <Card className="space-y-3">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Package size={15} className="text-accent" />
               <h2 className="text-[14px] font-semibold text-fg tracking-tight">Solution templates</h2>
               <Button
                 size="xs" variant="secondary" icon={<BookmarkPlus size={12} />}
-                className="ml-auto"
+                className="sm:ml-auto max-w-full"
                 onClick={() => setSaveOpen(true)}
               >
                 Save this workspace as a template
@@ -159,7 +159,7 @@ export default function SolutionBuilderPage() {
                 {(templates ?? []).map(t => (
                   <div key={t.id} className="rounded-card border border-line-subtle bg-surface-sunken/50 p-3 flex flex-col gap-1.5">
                     <div className="flex items-center gap-1.5">
-                      <p className="text-[13px] font-semibold text-fg truncate">{t.name}</p>
+                      <p className="text-[13px] font-semibold text-fg truncate min-w-0">{t.name}</p>
                       {t.isShared && <Badge variant="indigo"><Share2 size={9} /> Shared</Badge>}
                       {t.mine && (
                         <IconButton

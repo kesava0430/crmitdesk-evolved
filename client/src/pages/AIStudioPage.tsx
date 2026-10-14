@@ -151,30 +151,31 @@ function BusinessContextTab() {
         label="Domain Terminology"
         hint={'Teach the AI your company’s specific terms. E.g., "policy" = "insurance coverage", "client" = "patient".'}
       >
-        <div className="flex gap-2 mb-2">
+        {/* Phones: term and meaning each get a full row; Add sits under them. */}
+        <div className="flex flex-col sm:flex-row gap-2 mb-2">
           <Input
-            className="flex-1"
+            className="flex-1 min-w-0"
             aria-label="Term"
             value={termKey}
             onChange={e => setTermKey(e.target.value)}
             placeholder="Term (e.g. patient)"
           />
           <Input
-            className="flex-1"
+            className="flex-1 min-w-0"
             aria-label="Meaning"
             value={termVal}
             onChange={e => setTermVal(e.target.value)}
             placeholder="Means (e.g. customer with active policy)"
           />
-          <Button onClick={addTerm}>Add</Button>
+          <Button onClick={addTerm} className="self-end sm:self-auto">Add</Button>
         </div>
         {Object.entries(current.terminology ?? {}).length > 0 && (
           <div className="space-y-1">
             {Object.entries(current.terminology ?? {}).map(([k, v]) => (
               <div key={k} className="flex items-center gap-2 bg-surface-sunken rounded-btn px-3 py-1.5 text-sm">
-                <span className="font-medium text-fg">{k}</span>
+                <span className="font-medium text-fg break-words min-w-0">{k}</span>
                 <span className="text-fg-subtle">→</span>
-                <span className="text-fg-muted flex-1">{v as string}</span>
+                <span className="text-fg-muted flex-1 min-w-0 break-words">{v as string}</span>
                 <IconButton
                   size="xs"
                   tone="danger"
@@ -338,10 +339,10 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
               />
             </div>
           ))}
-          <div className="flex gap-2 mt-2">
+          <div className="flex flex-wrap sm:flex-nowrap gap-2 mt-2">
             <Input
               inputSize="sm"
-              className="w-28 font-mono"
+              className="w-28 font-mono shrink-0"
               aria-label="Field name"
               value={newField.name ?? ''}
               onChange={e => setNewField(p => ({ ...p, name: e.target.value }))}
@@ -349,7 +350,7 @@ function FunctionEditor({ fn, onClose }: { fn: Partial<CustomAIFunction>; onClos
             />
             <Input
               inputSize="sm"
-              className="flex-1"
+              className="flex-1 min-w-[8rem]"
               aria-label="Field label"
               value={newField.label ?? ''}
               onChange={e => setNewField(p => ({ ...p, label: e.target.value }))}
@@ -429,7 +430,7 @@ function FunctionsTab() {
   return (
     <div>
       <Toolbar
-        className="mb-4"
+        className="mb-4 max-sm:flex-col max-sm:items-stretch"
         right={
           <Button icon={<Plus size={15} />} onClick={() => setEditing(EMPTY_FN)}>
             New Function
@@ -458,8 +459,8 @@ function FunctionsTab() {
                   <Zap size={15} className="text-accent" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-semibold text-fg text-sm">{fn.name}</span>
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className="font-semibold text-fg text-sm break-words min-w-0">{fn.name}</span>
                     <Badge variant="gray" size="sm">{fn.outputType}</Badge>
                     {fn.runCount > 0 && (
                       <span className="text-xs text-fg-subtle tabular-nums">{fn.runCount} runs</span>
@@ -652,7 +653,7 @@ function ScriptsTab() {
   return (
     <div>
       <Toolbar
-        className="mb-4"
+        className="mb-4 max-sm:flex-col max-sm:items-stretch"
         right={
           <Button icon={<Plus size={15} />} onClick={() => setEditing(EMPTY_SCRIPT)}>
             New Script
@@ -681,7 +682,7 @@ function ScriptsTab() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <span className="font-semibold text-fg text-sm">{s.name}</span>
+                    <span className="font-semibold text-fg text-sm break-words min-w-0">{s.name}</span>
                     <Badge variant="green" size="sm" className="capitalize">{s.entityType}</Badge>
                     <Badge variant="blue" size="sm">{s.trigger}</Badge>
                     {s.fieldTarget && (

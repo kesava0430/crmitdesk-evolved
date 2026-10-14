@@ -128,7 +128,7 @@ export function PortalUsersPage() {
           </a>
         </>}
       >
-        <p className="text-xs truncate">{portalUrl}</p>
+        <p className="text-xs break-all sm:truncate">{portalUrl}</p>
       </Alert>
 
       {/* Stats */}
