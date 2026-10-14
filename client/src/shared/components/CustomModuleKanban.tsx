@@ -87,7 +87,7 @@ export function CustomModuleKanban({ module_, onOpenRecord, onAddRecord }: {
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2 items-start">
+    <div className="flex gap-3 overflow-x-auto pb-2 items-start snap-x snap-mandatory overscroll-x-contain md:snap-none">
       {stages.map(s => {
         const rows = buckets[s.key] ?? [];
         const isOver = overStage === s.key && dragId;
@@ -97,7 +97,7 @@ export function CustomModuleKanban({ module_, onOpenRecord, onAddRecord }: {
             onDragOver={e => { e.preventDefault(); setOverStage(s.key); }}
             onDragLeave={() => setOverStage(prev => (prev === s.key ? null : prev))}
             onDrop={e => { e.preventDefault(); drop(s.key); }}
-            className={`w-64 shrink-0 rounded-card border bg-surface-sunken/60 transition-colors ${
+            className={`w-[85vw] max-w-[340px] snap-start md:w-64 shrink-0 rounded-card border bg-surface-sunken/60 transition-colors ${
               isOver ? 'border-accent bg-accent-soft/40' : 'border-line-subtle'
             }`}
           >

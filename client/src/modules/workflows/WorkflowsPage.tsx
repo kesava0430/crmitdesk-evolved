@@ -773,7 +773,7 @@ export function WorkflowsPage() {
           <PlanFeatureNotice feature="workflow_automation" />
           {/* Stats bar */}
           {rules.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
               {[
                 { label: 'Total Rules', value: rules.length, tone: 'text-fg' },
                 { label: 'Active', value: rules.filter(r => r.isActive).length, tone: 'text-success' },
@@ -818,8 +818,12 @@ export function WorkflowsPage() {
                           <span className={`font-medium text-sm truncate max-w-full ${rule.isActive ? 'text-fg' : 'text-fg-subtle'}`}>
                             {rule.name}
                           </span>
+                          {/* Long trigger labels ("Date Reached (birthday, …)")
+                              truncate inside the card instead of overflowing it. */}
                           <Badge variant="purple" className="shrink-0">
-                            {TRIGGERS.find(t => t.value === rule.trigger)?.label || rule.trigger}
+                            <span className="truncate" title={TRIGGERS.find(t => t.value === rule.trigger)?.label || rule.trigger}>
+                              {TRIGGERS.find(t => t.value === rule.trigger)?.label || rule.trigger}
+                            </span>
                           </Badge>
                         </div>
                         {rule.description && (

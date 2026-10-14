@@ -81,7 +81,9 @@ export function Toolbar({
 }) {
   return (
     <div className={`flex items-center gap-2 flex-wrap ${className}`}>
-      <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">{children}</div>
+      {/* Phones: with a `right` slot, the filters take the full row and the
+          right-hand group wraps below (instead of both squeezing into one). */}
+      <div className={`flex items-center gap-2 flex-wrap min-w-0 flex-1 ${right && children ? 'basis-full sm:basis-0' : ''}`}>{children}</div>
       {right && <div className="flex items-center gap-2 flex-wrap max-w-full sm:shrink-0">{right}</div>}
     </div>
   );

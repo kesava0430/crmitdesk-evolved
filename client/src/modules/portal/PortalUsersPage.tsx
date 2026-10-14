@@ -133,7 +133,7 @@ export function PortalUsersPage() {
 
       {/* Stats */}
       {portalUsers.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
           <StatTile label="Total Customers" value={portalUsers.length} />
           <StatTile label="Active" value={portalUsers.filter(u => u.isActive).length} />
           <StatTile label="Never logged in" value={portalUsers.filter(u => !u.lastLoginAt).length} />
