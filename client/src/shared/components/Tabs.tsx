@@ -35,6 +35,8 @@ export interface TabsProps<K extends string = string> {
   'aria-label'?: string;
 }
 
+import { useLayoutEffect, useRef } from 'react';
+
 export function Tabs<K extends string = string>({
   items,
   value,
@@ -44,10 +46,29 @@ export function Tabs<K extends string = string>({
   className = '',
   'aria-label': ariaLabel = 'Tabs',
 }: TabsProps<K>) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  /* Keep the active tab in view by scrolling the tab bar itself. Never use
+     element.scrollIntoView() here: it also scrolls every scrollable
+     ancestor, which on phones shifted the whole page sideways. */
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || list.scrollWidth <= list.clientWidth) return;
+    const active = list.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!active) return;
+    const pad = 12;
+    const left = active.getBoundingClientRect().left - list.getBoundingClientRect().left + list.scrollLeft;
+    const right = left + active.offsetWidth;
+    if (left - pad < list.scrollLeft) list.scrollLeft = Math.max(0, left - pad);
+    else if (right + pad > list.scrollLeft + list.clientWidth) list.scrollLeft = right + pad - list.clientWidth;
+  }, [value]);
+
+  /* `tabs-scroll` (index.css): when the strip is wider than its container it
+     scrolls inside itself instead of widening the page. */
   const containers: Record<string, string> = {
-    underline: 'flex gap-1 border-b border-line-subtle overflow-x-auto',
+    underline: 'flex gap-1 border-b border-line-subtle tabs-scroll',
     /* Linear-style segmented control: recessed tray, floating active chip. */
-    segmented: 'inline-flex items-center gap-0.5 rounded-btn border border-line-subtle bg-surface-sunken p-0.5',
+    segmented: 'inline-flex items-center gap-0.5 rounded-btn border border-line-subtle bg-surface-sunken p-0.5 max-w-full tabs-scroll',
     pill: 'flex gap-1.5 flex-wrap',
   };
 
@@ -83,6 +104,7 @@ export function Tabs<K extends string = string>({
 
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label={ariaLabel}
       className={`${containers[variant]} ${fill ? 'w-full' : ''} ${className}`}
@@ -97,7 +119,7 @@ export function Tabs<K extends string = string>({
             aria-selected={active}
             disabled={t.disabled}
             onClick={() => !t.disabled && onChange(t.key)}
-            className={`${itemCls(active, t.disabled)} ${fill ? 'flex-1 justify-center' : ''}`}
+            className={`${itemCls(active, t.disabled)} shrink-0 ${fill ? 'flex-1 justify-center' : ''}`}
           >
             {t.icon}
             {t.label}
