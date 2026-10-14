@@ -164,7 +164,9 @@ function CheckInWidget() {
         try { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; } catch { /* not needed from home */ }
       } else { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; }
     }
-    const { data } = await api.post(`/hr/attendance/check-${action}`, { ...coords, ...extra });
+    // _silent: the card (or the face modal) shows the server's reason itself;
+    // the global error toast repeated it and covered the top of the screen.
+    const { data } = await api.post(`/hr/attendance/check-${action}`, { ...coords, ...extra }, { _silent: true });
     // Check-out found only a forgotten session from an earlier day: it was closed
     // at that shift's end, and the person isn't checked in today.
     setNotice(data?.staleClosed ? data.notice : '');

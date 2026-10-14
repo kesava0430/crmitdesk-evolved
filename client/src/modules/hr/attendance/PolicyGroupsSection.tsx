@@ -169,7 +169,7 @@ export function PolicyGroupsSection() {
                   <Field label="Notice (days ahead)" hint="0 = can request for today"><Input type="number" min={0} max={90} value={form.wfhMinNoticeDays} onChange={num('wfhMinNoticeDays')} /></Field>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <Checkbox label="Same-day requests allowed" checked={form.wfhAllowSameDay} onChange={e => set('wfhAllowSameDay', e.target.checked)} />
+                  <Checkbox label="Same-day requests allowed" hint={Number(form.wfhMinNoticeDays) > 0 ? 'Not used while notice is 1 day or more.' : undefined} disabled={Number(form.wfhMinNoticeDays) > 0} checked={form.wfhAllowSameDay && !(Number(form.wfhMinNoticeDays) > 0)} onChange={e => set('wfhAllowSameDay', e.target.checked)} />
                   <Checkbox label="Half days allowed" checked={form.wfhAllowHalfDay} onChange={e => set('wfhAllowHalfDay', e.target.checked)} />
                   <Checkbox label="Check-in required on WFH days" hint={form.wfhRequireCheckIn ? 'Judged on hours like a workday (no late marks); no check-in = absent.' : 'WFH days are paid whatever is punched.'} checked={form.wfhRequireCheckIn} onChange={e => set('wfhRequireCheckIn', e.target.checked)} />
                 </div>
