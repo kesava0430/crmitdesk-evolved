@@ -549,23 +549,26 @@ function QuoteTemplatesTab() {
           <div className="form-section">
             <p className="form-section-title">Line Items</p>
             <div className="space-y-2">
-              <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-fg-muted uppercase px-1">
+              {/* Phones: each line stacks (description, then labelled numbers),
+                  so this header row is desktop-only. */}
+              <div className="hidden sm:grid grid-cols-12 gap-2 text-xs font-semibold text-fg-muted uppercase px-1">
                 <div className="col-span-6">Description</div>
                 <div className="col-span-2">Qty</div>
                 <div className="col-span-3">Unit Price</div>
                 <div className="col-span-1"></div>
               </div>
               {form.lines.map((line, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                  <Input inputSize="sm" className="col-span-6"
+                <div key={i} className="grid grid-cols-12 gap-2 items-center pb-2 border-b border-line-subtle sm:pb-0 sm:border-0">
+                  <Input inputSize="sm" className="col-span-12 sm:col-span-6"
                     aria-label="Description" placeholder="Service description" value={line.description}
                     onChange={e => updateLine(i, 'description', e.target.value)} />
-                  <Input inputSize="sm" type="number" min="1" aria-label="Qty" className="col-span-2 text-center tabular-nums"
+                  <div className="contents sm:hidden" aria-hidden="true"><span className="col-span-4 text-[11px] font-semibold text-fg-muted uppercase -mb-1">Qty</span><span className="col-span-6 text-[11px] font-semibold text-fg-muted uppercase -mb-1">Unit price</span><span className="col-span-2" /></div>
+                  <Input inputSize="sm" type="number" min="1" aria-label="Qty" className="col-span-4 sm:col-span-2 text-center tabular-nums"
                     value={line.quantity} onChange={e => updateLine(i, 'quantity', Number(e.target.value))} />
-                  <Input inputSize="sm" type="number" min="0" step="0.01" className="col-span-3 tabular-nums"
+                  <Input inputSize="sm" type="number" min="0" step="0.01" className="col-span-6 sm:col-span-3 tabular-nums"
                     aria-label="Price" placeholder="0.00" value={line.unitPrice}
                     onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} />
-                  <div className="col-span-1 flex justify-center">
+                  <div className="col-span-2 sm:col-span-1 flex justify-center">
                     <IconButton
                       label="Remove line"
                       tone="danger"
