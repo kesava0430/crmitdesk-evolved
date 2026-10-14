@@ -88,13 +88,15 @@ function RuleCard({ rule, onEdit, onDelete, onToggle }: any) {
 
   return (
     <Card padding="none" className={rule.isActive ? '' : 'border-dashed opacity-70'}>
-      <div className="flex items-center gap-4 p-4">
+      {/* Phones: icon + name/summary take the full row, actions drop to a
+          second row — side by side they squeezed the name to one word per line. */}
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 sm:gap-4 p-4">
         <div className="w-10 h-10 rounded-card bg-accent-soft text-accent-soft-fg flex items-center justify-center flex-shrink-0">
           {trigger?.icon}
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 basis-[calc(100%-3.25rem)] sm:basis-auto">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-fg">{rule.name}</span>
+            <span className="font-semibold text-fg break-words min-w-0">{rule.name}</span>
             <Badge variant={rule.isActive ? 'green' : 'gray'}>{rule.isActive ? 'Active' : 'Disabled'}</Badge>
           </div>
           <p className="text-xs text-fg-muted mt-0.5">
@@ -104,7 +106,7 @@ function RuleCard({ rule, onEdit, onDelete, onToggle }: any) {
             {rule.runCount > 0 && <span className="ml-2 text-fg-subtle tabular-nums">· ran {rule.runCount}×</span>}
           </p>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center justify-end gap-1 flex-shrink-0 w-full sm:w-auto -mr-1 sm:mr-0">
           <IconButton
             label={rule.isActive ? 'Disable' : 'Enable'}
             tone="accent"

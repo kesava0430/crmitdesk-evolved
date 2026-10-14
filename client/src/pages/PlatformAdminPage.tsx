@@ -819,7 +819,7 @@ function OrgDetailPanel({ orgId, onClose }: { orgId: string; onClose: () => void
                   <div className="flex justify-between"><span className="text-fg-muted">Connected</span><span className="font-medium text-fg">{new Date(org.whatsAppConfig.createdAt).toLocaleDateString()}</span></div>
                 </>
               ) : (
-                <div className="text-fg-muted">No WhatsApp number connected — sends through the platform's own Twilio number instead, when one is configured (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER).</div>
+                <div className="text-fg-muted break-words [overflow-wrap:anywhere]">No WhatsApp number connected — sends through the platform's own Twilio number instead, when one is configured (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER).</div>
               )}
             </Card>
           </section>
@@ -960,7 +960,7 @@ export function PlatformAdminPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="min-h-screen bg-canvas safe-top">
       <PageHeader
         title="Platform Admin"
         subtitle={`${user?.email} · cross-org license & sending overview`}
@@ -1243,10 +1243,12 @@ function PricingPanel({ onClose }: { onClose: () => void }) {
           <section>
             <PanelHeading>Monthly allowances (blank = unlimited)</PanelHeading>
             <Card tone="sunken" padding="sm" flat className="overflow-x-auto">
-              <table className="w-full text-[12px]">
+              {/* Phones: keep the inputs usable and let the card scroll sideways
+                  instead of squeezing four number fields to a few pixels each. */}
+              <table className="w-full min-w-[520px] sm:min-w-0 text-[12px]">
                 <thead>
                   <tr className="text-fg-muted">
-                    <th className="text-left font-medium py-1 pr-2">Allowance</th>
+                    <th className="text-left font-medium py-1 pr-2 min-w-[7rem]">Allowance</th>
                     {LIMIT_PLANS.map(p => <th key={p} className="font-medium px-1 py-1">{p}</th>)}
                   </tr>
                 </thead>
@@ -1286,7 +1288,7 @@ function PricingPanel({ onClose }: { onClose: () => void }) {
                 <p className="text-[11.5px] font-medium text-fg-muted mb-2">Module add-ons — {form.currency.toUpperCase()} / seat / month. Switch a module off to stop selling it (orgs that already have it keep it).</p>
                 <div className="space-y-2">
                   {form.modules.map(m => (
-                    <div key={m.key} className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_110px_auto] gap-2 items-center" data-testid={`pricing-module-${m.key}`}>
+                    <div key={m.key} className="grid grid-cols-[minmax(0,1fr)_5.5rem_auto] sm:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_110px_auto] gap-2 items-center" data-testid={`pricing-module-${m.key}`}>
                       <Input aria-label={`${m.key} name`} value={m.name} onChange={e => setModule(m.key, { name: e.target.value })} />
                       <Input aria-label={`${m.key} description`} className="hidden sm:block" value={m.description} onChange={e => setModule(m.key, { description: e.target.value })} />
                       <Input aria-label={`${m.key} price`} type="number" min={0} step="0.5" value={m.price} onChange={e => setModule(m.key, { price: e.target.value })} />

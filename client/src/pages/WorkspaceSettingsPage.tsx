@@ -145,7 +145,9 @@ export default function WorkspaceSettingsPage() {
             const sectionHidden = !!section.label && draft.hiddenSections.has(section.label);
             return (
               <Card key={section.label ?? '__top'} className="space-y-3">
-                <div className="flex items-center gap-3">
+                {/* Phones: title + visibility toggle on the first row, the rename
+                    input on its own full-width row underneath. */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2">
                   <h2 className="text-[14px] font-semibold text-fg tracking-tight shrink-0">
                     {section.label ?? 'General'}
                   </h2>
@@ -156,7 +158,7 @@ export default function WorkspaceSettingsPage() {
                         onChange={e => setSectionRename(section.label!, e.target.value)}
                         placeholder={`Rename "${section.label}"…`}
                         maxLength={30}
-                        className="!h-8 max-w-[220px] text-[12.5px]"
+                        className="!h-8 basis-full order-last sm:order-none sm:basis-auto sm:max-w-[220px] text-[12.5px]"
                       />
                       <span className="ml-auto flex items-center gap-2 text-[12.5px] text-fg-muted select-none">
                         {sectionHidden
@@ -172,15 +174,15 @@ export default function WorkspaceSettingsPage() {
                     const Icon = item.icon;
                     const hidden = draft.hiddenRoutes.has(item.to);
                     return (
-                      <div key={item.to} className="flex items-center gap-3 px-3 py-2">
+                      <div key={item.to} className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
                         <Icon size={14} className={`shrink-0 ${item.tint ?? 'text-fg-subtle'}`} />
-                        <span className="text-[13px] text-fg w-36 shrink-0 truncate">{item.label}</span>
+                        <span className="text-[13px] text-fg flex-1 min-w-0 sm:flex-none sm:w-36 sm:shrink-0 truncate">{item.label}</span>
                         <Input
                           value={draft.navRenames[item.to] ?? ''}
                           onChange={e => setRename(item.to, e.target.value)}
                           placeholder={`Rename "${item.label}"…`}
                           maxLength={30}
-                          className="!h-8 flex-1 text-[12.5px]"
+                          className="!h-8 basis-full order-last sm:order-none sm:basis-auto flex-1 min-w-0 text-[12.5px]"
                         />
                         <Toggle checked={!hidden} onChange={() => toggleRoute(item.to)} />
                       </div>

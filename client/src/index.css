@@ -1189,6 +1189,9 @@ html.dark .skeleton {
   .main-safe { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
 }
 .toast-safe { top: calc(1rem + env(safe-area-inset-top, 0px)); }
+/* Full-screen pages outside AppLayout (platform admin, portal, demo): keep
+   their top edge clear of the status bar / camera cut-out. */
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
 
 /* Modal: a bottom sheet on phones, so it must clear the gesture bar and fit
    the visible viewport (keyboard open included). */
@@ -1245,6 +1248,11 @@ html.dark .skeleton {
   scrollbar-width: none;
 }
 .tabs-scroll::-webkit-scrollbar { display: none; }
+/* Tabs.tsx sets data-fade on a strip that overflows: fade the edge(s) that
+   hide more tabs, so a cut-off last tab reads as "scroll for more". */
+.tabs-scroll[data-fade="right"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.tabs-scroll[data-fade="left"]  { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
+.tabs-scroll[data-fade="both"]  { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
 
 /* Opt-out tables that keep the grid on phones (DataTable mobile="scroll",
    or <Table stickyFirst>): the first column stays pinned while the rest

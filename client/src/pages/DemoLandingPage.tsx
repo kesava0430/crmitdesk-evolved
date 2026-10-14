@@ -156,7 +156,7 @@ export function DemoLandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden font-sans">
+    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden font-sans safe-top">
       {/* Ambient light. Sits behind everything and never intercepts a click. */}
       <div className="absolute -top-48 -left-40 w-[34rem] h-[34rem] rounded-full bg-brand-600/20 blur-3xl pointer-events-none" />
       <div className="absolute top-1/3 -right-48 w-[30rem] h-[30rem] rounded-full bg-indigo-500/15 blur-3xl pointer-events-none" />

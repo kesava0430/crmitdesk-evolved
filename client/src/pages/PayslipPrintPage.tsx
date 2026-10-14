@@ -46,7 +46,7 @@ export default function PayslipPrintPage() {
               (opened through the share sheet) is the printable copy there. */}
           {!isNative && <Button icon={<Printer size={14} />} onClick={() => window.print()}>Print</Button>}
         </div>
-        <div className="rounded-card shadow-card overflow-hidden bg-white print:shadow-none print:rounded-none" dangerouslySetInnerHTML={{ __html: data.html }} />
+        <div className="rounded-card shadow-card overflow-x-auto overflow-y-hidden bg-white print:shadow-none print:rounded-none print:overflow-visible" dangerouslySetInnerHTML={{ __html: data.html }} />
       </div>
       <style>{`@media print { @page { margin: 1.4cm; } body { background: white; } }`}</style>
     </div>

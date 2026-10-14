@@ -51,7 +51,7 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
             className="pointer-events-auto flex items-center gap-3 ui-popover px-4 py-3 min-w-[260px] max-w-sm animate-slide-in">
             <div className="flex-shrink-0">{icon}</div>
             <p className="text-sm text-fg flex-1">{text}</p>
-            <button onClick={() => onDismiss(t.id)} className="text-fg-subtle hover:text-fg-muted flex-shrink-0 transition-colors">
+            <button onClick={() => onDismiss(t.id)} aria-label="Dismiss" className="text-fg-subtle hover:text-fg-muted flex-shrink-0 transition-colors p-1.5 -m-1.5">
               <X size={13} />
             </button>
           </div>
@@ -134,8 +134,8 @@ export function NotificationBell() {
   return (
     <>
       <div className="relative" ref={panelRef}>
-        <button ref={triggerRef} onClick={() => setOpen(o => !o)}
-          className="relative p-2 text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md transition-colors">
+        <button ref={triggerRef} onClick={() => setOpen(o => !o)} aria-label="Notifications"
+          className="relative p-2 text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md transition-colors icon-touch inline-flex items-center justify-center">
           <Bell size={18} />
           {unread > 0 && (
             <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-danger text-white text-[10px] font-bold rounded-full flex items-center justify-center">

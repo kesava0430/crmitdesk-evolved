@@ -130,7 +130,7 @@ export default function BulkImportPage() {
                 <div className="px-4 py-2 border-b border-line-subtle text-sm text-fg-muted font-medium">
                   Preview — showing 5 of {preview.total} rows
                 </div>
-                <Table>
+                <Table stickyFirst>
                   <thead>
                     <tr>
                       {Object.keys(preview.rows[0] ?? {}).map(col => (
@@ -142,7 +142,7 @@ export default function BulkImportPage() {
                     {preview.rows.map((row, i) => (
                       <tr key={i}>
                         {Object.values(row).map((v, j) => (
-                          <Td key={j} className="max-w-xs truncate" title={v}>{v}</Td>
+                          <Td key={j} className="max-w-[11rem] sm:max-w-xs truncate" title={v}>{v}</Td>
                         ))}
                       </tr>
                     ))}

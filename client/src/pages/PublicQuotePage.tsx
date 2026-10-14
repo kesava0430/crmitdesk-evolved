@@ -166,6 +166,20 @@ export function PublicQuotePage() {
           </div>
 
           <div className="px-5 py-5 sm:px-8 sm:py-6">
+            {/* Phones: each line as a stacked row so price and total are visible
+                without sideways scrolling; the table takes over from sm up. */}
+            <ul className="sm:hidden print:hidden divide-y divide-line-subtle -mt-1">
+              {quote.lines.map(l => (
+                <li key={l.id} className="py-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm text-fg break-words">{l.description}</p>
+                    <p className="text-xs text-fg-muted tabular-nums mt-0.5">{l.quantity} × {money(Number(l.unitPrice))}</p>
+                  </div>
+                  <p className="text-sm font-medium text-fg tabular-nums shrink-0">{money(lineTotal(l))}</p>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden sm:block print:block">
             <Table minWidth={480}>
               <thead>
                 <tr>
@@ -186,6 +200,7 @@ export function PublicQuotePage() {
                 ))}
               </tbody>
             </Table>
+            </div>
             <div className="flex justify-end mt-4 pt-4 border-t border-line-subtle">
               <div className="text-right">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Total</p>

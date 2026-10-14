@@ -594,10 +594,13 @@ export function AppLayout() {
           {/* Avatar — mobile (desktop uses the sidebar footer) */}
           <Link
             to="/profile"
-            className="lg:hidden w-8 h-8 rounded-full bg-accent text-accent-fg flex items-center justify-center text-xs font-bold shrink-0"
+            className="lg:hidden p-1 -m-1 rounded-full shrink-0 icon-touch inline-flex items-center justify-center"
             aria-label="My profile"
           >
-            {user?.name?.[0]?.toUpperCase() ?? "?"}
+            {/* Visual stays 32px; the padded link gives a ~40px touch target. */}
+            <span className="w-8 h-8 rounded-full bg-accent text-accent-fg flex items-center justify-center text-xs font-bold">
+              {user?.name?.[0]?.toUpperCase() ?? "?"}
+            </span>
           </Link>
         </header>
 

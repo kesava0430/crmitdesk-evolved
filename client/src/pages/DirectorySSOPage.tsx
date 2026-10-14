@@ -136,11 +136,12 @@ function RoleMappingsSection() {
           {mappings.map(m => editingId === m.id ? (
             <div key={m.id}>{rowForm}</div>
           ) : (
-            <div key={m.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-line-subtle last:border-0">
-              <span className="flex-1 truncate text-fg" title={m.groupLabel}>{m.groupLabel}</span>
+            <div key={m.id} className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-0.5 text-xs py-1.5 border-b border-line-subtle last:border-0">
+              {/* Phones: group name on its own line, details + actions below. */}
+              <span className="basis-full sm:basis-auto sm:flex-1 min-w-0 truncate text-fg" title={m.groupLabel}>{m.groupLabel}</span>
               <span className="text-fg-subtle tabular-nums shrink-0">priority {m.priority}</span>
               <span className="font-medium text-fg shrink-0">{m.role.replace(/_/g, ' ')}</span>
-              <IconButton label="Edit mapping" icon={<Pencil size={13} />} onClick={() => startEdit(m)} />
+              <IconButton className="ml-auto sm:ml-0" label="Edit mapping" icon={<Pencil size={13} />} onClick={() => startEdit(m)} />
               <IconButton label="Delete mapping" icon={<Trash2 size={13} />} tone="danger" onClick={() => remove.mutate(m.id)} />
             </div>
           ))}
@@ -207,7 +208,7 @@ function SyncSection({ autoProvisioningEnabled }: { autoProvisioningEnabled: boo
       {logs.length > 0 && (
         <div className="space-y-1.5">
           {logs.slice(0, 5).map(log => (
-            <div key={log.id} className="flex items-center gap-3 text-xs py-1 border-b border-line-subtle last:border-0">
+            <div key={log.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs py-1 border-b border-line-subtle last:border-0">
               <span className={`shrink-0 ${log.status === 'OK' ? 'text-success' : log.status === 'ERROR' ? 'text-danger' : 'text-fg-subtle'}`}>
                 {log.status === 'RUNNING' ? 'Running…' : log.status === 'OK' ? 'Succeeded' : 'Failed'}
               </span>
@@ -218,7 +219,7 @@ function SyncSection({ autoProvisioningEnabled }: { autoProvisioningEnabled: boo
                 </span>
               )}
               {log.status === 'ERROR' && (
-                <span className="text-danger ml-auto truncate" title={log.errorMessage ?? undefined}>
+                <span className="text-danger ml-auto truncate min-w-0" title={log.errorMessage ?? undefined}>
                   {log.errorMessage}
                 </span>
               )}
@@ -324,7 +325,7 @@ export default function DirectorySSOPage() {
           <h1 className="text-[18px] font-semibold text-fg leading-tight tracking-tight">Single Sign-On (Microsoft Entra ID)</h1>
           <p className="text-[13px] text-fg-muted mt-0.5">Let employees sign in with their Microsoft work account</p>
         </div>
-        {connected && form.isEnabled && <Badge variant="green" dot className="ml-auto">Connected</Badge>}
+        {connected && form.isEnabled && <Badge variant="green" dot className="ml-auto shrink-0">Connected</Badge>}
       </div>
 
       <Card>

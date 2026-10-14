@@ -392,7 +392,7 @@ function PortalChatWidget({ session }: { session: PortalSession }) {
   return (
     <>
       {open && (
-        <div className="fixed bottom-20 right-4 left-4 sm:left-auto sm:right-6 sm:w-80 h-96 bg-surface-raised rounded-card shadow-ui-lg border border-line flex flex-col z-50 overflow-hidden animate-scale-in">
+        <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 left-4 sm:left-auto sm:right-6 sm:w-80 h-96 max-h-[calc(100dvh-7rem)] bg-surface-raised rounded-card shadow-ui-lg border border-line flex flex-col z-50 overflow-hidden animate-scale-in">
           <div className="flex items-center justify-between px-4 py-3 bg-accent text-accent-fg shrink-0">
             <p className="text-sm font-semibold">Live chat</p>
             <button
@@ -510,7 +510,7 @@ export function CustomerPortal() {
   return (
     <div className="min-h-screen bg-canvas">
       {/* Header */}
-      <header className="bg-surface/90 backdrop-blur-sm border-b border-line sticky top-0 z-10">
+      <header className="bg-surface/90 backdrop-blur-sm border-b border-line sticky top-0 z-10 safe-top">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src={asset("logo.png")} alt="Logo" className="w-7 h-7" />

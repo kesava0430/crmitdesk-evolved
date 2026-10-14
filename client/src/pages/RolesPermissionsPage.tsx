@@ -138,13 +138,14 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
               {perms.map(p => (
                 <div key={p.key} className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-[12.5px] text-fg truncate">
+                    <p className="text-[12.5px] text-fg break-words sm:truncate">
                       {p.label}
                       {p.isSensitive && <Lock size={10} className="inline ml-1 text-warning" />}
                     </p>
-                    <p className="text-[10.5px] text-fg-subtle font-mono">{p.key}</p>
+                    <p className="text-[10.5px] text-fg-subtle font-mono break-all">{p.key}</p>
                   </div>
-                  <div className="w-[150px] shrink-0">
+                  {/* Narrower on phones so the permission label keeps room to read. */}
+                  <div className="w-[124px] sm:w-[150px] shrink-0">
                     <Select
                       aria-label={`Scope for ${p.label}`}
                       selectSize="sm"
@@ -177,8 +178,8 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
 
           <div className="space-y-1 mb-3">
             {(role.fieldPermissions ?? []).map(fp => (
-              <div key={fp.id} className="flex items-center gap-2 text-[12.5px]">
-                <span className="font-mono text-fg-muted">
+              <div key={fp.id} className="flex flex-wrap items-center gap-2 text-[12.5px]">
+                <span className="font-mono text-fg-muted break-all min-w-0">
                   {fp.resource}.{fp.field}
                 </span>
                 <Badge variant={ACCESS_VARIANT[fp.access]}>{fp.access}</Badge>
@@ -453,25 +454,27 @@ export default function RolesPermissionsPage() {
                       ? 'OWN'
                       : 'NONE';
               return (
+                /* Phones: name, badges and the key/rank line get the full row;
+                   scope badge + Edit drop to a second row under the text. */
                 <div
                   key={r.id}
-                  className="flex items-center gap-3 px-4 py-3 border-b border-line-subtle last:border-0 group"
+                  className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2 px-4 py-3 border-b border-line-subtle last:border-0 group"
                 >
                   <Shield size={15} className="text-fg-subtle shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-[13.5px] font-medium text-fg truncate">{r.name}</p>
+                  <div className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] sm:basis-auto">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="text-[13.5px] font-medium text-fg truncate min-w-0">{r.name}</p>
                       {r.isSystem && <Badge variant="gray">Built-in</Badge>}
                       {r.orgId === null && <Badge variant="blue">Template</Badge>}
                     </div>
-                    <p className="text-[11px] text-fg-subtle truncate">
-                      <span className="font-mono">{r.key}</span> · rank {r.rank} · {granted.length} permission
+                    <p className="text-[11px] text-fg-subtle break-words sm:truncate">
+                      <span className="font-mono break-all">{r.key}</span> · rank {r.rank} · {granted.length} permission
                       {granted.length === 1 ? '' : 's'}
                       {r.fieldPermissions?.length ? ` · ${r.fieldPermissions.length} field rule(s)` : ''}
                       {r._count?.users != null ? ` · ${r._count.users} user(s)` : ''}
                     </p>
                   </div>
-                  <Badge variant={SCOPE_VARIANT[widest as PermScope]}>
+                  <Badge variant={SCOPE_VARIANT[widest as PermScope]} className="ml-7 sm:ml-0">
                     {widest === 'ALL' ? <Eye size={10} className="inline mr-1" /> : <EyeOff size={10} className="inline mr-1" />}
                     {widest}
                   </Badge>
