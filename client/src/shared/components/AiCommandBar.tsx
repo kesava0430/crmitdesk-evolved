@@ -208,11 +208,11 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
       subtitle="Type a natural language command"
       icon={<Sparkles size={16} />}
     >
-      <div className="-mx-6 -my-5">
+      <div className="-mx-4 sm:-mx-6 -my-5">
         {/* What this does and what workspace data it sends. The "What can I
             say?" panel below is good, but it is hidden behind a toggle and
             says nothing about what leaves the server. */}
-        <div className="px-6 pt-4">
+        <div className="px-4 sm:px-6 pt-4">
           <AiNote id="command.bar" />
         </div>
 
@@ -221,7 +221,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
             create/update list — so this can never list something that isn't
             actually wired up. Click any example to run it immediately. */}
         {showHelp && canReadActions && (
-          <div className="px-6 py-4 border-b border-line-subtle max-h-80 overflow-y-auto">
+          <div className="px-4 sm:px-6 py-4 border-b border-line-subtle max-h-80 overflow-y-auto">
             {actionsMenu.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-fg-muted">
                 <Loader2 size={14} className="animate-spin" /> Loading supported commands...
@@ -260,7 +260,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
         )}
 
         {/* Input area */}
-        <div className="px-6 pt-4 pb-3">
+        <div className="px-4 sm:px-6 pt-4 pb-3">
           <div className="flex items-center justify-between gap-2 mb-2">
             <p className="text-xs font-medium text-fg-muted">What would you like to do?</p>
             {canReadActions && (
@@ -299,7 +299,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
         {/* Suggestions */}
         {mode === "none" && !isLoading && !isError && (
-          <div className="px-6 pb-4">
+          <div className="px-4 sm:px-6 pb-4">
             <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Try asking</p>
             <div className="flex flex-col gap-1.5">
               {SUGGESTIONS.map((s) => (
@@ -311,7 +311,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
         {/* Loading state */}
         {isLoading && (
-          <div className="px-6 pb-6 flex items-center gap-3 text-sm text-fg-muted">
+          <div className="px-4 sm:px-6 pb-6 flex items-center gap-3 text-sm text-fg-muted">
             <Loader2 size={16} className="animate-spin text-accent" />
             Parsing your command with AI...
           </div>
@@ -326,7 +326,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
         {/* Legacy result: create/update one of the 5 entity types */}
         {mode === "legacy" && result && (
-          <div className="px-6 pb-5 space-y-4 border-t border-line-subtle pt-4">
+          <div className="px-4 sm:px-6 pb-5 space-y-4 border-t border-line-subtle pt-4">
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="accent">{result.intent}</Badge>
               <Badge variant="blue">{ENTITY_LABELS[result.entity] ?? result.entity}</Badge>
@@ -367,7 +367,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
         {/* Registry action: propose -> confirm -> execute */}
         {mode === "action" && plan && (
-          <div className="px-6 pb-5 space-y-4 border-t border-line-subtle pt-4">
+          <div className="px-4 sm:px-6 pb-5 space-y-4 border-t border-line-subtle pt-4">
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="indigo"><Zap size={11} /> {plan.label ?? plan.action}</Badge>
               <Badge variant={confidenceVariant(planConfidencePct)}>{planConfidencePct}% confidence</Badge>

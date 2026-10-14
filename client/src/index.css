@@ -1189,6 +1189,9 @@ html.dark .skeleton {
   .main-safe { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
 }
 .toast-safe { top: calc(1rem + env(safe-area-inset-top, 0px)); }
+/* Full-screen pages outside AppLayout (platform admin, portal, demo): keep
+   their top edge clear of the status bar / camera cut-out. */
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
 
 /* Modal: a bottom sheet on phones, so it must clear the gesture bar and fit
    the visible viewport (keyboard open included). */
