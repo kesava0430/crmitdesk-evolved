@@ -7,7 +7,8 @@ import {
   EmptyState, SearchableSelect, Field, Input, Textarea, Select, Checkbox, Alert, SkeletonStats, SkeletonTable,
   approvalStatusVariant, Badge, Avatar,
 } from '../../shared/components';
-import { CalendarCheck, Plus, X, Check, Clock3, CheckCircle2, Pencil, Ban, SlidersHorizontal, UserPlus } from 'lucide-react';
+import { CalendarCheck, Plus, X, Check, Clock3, CheckCircle2, Pencil, Ban, SlidersHorizontal, UserPlus, Home } from 'lucide-react';
+import { EmployeeWfhCard } from './wfh/WfhParts';
 import { useFormat } from '../../hooks/useFormat';
 import { useUsers } from '../../api/users';
 
@@ -21,6 +22,7 @@ interface LeaveRequest {
   status: string; rejectionReason?: string; createdAt: string;
   leaveType: LeaveType; user: { id: string; name: string; avatarUrl?: string };
   decider?: { name: string } | null;
+  decidedAt?: string | null;
 }
 
 function useBalances(userId?: string, year?: number) {
@@ -53,7 +55,8 @@ function BalanceCards({ userId, year }: { userId?: string; year?: number }) {
   );
 }
 
-const fmtDays = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
+// days arrives as a string (Prisma Decimal) — coerce so 1 reads "1 day"
+const fmtDays = (n: number | string) => { const v = Number(n); return `${v} day${v === 1 ? '' : 's'}`; };
 
 const EMPTY_APPLY = { leaveTypeId: '', startDate: '', endDate: '', reason: '', halfDay: false, halfDayPeriod: 'AM' as 'AM' | 'PM' };
 
@@ -63,6 +66,7 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
   const [form, setForm] = useState(EMPTY_APPLY);
   const [autoApprove, setAutoApprove] = useState(true);
   const [allowNegative, setAllowNegative] = useState(false);
+  const [overrideWfh, setOverrideWfh] = useState(false);
   const [error, setError] = useState('');
   const selectedType = types?.find(t => t.id === form.leaveTypeId);
 
@@ -70,13 +74,14 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
     mutationFn: () => {
       const body = { ...form, endDate: form.halfDay ? form.startDate : form.endDate, halfDayPeriod: form.halfDay ? form.halfDayPeriod : undefined };
       return onBehalfOf
-        ? api.post('/hr/leave/requests/on-behalf', { ...body, userId: onBehalfOf.id, autoApprove, allowNegative }).then(r => r.data)
+        ? api.post('/hr/leave/requests/on-behalf', { ...body, userId: onBehalfOf.id, autoApprove, allowNegative, overrideWfhLimits: !!selectedType?.isWfh && overrideWfh }).then(r => r.data)
         : api.post('/hr/leave/requests', body).then(r => r.data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leave-requests'] });
       qc.invalidateQueries({ queryKey: ['leave-balance'] });
       qc.invalidateQueries({ queryKey: ['attendance-register'] });
+      qc.invalidateQueries({ queryKey: ['wfh-summary'] });
       setForm(EMPTY_APPLY);
       onClose();
     },
@@ -129,6 +134,8 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
         </Field>
         {onBehalfOf && <Checkbox label="Approve immediately (skips the manager approval step)" checked={autoApprove} onChange={e => setAutoApprove(e.target.checked)} />}
         {onBehalfOf && !selectedType?.isWfh && !selectedType?.isUnlimited && <Checkbox label="Allow going below zero balance (advance leave)" checked={allowNegative} onChange={e => setAllowNegative(e.target.checked)} />}
+        {onBehalfOf && selectedType?.isWfh && <Checkbox label="Override work-from-home limits" hint="Lets it through even if it exceeds the policy's monthly/weekly limit, half-day rule or WFH is off for their policy. Recorded in the audit log." checked={overrideWfh} onChange={e => setOverrideWfh(e.target.checked)} />}
+        {!onBehalfOf && selectedType?.isWfh && <p className="text-[11.5px] text-fg-subtle">Tip: Attendance → My Attendance → Request WFH shows how many WFH days you have left.</p>}
       </div>
     </Modal>
   );
@@ -137,15 +144,16 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
 function ModifyModal({ req, onClose }: { req: LeaveRequest; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: types } = useQuery<LeaveType[]>({ queryKey: ['leave-types'], queryFn: () => api.get('/hr/leave/types').then(r => r.data) });
-  const [form, setForm] = useState({ leaveTypeId: req.leaveType.id, startDate: req.startDate.slice(0, 10), endDate: req.endDate.slice(0, 10), halfDay: !!req.halfDay, halfDayPeriod: (req.halfDayPeriod || 'AM') as 'AM' | 'PM', reason: req.reason || '', changeReason: '' });
+  const [form, setForm] = useState({ leaveTypeId: req.leaveType.id, startDate: req.startDate.slice(0, 10), endDate: req.endDate.slice(0, 10), halfDay: !!req.halfDay, halfDayPeriod: (req.halfDayPeriod || 'AM') as 'AM' | 'PM', reason: req.reason || '', changeReason: '', overrideWfhLimits: false });
   const [error, setError] = useState('');
+  const isWfhType = !!types?.find(t => t.id === form.leaveTypeId)?.isWfh;
   const save = useMutation({
-    mutationFn: () => api.patch(`/hr/leave/requests/${req.id}`, { ...form, endDate: form.halfDay ? form.startDate : form.endDate }).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave-requests'] }); qc.invalidateQueries({ queryKey: ['leave-balance'] }); qc.invalidateQueries({ queryKey: ['attendance-register'] }); onClose(); },
+    mutationFn: () => api.patch(`/hr/leave/requests/${req.id}`, { ...form, endDate: form.halfDay ? form.startDate : form.endDate, overrideWfhLimits: isWfhType && form.overrideWfhLimits }).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave-requests'] }); qc.invalidateQueries({ queryKey: ['leave-balance'] }); qc.invalidateQueries({ queryKey: ['attendance-register'] }); qc.invalidateQueries({ queryKey: ['wfh-summary'] }); onClose(); },
     onError: (err: any) => setError(err?.response?.data?.error || 'Could not update request.'),
   });
   return (
-    <Modal open onClose={onClose} title={`Modify leave · ${req.user.name}`} icon={<Pencil size={16} />}
+    <Modal open onClose={onClose} title={`${req.leaveType.isWfh ? 'Modify WFH' : 'Modify leave'} · ${req.user.name}`} icon={<Pencil size={16} />}
       footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={save.isPending} disabled={!form.changeReason.trim()} onClick={() => { setError(''); save.mutate(); }}>Save changes</Button></>}>
       <div className="space-y-4">
         {error && <Alert tone="danger">{error}</Alert>}
@@ -162,6 +170,7 @@ function ModifyModal({ req, onClose }: { req: LeaveRequest; onClose: () => void 
         </div>
         <Field label="Employee's reason"><Input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} /></Field>
         <Field label="Why are you changing this?" required><Textarea rows={2} value={form.changeReason} onChange={e => setForm(f => ({ ...f, changeReason: e.target.value }))} placeholder="Recorded in the audit log" /></Field>
+        {isWfhType && <Checkbox label="Override work-from-home limits" hint="Recorded in the audit log." checked={form.overrideWfhLimits} onChange={e => setForm(f => ({ ...f, overrideWfhLimits: e.target.checked }))} />}
       </div>
     </Modal>
   );
@@ -177,11 +186,11 @@ function AdminCancelModal({ req, onClose }: { req: LeaveRequest; onClose: () => 
     onError: (err: any) => setError(err?.response?.data?.error || 'Could not cancel request.'),
   });
   return (
-    <Modal open onClose={onClose} title="Cancel approved leave" size="sm" icon={<Ban size={16} />}
+    <Modal open onClose={onClose} title={req.leaveType.isWfh ? 'Cancel approved work from home' : 'Cancel approved leave'} size="sm" icon={<Ban size={16} />}
       footer={<><Button variant="secondary" onClick={onClose}>Keep</Button><Button variant="danger" loading={cancel.isPending} disabled={!reason.trim()} onClick={() => { setError(''); cancel.mutate(); }}>Cancel leave</Button></>}>
       <div className="space-y-3">
         {error && <Alert tone="danger">{error}</Alert>}
-        <p className="text-sm text-fg-muted">{req.user.name} · {req.leaveType.name} · {fmtDays(req.days)}. The balance is restored and attendance for those days is recomputed.</p>
+        <p className="text-sm text-fg-muted">{req.user.name} · {req.leaveType.name} · {fmtDays(req.days)}. {req.leaveType.isWfh ? 'Attendance for those days is recomputed as normal office days.' : 'The balance is restored and attendance for those days is recomputed.'}</p>
         <Field label="Reason" required><Textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} autoFocus /></Field>
       </div>
     </Modal>
@@ -221,6 +230,7 @@ function RequestRow({ req, showEmployee, onCancel, onApprove, onReject, onModify
       <div className="min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           {showEmployee && <span className="font-medium text-fg text-sm truncate" title={req.user.name}>{req.user.name}</span>}
+          {req.leaveType.isWfh && <Badge variant="teal"><Home size={10} className="mr-0.5" />WFH</Badge>}
           <span className="text-xs px-2 py-0.5 rounded-badge" style={{ background: `${req.leaveType.color}20`, color: req.leaveType.color }}>
             {req.leaveType.name}
           </span>
@@ -230,6 +240,7 @@ function RequestRow({ req, showEmployee, onCancel, onApprove, onReject, onModify
           {req.halfDay ? `${date(req.startDate)} · ${req.halfDayPeriod === 'PM' ? 'second' : 'first'} half` : `${date(req.startDate)} → ${date(req.endDate)}`} · {fmtDays(req.days)}
         </p>
         {req.reason && <p className="text-xs text-fg-subtle mt-0.5">{req.reason}</p>}
+        {req.leaveType.isWfh && req.status === 'APPROVED' && !req.decider && <p className="text-xs text-fg-subtle mt-0.5">Approved automatically by the policy</p>}
         {req.status === 'REJECTED' && req.rejectionReason && (
           <p className="text-xs text-danger mt-0.5">Reason: {req.rejectionReason}</p>
         )}
@@ -251,7 +262,7 @@ function RequestRow({ req, showEmployee, onCancel, onApprove, onReject, onModify
           <Button size="xs" variant="ghost" icon={<Pencil size={12} />} onClick={onModify}>Modify</Button>
         )}
         {onAdminCancel && req.status === 'APPROVED' && (
-          <Button size="xs" variant="ghost" icon={<Ban size={12} />} onClick={onAdminCancel}>Cancel leave</Button>
+          <Button size="xs" variant="ghost" icon={<Ban size={12} />} onClick={onAdminCancel}>{req.leaveType.isWfh ? 'Cancel WFH' : 'Cancel leave'}</Button>
         )}
       </div>
     </div>
@@ -316,7 +327,7 @@ function Approvals() {
   const [decideError, setDecideError] = useState('');
   const approve = useMutation({
     mutationFn: (id: string) => api.patch(`/hr/leave/requests/${id}/approve`),
-    onSuccess: () => { setDecideError(''); qc.invalidateQueries({ queryKey: ['leave-requests'] }); qc.invalidateQueries({ queryKey: ['attendance-register'] }); },
+    onSuccess: () => { setDecideError(''); qc.invalidateQueries({ queryKey: ['leave-requests'] }); qc.invalidateQueries({ queryKey: ['attendance-register'] }); qc.invalidateQueries({ queryKey: ['wfh-summary'] }); },
     onError: (e: any) => setDecideError(e?.response?.data?.error || 'Could not approve'),
   });
   const reject = useMutation({
@@ -324,20 +335,27 @@ function Approvals() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave-requests'] }); setRejecting(null); setReason(''); },
   });
 
-  const pending = (data || []).filter(r => r.status === 'PENDING');
-  const decided = (data || []).filter(r => r.status !== 'PENDING');
+  const [kind, setKind] = useState<'all' | 'leave' | 'wfh'>('all');
+  const shown = (data || []).filter(r => kind === 'all' || (kind === 'wfh' ? !!r.leaveType.isWfh : !r.leaveType.isWfh));
+  const pending = shown.filter(r => r.status === 'PENDING');
+  const decided = shown.filter(r => r.status !== 'PENDING');
+  const wfhPending = (data || []).filter(r => r.status === 'PENDING' && r.leaveType.isWfh).length;
 
   return (
     <div className="space-y-5">
       <Card>
-        <CardHeader title={`Pending Approval (${pending.length})`} icon={<Clock3 size={14} />} className="mb-3" />
+        <CardHeader title={`Pending Approval (${pending.length})`} icon={<Clock3 size={14} />} className="mb-3"
+          actions={
+            <Tabs<'all' | 'leave' | 'wfh'> aria-label="Request type" variant="segmented" value={kind} onChange={setKind}
+              items={[{ key: 'all', label: 'All' }, { key: 'leave', label: 'Leave' }, { key: 'wfh', label: wfhPending ? `WFH (${wfhPending})` : 'WFH' }]} />
+          } />
         {decideError && <Alert tone="danger" className="mb-2">{decideError}</Alert>}
         {isLoading ? <SkeletonTable rows={3} /> : pending.length === 0 ? (
           <EmptyState
             compact
             icon={<CheckCircle2 />}
             title="All caught up"
-            description="Nothing is waiting on your approval right now."
+            description={kind === 'wfh' ? 'No work-from-home requests are waiting.' : 'Nothing is waiting on your approval right now.'}
           />
         ) : (
           <div>{pending.map(r => (
@@ -357,7 +375,7 @@ function Approvals() {
         </Card>
       )}
 
-      <Modal open={!!rejecting} onClose={() => setRejecting(null)} title="Reject leave request" size="sm"
+      <Modal open={!!rejecting} onClose={() => setRejecting(null)} title={rejecting?.leaveType.isWfh ? 'Reject work-from-home request' : 'Reject leave request'} size="sm"
         footer={<>
           <Button variant="secondary" onClick={() => setRejecting(null)}>Cancel</Button>
           <Button variant="danger" onClick={() => rejecting && reject.mutate({ id: rejecting.id, reason })} loading={reject.isPending} disabled={!reason.trim()}>
@@ -394,7 +412,7 @@ function EmployeeLeave() {
   return (
     <div className="space-y-5">
       <Card>
-        <CardHeader title="Employee leave" subtitle="View balances, apply on someone's behalf, and adjust entitlements" className="mb-3" />
+        <CardHeader title="Employee leave" subtitle="View balances, apply leave or work from home on someone's behalf, set recurring WFH and adjust entitlements" className="mb-3" />
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Employee" className="min-w-[16rem] flex-1">
             <SearchableSelect value={userId} onChange={setUserId} options={(users || []).map(u => ({ value: u.id, label: u.department ? `${u.name} · ${u.department}` : u.name }))} placeholder="Pick an employee…" />
@@ -409,6 +427,7 @@ function EmployeeLeave() {
         <>
           <div className="flex items-center gap-2"><Avatar name={selected.name} src={selected.avatarUrl ?? undefined} size="sm" /><div><div className="text-sm font-medium text-fg">{selected.name}</div><div className="text-xs text-fg-subtle">{selected.department || selected.email}</div></div></div>
           <BalanceCards userId={userId} year={year} />
+          <EmployeeWfhCard userId={selected.id} name={selected.name} />
           {!!balances?.some(b => b.adjustments) && (
             <div className="flex flex-wrap gap-2">
               {balances!.filter(b => b.adjustments).map(b => <Badge key={b.leaveType.id} variant={b.adjustments > 0 ? 'green' : 'yellow'}>{b.leaveType.name}: {b.adjustments > 0 ? '+' : ''}{b.adjustments} adjusted</Badge>)}

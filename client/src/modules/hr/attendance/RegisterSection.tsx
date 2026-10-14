@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, History, RotateCcw, CalendarCheck, Pencil, Download, Plus, Camera, Lock, CalendarRange, MousePointerClick, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, History, RotateCcw, CalendarCheck, Pencil, Download, Plus, Camera, Lock, CalendarRange, MousePointerClick, Check, Home } from 'lucide-react';
 import { api } from '../../../api/client';
 import {
   Card, CardHeader, Button, Modal, Badge, Field, Input, Select, Textarea, Alert, SkeletonTable, EmptyState, Avatar, IconButton,
@@ -151,6 +151,7 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                 })}
                 <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted whitespace-nowrap" title="Paid days / working days so far">Paid / Work</th>
                 <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted">LOP</th>
+                <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted" title="Work-from-home days so far">WFH</th>
                 <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted">Late</th>
                 <th className="px-2 py-2 border-b border-line-subtle text-right font-medium text-fg-muted">OT</th>
                 {canEdit && <th className="px-2 py-2 border-b border-line-subtle" />}
@@ -170,7 +171,7 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                         )}
                         <div className="hidden sm:block text-[10px] text-fg-subtle truncate">{row.policyGroup}{row.user.department ? ` · ${row.user.department}` : ''}</div>
                         {/* The totals columns sit off-screen on a phone — show the key one here. */}
-                        <div className="sm:hidden text-[10px] text-fg-muted tabular-nums truncate">Paid {row.summary.paidDays}/{row.summary.workingDays}{row.summary.lopDays ? ` · LOP ${row.summary.lopDays}` : ''}</div>
+                        <div className="sm:hidden text-[10px] text-fg-muted tabular-nums truncate">Paid {row.summary.paidDays}/{row.summary.workingDays}{row.summary.lopDays ? ` · LOP ${row.summary.lopDays}` : ''}{wfhOf(row) ? ` · WFH ${wfhOf(row)}` : ''}</div>
                       </div>
                     </div>
                   </td>
@@ -197,6 +198,7 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                   })}
                   <td className="px-2 py-1.5 border-b border-line-subtle text-right tabular-nums font-medium text-fg whitespace-nowrap">{row.summary.paidDays} / {row.summary.workingDays}</td>
                   <td className={`px-2 py-1.5 border-b border-line-subtle text-right tabular-nums ${row.summary.lopDays ? 'text-danger font-medium' : 'text-fg-subtle'}`}>{row.summary.lopDays}</td>
+                  <td className={`px-2 py-1.5 border-b border-line-subtle text-right tabular-nums ${wfhOf(row) ? 'text-accent font-medium' : 'text-fg-subtle'}`}>{wfhOf(row)}</td>
                   <td className={`px-2 py-1.5 border-b border-line-subtle text-right tabular-nums ${row.summary.lateCount ? 'text-warning' : 'text-fg-subtle'}`}>{row.summary.lateCount}</td>
                   <td className="px-2 py-1.5 border-b border-line-subtle text-right tabular-nums text-fg-subtle">{row.summary.overtimeHours ? `${row.summary.overtimeHours}h` : '—'}</td>
                   {canEdit && <td className="px-1 border-b border-line-subtle"><IconButton label="Change history" icon={<History size={14} />} size="xs" onClick={() => setHistoryFor(row)} /></td>}
@@ -229,6 +231,9 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
     </Card>
   );
 }
+
+/** WFH days so far (older API responses only had byStatus). */
+const wfhOf = (row: RegisterRow) => row.summary.wfhDays ?? row.summary.byStatus?.WFH ?? 0;
 
 function Legend() {
   return (
@@ -278,9 +283,10 @@ function MonthCalendar({ row, onPick }: { row: RegisterRow; onPick: (day: Regist
           );
         })}
       </div>
-      <div className="grid grid-cols-4 gap-2 mt-3 text-xs">
+      <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
         <Stat label="Paid / work" value={<span className="tabular-nums">{s.paidDays} / {s.workingDays}</span>} />
         <Stat label="LOP" value={<span className={`tabular-nums ${s.lopDays ? 'text-danger' : ''}`}>{s.lopDays}</span>} />
+        <Stat label="WFH" value={<span className="tabular-nums">{wfhOf(row)}</span>} />
         <Stat label="Late" value={<span className={`tabular-nums ${s.lateCount ? 'text-warning' : ''}`}>{s.lateCount}</span>} />
         <Stat label="OT" value={<span className="tabular-nums">{s.overtimeHours ? `${s.overtimeHours}h` : '—'}</span>} />
       </div>
@@ -399,6 +405,7 @@ function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: Regis
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     <span className="font-medium text-fg tabular-nums">{s.checkInAt ? time(s.checkInAt) : '—'} – {s.checkOutAt ? time(s.checkOutAt) : 'open'}</span>
                     {s.source === 'MANUAL' && <Badge variant="gray">manual</Badge>}
+                    {s.mode === 'WFH' && <Badge variant="teal"><Home size={10} className="mr-0.5" />from home</Badge>}
                     {s.checkOutSource && SOURCE_LABEL[s.checkOutSource] && <Badge variant="yellow">{SOURCE_LABEL[s.checkOutSource]}</Badge>}
                     {s.checkInFaceOk && <Badge variant="teal">face ✓</Badge>}
                     <span className="flex-1" />

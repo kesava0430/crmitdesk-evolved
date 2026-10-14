@@ -366,7 +366,7 @@ function LeaveTypesSection() {
           />
           <Checkbox label="Allow half days" checked={form.allowHalfDay} onChange={e => setForm(f => ({ ...f, allowHalfDay: e.target.checked }))} />
           <Checkbox label="No quota limit (e.g. Leave Without Pay)" checked={form.isUnlimited} onChange={e => setForm(f => ({ ...f, isUnlimited: e.target.checked }))} />
-          <Checkbox label="Work from home (not leave)" hint="Employees request WFH days through the Leave page; approved days show as WFH in the register, are paid and never use a balance." checked={form.isWfh} onChange={e => setForm(f => ({ ...f, isWfh: e.target.checked }))} />
+          <Checkbox label="Work from home (not leave)" hint="Employees request WFH from Attendance → Request WFH (or the Leave page). Limits, approval mode and check-in rules are set per attendance policy. WFH never uses a balance." checked={form.isWfh} onChange={e => setForm(f => ({ ...f, isWfh: e.target.checked }))} />
           <Checkbox label="Carry unused days into next year" checked={form.carryForward} onChange={e => setForm(f => ({ ...f, carryForward: e.target.checked }))} />
           {form.carryForward && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -11,6 +11,9 @@ export interface PolicyGroup {
   earlyDepartureGraceMinutes: number; earlyDepartureStatus: 'NONE' | 'HALF_DAY'; overtimeAfterMinutes: number; overtimeMinMinutes: number;
   lateAllowedPerMonth: number; lateConversionEvery: number; lateConversionUnit: 'HALF_DAY' | 'LOP' | 'NONE'; weeklyOffs: number[];
   assumeShiftEndOnMissingCheckout: boolean; optionalHolidaysAllowed?: number; applicability: { departmentIds?: string[]; locationIds?: string[]; employmentTypes?: string[]; userIds?: string[] } | null;
+  // Work from home (null limit = unlimited)
+  wfhEnabled?: boolean; wfhApprovalMode?: 'MANAGER' | 'AUTO'; wfhMaxPerMonth?: number | null; wfhMaxPerWeek?: number | null; wfhMinNoticeDays?: number;
+  wfhAllowSameDay?: boolean; wfhAllowHalfDay?: boolean; wfhRequireCheckIn?: boolean;
 }
 export interface Holiday { id: string; date: string; name: string; locationIds: string[]; isOptional: boolean }
 export interface RegisterDay {
@@ -21,11 +24,13 @@ export interface RegisterDay {
   /** Covered by a finalised payroll run — read-only */
   frozen?: boolean;
 }
-export interface Summary { daysInPeriod: number; workingDays: number; presentDays: number; halfDays: number; leaveDays: number; unpaidLeaveDays: number; absentDays: number; lopDays: number; paidDays: number; lateCount: number; lateConversion: { note: string; extraLopDays: number }; overtimeHours: number; pendingDays?: number; notEmployedDays?: number; byStatus: Record<string, number>; policyGroupName?: string }
+export interface Summary { daysInPeriod: number; workingDays: number; presentDays: number; wfhDays?: number; halfDays: number; leaveDays: number; unpaidLeaveDays: number; absentDays: number; lopDays: number; paidDays: number; lateCount: number; lateConversion: { note: string; extraLopDays: number }; overtimeHours: number; pendingDays?: number; notEmployedDays?: number; byStatus: Record<string, number>; policyGroupName?: string }
 export interface RegisterRow { user: { id: string; name: string; avatarUrl?: string | null; department?: string | null; isActive?: boolean }; policyGroup: string; timezone?: string; days: RegisterDay[]; summary: Summary }
 export interface DaySession {
   id: string; checkInAt: string | null; checkOutAt: string | null; source: string; checkOutSource: string | null; notes: string | null;
   checkInPassed: boolean | null; checkInFaceOk: boolean | null; checkOutFaceOk: boolean | null; hasCheckInSelfie: boolean; hasCheckOutSelfie: boolean;
+  /** WFH = checked in on an approved work-from-home day */
+  mode?: 'OFFICE' | 'WFH';
 }
 export interface DayDetail { timezone: string; day: RegisterDay | null; sessions: DaySession[] }
 export interface OptionalHolidayList { year: number; allowed: number; used: number; today: string; holidays: (Holiday & { optedIn: boolean })[] }
@@ -74,11 +79,11 @@ export function useSetOptionalHoliday() { const qc = useQueryClient(); return us
 export function registerToCsv(rows: RegisterRow[]): string {
   const days = rows[0]?.days.map(d => d.date) ?? [];
   const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const header = ['Employee', 'Department', 'Policy', ...days, 'Working days', 'Paid days', 'LOP days', 'Present', 'Half days', 'Leave', 'Absent', 'Late', 'OT hours'];
+  const header = ['Employee', 'Department', 'Policy', ...days, 'Working days', 'Paid days', 'LOP days', 'Present', 'WFH days', 'Half days', 'Leave', 'Absent', 'Late', 'OT hours'];
   const lines = rows.map(r => [
     r.user.name, r.user.department ?? '', r.policyGroup,
     ...r.days.map(d => (d.status === 'PENDING' ? '' : STATUS_LABEL[d.status]) + (d.source === 'MANUAL' ? ' (manual)' : '')),
-    r.summary.workingDays, r.summary.paidDays, r.summary.lopDays, r.summary.presentDays, r.summary.halfDays, r.summary.leaveDays, r.summary.absentDays, r.summary.lateCount, r.summary.overtimeHours,
+    r.summary.workingDays, r.summary.paidDays, r.summary.lopDays, r.summary.presentDays, r.summary.wfhDays ?? r.summary.byStatus?.WFH ?? 0, r.summary.halfDays, r.summary.leaveDays, r.summary.absentDays, r.summary.lateCount, r.summary.overtimeHours,
   ]);
   return [header, ...lines].map(l => l.map(esc).join(',')).join('\r\n');
 }

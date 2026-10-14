@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { Clock, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Clock, Plus, Pencil, Trash2, Home } from 'lucide-react';
 import { Card, CardHeader, Button, Modal, Badge, Field, Input, Select, Checkbox, Alert, SkeletonTable, IconButton, SearchInput } from '../../../shared/components';
 import { useDepartments, useLocations } from '../../../api/people';
 import { useUsers } from '../../../api/users';
 import { usePolicyGroups, useSavePolicyGroup, useDeletePolicyGroup, type PolicyGroup, type LateBand } from '../../../api/attendanceAdmin';
+import { WfhSchedulesPanel } from '../wfh/WfhParts';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'CONSULTANT', 'TEMPORARY'];
 
-type Form = Omit<PolicyGroup, 'id' | 'lateBands' | 'applicability' | 'weeklyOffs' | 'optionalHolidaysAllowed'> & { lateBands: LateBand[]; weeklyOffs: number[]; departmentIds: string[]; locationIds: string[]; employmentTypes: string[]; userIds: string[]; optionalHolidaysAllowed: number };
+type WfhKeys = 'wfhEnabled' | 'wfhApprovalMode' | 'wfhMaxPerMonth' | 'wfhMaxPerWeek' | 'wfhMinNoticeDays' | 'wfhAllowSameDay' | 'wfhAllowHalfDay' | 'wfhRequireCheckIn';
+type Form = Omit<PolicyGroup, 'id' | 'lateBands' | 'applicability' | 'weeklyOffs' | 'optionalHolidaysAllowed' | WfhKeys> & { lateBands: LateBand[]; weeklyOffs: number[]; departmentIds: string[]; locationIds: string[]; employmentTypes: string[]; userIds: string[]; optionalHolidaysAllowed: number }
+  & { wfhEnabled: boolean; wfhApprovalMode: 'MANAGER' | 'AUTO'; wfhMaxPerMonth: number | null; wfhMaxPerWeek: number | null; wfhMinNoticeDays: number; wfhAllowSameDay: boolean; wfhAllowHalfDay: boolean; wfhRequireCheckIn: boolean };
 
 const empty: Form = {
   name: '', isDefault: false, isActive: true, shiftStart: '09:00', shiftEnd: '18:00', timezone: null, graceMinutes: 15,
@@ -16,12 +19,24 @@ const empty: Form = {
   minFullDayMinutes: 480, minHalfDayMinutes: 240, earlyDepartureGraceMinutes: 15, earlyDepartureStatus: 'NONE', overtimeAfterMinutes: 0, overtimeMinMinutes: 30,
   lateAllowedPerMonth: 3, lateConversionEvery: 3, lateConversionUnit: 'HALF_DAY', weeklyOffs: [0, 6], assumeShiftEndOnMissingCheckout: false,
   departmentIds: [], locationIds: [], employmentTypes: [], userIds: [], optionalHolidaysAllowed: 2,
+  // Work from home — the owner's defaults (same as the migration)
+  wfhEnabled: true, wfhApprovalMode: 'MANAGER', wfhMaxPerMonth: 4, wfhMaxPerWeek: null, wfhMinNoticeDays: 0, wfhAllowSameDay: true, wfhAllowHalfDay: true, wfhRequireCheckIn: true,
 };
+
+/** Number input for an optional limit: blank = unlimited (null). */
+const limitValue = (v: number | null | undefined) => (v == null ? '' : String(v));
+const parseLimit = (v: string) => (v.trim() === '' ? null : Math.max(0, Math.round(Number(v))));
 
 /** Browsers accept any string; the server rejects unknown zones, so check here first for a friendlier message. */
 function validTimeZone(tz: string) { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; } }
 
 const addMinutes = (hhmm: string, min: number) => { const [h, m] = hhmm.split(':').map(Number); const t = ((h * 60 + m + min) % 1440 + 1440) % 1440; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+
+function WfhSummaryBadge({ g }: { g: PolicyGroup }) {
+  if (g.wfhEnabled === false) return <Badge variant="gray">WFH off</Badge>;
+  const limit = g.wfhMaxPerMonth == null ? 'unlimited' : `${g.wfhMaxPerMonth}/mo`;
+  return <Badge variant="teal">WFH {limit}{g.wfhApprovalMode === 'AUTO' ? ' · auto' : ''}</Badge>;
+}
 
 export function PolicyGroupsSection() {
   const { data, isLoading } = usePolicyGroups();
@@ -74,6 +89,7 @@ export function PolicyGroupsSection() {
                 <p className="text-xs text-fg-subtle mt-0.5 tabular-nums">{g.shiftStart}–{g.shiftEnd} · grace {g.graceMinutes}m · full day ≥ {Math.round(g.minFullDayMinutes / 60)}h · offs {(g.weeklyOffs ?? []).map(d => WEEKDAYS[d]).join(', ') || 'none'}
                   {g.applicability?.locationIds?.length ? ` · ${g.applicability.locationIds.length} location(s)` : ''}{g.applicability?.departmentIds?.length ? ` · ${g.applicability.departmentIds.length} dept(s)` : ''}{g.applicability?.userIds?.length ? ` · ${g.applicability.userIds.length} person(s)` : ''}{g.timezone ? ` · ${g.timezone}` : ''}</p>
               </div>
+              <span className="hidden sm:inline-flex"><WfhSummaryBadge g={g} /></span>
               <span className="inline-flex gap-1 shrink-0"><IconButton label="Edit" icon={<Pencil size={13} />} onClick={() => openEdit(g)} />{!g.isDefault && <IconButton label="Deactivate" tone="danger" icon={<Trash2 size={13} />} onClick={() => remove.mutate(g.id)} />}</span>
             </div>
           ))}
@@ -134,6 +150,36 @@ export function PolicyGroupsSection() {
               <Field label="Minimum overtime to count (min)"><Input type="number" min={0} value={form.overtimeMinMinutes} onChange={num('overtimeMinMinutes')} /></Field>
             </div>
             <Checkbox label="If check-out is missing, assume they left at shift end (otherwise the day is Absent)" checked={form.assumeShiftEndOnMissingCheckout} onChange={e => set('assumeShiftEndOnMissingCheckout', e.target.checked)} />
+          </section>
+
+          <section className="rounded-card border border-line-subtle p-3 space-y-3" data-testid="wfh-section">
+            <p className="text-[12px] font-semibold text-fg flex items-center gap-1.5"><Home size={13} /> Work from home</p>
+            <Checkbox label="Members of this policy can work from home" hint="Off: requests are refused and the group's recurring WFH is ignored. Already-approved days stay." checked={form.wfhEnabled} onChange={e => set('wfhEnabled', e.target.checked)} />
+            {form.wfhEnabled && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <Field label="Approval" className="sm:col-span-2">
+                    <Select value={form.wfhApprovalMode} onChange={e => set('wfhApprovalMode', e.target.value as any)}>
+                      <option value="MANAGER">A manager approves each request</option>
+                      <option value="AUTO">Approve automatically (within the limits)</option>
+                    </Select>
+                  </Field>
+                  <Field label="Max days / month" hint="Blank = unlimited"><Input type="number" min={0} max={31} value={limitValue(form.wfhMaxPerMonth)} onChange={e => set('wfhMaxPerMonth', parseLimit(e.target.value))} placeholder="Unlimited" /></Field>
+                  <Field label="Max days / week" hint="Blank = unlimited"><Input type="number" min={0} max={7} value={limitValue(form.wfhMaxPerWeek)} onChange={e => set('wfhMaxPerWeek', parseLimit(e.target.value))} placeholder="Unlimited" /></Field>
+                  <Field label="Notice (days ahead)" hint="0 = can request for today"><Input type="number" min={0} max={90} value={form.wfhMinNoticeDays} onChange={num('wfhMinNoticeDays')} /></Field>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <Checkbox label="Same-day requests allowed" checked={form.wfhAllowSameDay} onChange={e => set('wfhAllowSameDay', e.target.checked)} />
+                  <Checkbox label="Half days allowed" checked={form.wfhAllowHalfDay} onChange={e => set('wfhAllowHalfDay', e.target.checked)} />
+                  <Checkbox label="Check-in required on WFH days" hint={form.wfhRequireCheckIn ? 'Judged on hours like a workday (no late marks); no check-in = absent.' : 'WFH days are paid whatever is punched.'} checked={form.wfhRequireCheckIn} onChange={e => set('wfhRequireCheckIn', e.target.checked)} />
+                </div>
+                <p className="text-[11.5px] text-fg-muted">Limits count approved + pending requests and recurring days (working days only; a half day is 0.5). Managers can override them when applying on someone's behalf. On a WFH day, check-in skips the office location / network checks (face still applies).</p>
+                <div>
+                  <p className="text-[12px] font-medium text-fg mb-1">Recurring WFH for everyone in this policy</p>
+                  {editing ? <WfhSchedulesPanel policyGroupId={editing.id} /> : <p className="text-[11.5px] text-fg-subtle">Save the policy first, then add a weekly pattern (e.g. every Friday).</p>}
+                </div>
+              </>
+            )}
           </section>
 
           <section className="rounded-card border border-line-subtle p-3 space-y-3">
