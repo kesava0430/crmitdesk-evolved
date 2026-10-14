@@ -146,7 +146,7 @@ export function EmployeeSalariesSection() {
                 const c = byCode.get(r.code)!;
                 const fixedDefault = c.calcType === 'FIXED' && !c.statutory;
                 return (
-                  <div key={r.code} className={`p-2.5 grid grid-cols-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-2 items-center ${r.enabled ? '' : 'opacity-50'}`}>
+                  <div key={r.code} className={`p-2.5 grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-2 items-center ${r.enabled ? '' : 'opacity-50'}`}>
                     {/* Phones: name on its own line, mode + value side by side below. */}
                     <div className="min-w-0 col-span-2 sm:col-span-1">
                       <Checkbox label={<span className="text-[13px] font-medium">{c.name}</span>} checked={r.enabled} onChange={e => setRow(r.code, { enabled: e.target.checked })} />
