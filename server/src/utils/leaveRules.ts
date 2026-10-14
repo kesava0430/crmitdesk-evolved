@@ -8,11 +8,14 @@
 //   - the leave type belongs to the org, is active and allows half days;
 //   - no overlap with another pending/approved request;
 //   - enough balance, counting pending requests too, unless the type is
-//     unlimited, unpaid, or work-from-home (or a manager overrides) — ATT-23.
+//     unlimited, unpaid, or work-from-home (or a manager overrides) — ATT-23;
+//   - for a work-from-home type, the policy group's WFH rules instead
+//     (enabled, half day, notice, monthly/weekly limits — utils/wfh.ts).
 import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
 import { policyForUser, holidayKeysForUser } from './attendanceRegister';
 import { countWorkingDays, dateKey } from './attendanceEngine';
+import { validateWfh, type WfhValidation } from './wfh';
 
 /**
  * Balance per leave type for a user in a year:
@@ -58,7 +61,11 @@ export async function leaveLength(orgId: string, userId: string, startDate: Date
 
 export interface LeaveInput { leaveTypeId: string; startDate: Date; endDate: Date; halfDay: boolean }
 
-export async function validateLeaveRequest(orgId: string, userId: string, input: LeaveInput, opts: { excludeRequestId?: string; allowNegative?: boolean; subject?: 'you' | 'employee' } = {}) {
+export async function validateLeaveRequest(orgId: string, userId: string, input: LeaveInput, opts: {
+  excludeRequestId?: string; allowNegative?: boolean; subject?: 'you' | 'employee';
+  /** Who is acting for WFH rules: self-service (default) or a manager (no notice rules; may override limits) */
+  wfhActor?: 'self' | 'manager'; overrideWfhLimits?: boolean;
+} = {}): Promise<{ leaveType: any; days: number; wfh: WfhValidation | null }> {
   const who = opts.subject === 'employee' ? 'The employee' : 'You';
   const leaveType = await prisma.leaveType.findFirst({ where: { id: input.leaveTypeId, orgId, isActive: true } });
   if (!leaveType) throw new AppError(404, 'Leave type not found');
@@ -72,7 +79,11 @@ export async function validateLeaveRequest(orgId: string, userId: string, input:
   const overlap = await prisma.leaveRequest.findFirst({
     where: { orgId, userId, status: { in: ['PENDING', 'APPROVED'] }, startDate: { lte: input.endDate }, endDate: { gte: input.startDate }, ...(opts.excludeRequestId ? { id: { not: opts.excludeRequestId } } : {}) },
   });
-  if (overlap) throw new AppError(400, `${who} already ${who === 'You' ? 'have' : 'has'} leave on those dates`);
+  if (overlap) throw new AppError(400, `${who} already ${who === 'You' ? 'have' : 'has'} leave or work from home on those dates`);
+
+  const wfh = leaveType.isWfh
+    ? await validateWfh(orgId, userId, input, { actor: opts.wfhActor ?? 'self', overrideLimits: opts.overrideWfhLimits, excludeRequestId: opts.excludeRequestId, subject: opts.subject })
+    : null;
 
   if (!leaveType.isUnlimited && leaveType.isPaid && !leaveType.isWfh && !opts.allowNegative) {
     const year = input.startDate.getUTCFullYear();
@@ -92,5 +103,5 @@ export async function validateLeaveRequest(orgId: string, userId: string, input:
       throw new AppError(400, `Not enough ${leaveType.name} balance: ${Math.max(0, available)} day${available === 1 ? '' : 's'} available (after pending requests), ${days} requested.`);
     }
   }
-  return { leaveType, days };
+  return { leaveType, days, wfh };
 }

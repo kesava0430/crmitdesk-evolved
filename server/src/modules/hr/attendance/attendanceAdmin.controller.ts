@@ -46,6 +46,15 @@ const GroupSchema = z.object({
   assumeShiftEndOnMissingCheckout: z.boolean().optional(),
   optionalHolidaysAllowed: z.coerce.number().int().min(0).max(31).optional(),
   applicability: z.object({ departmentIds: z.array(z.string()).optional(), locationIds: z.array(z.string()).optional(), employmentTypes: z.array(z.string()).optional(), userIds: z.array(z.string()).optional() }).nullable().optional(),
+  // Work from home (utils/wfhRules.ts). null limit = unlimited.
+  wfhEnabled: z.boolean().optional(),
+  wfhApprovalMode: z.enum(['MANAGER', 'AUTO']).optional(),
+  wfhMaxPerMonth: z.coerce.number().int().min(0).max(31).nullable().optional(),
+  wfhMaxPerWeek: z.coerce.number().int().min(0).max(7).nullable().optional(),
+  wfhMinNoticeDays: z.coerce.number().int().min(0).max(90).optional(),
+  wfhAllowSameDay: z.boolean().optional(),
+  wfhAllowHalfDay: z.boolean().optional(),
+  wfhRequireCheckIn: z.boolean().optional(),
 });
 
 export async function listGroups(req: AuthRequest, res: Response, next: NextFunction) {

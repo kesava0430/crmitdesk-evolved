@@ -6,7 +6,7 @@ import { AppError } from '../../../middleware/errorHandler';
 import { runWorkflows } from '../../../utils/workflow-engine';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
 import { sseManager, SSEEvent } from '../../../utils/sse';
-import { notifyOrgAdmins } from '../../notifications/notifications.controller';
+import { notifyOrgAdmins, createNotification } from '../../notifications/notifications.controller';
 import { logAction } from '../../../utils/auditLog';
 
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
@@ -30,6 +30,7 @@ const LeaveTypeSchema = z.object({
 import { audit, parseDateOnly as parseD, computeDays, frozenUntil } from '../../../utils/attendanceRegister';
 import { computeBalances, validateLeaveRequest } from '../../../utils/leaveRules';
 import { HR_MANAGERS, isHrManager, mustSomeoneElseApprove } from '../../../utils/hrAccess';
+import { wfhContext } from '../../../utils/wfh';
 
 export { computeBalances };
 
@@ -108,7 +109,7 @@ export async function adjustBalance(req: AuthRequest, res: Response, next: NextF
 
 // ─── Requests ────────────────────────────────────────────────────────────────
 
-const RequestSchema = z.object({
+export const RequestSchema = z.object({
   leaveTypeId: z.string(),
   startDate: z.string(), // YYYY-MM-DD
   endDate: z.string(),
@@ -133,45 +134,77 @@ function parseDateOnly(s: string): Date {
   return new Date(Date.UTC(y, m - 1, d));
 }
 
+/** "12 Oct → 14 Oct" / "12 Oct, first half" — how a request's dates read in notifications. */
+export function describeDates(r: { startDate: Date; endDate: Date; halfDay?: boolean | null; halfDayPeriod?: string | null }) {
+  if (r.halfDay) return `${fmt(r.startDate)} (${r.halfDayPeriod === 'PM' ? 'second' : 'first'} half)`;
+  return fmt(r.startDate) === fmt(r.endDate) ? fmt(r.startDate) : `${fmt(r.startDate)} → ${fmt(r.endDate)}`;
+}
+
+/**
+ * A self-service request (Leave page, or the "Request WFH" form). Work-from-home
+ * types go through the policy group's WFH rules; under AUTO approval a request
+ * that passes them is approved on the spot (and the days recomputed), otherwise
+ * it waits for a manager like any leave. Managers are told either way —
+ * in-app + push (notifyOrgAdmins) and, when a decision is needed, by email.
+ */
+export async function submitOwnRequest(req: AuthRequest, data: z.infer<typeof RequestSchema>) {
+  const orgId = req.user!.orgId;
+  const userId = req.user!.id;
+  checkDates(data.startDate, data.halfDay ? undefined : data.endDate);
+  const startDate = parseDateOnly(data.startDate);
+  const endDate = data.halfDay ? startDate : parseDateOnly(data.endDate);
+  // Working days only, type/half-day/overlap/balance checks (utils/leaveRules.ts)
+  const { leaveType, days, wfh } = await validateLeaveRequest(orgId, userId, { leaveTypeId: data.leaveTypeId, startDate, endDate, halfDay: !!data.halfDay });
+  const autoApproved = !!wfh?.autoApprove;
+
+  const request = await prisma.leaveRequest.create({
+    data: {
+      orgId, userId, leaveTypeId: data.leaveTypeId, startDate, endDate, days, halfDay: !!data.halfDay, halfDayPeriod: data.halfDay ? (data.halfDayPeriod ?? 'AM') : null, reason: data.reason,
+      // Approved by the policy, not by a person: no decider.
+      ...(autoApproved ? { status: 'APPROVED', decidedAt: new Date() } : {}),
+    },
+    include,
+  });
+
+  logAction(userId, 'CREATE', 'LeaveRequest', request.id, { leaveType: leaveType.name, days, ...(autoApproved ? { autoApproved: true } : {}) });
+  if (autoApproved) {
+    await audit(orgId, userId, { userId, date: startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'WFH_AUTO_APPROVE', after: { leaveType: leaveType.name, startDate: fmt(startDate), endDate: fmt(endDate), days, status: 'APPROVED' }, reason: 'Approved automatically — the policy group approves work from home within its rules' });
+    computeDays(orgId, userId, startDate, endDate).catch(() => {});
+  }
+  sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId, type: 'created' });
+  const when = describeDates(request);
+  notifyOrgAdmins({
+    orgId, type: 'LEAVE_REQUESTED',
+    title: leaveType.isWfh
+      ? `${request.user.name} ${autoApproved ? 'will work from home (auto-approved)' : 'requested work from home'}`
+      : `${request.user.name} requested ${leaveType.name}`,
+    body: `${when} (${Number(days)} day${days === 1 ? '' : 's'})`,
+    entityType: 'LEAVE_REQUEST', entityId: request.id,
+  }).catch(() => {});
+
+  if (!autoApproved) {
+    const managers = await prisma.user.findMany({ where: { orgId, role: { in: [...HR_MANAGERS] }, isActive: true, id: { not: userId } } });
+    managers.forEach(m => sendMail({
+      ...(leaveType.isWfh
+        ? emailTemplates.wfhRequested(m.email, m.name, request.user.name, when, days, data.reason)
+        : emailTemplates.leaveRequested(m.email, m.name, request.user.name, leaveType.name, fmt(startDate), fmt(endDate), days)),
+      orgId,
+    }).catch(() => {}));
+  }
+
+  /* Automation hook — e.g. "when anyone requests more than 5 days,
+     notify HR ops" (condition: days gt 5) or webhook a payroll system. */
+  runWorkflows({
+    trigger: 'LEAVE_REQUESTED', orgId, entityType: 'LEAVE', entityId: request.id,
+    entity: { ...(request as any), leaveType: leaveType.name, employeeName: (request as any).user?.name },
+  }).catch(() => {});
+  return request;
+}
+
 export async function createRequest(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = RequestSchema.parse(req.body);
-    const orgId = req.user!.orgId;
-    const userId = req.user!.id;
-
-    checkDates(data.startDate, data.halfDay ? undefined : data.endDate);
-    const startDate = parseDateOnly(data.startDate);
-    const endDate = data.halfDay ? startDate : parseDateOnly(data.endDate);
-    // Working days only, type/half-day/overlap/balance checks (utils/leaveRules.ts)
-    const { leaveType, days } = await validateLeaveRequest(orgId, userId, { leaveTypeId: data.leaveTypeId, startDate, endDate, halfDay: !!data.halfDay });
-
-    const request = await prisma.leaveRequest.create({
-      data: { orgId, userId, leaveTypeId: data.leaveTypeId, startDate, endDate, days, halfDay: !!data.halfDay, halfDayPeriod: data.halfDay ? (data.halfDayPeriod ?? 'AM') : null, reason: data.reason },
-      include,
-    });
-
-    logAction(userId, 'CREATE', 'LeaveRequest', request.id, { leaveType: leaveType.name, days });
-    sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId, type: 'created' });
-    notifyOrgAdmins({
-      orgId, type: 'LEAVE_REQUESTED', title: `${request.user.name} requested ${leaveType.name}`,
-      body: `${fmt(startDate)} → ${fmt(endDate)} (${Number(days)} day${days === 1 ? '' : 's'})`,
-      entityType: 'LEAVE_REQUEST', entityId: request.id,
-    }).catch(() => {});
-
-    const managers = await prisma.user.findMany({ where: { orgId, role: { in: [...HR_MANAGERS] }, isActive: true, id: { not: userId } } });
-    managers.forEach(m => sendMail({
-      ...emailTemplates.leaveRequested(m.email, m.name, request.user.name, leaveType.name, fmt(startDate), fmt(endDate), days),
-      orgId,
-    }).catch(() => {}));
-
-    /* Automation hook — e.g. "when anyone requests more than 5 days,
-       notify HR ops" (condition: days gt 5) or webhook a payroll system. */
-    runWorkflows({
-      trigger: 'LEAVE_REQUESTED', orgId, entityType: 'LEAVE', entityId: request.id,
-      entity: { ...(request as any), leaveType: leaveType.name, employeeName: (request as any).user?.name },
-    }).catch(() => {});
-
-    res.status(201).json(request);
+    res.status(201).json(await submitOwnRequest(req, data));
   } catch (err) { next(err); }
 }
 
@@ -179,7 +212,7 @@ export async function createRequest(req: AuthRequest, res: Response, next: NextF
 export async function listRequests(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const { status, userId, scope } = req.query as Record<string, string>;
+    const { status, userId, scope, kind } = req.query as Record<string, string>;
     const isManager = isHrManager(req.user!.role);
 
     const where: any = { orgId };
@@ -189,21 +222,46 @@ export async function listRequests(req: AuthRequest, res: Response, next: NextFu
       where.userId = req.user!.id;
     }
     if (status) where.status = status;
+    // ?kind=wfh → work-from-home requests only; ?kind=leave → everything else
+    if (kind === 'wfh') where.leaveType = { isWfh: true };
+    else if (kind === 'leave') where.leaveType = { isWfh: false };
 
     const requests = await prisma.leaveRequest.findMany({ where, include, orderBy: { createdAt: 'desc' } });
     res.json(requests);
   } catch (err) { next(err); }
 }
 
+/**
+ * POST /hr/leave/requests/:id/cancel — the employee withdraws their own
+ * request: a pending one, or an approved work-from-home request that hasn't
+ * started yet (nothing has been worked or paid on it; the days are recomputed).
+ */
 export async function cancelRequest(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const request = await prisma.leaveRequest.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    const orgId = req.user!.orgId;
+    const request = await prisma.leaveRequest.findFirst({ where: { id: req.params.id, orgId }, include: { leaveType: true } });
     if (!request) throw new AppError(404, 'Leave request not found');
     if (request.userId !== req.user!.id) throw new AppError(403, 'You can only cancel your own request');
-    if (request.status !== 'PENDING') throw new AppError(400, 'Only a pending request can be cancelled');
+    let futureWfh = false;
+    if (request.status === 'APPROVED' && request.leaveType.isWfh) {
+      const { today } = await wfhContext(orgId, request.userId);
+      futureWfh = fmt(request.startDate) > today;
+      if (!futureWfh) throw new AppError(400, 'This work from home has already started — ask HR to change it.');
+    } else if (request.status !== 'PENDING') {
+      throw new AppError(400, 'Only a pending request can be cancelled');
+    }
 
-    const updated = await prisma.leaveRequest.update({ where: { id: request.id }, data: { status: 'CANCELLED' }, include });
-    logAction(req.user!.id, 'UPDATE', 'LeaveRequest', request.id, { action: 'cancelled' });
+    const updated = await prisma.leaveRequest.update({
+      where: { id: request.id },
+      data: { status: 'CANCELLED', ...(futureWfh ? { cancelledBy: req.user!.id, cancelledAt: new Date(), cancelReason: 'Withdrawn by the employee' } : {}) },
+      include,
+    });
+    logAction(req.user!.id, 'UPDATE', 'LeaveRequest', request.id, { action: 'cancelled', ...(futureWfh ? { wasApproved: true } : {}) });
+    if (futureWfh) {
+      await audit(orgId, req.user!.id, { userId: request.userId, date: request.startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'LEAVE_CANCEL', before: { status: 'APPROVED' }, after: { status: 'CANCELLED' }, reason: 'Approved work from home withdrawn by the employee before it started' });
+      computeDays(orgId, request.userId, request.startDate, request.endDate).catch(() => {});
+    }
+    sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId: request.userId, type: 'cancelled' });
     res.json(updated);
   } catch (err) { next(err); }
 }
@@ -240,18 +298,22 @@ async function decide(req: AuthRequest, res: Response, next: NextFunction, appro
     sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId: request.userId, type: 'decided' });
     if (approve) computeDays(orgId, request.userId, request.startDate, request.endDate).catch(() => {});
 
-    await prisma.notification.create({
-      data: {
-        orgId, userId: request.userId, type: 'STATUS_CHANGE',
-        title: `Your ${request.leaveType.name} request was ${approve ? 'approved' : 'rejected'}`,
-        body: rejectionReason,
-        entityId: request.id, entityType: 'LEAVE_REQUEST',
-      },
+    // In-app bell + push (createNotification), then email
+    const isWfh = request.leaveType.isWfh;
+    await createNotification({
+      orgId, userId: request.userId, type: 'STATUS_CHANGE',
+      title: isWfh
+        ? `Your work-from-home request (${describeDates(request)}) was ${approve ? 'approved' : 'rejected'}`
+        : `Your ${request.leaveType.name} request was ${approve ? 'approved' : 'rejected'}`,
+      body: rejectionReason,
+      entityId: request.id, entityType: 'LEAVE_REQUEST',
     });
     const requester = await prisma.user.findUnique({ where: { id: request.userId } });
     if (requester) {
       sendMail({
-        ...emailTemplates.leaveDecision(requester.email, requester.name, request.leaveType.name, fmt(request.startDate), fmt(request.endDate), approve, rejectionReason),
+        ...(isWfh
+          ? emailTemplates.wfhDecision(requester.email, requester.name, describeDates(request), approve, rejectionReason)
+          : emailTemplates.leaveDecision(requester.email, requester.name, request.leaveType.name, fmt(request.startDate), fmt(request.endDate), approve, rejectionReason)),
         orgId,
       }).catch(() => {});
     }
@@ -271,6 +333,8 @@ const OnBehalfSchema = RequestSchema.extend({
   autoApprove: z.boolean().optional(),
   /** Explicit manager override: allow going below zero balance (e.g. advance leave). */
   allowNegative: z.boolean().optional(),
+  /** Explicit manager override of the work-from-home rules (limits, disabled group, half day). Audited. */
+  overrideWfhLimits: z.boolean().optional(),
 });
 
 /** POST /hr/leave/requests/on-behalf — a manager applies for an employee; optionally approved immediately. Audited. */
@@ -285,7 +349,7 @@ export async function applyOnBehalf(req: AuthRequest, res: Response, next: NextF
     if (selfApproved && await mustSomeoneElseApprove(orgId, req.user!.id)) throw new AppError(403, `${SELF_APPROVAL} Apply for it as a normal request instead.`);
     checkDates(data.startDate, data.halfDay ? undefined : data.endDate);
     const startDate = parseD(data.startDate); const endDate = data.halfDay ? startDate : parseD(data.endDate);
-    const { leaveType, days } = await validateLeaveRequest(orgId, data.userId, { leaveTypeId: data.leaveTypeId, startDate, endDate, halfDay: !!data.halfDay }, { allowNegative: !!data.allowNegative, subject: 'employee' });
+    const { leaveType, days, wfh } = await validateLeaveRequest(orgId, data.userId, { leaveTypeId: data.leaveTypeId, startDate, endDate, halfDay: !!data.halfDay }, { allowNegative: !!data.allowNegative, subject: 'employee', wfhActor: 'manager', overrideWfhLimits: !!data.overrideWfhLimits });
     const request = await prisma.leaveRequest.create({
       data: {
         orgId, userId: data.userId, leaveTypeId: data.leaveTypeId, startDate, endDate, days, halfDay: !!data.halfDay, halfDayPeriod: data.halfDay ? (data.halfDayPeriod ?? 'AM') : null,
@@ -294,6 +358,7 @@ export async function applyOnBehalf(req: AuthRequest, res: Response, next: NextF
       }, include,
     });
     await audit(orgId, req.user!.id, { userId: data.userId, date: startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: selfApproved ? 'LEAVE_SELF_APPROVE' : 'LEAVE_APPLY_ON_BEHALF', after: { leaveType: leaveType.name, startDate: fmt(startDate), endDate: fmt(endDate), days, status: request.status, ...(selfApproved ? { selfApproved: true } : {}) }, reason: data.reason ?? (selfApproved ? 'Self-approved — no other active HR manager in the organisation' : null) });
+    if (wfh?.overridden) await audit(orgId, req.user!.id, { userId: data.userId, date: startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'WFH_LIMIT_OVERRIDE', after: { startDate: fmt(startDate), endDate: fmt(endDate), days }, reason: `Manager overrode the work-from-home rules: ${wfh.overridden}` });
     if (approve) computeDays(orgId, data.userId, startDate, endDate).catch(() => {});
     sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId: data.userId, type: 'created' });
     res.status(201).json(request);
@@ -309,6 +374,7 @@ const ModifySchema = z.object({
   reason: z.string().optional(),
   changeReason: z.string().min(1),
   allowNegative: z.boolean().optional(),
+  overrideWfhLimits: z.boolean().optional(),
 });
 
 /** PATCH /hr/leave/requests/:id — a manager modifies a pending or approved request (dates, type, half day). Audited. */
@@ -327,7 +393,7 @@ export async function modifyRequest(req: AuthRequest, res: Response, next: NextF
     const endDate = halfDay ? startDate : data.endDate ? parseD(data.endDate) : request.endDate;
     // Same rules as a new request — type in this org, half-day allowed,
     // working days, no overlap with the person's OTHER requests, balance (ATT-23)
-    const { days } = await validateLeaveRequest(orgId, request.userId, { leaveTypeId: data.leaveTypeId ?? request.leaveTypeId, startDate, endDate, halfDay }, { excludeRequestId: request.id, allowNegative: !!data.allowNegative, subject: 'employee' });
+    const { days, wfh } = await validateLeaveRequest(orgId, request.userId, { leaveTypeId: data.leaveTypeId ?? request.leaveTypeId, startDate, endDate, halfDay }, { excludeRequestId: request.id, allowNegative: !!data.allowNegative, subject: 'employee', wfhActor: 'manager', overrideWfhLimits: !!data.overrideWfhLimits });
     const before = { leaveTypeId: request.leaveTypeId, startDate: fmt(request.startDate), endDate: fmt(request.endDate), days: Number(request.days), halfDay: request.halfDay };
     const updated = await prisma.leaveRequest.update({
       where: { id: request.id },
@@ -335,6 +401,7 @@ export async function modifyRequest(req: AuthRequest, res: Response, next: NextF
       include,
     });
     await audit(orgId, req.user!.id, { userId: request.userId, date: startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'LEAVE_MODIFY', before, after: { leaveTypeId: updated.leaveTypeId, startDate: fmt(startDate), endDate: fmt(endDate), days, halfDay }, reason: data.changeReason });
+    if (wfh?.overridden) await audit(orgId, req.user!.id, { userId: request.userId, date: startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'WFH_LIMIT_OVERRIDE', after: { startDate: fmt(startDate), endDate: fmt(endDate), days }, reason: `Manager overrode the work-from-home rules: ${wfh.overridden}` });
     // Recompute both the old and the new range so stale LEAVE days are cleared
     const lo = new Date(Math.min(request.startDate.getTime(), startDate.getTime())), hi = new Date(Math.max(request.endDate.getTime(), endDate.getTime()));
     if (updated.status === 'APPROVED') computeDays(orgId, request.userId, lo, hi).catch(() => {});
@@ -354,7 +421,7 @@ export async function adminCancel(req: AuthRequest, res: Response, next: NextFun
     const updated = await prisma.leaveRequest.update({ where: { id: request.id }, data: { status: 'CANCELLED', cancelledBy: req.user!.id, cancelledAt: new Date(), cancelReason: reason }, include });
     await audit(orgId, req.user!.id, { userId: request.userId, date: request.startDate, entityType: 'LEAVE_REQUEST', entityId: request.id, action: 'LEAVE_CANCEL', before: { status: request.status }, after: { status: 'CANCELLED' }, reason });
     computeDays(orgId, request.userId, request.startDate, request.endDate).catch(() => {});
-    await prisma.notification.create({ data: { orgId, userId: request.userId, type: 'STATUS_CHANGE', title: `Your ${request.leaveType.name} (${fmt(request.startDate)}) was cancelled by ${req.user!.email}`, body: reason, entityId: request.id, entityType: 'LEAVE_REQUEST' } });
+    await createNotification({ orgId, userId: request.userId, type: 'STATUS_CHANGE', title: `Your ${request.leaveType.name} (${describeDates(request)}) was cancelled by ${req.user!.email}`, body: reason, entityId: request.id, entityType: 'LEAVE_REQUEST' });
     sseManager.broadcastAll(orgId, SSEEvent.LEAVE_UPDATED, { id: request.id, userId: request.userId, type: 'cancelled' });
     res.json(updated);
   } catch (err) { next(err); }

@@ -262,6 +262,9 @@ const base = (content: string, color = '#4f46e5') => `
   </div>
 `;
 
+/** For free text typed by users (WFH reasons) placed inside email HTML. */
+const escHtml = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
 const highlight = (text: string, color = '#4f46e5') => `
   <div style="background:#f5f3ff;border-left:4px solid ${color};padding:12px 16px;margin:16px 0;border-radius:4px">
     ${text}
@@ -420,6 +423,28 @@ export const emailTemplates = {
       <h2 style="color:${approved ? '#16a34a' : '#dc2626'}">Leave request ${approved ? 'approved' : 'rejected'}</h2>
       <p>Hi <strong>${requesterName}</strong>, your <strong>${leaveTypeName}</strong> request for ${startDate} &rarr; ${endDate} was ${approved ? 'approved' : 'rejected'}.</p>
       ${reason ? `<p style="color:#6b7280;font-size:13px">Reason: ${reason}</p>` : ''}
+    `, approved ? '#16a34a' : '#dc2626'),
+  }),
+
+  wfhRequested: (to: string, managerName: string, requesterName: string, when: string, days: number, reason?: string | null) => ({
+    to,
+    subject: `Work-from-home request from ${requesterName}`,
+    html: base(`
+      <h2 style="color:#4f46e5">New work-from-home request</h2>
+      <p>Hi <strong>${managerName}</strong>, <strong>${requesterName}</strong> would like to work from home.</p>
+      ${highlight(`${when} (${days} day${days === 1 ? '' : 's'})${reason ? `<br/><span style="color:#6b7280">${escHtml(reason)}</span>` : ''}`)}
+      <p>Approve or reject it from Leave &rarr; Approvals in the app.</p>
+    `),
+  }),
+
+  wfhDecision: (to: string, requesterName: string, when: string, approved: boolean, reason?: string) => ({
+    to,
+    subject: `Your work-from-home request was ${approved ? 'approved' : 'rejected'}`,
+    html: base(`
+      <h2 style="color:${approved ? '#16a34a' : '#dc2626'}">Work from home ${approved ? 'approved' : 'rejected'}</h2>
+      <p>Hi <strong>${requesterName}</strong>, your work-from-home request for ${when} was ${approved ? 'approved' : 'rejected'}.</p>
+      ${approved ? '<p style="color:#6b7280;font-size:13px">Check in from the Attendance page as usual — the office location check is skipped on WFH days.</p>' : ''}
+      ${reason ? `<p style="color:#6b7280;font-size:13px">Reason: ${escHtml(reason)}</p>` : ''}
     `, approved ? '#16a34a' : '#dc2626'),
   }),
 
