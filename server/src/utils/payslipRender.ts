@@ -12,8 +12,15 @@
  *
  * Eight layouts are expressed as *style configs* rather than eight code paths,
  * so adding a ninth is a registry entry.
+ *
+ * Images (logo, signature, watermark): the HTML just references the URL; the
+ * PDF needs the bytes, which loadPdfAssets() fetches through the SSRF-safe
+ * loader (utils/safeImageLoader.ts) before drawing. A missing or unsupported
+ * image is skipped — the payslip itself always renders.
  */
 import PDFDocument from 'pdfkit';
+import { loadImage, type LoadedImage } from './safeImageLoader';
+import { resolveWatermark, TILE_SCALE, TILE_GAP, type Watermark } from './payslipWatermark';
 
 // ─── Layout registry ─────────────────────────────────────────────────────────
 
@@ -101,6 +108,8 @@ export interface PayslipDoc {
   employerContributions: DocLine[];
   totals: { earnings: number; reimbursements: number; deductions: number; employer: number; net: number; ctcAnnual: number | null };
   netInWords: string;
+  /** Effective watermark (null = none) — see utils/payslipWatermark.ts */
+  watermark: Watermark | null;
 }
 
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -154,6 +163,7 @@ export function buildPayslipDoc(input: {
     days: p.paidDays != null ? { working: n(p.workingDays), paid: n(p.paidDays), present: n(p.presentDays), leave: n(p.leaveDays), half: n(p.halfDays), lop: n(p.lopDays), overtimeHours: n(p.overtimeHours) } : null,
     earnings, reimbursements, deductions, employerContributions, totals,
     netInWords: amountInWords(totals.net, org.currency || 'INR'),
+    watermark: resolveWatermark(t),
   };
 }
 
@@ -313,10 +323,14 @@ export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {
     .foot{margin-top:${pad * 4}px;text-align:center;font-size:${fs - 2}px;color:#9ca3af;white-space:pre-line}
     .stamp{display:inline-block;transform:rotate(-12deg);border:3px solid #16a34a;color:#16a34a;font-weight:800;font-size:20px;letter-spacing:.2em;padding:3px 14px;border-radius:6px;opacity:.8;margin:8px 0 0 12px}
     .sig{align-items:flex-end}
+    .wm{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .wm.mono{filter:grayscale(1)} .wm img{position:absolute;left:50%;top:50%;max-width:none;height:auto} .wm svg{position:absolute;inset:0;width:100%;height:100%}
+    .ps>*:not(.wm){position:relative;z-index:1}
     @media print{.ps{max-width:none} @page{margin:1.4cm}}`;
 
   const stamp = F.paidStamp && doc.payslip.status === 'PAID' ? '<div class="stamp">PAID</div>' : '';
   const body = `<div class="ps">
+    ${watermarkHtml(doc.watermark, mono)}
     <div class="hd ${L.header}">${headerInner}</div>
     ${B.headerNote ? `<div class="note">${esc(B.headerNote)}</div>` : ''}
     <div class="meta"><div>${employeeBlock}</div><div>${periodBlock}</div></div>
@@ -333,7 +347,107 @@ export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.payslip.number)}</title><style>body{margin:0;padding:24px;background:#f3f4f6}@media print{body{padding:0;background:#fff}}${css}</style></head><body>${body}</body></html>`;
 }
 
+/** Width the HTML tile size is computed against (the .ps max-width). */
+const HTML_PAGE_PX = 760;
+
+/**
+ * Faded mark behind the content. Single = one centred <img>; tiled = an
+ * inline SVG pattern, so a large data-URL logo appears in the markup once
+ * instead of once per tile. Both are real content (not CSS backgrounds), so
+ * they print even when "background graphics" is off.
+ */
+export function watermarkHtml(w: Watermark | null, mono: boolean): string {
+  if (!w) return '';
+  const cls = `wm${mono ? ' mono' : ''}`;
+  if (!w.repeat) {
+    return `<div class="${cls}" aria-hidden="true"><img src="${esc(w.url)}" alt="" style="width:${w.size}%;opacity:${w.opacity};transform:translate(-50%,-50%) rotate(${w.rotation}deg)"></div>`;
+  }
+  const tile = Math.round(HTML_PAGE_PX * (w.size / 100) * TILE_SCALE);
+  const cell = Math.round(tile * (1 + TILE_GAP)), g = Math.round((cell - tile) / 2);
+  // Brick pattern: two rows per pattern cell, the second shifted half a cell.
+  const img = (x: number, y: number) => `<image href="${esc(w.url)}" x="${x}" y="${y}" width="${tile}" height="${tile}" preserveAspectRatio="xMidYMid meet"/>`;
+  return `<div class="${cls}" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="zwm" patternUnits="userSpaceOnUse" width="${cell}" height="${cell * 2}" patternTransform="rotate(${w.rotation})">`
+    + `${img(g, g)}${img(g + cell / 2, g + cell)}${img(g - cell / 2, g + cell)}</pattern></defs><rect width="100%" height="100%" fill="url(#zwm)" opacity="${w.opacity}"/></svg></div>`;
+}
+
 // ─── PDF renderer (PDFKit) ───────────────────────────────────────────────────
+
+export interface PdfAssets { logo: LoadedImage | null; signature: LoadedImage | null; watermark: LoadedImage | null }
+
+/** Fetch every image a document needs (cached by URL in the loader). Never throws. */
+export async function loadPdfAssets(doc: PayslipDoc): Promise<PdfAssets> {
+  const mono = doc.layout.header === 'plain';
+  const [logo, signature, watermark] = await Promise.all([
+    mono ? null : loadImage(doc.company.logoUrl),
+    doc.brand.showSignature ? loadImage(doc.brand.signatureUrl) : null,
+    doc.watermark ? loadImage(doc.watermark.url) : null,
+  ]);
+  return { logo, signature, watermark };
+}
+
+// One embedded XObject per image per PDF: a 300-payslip bundle must not
+// embed the same logo 300 times.
+const opened = new WeakMap<PDFKit.PDFDocument, Map<Buffer, any>>();
+function openImage(pdf: PDFKit.PDFDocument, img: LoadedImage | null): any | null {
+  if (!img) return null;
+  let m = opened.get(pdf);
+  if (!m) { m = new Map(); opened.set(pdf, m); }
+  if (m.has(img.data)) return m.get(img.data);
+  let o: any = null;
+  try { o = (pdf as any).openImage(img.data); } catch (err: any) { console.warn(`[payslip] image could not be decoded: ${err?.message ?? err}`); }
+  m.set(img.data, o);
+  return o;
+}
+
+/** Draw the watermark on the current page (call before any content). */
+function drawWatermark(pdf: PDFKit.PDFDocument, w: Watermark, image: any, mono: boolean) {
+  const pw = pdf.page.width, ph = pdf.page.height, cx = pw / 2, cy = ph / 2;
+  const ratio = image.height / image.width;
+  // An opaque white page gives the Saturation pass below a backdrop to blend
+  // with (over a transparent backdrop it would just paint grey).
+  if (mono) pdf.save().rect(0, 0, pw, ph).fill('#ffffff').restore();
+  pdf.save();
+  pdf.opacity(w.opacity);
+  pdf.rotate(w.rotation, { origin: [cx, cy] });
+  if (!w.repeat) {
+    let iw = pw * (w.size / 100), ih = iw * ratio;
+    if (ih > ph * 0.9) { ih = ph * 0.9; iw = ih / ratio; } // tall marks fit by height
+    pdf.image(image, cx - iw / 2, cy - ih / 2, { width: iw, height: ih });
+  } else {
+    const tw = pw * (w.size / 100) * TILE_SCALE, th = tw * ratio;
+    const cellX = tw * (1 + TILE_GAP), cellY = th + tw * TILE_GAP;
+    // Cover the page's diagonal so rotation leaves no bare corners.
+    const r = Math.hypot(pw, ph) / 2;
+    const rows = Math.ceil(r / cellY) + 1, cols = Math.ceil(r / cellX) + 1;
+    for (let j = -rows; j <= rows; j++) {
+      const shift = (j & 1) ? cellX / 2 : 0;
+      for (let i = -cols; i <= cols; i++) {
+        pdf.image(image, cx + i * cellX + shift - tw / 2, cy + j * cellY - th / 2, { width: tw, height: th });
+      }
+    }
+  }
+  pdf.restore();
+  // MINIMAL is monochrome: desaturate the mark (the HTML uses a CSS grayscale
+  // filter). PDFKit has no image filters, so paint a grey rect with the
+  // Saturation blend mode over the page — nothing but the watermark is on it
+  // yet, and white stays white.
+  if (mono) {
+    const gs = (pdf as any).ref({ Type: 'ExtGState', BM: 'Saturation' });
+    gs.end();
+    (pdf.page as any).ext_gstates.GsZwmSat = gs;
+    pdf.save();
+    (pdf as any).addContent('/GsZwmSat gs');
+    pdf.rect(0, 0, pw, ph).fill('#808080');
+    pdf.restore();
+  }
+}
+
+/** Fit an image inside a w×h box, centred; returns nothing (draw only). */
+function drawFitted(pdf: PDFKit.PDFDocument, image: any, x: number, y: number, w: number, h: number) {
+  const s = Math.min(w / image.width, h / image.height);
+  const iw = image.width * s, ih = image.height * s;
+  pdf.image(image, x + (w - iw) / 2, y + (h - ih) / 2, { width: iw, height: ih });
+}
 
 function hex(c: string) { return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#2563eb'; }
 
@@ -342,7 +456,7 @@ export async function renderPayslipPdf(doc: PayslipDoc, into?: PDFKit.PDFDocumen
   const pdf = into ?? new PDFDocument({ size: 'A4', margin: 40, info: { Title: doc.payslip.number, Author: doc.company.name } });
   const chunks: Buffer[] = [];
   if (own) pdf.on('data', c => chunks.push(c));
-  drawPayslip(pdf, doc);
+  drawPayslip(pdf, doc, await loadPdfAssets(doc));
   if (!own) return Buffer.alloc(0);
   return new Promise(resolve => { pdf.on('end', () => resolve(Buffer.concat(chunks))); pdf.end(); });
 }
@@ -352,11 +466,22 @@ export async function renderPayslipBundlePdf(docs: PayslipDoc[]): Promise<Buffer
   const pdf = new PDFDocument({ size: 'A4', margin: 40, autoFirstPage: false, info: { Title: 'Payslips' } });
   const chunks: Buffer[] = [];
   pdf.on('data', c => chunks.push(c));
-  for (const d of docs) { pdf.addPage(); drawPayslip(pdf, d); }
+  for (const d of docs) { const assets = await loadPdfAssets(d); pdf.addPage(); drawPayslip(pdf, d, assets); }
   return new Promise(resolve => { pdf.on('end', () => resolve(Buffer.concat(chunks))); pdf.end(); });
 }
 
-function drawPayslip(pdf: PDFKit.PDFDocument, doc: PayslipDoc) {
+function drawPayslip(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: PdfAssets = { logo: null, signature: null, watermark: null }) {
+  const { layout: L, fields: F, brand: B } = doc;
+  // Watermark first so everything else paints over it — and again on any
+  // page PDFKit adds if a long payslip overflows.
+  const wmImage = doc.watermark ? openImage(pdf, assets.watermark) : null;
+  const onPage = () => { if (wmImage) drawWatermark(pdf, doc.watermark!, wmImage, L.header === 'plain'); };
+  onPage();
+  pdf.on('pageAdded', onPage);
+  try { drawPayslipContent(pdf, doc, assets); } finally { pdf.removeListener('pageAdded', onPage); }
+}
+
+function drawPayslipContent(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: PdfAssets) {
   const { layout: L, fields: F, brand: B } = doc;
   const mono = L.header === 'plain';
   const primary = mono ? '#111827' : hex(B.primary);
@@ -374,12 +499,22 @@ function drawPayslip(pdf: PDFKit.PDFDocument, doc: PayslipDoc) {
   if (L.header === 'boxed') pdf.save().lineWidth(1.5).strokeColor(primary).rect(left, y, width, headerH).stroke().restore();
   const textColor = L.header === 'band' ? '#ffffff' : '#111827';
   const subColor = L.header === 'band' ? '#e5e7eb' : '#6b7280';
-  const hx = left + 12;
-  pdf.font(bold).fontSize(fs + 6).fillColor(textColor).text(doc.company.name, hx, y + 12, { width: width * 0.6 });
+  // Logo left of the company name (not on MINIMAL — same as the HTML view).
+  const logo = mono ? null : openImage(pdf, assets.logo);
+  const logoBox = L.density === 'compact' ? 34 : 40;
+  if (logo) {
+    const lx = left + 10, ly = y + (headerH - logoBox) / 2;
+    // On a colour band the logo sits on a white tile, like the HTML header.
+    if (L.header === 'band') pdf.save().fillColor('#ffffff').roundedRect(lx - 2, ly - 2, logoBox + 4, logoBox + 4, 4).fill().restore();
+    drawFitted(pdf, logo, lx, ly, logoBox, logoBox);
+  }
+  const hx = left + 12 + (logo ? logoBox + 10 : 0);
+  const hw = width * 0.6 - (logo ? logoBox + 10 : 0);
+  pdf.font(bold).fontSize(fs + 6).fillColor(textColor).text(doc.company.name, hx, y + 12, { width: hw });
   let hy = pdf.y;
-  if (L.branchHeader && doc.company.branch) { pdf.font(bold).fontSize(fs).fillColor(L.header === 'band' ? '#ffffff' : accent).text(`${doc.company.branch} branch`, hx, hy, { width: width * 0.6 }); hy = pdf.y; }
+  if (L.branchHeader && doc.company.branch) { pdf.font(bold).fontSize(fs).fillColor(L.header === 'band' ? '#ffffff' : accent).text(`${doc.company.branch} branch`, hx, hy, { width: hw }); hy = pdf.y; }
   const addr = L.branchHeader && doc.company.branchAddress ? doc.company.branchAddress : doc.company.address;
-  if (addr) pdf.font(reg).fontSize(fs - 1).fillColor(subColor).text(addr.replace(/\n/g, ', '), hx, hy, { width: width * 0.6 });
+  if (addr) pdf.font(reg).fontSize(fs - 1).fillColor(subColor).text(addr.replace(/\n/g, ', '), hx, hy, { width: hw, height: Math.max(fs * 2.5, y + headerH - hy - 2), ellipsis: true });
   pdf.font(bold).fontSize(fs + 4).fillColor(L.header === 'band' ? '#ffffff' : primary).text(B.title.toUpperCase(), left, y + 12, { width: width - 12, align: 'right' });
   pdf.font(reg).fontSize(fs).fillColor(textColor).text(doc.payslip.periodLabel, left, pdf.y + 1, { width: width - 12, align: 'right' });
   pdf.font('Courier').fontSize(fs - 1).fillColor(subColor).text(doc.payslip.number, left, pdf.y + 1, { width: width - 12, align: 'right' });
@@ -491,7 +626,10 @@ function drawPayslip(pdf: PDFKit.PDFDocument, doc: PayslipDoc) {
   }
 
   // Net pay
-  const netH = 44;
+  // Grow the net-pay block when the amount in words wraps to two lines, so it
+  // doesn't spill out of the colour band (MODERN/BRANCH).
+  const wordsH = F.amountInWords ? pdf.font(L.serif ? 'Times-Italic' : 'Helvetica-Oblique').fontSize(fs - 1).heightOfString(doc.netInWords, { width: width * 0.62 }) : 0;
+  const netH = Math.max(44, 22 + wordsH + 8);
   if (L.header === 'band') pdf.save().fillColor(primary).roundedRect(left, y, width, netH, L.density === 'airy' ? 5 : 0).fill().restore();
   else pdf.save().lineWidth(1.5).strokeColor(primary).moveTo(left, y).lineTo(right, y).stroke().restore();
   const nc = L.header === 'band' ? '#ffffff' : primary;
@@ -509,7 +647,9 @@ function drawPayslip(pdf: PDFKit.PDFDocument, doc: PayslipDoc) {
   // Signature
   if (B.showSignature) {
     const sx = right - 190, sw = 190;
-    let sy = y + 22;
+    const sig = openImage(pdf, assets.signature);
+    let sy = y + (sig ? 50 : 22);
+    if (sig) drawFitted(pdf, sig, sx + 20, sy - 42, sw - 40, 38);
     pdf.save().lineWidth(0.6).strokeColor(L.serif ? '#111827' : '#9ca3af');
     if (!L.serif) pdf.dash(3, { space: 2 });
     pdf.moveTo(sx, sy).lineTo(sx + sw, sy).stroke().restore();
