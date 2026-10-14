@@ -20,9 +20,11 @@ import { policyForUser, policiesForOrg, recordsForDays, recordDayKey, RECORD_PUB
 import { shiftDayKey, todayKeyFor, keyToDate, zonedDayStart, addDaysKey, dateKey } from '../../../utils/attendanceEngine';
 import { createManualSession } from '../../../utils/attendanceSessions';
 import { isHrManager } from '../../../utils/hrAccess';
+import { wfhDayInfo, wfhTodayForUsers } from '../../../utils/wfh';
+import { exemptRule } from '../../../utils/wfhRules';
 
 /** What closeIfStale() needs from an open session */
-const OPEN_SELECT = { id: true, orgId: true, userId: true, date: true, checkInAt: true, lastSeenAt: true, lastSeenLat: true, lastSeenLng: true, lastSeenInside: true } as const;
+const OPEN_SELECT = { id: true, orgId: true, userId: true, date: true, checkInAt: true, lastSeenAt: true, lastSeenLat: true, lastSeenLng: true, lastSeenInside: true, mode: true } as const;
 
 /** A GPS fix at exactly 0,0 is what older face-only clients sent for "no location" (ATT-33). */
 const isNullIsland = (lat: number | null | undefined, lng: number | null | undefined) => lat === 0 && lng === 0;
@@ -52,18 +54,20 @@ interface VerifiedSignals {
  * returns the outcome (recorded on the row) or throws when the rule is
  * enforced and fails. Location/network are evaluated before any face data is
  * touched; a missing face on an enforced rule returns 428 so the client can
- * enrol or capture and retry.
+ * enrol or capture and retry. On an approved work-from-home day (`wfh`) the
+ * office location and network checks are skipped — face still applies.
  */
 async function verifySignals(
   action: 'in' | 'out',
   req: AuthRequest,
   input: { lat: number | null; lng: number | null; faceDescriptor?: number[] },
+  wfh = false,
 ): Promise<VerifiedSignals> {
   const orgId = req.user!.orgId;
   const userId = req.user!.id;
   const verb = action === 'in' ? 'check in' : 'check out';
   const policy = await getOrCreateAttendancePolicy(orgId);
-  const rule = parseRule(action === 'in' ? policy.checkInRule : policy.checkOutRule, action === 'in' ? DEFAULT_CHECK_IN_RULE : DEFAULT_CHECK_OUT_RULE);
+  const rule = exemptRule(parseRule(action === 'in' ? policy.checkInRule : policy.checkOutRule, action === 'in' ? DEFAULT_CHECK_IN_RULE : DEFAULT_CHECK_OUT_RULE), wfh);
 
   const offices = await prisma.officeLocation.findMany({ where: { orgId, isActive: true } });
   if (rule.enforce && rule.location && rule.mode === 'ALL' && offices.length === 0) {
@@ -143,12 +147,16 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
       throw new AppError(400, "You're already checked in — check out first before starting a new session.");
     }
 
-    const policy = await getOrCreateAttendancePolicy(orgId);
-    const v = await verifySignals('in', req, { lat, lng, faceDescriptor });
-
     // The record's day is the shift day in the employee's policy timezone
     // (IST for an Indian office), not the UTC date (ATT-4).
-    const date = keyToDate(shiftDayKey(now, dayPolicy));
+    const dayKey = shiftDayKey(now, dayPolicy);
+    const date = keyToDate(dayKey);
+    // An approved WFH day (request or recurring) skips the office checks and
+    // marks the session WFH (no geofence auto check-out, "WFH" on the live map).
+    const wfh = await wfhDayInfo(orgId, userId, dayKey);
+
+    const policy = await getOrCreateAttendancePolicy(orgId);
+    const v = await verifySignals('in', req, { lat, lng, faceDescriptor }, !!wfh);
 
     let record;
     try {
@@ -159,7 +167,7 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
           checkInLocationOk: v.locationOk, checkInNetworkOk: v.networkOk,
           checkInFaceOk: v.faceOk, checkInFaceDistance: v.faceDistance, checkInPassed: v.passed,
           ...(v.faceOk && policy.keepCheckInSelfie && selfie ? { checkInSelfie: selfie } : {}),
-          source: 'SELF',
+          source: 'SELF', mode: wfh ? 'WFH' : 'OFFICE',
         },
         select: RECORD_PUBLIC_SELECT,
       });
@@ -169,7 +177,7 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
       throw err;
     }
 
-    logAction(userId, 'CREATE', 'AttendanceRecord', record.id, { action: 'check_in', passed: v.passed, faceVerified: v.faceOk ?? undefined });
+    logAction(userId, 'CREATE', 'AttendanceRecord', record.id, { action: 'check_in', passed: v.passed, faceVerified: v.faceOk ?? undefined, ...(wfh ? { mode: 'WFH' } : {}) });
     sseManager.broadcastAll(orgId, SSEEvent.ATTENDANCE_UPDATED, { userId, type: 'check_in' });
     res.json(record);
   } catch (err) { next(err); }
@@ -212,8 +220,10 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
     // By default the check-out rule is recorded but not enforced — an employee
     // who legitimately leaves the office (client visit, end of day from home)
     // can still log a checkout time. Orgs can flip `enforce` in HR Settings.
+    // A WFH session checks out from home too: the office checks don't apply.
+    const wfhOut = openSession.mode === 'WFH' || !!(await wfhDayInfo(orgId, userId, recordDayKey(openSession, dayPolicy)));
     const policy = await getOrCreateAttendancePolicy(orgId);
-    const v = await verifySignals('out', req, { lat, lng, faceDescriptor });
+    const v = await verifySignals('out', req, { lat, lng, faceDescriptor }, wfhOut);
 
     const record = await prisma.attendanceRecord.update({
       where: { id: openSession.id },
@@ -267,7 +277,8 @@ export async function myToday(req: AuthRequest, res: Response, next: NextFunctio
     const list = [...sessions];
     if (open && !list.some(s => s.id === open.id)) list.push({ ...open, day: recordDayKey(open, policy) });
     list.sort((a, b) => (b.checkInAt?.getTime() ?? 0) - (a.checkInAt?.getTime() ?? 0));
-    res.json({ date: today, timezone: policy.timezone, shiftStart: policy.shiftStart, shiftEnd: policy.shiftEnd, sessions: list, openSession: open ? { ...open, day: recordDayKey(open, policy) } : null });
+    const wfh = await wfhDayInfo(orgId, userId, today);
+    res.json({ date: today, timezone: policy.timezone, shiftStart: policy.shiftStart, shiftEnd: policy.shiftEnd, sessions: list, openSession: open ? { ...open, day: recordDayKey(open, policy) } : null, wfh });
   } catch (err) { next(err); }
 }
 
@@ -277,8 +288,9 @@ export async function todayStatus(req: AuthRequest, res: Response, next: NextFun
     const orgId = req.user!.orgId;
     const now = new Date();
     const users = await prisma.user.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true, role: true, avatarUrl: true } });
-    const [policies, records] = await Promise.all([
-      policiesForOrg(orgId, users.map(u => u.id)),
+    const policies = await policiesForOrg(orgId, users.map(u => u.id));
+    const [wfhToday, records] = await Promise.all([
+      wfhTodayForUsers(orgId, users.map(u => u.id), policies, now),
       // Wide enough for any timezone's "today" and an overnight shift; open sessions from any day.
       prisma.attendanceRecord.findMany({
         where: { orgId, OR: [{ checkInAt: { gte: new Date(now.getTime() - 40 * 3_600_000) } }, { checkInAt: { not: null }, checkOutAt: null }] },
@@ -306,6 +318,8 @@ export async function todayStatus(req: AuthRequest, res: Response, next: NextFun
         record: last,
         isCheckedInNow: sessions.some(s => s.checkInAt && !s.checkOutAt),
         totalMinutes: sumWorkedMinutes(sessions),
+        /** Approved work from home today (request or recurring), else null */
+        wfh: wfhToday.get(u.id) ?? null,
       };
     });
     res.json(rows);
@@ -818,6 +832,7 @@ export async function liveLocations(req: AuthRequest, res: Response, next: NextF
         const nearest = lat != null && lng != null && offices.length
           ? offices.reduce((best, o) => { const d = distanceMeters(lat, lng, o.latitude, o.longitude); return d < best.d ? { d, name: o.name } : best; }, { d: Infinity, name: '' })
           : null;
+        const wfh = s.mode === 'WFH';
         return {
           user: s.user,
           recordId: s.id,
@@ -826,9 +841,11 @@ export async function liveLocations(req: AuthRequest, res: Response, next: NextF
           seenAt,
           /** true = last fix older than 3 min (app closed / no signal) */
           stale: seenAt ? now - new Date(seenAt).getTime() > STALE_AFTER_MS : true,
-          inside: s.lastSeenInside ?? s.checkInLocationOk,
+          /** Working from home: never "outside the office" (inside is null) and never flagged */
+          wfh,
+          inside: wfh ? null : (s.lastSeenInside ?? s.checkInLocationOk),
           nearestOffice: nearest && Number.isFinite(nearest.d) ? { name: nearest.name, distanceMeters: Math.round(nearest.d) } : null,
-          outsideSince: s.outsideSince,
+          outsideSince: wfh ? null : s.outsideSince,
           /** The app reported it went to the background (screen locked) — no pings until it's reopened */
           backgroundedAt: s.backgroundedAt,
         };

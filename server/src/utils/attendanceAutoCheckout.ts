@@ -21,6 +21,11 @@
 // a final heartbeat flagged state='background'. A paused WebView can't send
 // pings, so the silent-session timeout is suspended for that session until the
 // app comes back; the close-out still applies.
+//
+// Work-from-home sessions (mode 'WFH', started on an approved WFH day) are
+// never "outside the office": their pings are recorded for the live map but
+// never start the outside clock, so AUTO_GEOFENCE can't close them. The
+// heartbeat timeout and the daily close-out still apply as for any session.
 
 import { prisma } from './prisma';
 import { verifyAgainstOffices } from './attendanceVerification';
@@ -93,13 +98,14 @@ export async function recordHeartbeat(orgId: string, userId: string, lat: number
     prisma.officeLocation.findMany({ where: { orgId, isActive: true } }),
   ]);
 
-  const usable = offices.length > 0 && (accuracy == null || accuracy <= MAX_USABLE_ACCURACY_M);
+  const usable = session.mode !== 'WFH' && offices.length > 0 && (accuracy == null || accuracy <= MAX_USABLE_ACCURACY_M);
   const geo = usable ? verifyAgainstOffices(offices, lat, lng, '') : null;
   const inside: boolean | null = geo ? geo.locationOk : null;
 
   // Only a *usable* outside fix starts or continues the outside clock; an
-  // unusable one (poor accuracy) leaves the previous state alone.
-  const outsideSince = inside === null ? session.outsideSince : inside ? null : (session.outsideSince ?? now);
+  // unusable one (poor accuracy) leaves the previous state alone. A WFH
+  // session has no outside clock at all.
+  const outsideSince = session.mode === 'WFH' ? null : inside === null ? session.outsideSince : inside ? null : (session.outsideSince ?? now);
 
   const updated = await prisma.attendanceRecord.update({
     where: { id: session.id },
@@ -284,7 +290,7 @@ export async function sweepAutoCheckouts(now = new Date()): Promise<{ geofence: 
     }
     if (p.autoCheckoutOnLeave) {
       const cutoff = new Date(now.getTime() - p.autoCheckoutAfterMinutes * 60_000);
-      const rows = await prisma.attendanceRecord.findMany({ where: { orgId: p.orgId, checkOutAt: null, checkInAt: { not: null }, outsideSince: { lte: cutoff } } });
+      const rows = await prisma.attendanceRecord.findMany({ where: { orgId: p.orgId, checkOutAt: null, checkInAt: { not: null }, outsideSince: { lte: cutoff }, mode: { not: 'WFH' } } });
       for (const r of rows) { await closeSession(r, r.outsideSince!, 'AUTO_GEOFENCE'); geofence++; }
     }
     if (p.heartbeatTimeoutMinutes > 0) {
