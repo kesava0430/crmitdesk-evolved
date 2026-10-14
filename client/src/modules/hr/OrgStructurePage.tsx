@@ -163,7 +163,7 @@ function DepartmentsPanel() {
           <Field label="Name">
             <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Code">
               <Input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} />
             </Field>
@@ -354,7 +354,7 @@ function TeamsPanel() {
           <Field label="Description">
             <Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Department">
               <Select value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })}>
                 <option value="">—</option>
@@ -475,7 +475,7 @@ function LocationsPanel() {
         }
       >
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Name">
               <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
             </Field>

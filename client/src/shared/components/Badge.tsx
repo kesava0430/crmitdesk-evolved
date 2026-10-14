@@ -52,7 +52,7 @@ export function Badge({ children, variant = 'gray', dot = false, size = 'md', cl
   return (
     <span
       className={[
-        'badge inline-flex items-center gap-1.5 ring-1 ring-inset rounded-badge font-medium',
+        'badge inline-flex items-center gap-1.5 ring-1 ring-inset rounded-badge font-medium max-w-full',
         size === 'sm' ? 'px-1.5 py-0 text-[10.5px]' : 'px-2 py-0.5 text-[11.5px]',
         styles[variant],
         className,

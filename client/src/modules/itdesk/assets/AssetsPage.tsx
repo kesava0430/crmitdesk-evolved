@@ -107,7 +107,7 @@ function AssetModal({ asset, users, onClose }: {
               <Input id="asset-name" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required
                 aria-label="Name" placeholder="e.g. MacBook Pro 14" />
             </Field>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Type" required>
                 <SearchableSelect ariaLabel="Type" value={form.type} onChange={val => setForm(p => ({ ...p, type: val }))} required options={ASSET_TYPES.map(t => ({ value: t, label: t }))} />
               </Field>
@@ -123,7 +123,7 @@ function AssetModal({ asset, users, onClose }: {
         </div>
         <div className="form-section">
           <p className="form-section-title">Assignment</p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Assigned To">
               <SearchableSelect ariaLabel="Assigned To" value={form.assignedTo} onChange={val => setForm(p => ({ ...p, assignedTo: val }))} options={users.map(u => ({ value: u.id, label: u.name }))} placeholder="— Unassigned —" />
             </Field>

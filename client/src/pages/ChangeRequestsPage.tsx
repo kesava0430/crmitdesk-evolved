@@ -138,7 +138,7 @@ function ChangeRequestModal({ cr, users, onClose }: {
         </div>
         <div className="form-section">
           <p className="form-section-title">Classification</p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Type">
               <SearchableSelect ariaLabel="Type" value={form.type} onChange={val => setForm(p => ({ ...p, type: val as any }))} required options={[{value:'STANDARD',label:'Standard'},{value:'NORMAL',label:'Normal'},{value:'EMERGENCY',label:'Emergency'}]} />
             </Field>
@@ -149,7 +149,7 @@ function ChangeRequestModal({ cr, users, onClose }: {
         </div>
         <div className="form-section">
           <p className="form-section-title">Schedule &amp; Assignment</p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Assigned To" className="col-span-2">
               <SearchableSelect ariaLabel="Assigned To" value={form.assignedTo} onChange={val => setForm(p => ({ ...p, assignedTo: val }))} options={users.map(u => ({ value: u.id, label: u.name }))} placeholder="— Unassigned —" />
             </Field>

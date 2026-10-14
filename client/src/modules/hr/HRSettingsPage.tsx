@@ -218,7 +218,7 @@ function OfficeLocationsSection() {
               <Field label="Name">
                 <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Main Office" />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Latitude">
                   <Input value={form.latitude} onChange={e => setForm(f => ({ ...f, latitude: e.target.value }))} placeholder="12.9716" />
                 </Field>
@@ -368,7 +368,7 @@ function LeaveTypesSection() {
           <Checkbox label="Work from home (not leave)" hint="Employees request WFH days through the Leave page; approved days show as WFH in the register, are paid and never use a balance." checked={form.isWfh} onChange={e => setForm(f => ({ ...f, isWfh: e.target.checked }))} />
           <Checkbox label="Carry unused days into next year" checked={form.carryForward} onChange={e => setForm(f => ({ ...f, carryForward: e.target.checked }))} />
           {form.carryForward && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Max days carried (0 = all)"><Input type="number" min={0} value={form.carryForwardMaxDays} onChange={e => setForm(f => ({ ...f, carryForwardMaxDays: e.target.value }))} /></Field>
               <Field label="Carried days expire after (months, 0 = never)"><Input type="number" min={0} max={12} value={form.carryForwardExpiryMonths} onChange={e => setForm(f => ({ ...f, carryForwardExpiryMonths: e.target.value }))} /></Field>
             </div>

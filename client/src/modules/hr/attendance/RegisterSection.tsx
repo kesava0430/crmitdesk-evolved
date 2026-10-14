@@ -262,7 +262,7 @@ function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: Regis
                     <SelfieButton session={s} which="out" />
                   </div>
                   {editable && mode === 'edit' && (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <Field label="Check-in"><Input type="datetime-local" value={drafts[s.id]?.checkInAt ?? toLocalInput(s.checkInAt)} onChange={e => setDraft(s, 'checkInAt', e.target.value)} /></Field>
                       <Field label="Check-out"><Input type="datetime-local" value={drafts[s.id]?.checkOutAt ?? toLocalInput(s.checkOutAt)} onChange={e => setDraft(s, 'checkOutAt', e.target.value)} /></Field>
                     </div>
@@ -274,7 +274,7 @@ function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: Regis
           {editable && mode === 'edit' && (adding ? (
             <div className="mt-2 rounded-lg border border-dashed border-line p-2 space-y-2">
               <p className="text-[11.5px] font-medium text-fg">New session <span className="font-normal text-fg-subtle">(added next to the ones above — nothing is merged)</span></p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Field label="Check-in"><Input type="datetime-local" value={adding.checkInAt} onChange={e => setAdding(a => ({ ...a!, checkInAt: e.target.value }))} /></Field>
                 <Field label="Check-out"><Input type="datetime-local" value={adding.checkOutAt} onChange={e => setAdding(a => ({ ...a!, checkOutAt: e.target.value }))} /></Field>
               </div>
@@ -313,7 +313,7 @@ function DayModal({ row, day, canEdit, onClose }: { row: RegisterRow; day: Regis
                     {(leaveTypes ?? []).map(t => <option key={t.id} value={t.id}>{t.name}{t.isWfh ? ' (work from home)' : t.isPaid === false ? ' (unpaid)' : ''}</option>)}
                   </Select>
                 </Field>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Duration">
                     <Select value={leave.halfDay ? 'half' : 'full'} onChange={e => setLeave(l => ({ ...l, halfDay: e.target.value === 'half' }))}>
                       <option value="full">Full day</option><option value="half">Half day</option>

@@ -159,13 +159,13 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
                   ))}
                 </div>
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Primary colour"><div className="flex items-center gap-2"><input type="color" value={form.primaryColor} onChange={e => set('primaryColor', e.target.value)} className="w-9 h-9 rounded-input border border-line cursor-pointer shrink-0" /><Input value={form.primaryColor} onChange={e => set('primaryColor', e.target.value)} /></div></Field>
                 <Field label="Accent colour" hint="Section headings; blank = primary"><div className="flex items-center gap-2"><input type="color" value={form.accentColor || form.primaryColor} onChange={e => set('accentColor', e.target.value)} className="w-9 h-9 rounded-input border border-line cursor-pointer shrink-0" /><Input value={form.accentColor} onChange={e => set('accentColor', e.target.value)} placeholder="optional" /></div></Field>
               </div>
               <Field label="Company name"><Input value={form.companyName} onChange={e => set('companyName', e.target.value)} placeholder="Defaults to your org name" /></Field>
               <Field label="Company address"><Textarea rows={2} value={form.companyAddress} onChange={e => set('companyAddress', e.target.value)} /></Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Logo URL"><Input value={form.logoUrl} onChange={e => set('logoUrl', e.target.value)} placeholder="https://…" /></Field>
                 <Field label="Document title"><Input value={form.headerTitle} onChange={e => set('headerTitle', e.target.value)} placeholder="Payslip" /></Field>
               </div>
@@ -173,7 +173,7 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
               <Field label="Footer note"><Textarea rows={2} value={form.footerNote} onChange={e => set('footerNote', e.target.value)} placeholder="This is a computer-generated document and does not require a signature." /></Field>
               <Checkbox label="Show a signature block" checked={form.showSignature} onChange={e => set('showSignature', e.target.checked)} />
               {form.showSignature && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Signatory name"><Input value={form.signatoryName} onChange={e => set('signatoryName', e.target.value)} placeholder="e.g. R. Menon" /></Field>
                   <Field label="Signature label"><Input value={form.signatureLabel} onChange={e => set('signatureLabel', e.target.value)} /></Field>
                   <Field label="Signature image URL" className="col-span-2"><Input value={form.signatureUrl} onChange={e => set('signatureUrl', e.target.value)} placeholder="https://… (PNG with transparent background)" /></Field>

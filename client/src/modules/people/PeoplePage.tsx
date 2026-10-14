@@ -174,7 +174,7 @@ function AddPersonModal({ open, onClose }: { open: boolean; onClose: () => void 
         <InviteLinkBox link={inviteLink} onDone={() => { reset(); onClose(); }} />
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="First name" required>
               <Input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
             </Field>
@@ -233,7 +233,7 @@ function AddPersonModal({ open, onClose }: { open: boolean; onClose: () => void 
                 in, and don't use a licensed seat. You can grant access later at any time.
               </p>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Work email" required>
                   <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="name@company.com" />
                 </Field>

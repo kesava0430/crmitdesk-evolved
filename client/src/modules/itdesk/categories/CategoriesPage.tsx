@@ -51,7 +51,7 @@ function SLAForm({ initial, users, onSubmit, loading }: any) {
       </div>
       <div className="form-section">
         <p className="form-section-title">Time Targets</p>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Response Time (hrs)" htmlFor="sla-response">
             <Input id="sla-response" type="number" min="1" value={form.responseHours} onChange={f('responseHours')} />
           </Field>

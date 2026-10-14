@@ -192,7 +192,7 @@ export function SalaryComponentsSection() {
                 </div>
               )}
               {form.statutory.startsWith('ESI') && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Rate % of gross"><Input type="number" step="0.01" value={cfg.rate ?? ''} onChange={e => setCfg('rate', Number(e.target.value))} /></Field>
                   <Field label="Eligibility threshold (monthly gross ≤)"><Input type="number" value={cfg.threshold ?? ''} onChange={e => setCfg('threshold', Number(e.target.value))} /></Field>
                 </div>
@@ -219,7 +219,7 @@ export function SalaryComponentsSection() {
             <Field label="Default amount per period" hint="Leave blank if it is always set per employee"><Input type="number" min={0} value={form.amount} onChange={e => set('amount', e.target.value)} /></Field>
           )}
           {!form.statutory && form.calcType === 'PERCENT' && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Percent"><Input type="number" min={0} step="0.01" value={form.percent} onChange={e => set('percent', e.target.value)} /></Field>
               <Field label="Of">
                 <Select value={form.percentOf} onChange={e => set('percentOf', e.target.value)}>

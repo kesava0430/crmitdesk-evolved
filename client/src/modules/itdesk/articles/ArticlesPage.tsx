@@ -18,7 +18,7 @@ function ArticleForm({ initial, categories, onSubmit, loading, aiPrefill }: any)
           <Field label="Title" required htmlFor="article-title">
             <Input id="article-title" required aria-label="Title" value={form.title} onChange={f('title')} placeholder="e.g. How to reset your password" />
           </Field>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Category">
               <SearchableSelect ariaLabel="Category" value={form.categoryId} onChange={val => setForm((p: any) => ({ ...p, categoryId: val }))} options={(categories ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
             </Field>

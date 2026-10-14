@@ -78,7 +78,7 @@ export function Modal({
 
         {/* Header */}
         <div
-          className="flex items-start gap-3 px-6 py-4 shrink-0"
+          className="flex items-start gap-3 px-4 sm:px-6 py-4 shrink-0"
           style={{
             background:   'rgb(var(--ui-modal-header-bg))',
             borderBottom: '1px solid var(--ui-modal-header-border, rgba(0,0,0,0.06))',
@@ -110,14 +110,14 @@ export function Modal({
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 px-6 py-5">
+        <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 px-4 sm:px-6 py-5">
           {children}
         </div>
 
         {/* Footer */}
         {footer && (
           <div
-            className="px-6 py-4 shrink-0 flex items-center justify-end gap-2.5"
+            className="px-4 sm:px-6 py-4 shrink-0 flex flex-wrap items-center justify-end gap-2.5"
             style={{
               borderTop:    '1px solid var(--ui-modal-header-border, rgba(0,0,0,0.06))',
               background:   'var(--ui-modal-footer-bg, rgba(248,250,252,0.8))',

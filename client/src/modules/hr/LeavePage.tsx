@@ -111,7 +111,7 @@ function ApplyModal({ open, onClose, onBehalfOf }: { open: boolean; onClose: () 
             )}
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label={form.halfDay ? 'Date' : 'Start date'}>
             <Input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} required />
           </Field>
@@ -156,7 +156,7 @@ function ModifyModal({ req, onClose }: { req: LeaveRequest; onClose: () => void 
           <Checkbox label="Half day" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked }))} />
           {form.halfDay && <Select value={form.halfDayPeriod} onChange={e => setForm(f => ({ ...f, halfDayPeriod: e.target.value as 'AM' | 'PM' }))} className="w-40"><option value="AM">First half</option><option value="PM">Second half</option></Select>}
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label={form.halfDay ? 'Date' : 'Start date'}><Input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} /></Field>
           {!form.halfDay && <Field label="End date"><Input type="date" value={form.endDate} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} /></Field>}
         </div>

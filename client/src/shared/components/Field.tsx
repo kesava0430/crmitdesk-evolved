@@ -263,5 +263,5 @@ export function FormGrid({
 
 /** Right-aligned action row for form footers. */
 export function FormActions({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`flex items-center justify-end gap-2.5 pt-1 ${className}`}>{children}</div>;
+  return <div className={`flex flex-wrap items-center justify-end gap-2.5 pt-1 ${className}`}>{children}</div>;
 }

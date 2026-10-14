@@ -106,7 +106,7 @@ export function ScheduleReminderPanel({ entityType, entityId }: Props) {
 
       {open && (
         <form onSubmit={handleSubmit} className="bg-surface-sunken rounded-xl p-3 space-y-3 mb-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="form-label">Due <span className="req">*</span></label>
               <input

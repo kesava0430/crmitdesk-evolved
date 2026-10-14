@@ -316,7 +316,7 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
           <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Standard leave approval" />
         </Field>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Applies to">
             <Select
               value={entityType}
@@ -368,7 +368,7 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
                     />
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Select
                     aria-label="Approver type"
                     value={s.approverType}

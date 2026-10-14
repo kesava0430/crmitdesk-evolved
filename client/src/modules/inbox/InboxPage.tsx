@@ -148,7 +148,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
             <div className="form-section">
               <p className="form-section-title">Server Settings</p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="IMAP Host" required htmlFor="inbox-imap-host">
                   <Input id="inbox-imap-host" value={emailForm.imapHost}
                     onChange={e => setEmailForm(f => ({ ...f, imapHost: e.target.value }))}
