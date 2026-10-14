@@ -788,9 +788,11 @@ export function TicketsPage() {
       key: 'title',
       header: fieldLabel('ticket', 'title', 'Title'),
       cell: t => (
-        <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold shrink-0 ${t.priority === 'CRITICAL' ? 'bg-danger' : t.priority === 'HIGH' ? 'bg-warning' : t.priority === 'MEDIUM' ? 'bg-info' : 'bg-line-strong'}`}>{t.priority[0]}</span>
-          <span className="font-medium text-fg max-w-[180px] sm:max-w-xs truncate">{t.title}</span>
+        <div className="flex items-start md:items-center gap-2 min-w-0">
+          <span className={`mt-0.5 md:mt-0 inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold shrink-0 ${t.priority === 'CRITICAL' ? 'bg-danger' : t.priority === 'HIGH' ? 'bg-warning' : t.priority === 'MEDIUM' ? 'bg-info' : 'bg-line-strong'}`}>{t.priority[0]}</span>
+          {/* Phone cards wrap the title (the row is the whole card width); the
+              desktop table keeps a one-line, truncated title. */}
+          <span className="font-medium text-fg min-w-0 break-words md:max-w-xs md:truncate" title={t.title}>{t.title}</span>
         </div>
       ),
     },
