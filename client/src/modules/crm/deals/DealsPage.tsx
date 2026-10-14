@@ -445,10 +445,13 @@ function StageRow({ pipelineId, stage, index, total, allLabels, onMoved }: any) 
         <GripVertical size={14} className="text-fg-subtle" />
         <Input type="color" aria-label={`Stage colour ${index + 1}`} value={color} onChange={e => setColor(e.target.value)} className="w-7 h-7 shrink-0 !p-0.5 cursor-pointer" />
         <Input className="flex-1 min-w-[9rem]" value={label} onChange={e => setLabel(e.target.value)} aria-label={`Stage name ${index + 1}`} />
-        <Input type="number" min={0} max={100} className="w-20 ml-auto" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
-        <span className="text-xs text-fg-subtle">%</span>
-        {dirty && <Button size="sm" onClick={save} loading={updateStage.isPending}>Save</Button>}
-        <IconButton label="Remove stage" tone="danger" icon={<Trash2 size={14} />} onClick={remove} />
+        {/* Kept together so they wrap as one group on phones. */}
+        <div className="flex items-center gap-2 ml-auto">
+          <Input type="number" min={0} max={100} className="w-20" value={probability} onChange={e => setProbability(Number(e.target.value))} aria-label={`Stage probability ${index + 1}`} />
+          <span className="text-xs text-fg-subtle">%</span>
+          {dirty && <Button size="sm" onClick={save} loading={updateStage.isPending}>Save</Button>}
+          <IconButton label="Remove stage" tone="danger" icon={<Trash2 size={14} />} onClick={remove} />
+        </div>
       </div>
       {blockedCount && (
         <Alert

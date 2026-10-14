@@ -384,7 +384,7 @@ function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
             className="w-32"
             options={ACTIVITY_TYPES.map(t => ({ value: t, label: t[0] + t.slice(1).toLowerCase() }))}
           />
-          <Input aria-label="Follow-up title" className="order-first basis-full sm:order-none sm:basis-auto flex-1 min-w-[160px]" placeholder="e.g. Call to discuss pricing" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
+          <Input aria-label="Follow-up title" className="order-first basis-full sm:order-none sm:basis-0 flex-1 min-w-[160px]" placeholder="e.g. Call to discuss pricing" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
           <Input aria-label="Follow-up due date" type="date" className="w-40" value={form.dueAt} onChange={e => setForm(p => ({ ...p, dueAt: e.target.value }))} />
           <Button type="submit" size="sm" icon={<Plus size={13} />} loading={createActivity.isPending}>Add</Button>
         </div>
