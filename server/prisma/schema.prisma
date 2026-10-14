@@ -122,6 +122,7 @@ model Organization {
   attendancePolicyGroups  AttendancePolicyGroup[]
   holidays                Holiday[]
   attendanceDays          AttendanceDay[]
+  wfhSchedules            WfhSchedule[]
   attendanceAudits        AttendanceAudit[]
 }
 
@@ -367,6 +368,7 @@ model User {
   employeeSalaries  EmployeeSalary[]
   leaveBalanceAdjustments LeaveBalanceAdjustment[]
   attendanceDays          AttendanceDay[]
+  wfhSchedules            WfhSchedule[]      @relation("WfhScheduleUser")
   attendanceAuditsAbout   AttendanceAudit[] @relation("AttendanceAuditSubject")
   attendanceAuditsMade    AttendanceAudit[] @relation("AttendanceAuditChanger")
 }
@@ -1811,6 +1813,9 @@ model AttendanceRecord {
   /// cleared by the next foreground heartbeat. While set, the silent-session
   /// timeout doesn't apply — a paused WebView can't send pings (ATT-7).
   backgroundedAt        DateTime?    @map("backgrounded_at")
+  /// OFFICE | WFH — a WFH session was started on an approved work-from-home day: office
+  /// location/network checks were skipped and the geofence auto check-out never applies.
+  mode                  String       @default("OFFICE") @map("mode")
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
   org                   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -2090,13 +2095,72 @@ model AttendancePolicyGroup {
   optionalHolidaysAllowed Int          @default(2) @map("optional_holidays_allowed")
   /// { departmentIds, locationIds, employmentTypes, userIds }
   applicability           Json?
+  // ── Work from home (utils/wfh.ts). Group membership = eligibility. ──
+  /// false = members can't request WFH and the group's recurring WFH is ignored (approved requests still count)
+  wfhEnabled              Boolean      @default(true) @map("wfh_enabled")
+  /// MANAGER = requests wait for approval; AUTO = a request within the rules is approved immediately
+  wfhApprovalMode         String       @default("MANAGER") @map("wfh_approval_mode")
+  /// Max WFH days per calendar month / ISO week (approved + pending + recurring, half day = 0.5); null = unlimited
+  wfhMaxPerMonth          Int?         @default(4) @map("wfh_max_per_month")
+  wfhMaxPerWeek           Int?         @map("wfh_max_per_week")
+  /// Requests must be made this many days ahead (0 = any day from today)
+  wfhMinNoticeDays        Int          @default(0) @map("wfh_min_notice_days")
+  wfhAllowSameDay         Boolean      @default(true) @map("wfh_allow_same_day")
+  wfhAllowHalfDay         Boolean      @default(true) @map("wfh_allow_half_day")
+  /// true = a WFH day is judged on punches like a workday (min-hours rules, no lateness bands); false = paid regardless
+  wfhRequireCheckIn       Boolean      @default(true) @map("wfh_require_check_in")
   createdAt               DateTime     @default(now()) @map("created_at")
   updatedAt               DateTime     @updatedAt @map("updated_at")
   org                     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   days                    AttendanceDay[]
+  wfhSchedules            WfhSchedule[]
 
   @@index([orgId])
   @@map("attendance_policy_groups")
+}
+
+/// Recurring work from home: every listed weekday between startDate and
+/// endDate is an approved WFH day for one person (userId) or for every member
+/// of a policy group (policyGroupId) — exactly one of the two is set. No
+/// per-day request rows; the register expands it (utils/wfh.ts).
+model WfhSchedule {
+  id            String       @id @default(cuid())
+  orgId         String       @map("org_id")
+  userId        String?      @map("user_id")
+  policyGroupId String?      @map("policy_group_id")
+  /// 0 = Sunday … 6 = Saturday
+  weekdays      Int[]
+  startDate     DateTime     @db.Date @map("start_date")
+  endDate       DateTime?    @db.Date @map("end_date")
+  note          String?
+  createdBy     String       @map("created_by")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          User?        @relation("WfhScheduleUser", fields: [userId], references: [id], onDelete: Cascade)
+  policyGroup   AttendancePolicyGroup? @relation(fields: [policyGroupId], references: [id], onDelete: Cascade)
+  exceptions    WfhScheduleException[]
+
+  @@index([orgId, userId])
+  @@index([orgId, policyGroupId])
+  @@map("wfh_schedules")
+}
+
+/// A date a recurring WFH schedule does not apply — for one person (userId)
+/// or for everyone on the schedule (userId null).
+model WfhScheduleException {
+  id         String      @id @default(cuid())
+  orgId      String      @map("org_id")
+  scheduleId String      @map("schedule_id")
+  userId     String?     @map("user_id")
+  date       DateTime    @db.Date
+  reason     String?
+  createdBy  String      @map("created_by")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  schedule   WfhSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId, date])
+  @@map("wfh_schedule_exceptions")
 }
 
 model Holiday {

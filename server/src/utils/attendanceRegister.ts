@@ -20,6 +20,7 @@ import {
   DEFAULT_POLICY, DEFAULT_LATE_BANDS, NON_PERSISTED_STATUSES, isScoped,
   type Policy, type DayStatus, type PeriodSummary, type Session, type DayPhase, type SummaryDay,
 } from './attendanceEngine';
+import { wfhSettingsOf, scheduleFor, type ScheduleLike } from './wfhRules';
 
 const DAY = 86_400_000;
 export const utcDate = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d));
@@ -37,6 +38,7 @@ export function toPolicy(g: any, orgTz: string, locationTz?: string | null): Pol
     overtimeAfterMinutes: g.overtimeAfterMinutes, overtimeMinMinutes: g.overtimeMinMinutes,
     lateAllowedPerMonth: g.lateAllowedPerMonth, lateConversionEvery: g.lateConversionEvery, lateConversionUnit: g.lateConversionUnit,
     weeklyOffs: g.weeklyOffs ?? [0, 6], assumeShiftEndOnMissingCheckout: g.assumeShiftEndOnMissingCheckout,
+    wfhRequireCheckIn: wfhSettingsOf(g).requireCheckIn,
   };
 }
 
@@ -97,7 +99,7 @@ export async function policiesForOrg(orgId: string, userIds: string[]): Promise<
 }
 
 /** Fields of a record the engine/register need (never the selfies — see ATT-20). */
-export const SESSION_SELECT = { id: true, date: true, checkInAt: true, checkOutAt: true, source: true, checkOutSource: true } as const;
+export const SESSION_SELECT = { id: true, date: true, checkInAt: true, checkOutAt: true, source: true, checkOutSource: true, mode: true } as const;
 
 /** Every record column except the two selfie data-URLs, for list endpoints. */
 export const RECORD_PUBLIC_SELECT = {
@@ -107,7 +109,7 @@ export const RECORD_PUBLIC_SELECT = {
   source: true, notes: true, checkInFaceOk: true, checkInFaceDistance: true, checkInPassed: true,
   checkOutFaceOk: true, checkOutFaceDistance: true, checkOutPassed: true, checkOutSource: true,
   lastSeenAt: true, lastSeenLat: true, lastSeenLng: true, lastSeenInside: true, outsideSince: true, lastNudgedAt: true, backgroundedAt: true,
-  createdAt: true, updatedAt: true,
+  mode: true, createdAt: true, updatedAt: true,
 } as const;
 
 /** The calendar day a record belongs to under `policy`. */
@@ -147,6 +149,23 @@ export async function frozenUntil(orgId: string, userId: string): Promise<string
   return dateKey(run.periodEnd ?? new Date(Date.UTC(run.year, run.month, 0)));
 }
 
+/**
+ * Recurring WFH schedules that can apply to a user in [fromKey, toKey]: their
+ * own, plus their policy group's while the group has WFH enabled (a disabled
+ * group's schedule is ignored; one set for the person by HR still applies).
+ * Exceptions in the range come along.
+ */
+export async function schedulesFor(orgId: string, userId: string, group: { id: string; wfhEnabled?: boolean } | null, fromKey: string, toKey: string): Promise<ScheduleLike[]> {
+  const from = keyToDate(fromKey), to = keyToDate(toKey);
+  const owners: any[] = [{ userId }];
+  if (group?.id && wfhSettingsOf(group).enabled) owners.push({ policyGroupId: group.id });
+  return prisma.wfhSchedule.findMany({
+    where: { orgId, startDate: { lte: to }, AND: [{ OR: [{ endDate: null }, { endDate: { gte: from } }] }, { OR: owners }] },
+    include: { exceptions: { where: { date: { gte: from, lte: to } }, select: { userId: true, date: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
 export interface ComputedDay {
   id?: string; orgId: string; userId: string; date: Date; status: DayStatus; source: string; policyGroupId?: string | null;
   firstInAt: Date | null; lastOutAt: Date | null; workedMinutes: number; lateMinutes: number; earlyMinutes: number; overtimeMinutes: number;
@@ -181,13 +200,14 @@ export async function computeDays(orgId: string, userId: string, from: Date, to:
   if (!user) throw new AppError(404, 'User not found');
   const { policy, group, locationId, employment } = await policyForUser(orgId, userId);
   const fromKey = dateKey(from), toKey = dateKey(to);
-  const [records, leaves, holidays, existingRows, choices, frozenKey] = await Promise.all([
-    recordsForDays(orgId, userId, policy, fromKey, toKey, { ...SESSION_SELECT, notes: true }),
+  const [records, leaves, holidays, existingRows, choices, frozenKey, schedules] = await Promise.all([
+    recordsForDays(orgId, userId, policy, fromKey, toKey, SESSION_SELECT),
     prisma.leaveRequest.findMany({ where: { orgId, userId, status: 'APPROVED', startDate: { lte: to }, endDate: { gte: from } }, include: { leaveType: true } }),
     prisma.holiday.findMany({ where: { orgId, date: { gte: from, lte: to } } }),
     prisma.attendanceDay.findMany({ where: { userId, date: { gte: from, lte: to } } }),
     prisma.optionalHolidayChoice.findMany({ where: { userId, holiday: { orgId, date: { gte: from, lte: to } } }, select: { holidayId: true } }),
     frozenUntil(orgId, userId),
+    schedulesFor(orgId, userId, group, fromKey, toKey),
   ]);
   const existingByKey = new Map(existingRows.map(r => [dateKey(r.date), r]));
   const chosen = new Set(choices.map(c => c.holidayId));
@@ -211,11 +231,12 @@ export async function computeDays(orgId: string, userId: string, from: Date, to:
     const wfhLeave = dayLeaves.find(l => l.leaveType.isWfh);
     const leave = dayLeaves.find(l => !l.leaveType.isWfh);
     const holiday = pickHoliday(holidays.filter(h => dateKey(h.date) === key), locationId, chosen);
-    // Legacy heuristic kept for backward compatibility: a punched record noted "WFH"
-    const wfh = dayRecords.some(r => r.notes?.toUpperCase().includes('WFH'));
+    // A WFH day is an approved WFH request or a recurring schedule — nothing
+    // else (the old "notes contain WFH" heuristic is gone; manual marks are MANUAL rows).
+    const recurring = wfhLeave ? null : scheduleFor(schedules, userId, key);
     const res = evaluateDay(policy, {
-      date, sessions, wfh,
-      wfhApproved: wfhLeave ? { requestId: wfhLeave.id, name: wfhLeave.leaveType.name } : null,
+      date, sessions,
+      wfhApproved: wfhLeave ? { requestId: wfhLeave.id, name: wfhLeave.leaveType.name } : recurring ? { requestId: null, name: 'Recurring work from home' } : null,
       employment,
       holiday: holiday ? { name: holiday.name, isOptional: holiday.isOptional, optedIn: chosen.has(holiday.id) } : null,
       leave: leave ? { days: Number(leave.days), halfDay: leave.halfDay, halfDayPeriod: leave.halfDayPeriod, isPaid: leave.leaveType.isPaid, leaveTypeName: leave.leaveType.name, requestId: leave.id } : null,

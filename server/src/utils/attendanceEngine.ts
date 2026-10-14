@@ -38,6 +38,9 @@ export interface Policy {
   lateConversionUnit: string;   // HALF_DAY | LOP | NONE
   weeklyOffs: number[];
   assumeShiftEndOnMissingCheckout: boolean;
+  /** An approved WFH day is judged on its punches (min-hours rules, no lateness
+   *  bands) instead of being paid regardless. Unset = the old "paid regardless". */
+  wfhRequireCheckIn?: boolean;
 }
 
 export const DEFAULT_LATE_BANDS: LateBand[] = [
@@ -63,10 +66,10 @@ export interface DayContext {
   /** optedIn: the employee chose this optional holiday (ATT-26) */
   holiday?: { name: string; isOptional: boolean; optedIn?: boolean } | null;
   leave?: { days: number; halfDay: boolean; halfDayPeriod: string | null; isPaid: boolean; leaveTypeName: string; requestId: string } | null;
-  /** Legacy heuristic: a record's notes contained "WFH" (only applies when there are no punches) */
-  wfh?: boolean;
-  /** An approved work-from-home request covers this day (ATT-27) */
-  wfhApproved?: { requestId: string; name: string } | null;
+  /** The day is an approved work-from-home day — an approved request (ATT-27,
+   *  requestId set) or a recurring schedule (requestId null). The old "notes
+   *  contain WFH" heuristic is gone: only these and manual marks make a WFH day. */
+  wfhApproved?: { requestId: string | null; name: string } | null;
   /** Employment window; days outside it are NOT_EMPLOYED */
   employment?: { joiningDate: Date | null; lastWorkingDate: Date | null } | null;
 }
@@ -298,26 +301,37 @@ export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): 
       ? done('LEAVE', ctx.leave.leaveTypeName, { leaveRequestId: ctx.leave.requestId })
       : done('UNPAID_LEAVE', `${ctx.leave.leaveTypeName} (unpaid)`, { leaveRequestId: ctx.leave.requestId });
   }
-  // 2b. Approved work from home — paid, whatever was or wasn't punched
-  if (ctx.wfhApproved) return done('WFH', ctx.wfhApproved.name || 'Work from home', { leaveRequestId: ctx.wfhApproved.requestId });
+  // 2b. Approved work from home. Without the check-in requirement it is paid
+  // whatever was or wasn't punched (the original ATT-27 behaviour). With it,
+  // the day goes through the normal rules below as a workday — minimum hours
+  // apply, lateness bands and the early-departure rule don't (hours at home
+  // are flexible) — and a day worked enough shows as WFH.
+  const wfh = ctx.wfhApproved ?? null;
+  const wfhName = wfh?.name || 'Work from home';
+  if (wfh && !policy.wfhRequireCheckIn) return done('WFH', wfhName, { leaveRequestId: wfh.requestId });
+  const wfhRef = wfh?.requestId ?? null;
 
   const halfLeave = ctx.leave?.halfDay ? ctx.leave : null;
 
   // 3. No punches at all
   if (sessions.length === 0) {
-    if (phase !== 'past') return done('PENDING', phase === 'future' ? (halfLeave ? `Upcoming — half-day ${halfLeave.leaveTypeName} planned` : 'Upcoming') : 'Not checked in yet', { leaveRequestId: halfLeave?.requestId ?? null });
-    if (ctx.wfh) return done('WFH', 'Work from home');
+    if (phase !== 'past') {
+      const reason = phase === 'future'
+        ? (halfLeave ? `Upcoming — half-day ${halfLeave.leaveTypeName} planned` : wfh ? `Upcoming — ${wfhName}` : 'Upcoming')
+        : (wfh ? `${wfhName} — not checked in yet` : 'Not checked in yet');
+      return done('PENDING', reason, { leaveRequestId: halfLeave?.requestId ?? wfhRef });
+    }
     if (halfLeave) {
       return done('HALF_DAY', `Half-day ${halfLeave.leaveTypeName}, no attendance for the other half`, { paidFraction: halfLeave.isPaid ? 0.5 : 0, leaveRequestId: halfLeave.requestId });
     }
-    return done('ABSENT', 'No check-in');
+    return done('ABSENT', wfh ? `${wfhName} — no check-in` : 'No check-in', { leaveRequestId: wfhRef });
   }
 
   // 4. Arrival band. With a first-half (AM) leave the employee is expected at
-  // the middle of the shift, not at shift start.
+  // the middle of the shift, not at shift start. Not applied on a WFH day.
   const expectedStart = halfLeave?.halfDayPeriod === 'AM' ? shiftStartMin + Math.round((shiftEndMin - shiftStartMin) / 2) : shiftStartMin;
   const inMin = minutesIntoDay(firstIn!, tz, key);
-  const lateBy = Math.max(0, inMin - expectedStart);
+  const lateBy = wfh ? 0 : Math.max(0, inMin - expectedStart);
   const lateMinutes = lateBy > policy.graceMinutes ? lateBy : 0;
   let arrival: DayStatus = 'PRESENT';
   if (lateMinutes > 0) {
@@ -330,9 +344,9 @@ export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): 
   // the hours rule can't be judged until the day is over.
   if (phase !== 'past') {
     const open = sessions.some(s => !s.checkOutAt);
-    const reason = `In progress — ${open ? 'checked in' : 'arrived'} ${minutesToHhmm(localMinutes(firstIn!, tz))}${lateMinutes ? `, ${fmtDur(lateBy)} late` : ''}`;
+    const reason = `In progress — ${wfh ? 'working from home, ' : ''}${open ? 'checked in' : 'arrived'} ${minutesToHhmm(localMinutes(firstIn!, tz))}${lateMinutes ? `, ${fmtDur(lateBy)} late` : ''}`;
     const paid = arrival === 'ABSENT' ? (halfLeave?.isPaid ? 0.5 : 0) : arrival === 'HALF_DAY' ? (halfLeave ? (halfLeave.isPaid ? 1 : 0.5) : 0.5) : 1;
-    return done(arrival, reason, { lateMinutes, paidFraction: paid, leaveRequestId: halfLeave?.requestId ?? null });
+    return done(wfh && arrival === 'PRESENT' ? 'WFH' : arrival, reason, { lateMinutes, paidFraction: paid, leaveRequestId: halfLeave?.requestId ?? wfhRef });
   }
 
   // 5. Worked-hours rule
@@ -345,7 +359,7 @@ export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): 
   if (effectiveLastOut) {
     const outMin = minutesIntoDay(effectiveLastOut, tz, key);
     const earlyBy = Math.max(0, shiftEndMin - outMin);
-    if (earlyBy > policy.earlyDepartureGraceMinutes && !(halfLeave && halfLeave.halfDayPeriod === 'PM')) earlyMinutes = earlyBy;
+    if (earlyBy > policy.earlyDepartureGraceMinutes && !(halfLeave && halfLeave.halfDayPeriod === 'PM') && !wfh) earlyMinutes = earlyBy;
     if (policy.overtimeAfterMinutes > 0) {
       const beyond = outMin - shiftEndMin - policy.overtimeAfterMinutes;
       if (beyond >= policy.overtimeMinMinutes) overtimeMinutes = beyond;
@@ -370,9 +384,14 @@ export function evaluateDay(policy: Policy, ctx: DayContext, now = new Date()): 
     status = 'HALF_DAY'; reason = `Left ${fmtDur(earlyMinutes)} early`;
   }
   if (halfLeave && status === 'PRESENT') reason = `Half-day ${halfLeave.leaveTypeName} + ${fmtDur(worked)} worked`;
+  if (wfh) {
+    // Worked enough → WFH (paid like PRESENT); otherwise the shortfall status stands.
+    if (status === 'PRESENT') { status = 'WFH'; reason = `${wfhName} — worked ${fmtDur(worked)}`; }
+    else reason = `${wfhName} — ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`;
+  }
 
   const paidFraction = status === 'ABSENT' ? (halfLeave?.isPaid ? 0.5 : 0) : status === 'HALF_DAY' ? (halfLeave ? (halfLeave.isPaid ? 1 : 0.5) : 0.5) : 1;
-  return { status, paidFraction, ...metrics, lateMinutes, earlyMinutes, overtimeMinutes, reason, leaveRequestId: halfLeave?.requestId ?? null, phase, provisional };
+  return { status, paidFraction, ...metrics, lateMinutes, earlyMinutes, overtimeMinutes, reason, leaveRequestId: halfLeave?.requestId ?? wfhRef, phase, provisional };
 }
 
 // ─── Month-level late conversion ─────────────────────────────────────────────
@@ -396,6 +415,7 @@ export interface PeriodSummary {
   daysInPeriod: number;
   workingDays: number;      // counted days − week offs − holidays
   presentDays: number;      // full-day presence incl. late, WFH
+  wfhDays: number;          // of which worked from home
   halfDays: number;
   leaveDays: number;        // paid leave
   unpaidLeaveDays: number;
@@ -443,6 +463,7 @@ export function summarise(policy: Policy, days: SummaryDay[], opts: { toDate?: b
   return {
     daysInPeriod: days.length, workingDays,
     presentDays: count('PRESENT') + count('LATE') + count('WFH'),
+    wfhDays: count('WFH'),
     halfDays: count('HALF_DAY'),
     leaveDays: count('LEAVE'), unpaidLeaveDays: count('UNPAID_LEAVE'), absentDays: count('ABSENT'),
     lopDays, paidDays: Math.max(0, Math.round((workingDays - lopDays) * 100) / 100),
