@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { authenticate, requireRole, ALL_USERS, ADMIN } from '../../../middleware/authenticate';
 // HR-manager role set lives in one place (utils/hrAccess.ts); aliased so the route table reads as before.
 import { HR_MANAGERS as MANAGERS } from '../../../utils/hrAccess';
@@ -59,6 +60,14 @@ router.post('/optional-holidays/:id', requireRole(...ALL_USERS), a.setOptionalHo
 router.delete('/optional-holidays/:id', requireRole(...ALL_USERS), a.setOptionalHoliday);
 router.get('/records/:id/selfie',     requireRole(...ALL_USERS), c.recordSelfie);
 router.post('/days',                  requireRole(...MANAGERS),  a.markDay);
+// Bulk edit: a handful per minute per person is plenty for a human; this stops
+// a stuck client or script from hammering the heaviest write in the module.
+const bulkLimiter = rateLimit({
+  windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => (req as any).user?.id ?? req.ip ?? 'anon',
+  message: { error: 'Too many bulk edits in a short time — wait a minute and try again.' },
+});
+router.post('/days/bulk',             requireRole(...MANAGERS),  bulkLimiter, a.bulkDays);
 router.delete('/days/:userId/:date',  requireRole(...MANAGERS),  a.resetDay);
 router.get('/audit',                  requireRole(...ALL_USERS), a.auditHistory);
 

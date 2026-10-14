@@ -247,7 +247,7 @@ export async function computeDays(orgId: string, userId: string, from: Date, to:
     out.push({ ...saved, ...extras });
   }
   if (persist && staleIds.length) await prisma.attendanceDay.deleteMany({ where: { id: { in: staleIds }, source: 'COMPUTED' } });
-  return { days: out, policy, group };
+  return { days: out, policy, group, locationId, employment };
 }
 
 export const toSummaryDays = (days: ComputedDay[]): SummaryDay[] =>
@@ -288,8 +288,16 @@ export async function payrollSummary(orgId: string, userId: string, from: Date, 
   return { ...s, policyGroupName: group.name, futureDaysAssumedPaid, manualCorrections, warnings };
 }
 
-export async function audit(orgId: string, changedBy: string, entry: { userId: string; date?: Date | null; entityType: string; entityId?: string | null; action: string; before?: any; after?: any; reason?: string | null }) {
-  return prisma.attendanceAudit.create({ data: { orgId, changedBy, userId: entry.userId, date: entry.date ?? null, entityType: entry.entityType, entityId: entry.entityId ?? null, action: entry.action, before: entry.before ?? undefined, after: entry.after ?? undefined, reason: entry.reason ?? null } });
+export interface AuditEntry { userId: string; date?: Date | null; entityType: string; entityId?: string | null; action: string; before?: any; after?: any; reason?: string | null; batchId?: string | null }
+
+/** One AttendanceAudit row's data — shared by audit() and bulk writers so every row has the same shape. */
+export function auditData(orgId: string, changedBy: string, entry: AuditEntry) {
+  return { orgId, changedBy, userId: entry.userId, date: entry.date ?? null, entityType: entry.entityType, entityId: entry.entityId ?? null, action: entry.action, before: entry.before ?? undefined, after: entry.after ?? undefined, reason: entry.reason ?? null, batchId: entry.batchId ?? null };
+}
+
+/** `db` lets a caller write the audit row inside its own transaction. */
+export async function audit(orgId: string, changedBy: string, entry: AuditEntry, db: Pick<typeof prisma, 'attendanceAudit'> = prisma) {
+  return db.attendanceAudit.create({ data: auditData(orgId, changedBy, entry) });
 }
 
 /** Holidays that apply to a user (location-scoped, opted-in optional ones) as day keys — for leave length. */

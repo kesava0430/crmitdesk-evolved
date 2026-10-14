@@ -8,12 +8,14 @@ import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
 import { sseManager, SSEEvent } from '../../../utils/sse';
 import {
-  computeDays, ensureDefaultGroup, audit, parseDateOnly, dateKey, policyForUser, registerSummary, recordsForDays,
+  computeDays, ensureDefaultGroup, parseDateOnly, dateKey, policyForUser, registerSummary, recordsForDays,
   RECORD_PUBLIC_SELECT, frozenUntil, type ComputedDay,
 } from '../../../utils/attendanceRegister';
 import { DEFAULT_LATE_BANDS, isValidTimeZone, isScoped, todayKeyFor } from '../../../utils/attendanceEngine';
 import { createManualSession, editSession } from '../../../utils/attendanceSessions';
 import { isHrManager } from '../../../utils/hrAccess';
+import { writeManualStatus, resetManualDays, runBulkCorrection } from '../../../utils/attendanceCorrections';
+import { expandCells } from '../../../utils/attendanceBulk';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -340,7 +342,6 @@ const MarkSchema = z.object({
   reason: z.string().trim().min(1).max(500),
 });
 
-const PAID: Record<string, number> = { PRESENT: 1, LATE: 1, WFH: 1, LEAVE: 1, HOLIDAY: 1, WEEK_OFF: 1, HALF_DAY: 0.5, ABSENT: 0, UNPAID_LEAVE: 0, LOP: 0 };
 const toDate = (s: string | null | undefined) => (s == null ? s as null | undefined : new Date(s));
 
 /**
@@ -383,14 +384,8 @@ export async function markDay(req: AuthRequest, res: Response, next: NextFunctio
     if (add) await createManualSession(orgId, actor, { userId: data.userId, checkInAt: add.checkInAt, checkOutAt: add.checkOutAt, notes: data.notes ?? null, reason: data.reason });
 
     if (data.status) {
-      const existing = await prisma.attendanceDay.findUnique({ where: { userId_date: { userId: data.userId, date } } });
-      const action = !before || before.status === 'ABSENT' ? 'REGULARISE' : before.source === 'MANUAL' ? 'CORRECT' : 'MARK';
-      const after = await prisma.attendanceDay.upsert({
-        where: { userId_date: { userId: data.userId, date } },
-        create: { orgId, userId: data.userId, date, status: data.status, source: 'MANUAL', paidFraction: PAID[data.status], notes: data.notes, reason: `Set by ${req.user!.email}: ${data.reason}`, updatedBy: actor, policyGroupId: existing?.policyGroupId ?? null },
-        update: { orgId, status: data.status, source: 'MANUAL', paidFraction: PAID[data.status], notes: data.notes, reason: `Set by ${req.user!.email}: ${data.reason}`, updatedBy: actor },
-      });
-      await audit(orgId, actor, { userId: data.userId, date, entityType: 'ATTENDANCE_DAY', entityId: after.id, action, before: before ? { status: before.status, source: before.source, paidFraction: before.paidFraction, notes: before.notes ?? null } : null, after: { status: after.status, source: 'MANUAL', paidFraction: after.paidFraction, notes: after.notes }, reason: data.reason });
+      // Same write as the bulk edit (utils/attendanceCorrections.ts)
+      const { row: after, action } = await writeManualStatus(prisma, { orgId, actorId: actor, actorEmail: req.user!.email, userId: data.userId, date, status: data.status, notes: data.notes, reason: data.reason, before });
       logAction(actor, 'UPDATE', 'AttendanceDay', after.id, { action, userId: data.userId, date: data.date, status: data.status });
     }
     sseManager.broadcastAll(orgId, SSEEvent.ATTENDANCE_UPDATED, { userId: data.userId, type: 'corrected' });
@@ -407,12 +402,48 @@ export async function resetDay(req: AuthRequest, res: Response, next: NextFuncti
     const date = parseDateOnly(req.params.date);
     const frozen = await frozenUntil(orgId, req.params.userId);
     if (frozen && req.params.date <= frozen) throw new AppError(409, `${req.params.date} is in a finalised payroll period and can no longer be changed.`);
-    const before = await prisma.attendanceDay.findFirst({ where: { orgId, userId: req.params.userId, date, source: 'MANUAL' } });
-    if (!before) throw new AppError(404, 'No manual entry for that day');
-    await prisma.attendanceDay.delete({ where: { id: before.id } });
-    const { days } = await computeDays(orgId, req.params.userId, date, date);
-    await audit(orgId, req.user!.id, { userId: req.params.userId, date, entityType: 'ATTENDANCE_DAY', entityId: days[0]?.id ?? null, action: 'CORRECT', before: { status: before.status, source: 'MANUAL' }, after: { status: days[0]?.status, source: 'COMPUTED' }, reason: (req.body?.reason as string) || 'Reverted to computed' });
-    res.json(days[0] ? serializeDay(days[0]) : null);
+    // Same revert as the bulk edit: drop the MANUAL row, recompute, audit.
+    const done = await resetManualDays(orgId, req.user!.id, req.params.userId, [req.params.date], (req.body?.reason as string) || 'Reverted to computed');
+    if (!done.length) throw new AppError(404, 'No manual entry for that day');
+    const day = done[0].after;
+    res.json(day ? serializeDay(day) : null);
+  } catch (err) { next(err); }
+}
+
+const BulkSchema = z.object({
+  /** Explicit cells (the register's "Select days" mode)… */
+  cells: z.array(z.object({ userId: z.string().min(1), date: z.string() })).max(5000).optional(),
+  /** …or people × (dates | range) */
+  userIds: z.array(z.string().min(1)).max(1000).optional(),
+  dates: z.array(z.string()).max(400).optional(),
+  range: z.object({ from: z.string(), to: z.string() }).optional(),
+  skipWeeklyOffs: z.boolean().optional().default(true),
+  skipHolidays: z.boolean().optional().default(true),
+  action: z.enum(['mark', 'reset']),
+  status: STATUS_ENUM.optional(),
+  reason: z.string().trim().min(1).max(500),
+  notes: z.string().max(500).optional(),
+  overwriteManual: z.boolean().optional().default(false),
+  /** Classify only — returns what would change, writes nothing (the confirm step's preview). */
+  dryRun: z.boolean().optional(),
+}).refine(d => d.action !== 'mark' || !!d.status, { message: 'Pick the status to mark the days as', path: ['status'] });
+
+/**
+ * POST /hr/attendance/days/bulk — mark or reset many people × days (managers).
+ * Each changed day goes through the same write as the single-day correction
+ * and gets its own audit row (tagged with the batch id). Frozen days, weekly
+ * offs / holidays (when asked) and existing manual corrections (unless
+ * overwriteManual) are skipped and reported. Re-running a batch changes nothing new.
+ */
+export async function bulkDays(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const data = BulkSchema.parse(req.body);
+    const cells = expandCells(data);
+    const result = await runBulkCorrection({ orgId: req.user!.orgId, id: req.user!.id, email: req.user!.email }, cells, {
+      action: data.action, status: data.status, notes: data.notes, reason: data.reason,
+      skipWeeklyOffs: data.skipWeeklyOffs, skipHolidays: data.skipHolidays, overwriteManual: data.overwriteManual, dryRun: data.dryRun,
+    });
+    res.json(result);
   } catch (err) { next(err); }
 }
 

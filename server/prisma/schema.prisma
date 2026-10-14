@@ -2193,6 +2193,8 @@ model AttendanceAudit {
   before     Json?
   after      Json?
   reason     String?
+  /// Set on every row written by one bulk correction request (register "Bulk edit")
+  batchId    String?      @map("batch_id")
   changedBy  String       @map("changed_by")
   changedAt  DateTime     @default(now()) @map("changed_at")
   org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -2200,6 +2202,7 @@ model AttendanceAudit {
   changer    User         @relation("AttendanceAuditChanger", fields: [changedBy], references: [id], onDelete: Cascade)
 
   @@index([orgId, userId, changedAt])
+  @@index([batchId])
   @@map("attendance_audits")
 }
 
