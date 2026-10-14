@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, History, RotateCcw, CalendarCheck, Pencil, Download, Plus, Camera, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, History, RotateCcw, CalendarCheck, Pencil, Download, Plus, Camera, Lock, CalendarRange, MousePointerClick, Check } from 'lucide-react';
 import { api } from '../../../api/client';
 import {
   Card, CardHeader, Button, Modal, Badge, Field, Input, Select, Textarea, Alert, SkeletonTable, EmptyState, Avatar, IconButton,
@@ -11,6 +11,8 @@ import {
 } from '../../../api/attendanceAdmin';
 import { useFormat } from '../../../hooks/useFormat';
 import { useMediaQuery, MD_UP } from '../../../hooks/useMediaQuery';
+import { BulkEditModal } from './BulkEditModal';
+import type { BulkCell } from '../../../api/attendanceAdmin';
 
 const MANUAL_STATUSES: ManualStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'WFH', 'LEAVE', 'UNPAID_LEAVE', 'LOP', 'HOLIDAY', 'WEEK_OFF'];
 const LEGEND: DayStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'LEAVE', 'UNPAID_LEAVE', 'WFH', 'HOLIDAY', 'WEEK_OFF', 'LOP', 'NOT_EMPLOYED'];
@@ -42,6 +44,12 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
   const { data, isLoading, isError } = useRegister(month, onlyUserId, canEdit && !onlyUserId);
   const [selected, setSelected] = useState<{ row: RegisterRow; day: RegisterDay } | null>(null);
   const [historyFor, setHistoryFor] = useState<RegisterRow | null>(null);
+  // Bulk edit: the modal (with explicit cells when opened from a selection)
+  // and the grid's "Select days" mode. Selection keys are `${userId}|${date}`.
+  const [bulk, setBulk] = useState<{ cells: BulkCell[] | null } | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const canBulk = canEdit && !onlyUserId;
 
   const rows = useMemo(() => {
     const list = data?.rows ?? [];
@@ -50,6 +58,23 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
     return list.filter(r => r.user.name.toLowerCase().includes(q) || (r.user.department || '').toLowerCase().includes(q));
   }, [data, search]);
   const days = data?.rows?.[0]?.days ?? [];
+
+  // Locked (paid) days can't change, so they're never selected; tapping a
+  // name or a day header toggles every selectable cell in that row/column.
+  const cellKey = (userId: string, date: string) => `${userId}|${date}`;
+  const toggleKeys = (keys: string[]) => setSel(prev => {
+    if (!keys.length) return prev;
+    const next = new Set(prev);
+    const allOn = keys.every(k => next.has(k));
+    keys.forEach(k => (allOn ? next.delete(k) : next.add(k)));
+    return next;
+  });
+  const toggleRow = (row: RegisterRow) => toggleKeys(row.days.filter(d => !d.frozen).map(d => cellKey(row.user.id, d.date)));
+  const toggleColumn = (date: string) => toggleKeys(rows.flatMap(r => r.days.filter(d => d.date === date && !d.frozen).map(() => cellKey(r.user.id, date))));
+  const stopSelecting = () => { setSelecting(false); setSel(new Set()); };
+  // A new month shows different cells; don't carry an invisible selection over.
+  useEffect(() => { setSel(new Set()); }, [month]);
+  const selectedCells = (): BulkCell[] => [...sel].map(k => { const [userId, date] = k.split('|'); return { userId, date }; });
   const mdUp = useMediaQuery(MD_UP);
   // An employee's own register reads best as a month calendar on a phone; the
   // days × people grid stays for HR and for wider screens.
@@ -83,6 +108,13 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
             {!onlyUserId && rows.length > 0 && (
               <IconButton label="Export CSV" icon={<Download size={16} />} onClick={() => downloadCsv(`attendance-register-${month}.csv`, registerToCsv(rows))} />
             )}
+            {canBulk && (data?.rows?.length ?? 0) > 0 && (
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button size="sm" variant="secondary" className="flex-1 sm:flex-none" icon={<CalendarRange size={14} />} onClick={() => setBulk({ cells: null })}>Bulk edit</Button>
+                <Button size="sm" variant={selecting ? 'subtle' : 'secondary'} className="flex-1 sm:flex-none" icon={<MousePointerClick size={14} />} aria-pressed={selecting}
+                  onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>{selecting ? 'Stop selecting' : 'Select days'}</Button>
+              </div>
+            )}
             {/* Phones: month switcher on its own full-width row, above the filter. */}
             <div className="flex items-center justify-between gap-2 w-full order-first sm:order-none sm:w-auto sm:justify-start">
               <IconButton label="Previous month" icon={<ChevronLeft size={16} />} onClick={() => setMonth(m => shiftMonth(m, -1))} />
@@ -107,7 +139,13 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                   const isToday = d.phase === 'today';
                   return (
                     <th key={d.date} data-today={isToday || undefined} className={`px-0.5 py-1 border-b border-line-subtle font-normal text-center ${isToday ? 'text-accent font-semibold' : 'text-fg-subtle'}`}>
-                      <div className="leading-tight"><div>{dt.getDate()}</div><div className="text-[10px] uppercase">{dt.toLocaleDateString(undefined, { weekday: 'narrow' })}</div></div>
+                      {selecting ? (
+                        <button type="button" onClick={() => toggleColumn(d.date)} title={`Select ${d.date} for everyone shown`} className="w-7 rounded leading-tight hover:bg-accent-soft hover:text-accent underline decoration-dotted underline-offset-2">
+                          <div>{dt.getDate()}</div><div className="text-[10px] uppercase">{dt.toLocaleDateString(undefined, { weekday: 'narrow' })}</div>
+                        </button>
+                      ) : (
+                        <div className="leading-tight"><div>{dt.getDate()}</div><div className="text-[10px] uppercase">{dt.toLocaleDateString(undefined, { weekday: 'narrow' })}</div></div>
+                      )}
                     </th>
                   );
                 })}
@@ -125,7 +163,11 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="hidden sm:inline-flex shrink-0"><Avatar name={row.user.name} src={row.user.avatarUrl ?? undefined} size="xs" /></span>
                       <div className="min-w-0">
-                        <div className="font-medium text-fg truncate" title={row.user.name}>{row.user.name}{row.user.isActive === false && <span className="ml-1 text-[10px] text-fg-subtle">(inactive)</span>}</div>
+                        {selecting ? (
+                          <button type="button" onClick={() => toggleRow(row)} title={`Select ${row.user.name}'s whole month`} className="block max-w-full text-left font-medium text-accent truncate underline decoration-dotted underline-offset-2">{row.user.name}</button>
+                        ) : (
+                          <div className="font-medium text-fg truncate" title={row.user.name}>{row.user.name}{row.user.isActive === false && <span className="ml-1 text-[10px] text-fg-subtle">(inactive)</span>}</div>
+                        )}
                         <div className="hidden sm:block text-[10px] text-fg-subtle truncate">{row.policyGroup}{row.user.department ? ` · ${row.user.department}` : ''}</div>
                         {/* The totals columns sit off-screen on a phone — show the key one here. */}
                         <div className="sm:hidden text-[10px] text-fg-muted tabular-nums truncate">Paid {row.summary.paidDays}/{row.summary.workingDays}{row.summary.lopDays ? ` · LOP ${row.summary.lopDays}` : ''}</div>
@@ -134,15 +176,20 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
                   </td>
                   {row.days.map(d => {
                     const provisional = d.phase === 'today' && d.status !== 'PENDING';
+                    const key = cellKey(row.user.id, d.date);
+                    const isSel = selecting && sel.has(key);
                     return (
                       <td key={d.date} className="p-0.5 border-b border-line-subtle text-center">
                         <button
                           type="button"
                           title={`${d.date}: ${STATUS_LABEL[d.status]}${provisional ? ' (so far — day in progress)' : ''}${d.source === 'MANUAL' ? ' (manual)' : ''}${d.workedMinutes ? ` · ${fmtMin(d.workedMinutes)}` : ''}${d.lateMinutes ? ` · late ${d.lateMinutes}m` : ''}${d.frozen ? ' · paid (locked)' : ''}`}
-                          onClick={() => setSelected({ row, day: d })}
-                          className={`relative w-7 h-7 rounded font-semibold tabular-nums hover:ring-2 hover:ring-accent/60 cursor-pointer ${STATUS_CLASS[d.status]} ${provisional ? 'opacity-70 italic ring-1 ring-dashed ring-accent/40' : ''}`}
+                          onClick={() => (selecting ? (!d.frozen && toggleKeys([key])) : setSelected({ row, day: d }))}
+                          aria-pressed={selecting ? isSel : undefined}
+                          disabled={selecting && d.frozen}
+                          className={`relative w-7 h-7 rounded font-semibold tabular-nums hover:ring-2 hover:ring-accent/60 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${STATUS_CLASS[d.status]} ${provisional && !isSel ? 'opacity-70 italic ring-1 ring-dashed ring-accent/40' : ''} ${isSel ? 'ring-2 ring-accent ring-offset-1 ring-offset-surface' : ''}`}
                         >
                           {STATUS_SHORT[d.status]}
+                          {isSel && <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-accent text-accent-fg flex items-center justify-center" aria-hidden="true"><Check size={9} strokeWidth={3} /></span>}
                           {d.source === 'MANUAL' && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent" aria-label="Manually corrected" />}
                         </button>
                       </td>
@@ -161,8 +208,24 @@ export function RegisterSection({ canEdit, onlyUserId }: RegisterSectionProps) {
         </div>
       )}
 
+      {selecting && !calendar && (
+        <div className="sticky bottom-0 z-20 -mx-card sm:mx-0 mt-2 px-card sm:px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:rounded-lg border-t sm:border border-line bg-surface-raised shadow-ui-md flex items-center gap-2" role="region" aria-label="Selected days">
+          <div className="flex-1 min-w-0 text-[13px]">
+            {sel.size
+              ? <span className="font-medium text-fg tabular-nums">{sel.size} {sel.size === 1 ? 'day' : 'days'} selected</span>
+              : <span className="text-fg-muted">Tap days to select them — or a name for the whole month, a date for everyone.</span>}
+          </div>
+          {sel.size > 0 && <Button size="sm" variant="ghost" onClick={() => setSel(new Set())}>Clear</Button>}
+          <Button size="sm" disabled={!sel.size} onClick={() => setBulk({ cells: selectedCells() })}>Edit…</Button>
+        </div>
+      )}
+
       {selected && <DayModal row={selected.row} day={selected.day} canEdit={canEdit} onClose={() => setSelected(null)} />}
       {historyFor && <HistoryModal row={historyFor} onClose={() => setHistoryFor(null)} />}
+      {bulk && data && (
+        <BulkEditModal rows={data.rows} from={data.from} to={data.to} cells={bulk.cells} onClose={() => setBulk(null)}
+          onApplied={() => { if (bulk.cells) stopSelecting(); }} />
+      )}
     </Card>
   );
 }
@@ -427,7 +490,7 @@ function HistoryModal({ row, onClose }: { row: RegisterRow; onClose: () => void 
             <li key={a.id} className="py-2.5 flex flex-col gap-0.5 sm:flex-row sm:gap-3">
               <div className="sm:w-36 shrink-0 text-fg-subtle tabular-nums">{dateTime(a.changedAt)}</div>
               <div className="min-w-0 flex-1">
-                <div className="font-medium text-fg"><Badge variant="gray">{a.entityType}</Badge> <span className="ml-1">{a.action.replace(/_/g, ' ').toLowerCase()}</span>{a.date ? <span className="text-fg-subtle"> · {a.date.slice(0, 10)}</span> : null}</div>
+                <div className="font-medium text-fg"><Badge variant="gray">{a.entityType}</Badge> <span className="ml-1">{a.action.replace(/_/g, ' ').toLowerCase()}</span>{a.date ? <span className="text-fg-subtle"> · {a.date.slice(0, 10)}</span> : null}{a.batchId && <Badge variant="blue" className="ml-1.5">bulk</Badge>}</div>
                 {(a.before?.status || a.after?.status) && <div className="text-fg-muted mt-0.5">{a.before?.status ?? '—'} → <strong>{a.after?.status ?? '—'}</strong></div>}
                 {a.reason && <div className="text-fg-muted mt-0.5 italic">“{a.reason}”</div>}
                 <div className="text-[11px] text-fg-subtle mt-0.5">by {a.changer?.name}</div>

@@ -29,7 +29,7 @@ export interface DaySession {
 }
 export interface DayDetail { timezone: string; day: RegisterDay | null; sessions: DaySession[] }
 export interface OptionalHolidayList { year: number; allowed: number; used: number; today: string; holidays: (Holiday & { optedIn: boolean })[] }
-export interface AuditRow { id: string; date: string | null; entityType: string; action: string; before: any; after: any; reason: string | null; changedAt: string; changer: { id: string; name: string }; user: { id: string; name: string } }
+export interface AuditRow { id: string; date: string | null; entityType: string; action: string; before: any; after: any; reason: string | null; changedAt: string; batchId?: string | null; changer: { id: string; name: string }; user: { id: string; name: string } }
 
 export const STATUS_LABEL: Record<DayStatus, string> = { PRESENT: 'Present', LATE: 'Late', HALF_DAY: 'Half day', ABSENT: 'Absent', LEAVE: 'Leave', UNPAID_LEAVE: 'Unpaid leave', WFH: 'WFH', HOLIDAY: 'Holiday', WEEK_OFF: 'Week off', LOP: 'LOP', PENDING: 'Not yet', NOT_EMPLOYED: 'Not employed' };
 export const STATUS_SHORT: Record<DayStatus, string> = { PRESENT: 'P', LATE: 'L', HALF_DAY: '½', ABSENT: 'A', LEAVE: 'LV', UNPAID_LEAVE: 'UL', WFH: 'W', HOLIDAY: 'H', WEEK_OFF: 'O', LOP: 'X', PENDING: '', NOT_EMPLOYED: '–' };
@@ -84,3 +84,34 @@ export function registerToCsv(rows: RegisterRow[]): string {
 }
 export function useResetDay() { const qc = useQueryClient(); return useMutation({ mutationFn: ({ userId, date, reason }: { userId: string; date: string; reason?: string }) => api.delete(`/hr/attendance/days/${userId}/${date}`, { data: { reason } }).then(r => r.data), onSuccess: () => inv(qc) }); }
 export function useConvertToLeave() { const qc = useQueryClient(); return useMutation({ mutationFn: (d: { userId: string; date: string; leaveTypeId: string; halfDay?: boolean; halfDayPeriod?: 'AM' | 'PM'; reason: string }) => api.post('/hr/leave/convert', d).then(r => r.data), onSuccess: () => { inv(qc); qc.invalidateQueries({ queryKey: ['leave-requests'] }); } }); }
+
+// ─── Bulk edit (POST /hr/attendance/days/bulk) ───────────────────────────────
+
+/** Same caps as the server (utils/attendanceBulk.ts) — checked client-side to explain before sending. */
+export const BULK_MAX_CELLS = 3000;
+export interface BulkCell { userId: string; date: string }
+export interface BulkInput {
+  /** Explicit cells (selection mode) — or userIds with dates / range */
+  cells?: BulkCell[];
+  userIds?: string[];
+  dates?: string[];
+  range?: { from: string; to: string };
+  skipWeeklyOffs: boolean;
+  skipHolidays: boolean;
+  action: 'mark' | 'reset';
+  status?: ManualStatus;
+  reason: string;
+  notes?: string;
+  overwriteManual: boolean;
+  /** Classify only, write nothing */
+  dryRun?: boolean;
+}
+export interface BulkSkip { userId: string; date: string; code: string; reason: string }
+export interface BulkResult { batchId: string | null; dryRun: boolean; total: number; changed: number; skipped: BulkSkip[] }
+export function useBulkDays() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (d: BulkInput) => api.post<BulkResult>('/hr/attendance/days/bulk', d).then(r => r.data),
+    onSuccess: (r) => { if (!r.dryRun) { inv(qc); qc.invalidateQueries({ queryKey: ['attendance-day'] }); } },
+  });
+}
