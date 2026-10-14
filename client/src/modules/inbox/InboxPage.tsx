@@ -526,8 +526,10 @@ export function InboxPage() {
         {selectedId && conversation ? (
           <>
             {/* Thread header */}
-            <div className="px-4 sm:px-6 py-3 sm:py-4 bg-surface border-b border-line flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {/* Phones: contact on its own line, actions wrap below it (they
+                used to squeeze the contact name out entirely). */}
+            <div className="px-4 sm:px-6 py-3 sm:py-4 bg-surface border-b border-line flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0 basis-full sm:basis-auto">
                 <IconButton
                   label="Back to conversations"
                   size="md"
@@ -556,7 +558,7 @@ export function InboxPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 ml-auto">
                 <Button size="sm" variant="secondary" icon={<Sparkles size={12} />}
                   loading={planConversation.isPending}
                   onClick={() => planConversation.mutate(conversation.id)}>

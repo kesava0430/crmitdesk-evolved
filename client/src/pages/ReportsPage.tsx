@@ -292,9 +292,11 @@ export function ReportsPage() {
                 ) : (
                   <div className="space-y-3">
                     {csatResponses.data.map(r => (
-                      <div key={r.id} className="flex items-start gap-3 p-3 rounded-card bg-surface-sunken">
+                      // Phones: stars + date on the first line, the ticket and
+                      // comment get the full width below. sm+: one row as before.
+                      <div key={r.id} className="flex flex-wrap sm:flex-nowrap items-start gap-x-3 gap-y-1.5 p-3 rounded-card bg-surface-sunken">
                         <StarRow rating={r.rating} />
-                        <div className="flex-1 min-w-0">
+                        <div className="order-last sm:order-none basis-full sm:basis-auto flex-1 min-w-0">
                           {r.ticket && (
                             <Link to="/itdesk/tickets" className="text-sm font-medium text-fg hover:text-accent hover:underline truncate block">
                               {r.ticket.title}
@@ -304,7 +306,7 @@ export function ReportsPage() {
                             <p className="text-xs text-fg-muted mt-1 flex items-start gap-1"><MessageSquare size={12} className="mt-0.5 flex-shrink-0" />{r.comment}</p>
                           )}
                         </div>
-                        <span className="text-xs text-fg-subtle flex-shrink-0">{date(r.submittedAt)}</span>
+                        <span className="ml-auto sm:ml-0 text-xs text-fg-subtle flex-shrink-0">{date(r.submittedAt)}</span>
                       </div>
                     ))}
                   </div>

@@ -261,7 +261,9 @@ export default function ChangeRequestsPage() {
           <div className="space-y-3">
             {changeRequests.map(cr => (
               <Card key={cr.id} data-testid="cr-card">
-                <div className="flex items-start gap-4">
+                {/* Phones: the action chips go under the details so the title
+                    and description get the card's full width. */}
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <h3 className="font-semibold text-fg truncate max-w-full" title={cr.title}>{cr.title}</h3>
@@ -280,7 +282,7 @@ export default function ChangeRequestsPage() {
                       <p className="text-xs text-danger-fg mt-1.5 bg-danger-soft px-3 py-1.5 rounded-btn">Rejected: {cr.rejectionReason}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                  <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap sm:justify-end">
                     {cr.status === 'SUBMITTED' && (
                       <>
                         <ActionChip tone="success" icon={<CheckCircle size={13} />} onClick={() => approve.mutate(cr.id)}>
