@@ -250,7 +250,7 @@ export default function AssetsPage() {
             value={search}
             onChange={setSearch}
             placeholder="Search assets…"
-            className="flex-1 min-w-[160px] max-w-xs"
+            className="w-full flex-1 min-w-[160px] sm:w-auto sm:max-w-xs"
           />
           <Select aria-label="Filter by status" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="">All Statuses</option>

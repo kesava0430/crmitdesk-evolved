@@ -198,7 +198,7 @@ export function ContactsPage() {
         actions={<Button icon={<Plus size={15} />} onClick={() => setModal('create')}>New {singular}</Button>}
         below={
           <Toolbar>
-            <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
+            <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} className="w-full sm:w-auto" />
           </Toolbar>
         }
       />

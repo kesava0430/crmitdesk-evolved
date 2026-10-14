@@ -12,6 +12,7 @@ import type { Column } from '../../../shared/components';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useUsers } from '../../../api/users';
 import { useDepartments } from '../../../api/people';
+import { useMediaQuery, MD_UP } from '../../../hooks/useMediaQuery';
 import { useLabels } from '../../../hooks/useLabels';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
@@ -383,7 +384,7 @@ function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
             className="w-32"
             options={ACTIVITY_TYPES.map(t => ({ value: t, label: t[0] + t.slice(1).toLowerCase() }))}
           />
-          <Input aria-label="Follow-up title" className="flex-1 min-w-[160px]" placeholder="e.g. Call to discuss pricing" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
+          <Input aria-label="Follow-up title" className="order-first basis-full sm:order-none sm:basis-auto flex-1 min-w-[160px]" placeholder="e.g. Call to discuss pricing" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
           <Input aria-label="Follow-up due date" type="date" className="w-40" value={form.dueAt} onChange={e => setForm(p => ({ ...p, dueAt: e.target.value }))} />
           <Button type="submit" size="sm" icon={<Plus size={13} />} loading={createActivity.isPending}>Add</Button>
         </div>
@@ -414,6 +415,9 @@ export function LeadsPage() {
   const singular = entityLabel('lead', 'singular', 'Lead');
   const plural = entityLabel('lead', 'plural', 'Leads');
   const aiPrefill = useAiPrefill<{ name?: string; email?: string; source?: string; notes?: string; status?: string }>();
+  // Phone card layout: Convert moves off the title line (where it squeezed
+  // the lead's name) onto the AI score line.
+  const isDesktop = useMediaQuery(MD_UP);
 
   useEffect(() => {
     if (aiPrefill) setModal('create');
@@ -441,6 +445,33 @@ export function LeadsPage() {
     }
     setModal(null);
   }
+
+  const scoreCell = (lead: any) => lead.aiScore != null ? (
+    <div className="flex items-center gap-1.5">
+      <Badge variant={scoreVariant(lead.aiScore)} className="tabular-nums">{lead.aiScore}</Badge>
+      <IconButton
+        size="xs"
+        tone="accent"
+        label={lead.aiScoreReason || 'Re-score'}
+        icon={<Zap size={12} />}
+        onClick={() => score.mutate(lead.id)}
+      />
+    </div>
+  ) : (
+    <Button variant="ghost" size="xs" icon={<Sparkles size={12} />} onClick={() => score.mutate(lead.id)} disabled={score.isPending}>
+      {score.isPending ? 'Scoring...' : 'Score'}
+    </Button>
+  );
+
+  const convertCell = (lead: any) => lead.status !== 'CONVERTED' ? (
+    <Button size="sm" variant="secondary" icon={<ArrowRight size={13} />} onClick={() => setModal({ type: 'convert', lead })}>
+      Convert
+    </Button>
+  ) : (
+    <span className="flex items-center gap-1 text-xs text-success font-medium px-2">
+      <CheckCircle2 size={13} /> Converted
+    </span>
+  );
 
   const leadColumns: Column<any>[] = [
     {
@@ -482,21 +513,12 @@ export function LeadsPage() {
       // the "Score" button and the re-score action, and scoring writes the
       // result straight onto the lead.
       header: <span className="inline-flex items-center gap-1">AI Score <AiInfo id="lead.score" /></span>,
-      cell: (lead: any) => lead.aiScore != null ? (
-        <div className="flex items-center gap-1.5">
-          <Badge variant={scoreVariant(lead.aiScore)} className="tabular-nums">{lead.aiScore}</Badge>
-          <IconButton
-            size="xs"
-            tone="accent"
-            label={lead.aiScoreReason || 'Re-score'}
-            icon={<Zap size={12} />}
-            onClick={() => score.mutate(lead.id)}
-          />
+      mobileLabel: 'AI Score',
+      cell: (lead: any) => isDesktop ? scoreCell(lead) : (
+        <div className="flex items-center justify-between gap-2">
+          {scoreCell(lead)}
+          {convertCell(lead)}
         </div>
-      ) : (
-        <Button variant="ghost" size="xs" icon={<Sparkles size={12} />} onClick={() => score.mutate(lead.id)} disabled={score.isPending}>
-          {score.isPending ? 'Scoring...' : 'Score'}
-        </Button>
       ),
     },
     {
@@ -526,15 +548,7 @@ export function LeadsPage() {
             }
             onClick={() => setModal({ type: 'followups', lead })}
           />
-          {lead.status !== 'CONVERTED' ? (
-            <Button size="sm" variant="secondary" icon={<ArrowRight size={13} />} onClick={() => setModal({ type: 'convert', lead })}>
-              Convert
-            </Button>
-          ) : (
-            <span className="flex items-center gap-1 text-xs text-success font-medium px-2">
-              <CheckCircle2 size={13} /> Converted
-            </span>
-          )}
+          {isDesktop && convertCell(lead)}
           <RowActions items={[
             { label: 'AI follow-up email', icon: <Mail size={14} />, onClick: () => setModal({ type: 'followup', lead }) },
             { label: 'AI nurture sequence', icon: <Calendar size={14} />, onClick: () => setModal({ type: 'nurture', lead }) },
@@ -556,7 +570,7 @@ export function LeadsPage() {
         actions={<Button icon={<Plus size={15} />} onClick={() => setModal('create')}>New {singular}</Button>}
         below={
           <Toolbar>
-            <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} />
+            <SearchInput value={search} onChange={setSearch} placeholder={`Search ${plural.toLowerCase()}...`} className="w-full sm:w-auto" />
             <Select
               aria-label="Filter by status"
               value={statusFilter}
