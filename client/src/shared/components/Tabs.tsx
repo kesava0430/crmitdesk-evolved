@@ -35,7 +35,7 @@ export interface TabsProps<K extends string = string> {
   'aria-label'?: string;
 }
 
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 export function Tabs<K extends string = string>({
   items,
@@ -56,12 +56,31 @@ export function Tabs<K extends string = string>({
     if (!list || list.scrollWidth <= list.clientWidth) return;
     const active = list.querySelector<HTMLElement>('[aria-selected="true"]');
     if (!active) return;
-    const pad = 12;
+    const pad = 32; // clear the 28px edge fade
     const left = active.getBoundingClientRect().left - list.getBoundingClientRect().left + list.scrollLeft;
     const right = left + active.offsetWidth;
     if (left - pad < list.scrollLeft) list.scrollLeft = Math.max(0, left - pad);
     else if (right + pad > list.scrollLeft + list.clientWidth) list.scrollLeft = right + pad - list.clientWidth;
   }, [value]);
+
+  /* Edge fade: when the strip scrolls, mark which ends have hidden tabs so
+     CSS can fade that edge (index.css `.tabs-scroll[data-fade]`). Otherwise
+     the last tab is simply cut at the screen edge and nothing says "swipe". */
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || variant === 'pill') return;
+    const update = () => {
+      const max = list.scrollWidth - list.clientWidth;
+      const l = list.scrollLeft > 2, r = max > 2 && list.scrollLeft < max - 2;
+      const v = l && r ? 'both' : l ? 'left' : r ? 'right' : '';
+      if (v) list.setAttribute('data-fade', v); else list.removeAttribute('data-fade');
+    };
+    update();
+    list.addEventListener('scroll', update, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    ro?.observe(list);
+    return () => { list.removeEventListener('scroll', update); ro?.disconnect(); };
+  }, [variant, items.length]);
 
   /* `tabs-scroll` (index.css): when the strip is wider than its container it
      scrolls inside itself instead of widening the page. */
