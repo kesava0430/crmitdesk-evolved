@@ -326,10 +326,11 @@ export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {
     .wm{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .wm.mono{filter:grayscale(1)} .wm img{position:absolute;left:50%;top:50%;max-width:none;height:auto} .wm svg{position:absolute;inset:0;width:100%;height:100%}
     .ps>*:not(.wm){position:relative;z-index:1}
+    .has-wm .days div{background:${L.density === 'airy' ? 'rgba(243,244,246,.6)' : 'rgba(255,255,255,.5)'}} .has-wm .note{background:rgba(249,250,251,.6)}
     @media print{.ps{max-width:none} @page{margin:1.4cm}}`;
 
   const stamp = F.paidStamp && doc.payslip.status === 'PAID' ? '<div class="stamp">PAID</div>' : '';
-  const body = `<div class="ps">
+  const body = `<div class="ps${doc.watermark ? ' has-wm' : ''}">
     ${watermarkHtml(doc.watermark, mono)}
     <div class="hd ${L.header}">${headerInner}</div>
     ${B.headerNote ? `<div class="note">${esc(B.headerNote)}</div>` : ''}
@@ -366,8 +367,13 @@ export function watermarkHtml(w: Watermark | null, mono: boolean): string {
   const cell = Math.round(tile * (1 + TILE_GAP)), g = Math.round((cell - tile) / 2);
   // Brick pattern: two rows per pattern cell, the second shifted half a cell.
   const img = (x: number, y: number) => `<image href="${esc(w.url)}" x="${x}" y="${y}" width="${tile}" height="${tile}" preserveAspectRatio="xMidYMid meet"/>`;
-  return `<div class="${cls}" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="zwm" patternUnits="userSpaceOnUse" width="${cell}" height="${cell * 2}" patternTransform="rotate(${w.rotation})">`
-    + `${img(g, g)}${img(g + cell / 2, g + cell)}${img(g - cell / 2, g + cell)}</pattern></defs><rect width="100%" height="100%" fill="url(#zwm)" opacity="${w.opacity}"/></svg></div>`;
+  // viewBox in "page px" with slice: the pattern scales with the payslip's
+  // width (like the PDF, where tiles are a fraction of the page width) instead
+  // of staying a fixed pixel size in a narrow phone preview. The tall viewBox
+  // keeps the width as the scaling side for any realistic payslip height.
+  const vbH = HTML_PAGE_PX * 6;
+  return `<div class="${cls}" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${HTML_PAGE_PX} ${vbH}" preserveAspectRatio="xMidYMin slice"><defs><pattern id="zwm" patternUnits="userSpaceOnUse" width="${cell}" height="${cell * 2}" patternTransform="rotate(${w.rotation})">`
+    + `${img(g, g)}${img(g + cell / 2, g + cell)}${img(g - cell / 2, g + cell)}</pattern></defs><rect width="${HTML_PAGE_PX}" height="${vbH}" fill="url(#zwm)" opacity="${w.opacity}"/></svg></div>`;
 }
 
 // ─── PDF renderer (PDFKit) ───────────────────────────────────────────────────
@@ -483,6 +489,7 @@ function drawPayslip(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: PdfAssets
 
 function drawPayslipContent(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: PdfAssets) {
   const { layout: L, fields: F, brand: B } = doc;
+  const wmOn = !!(doc.watermark && assets.watermark);
   const mono = L.header === 'plain';
   const primary = mono ? '#111827' : hex(B.primary);
   const accent = mono ? '#374151' : hex(B.accent);
@@ -562,7 +569,8 @@ function drawPayslipContent(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: Pd
     if (doc.days.overtimeHours) tiles.push(['Overtime', `${doc.days.overtimeHours} h`]);
     const tw = 84, th = 30; let tx = left;
     for (const [l, v] of tiles) {
-      pdf.save().lineWidth(0.5).strokeColor('#e5e7eb').fillColor(L.density === 'airy' ? '#f3f4f6' : '#ffffff').roundedRect(tx, y, tw - 6, th, L.density === 'airy' ? 5 : 2).fillAndStroke().restore();
+      // Translucent over a watermark so the tiles don't punch holes in it.
+      pdf.save().lineWidth(0.5).strokeColor('#e5e7eb').fillColor(L.density === 'airy' ? '#f3f4f6' : '#ffffff').fillOpacity(wmOn ? 0.5 : 1).roundedRect(tx, y, tw - 6, th, L.density === 'airy' ? 5 : 2).fillAndStroke().restore();
       pdf.font(reg).fontSize(fs - 2.5).fillColor('#6b7280').text(l.toUpperCase(), tx + 6, y + 5, { width: tw - 12 });
       pdf.font(bold).fontSize(fs + 2).fillColor(l === 'Loss of pay' ? '#b91c1c' : '#111827').text(v, tx + 6, y + 14, { width: tw - 12 });
       tx += tw;
