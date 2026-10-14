@@ -178,7 +178,13 @@ export async function docFor(payslip: any, templateOverride?: string): Promise<P
   const employee = await employeeFor(payslip.orgId, payslip.userId);
   let template = templateOverride ? await prisma.payslipTemplate.findFirst({ where: { id: templateOverride, orgId: payslip.orgId } }) : payslip.template;
   if (!template) template = await resolveTemplate(payslip.orgId, employee);
-  return buildPayslipDoc({ payslip, template, employee, org: payslip.org });
+  // A revised payslip says which issue it supersedes (the latest frozen version's issue date).
+  let supersedesIssuedAt: string | null = null;
+  if ((payslip.version ?? 1) > 1) {
+    const prev = await prisma.payslipRevision.findFirst({ where: { orgId: payslip.orgId, payslipId: payslip.id }, orderBy: [{ version: 'desc' }, { createdAt: 'desc' }], select: { data: true } });
+    supersedesIssuedAt = (prev?.data as any)?.issuedAt ?? null;
+  }
+  return buildPayslipDoc({ payslip, template, employee, org: payslip.org, supersedesIssuedAt });
 }
 
 /** GET /payslips/:id/html[?templateId&embed=1] */
@@ -252,11 +258,11 @@ async function emailOne(payslip: any, orgId: string, sentBy: string) {
   const pdf = await renderPayslipPdf(doc);
   const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#111">
     <p>Hi ${doc.employee.name.split(' ')[0]},</p>
-    <p>Your payslip for <strong>${doc.payslip.periodLabel}</strong> is attached as a PDF.</p>
+    <p>${doc.revision ? `Your <strong>revised</strong> payslip (v${doc.revision.version}) for <strong>${doc.payslip.periodLabel}</strong> is attached as a PDF. It replaces the one you received earlier.` : `Your payslip for <strong>${doc.payslip.periodLabel}</strong> is attached as a PDF.`}</p>
     <p style="font-size:13px;color:#555">Net pay: <strong>${doc.totals.net.toLocaleString(doc.locale, { style: 'currency', currency: doc.currency })}</strong> · ${doc.payslip.number}</p>
     <p style="font-size:12px;color:#888">Log in to the HR portal to see every payslip and download older ones.</p>
   </div>`;
-  await sendMail({ to, subject: `Payslip — ${doc.payslip.periodLabel} (${doc.payslip.number})`, html, orgId, attachments: [{ filename: `${doc.payslip.number}.pdf`, contentBase64: pdf.toString('base64'), contentType: 'application/pdf' }] });
+  await sendMail({ to, subject: `${doc.revision ? `Revised payslip (v${doc.revision.version})` : 'Payslip'} — ${doc.payslip.periodLabel} (${doc.payslip.number})`, html, orgId, attachments: [{ filename: `${doc.payslip.number}.pdf`, contentBase64: pdf.toString('base64'), contentType: 'application/pdf' }] });
   await prisma.payslip.update({ where: { id: payslip.id }, data: { emailedAt: new Date() } });
   logAction(sentBy, 'UPDATE', 'Payslip', payslip.id, { action: 'emailed', to });
   return { id: payslip.id, ok: true };
@@ -272,16 +278,25 @@ export async function emailPayslip(req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err); }
 }
 
-/** POST /runs/:id/email — send every (non-draft) payslip in the run; { onlyUnsent?: boolean } */
+/** Not e-mailed yet, or revised after it was last e-mailed (the employee has an outdated copy). */
+export const needsEmail = (p: { emailedAt: Date | null; revisedAt?: Date | null }) => !p.emailedAt || (!!p.revisedAt && p.revisedAt > p.emailedAt);
+/** Previously e-mailed, then revised — the "re-send revised payslips" action. */
+export const revisedSinceEmail = (p: { emailedAt: Date | null; revisedAt?: Date | null }) => !!p.emailedAt && !!p.revisedAt && p.revisedAt > p.emailedAt;
+
+/** POST /runs/:id/email — send every (non-draft) payslip in the run.
+ *  { onlyUnsent?: boolean (default true: skip payslips whose current version was already sent),
+ *    onlyRevised?: boolean (only payslips revised since they were last e-mailed) } */
 export async function emailRun(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const run = await prisma.payrollRun.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include: { payslips: { include: payslipInclude } } });
     if (!run) throw new AppError(404, 'Payroll run not found');
     if (run.status === 'DRAFT') throw new AppError(400, 'Finalise the run before e-mailing payslips');
     const onlyUnsent = req.body?.onlyUnsent !== false;
+    const onlyRevised = req.body?.onlyRevised === true;
     const results = [];
     for (const p of run.payslips) {
-      if (onlyUnsent && p.emailedAt) { results.push({ id: p.id, ok: true, skipped: true }); continue; }
+      if (p.status === 'DRAFT') { results.push({ id: p.id, ok: true, skipped: true }); continue; }
+      if (onlyRevised ? !revisedSinceEmail(p) : (onlyUnsent && !needsEmail(p))) { results.push({ id: p.id, ok: true, skipped: true }); continue; }
       results.push(await emailOne(p, req.user!.orgId, req.user!.id));
     }
     res.json({ sent: results.filter(r => r.ok && !(r as any).skipped).length, skipped: results.filter(r => (r as any).skipped).length, failed: results.filter(r => !r.ok), results });

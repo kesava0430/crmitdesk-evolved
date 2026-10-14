@@ -7,9 +7,10 @@ import { logAction } from '../../../utils/auditLog';
 import { ensureDefaultComponents, computePayslip, periodFor, defaultPeriodInputs, inputsFromAttendance, type Overrides } from '../../../utils/payrollEngine';
 import { payrollSummary } from '../../../utils/attendanceRegister';
 import { ensureDefaultCycle, employeeContext, toDef } from './payrollConfig.controller';
-import { ensureDefaultTemplate, resolveTemplate } from './payslipTemplates.controller';
+import { ensureDefaultTemplate } from './payslipTemplates.controller';
 
 import { isHrManager } from '../../../utils/hrAccess';
+import { nextSequence, type SlipLine } from '../../../utils/payrollRevision';
 
 // ─── Salary Structures ───────────────────────────────────────────────────────
 
@@ -110,15 +111,20 @@ const runInclude = {
   payslips: { include: { user: { select: { id: true, name: true, avatarUrl: true, department: true } }, lines: { orderBy: { displayOrder: 'asc' as const } } }, orderBy: { user: { name: 'asc' as const } } },
 };
 
-/** Sequential per-org display number, e.g. "PAY-2026-08-0001" — same
- *  count-then-format approach as Invoice.invoiceNumber. */
-async function nextPayslipNumber(orgId: string, year: number, month: number): Promise<string> {
-  const count = await prisma.payslip.count({ where: { orgId, year, month } });
-  return `PAY-${year}-${String(month).padStart(2, '0')}-${String(count + 1).padStart(4, '0')}`;
+/** Sequential per-org display number, e.g. "PAY-2026-08-0001". Takes the
+ *  highest number in use rather than counting rows: counting reused numbers
+ *  after a payslip was deleted (recalculate used to delete and recreate). */
+export async function nextPayslipNumber(orgId: string, year: number, month: number, skip = 0): Promise<string> {
+  const prefix = `PAY-${year}-${String(month).padStart(2, '0')}-`;
+  const rows = await prisma.payslip.findMany({ where: { orgId, year, month, payslipNumber: { startsWith: prefix } }, select: { payslipNumber: true } });
+  return `${prefix}${String(nextSequence(rows.map(r => r.payslipNumber), prefix) + skip).padStart(4, '0')}`;
 }
 
-/** Compute + write one employee's payslip (draft) for a run. */
-async function buildPayslip(orgId: string, run: { id: string; periodStart: Date; periodEnd: Date; month: number; year: number; payrollCycleId: string | null; attendanceMode?: string | null }, es: { id: string; userId: string; overrides: any; ctcAnnual: any; currency: string }, comps: any[], cycle: any) {
+export type RunForCompute = { id: string; periodStart: Date; periodEnd: Date; month: number; year: number; payrollCycleId: string | null; attendanceMode?: string | null };
+export type SalaryForCompute = { id: string; userId: string; overrides: any; ctcAnnual: any; currency: string };
+
+/** Compute one employee's payslip for a run (reads attendance + employee context) without writing anything. */
+export async function computeSlip(orgId: string, run: RunForCompute, es: SalaryForCompute, comps: any[], cycle: any) {
   const period = periodFor(cycle, run.periodStart);
   const useAttendance = (run.attendanceMode ?? 'ATTENDANCE') !== 'CALENDAR';
   let inputs = defaultPeriodInputs(period);
@@ -135,23 +141,50 @@ async function buildPayslip(orgId: string, run: { id: string; periodStart: Date;
   }
   const ctx = await employeeContext(orgId, es.userId);
   const result = computePayslip(comps.map(toDef), (es.overrides ?? {}) as Overrides, ctx, inputs, es.ctcAnnual != null ? Number(es.ctcAnnual) : null);
-  const g = (code: string) => result.lines.find(l => l.code === code)?.amount ?? 0;
-  const payslipNumber = await nextPayslipNumber(orgId, run.year, run.month);
-  return prisma.payslip.create({
-    data: {
-      orgId, userId: es.userId, payrollRunId: run.id, employeeSalaryId: es.id, payslipNumber,
-      month: run.month, year: run.year, periodStart: run.periodStart, periodEnd: run.periodEnd, currency: es.currency,
+  const lines: SlipLine[] = result.lines.map(l => ({ code: l.code, name: l.name, category: l.category, amount: l.amount, basis: l.basis, showOnPayslip: l.showOnPayslip, displayOrder: l.displayOrder }));
+  return {
+    lines,
+    totals: { earnings: result.totals.earnings, deductions: result.totals.deductions, reimbursements: result.totals.reimbursements, employer: result.totals.employerContributions, net: result.totals.net },
+    fields: {
+      employeeSalaryId: es.id, currency: es.currency,
       workingDays: inputs.workingDays, presentDays: inputs.presentDays, paidDays: inputs.paidDays, leaveDays: inputs.leaveDays,
       lopDays: inputs.lopDays, halfDays: inputs.halfDays, overtimeHours: inputs.overtimeHours,
       attendanceSummary: { ...attendanceSummary, warnings: result.warnings },
-      // legacy denormalised columns so older views keep working
-      basic: g('BASIC'), hra: g('HRA'), allowances: Math.max(0, result.totals.earnings - g('BASIC') - g('HRA')),
-      grossPay: result.totals.earnings, pf: g('PF_EMP'), professionalTax: g('PT'),
-      otherDeductions: Math.max(0, result.totals.deductions - g('PF_EMP') - g('PT')),
-      totalDeductions: result.totals.deductions, netPay: result.totals.net,
-      totalEarnings: result.totals.earnings, totalReimbursements: result.totals.reimbursements, employerContributions: result.totals.employerContributions,
+    },
+  };
+}
+export type ComputedSlip = Awaited<ReturnType<typeof computeSlip>>;
+
+/** Payslip columns for a computed slip (totals may differ from the engine's when adjustments were re-applied). */
+export function slipColumns(c: { lines: SlipLine[]; totals: { earnings: number; deductions: number; reimbursements: number; employer: number; net: number }; fields: ComputedSlip['fields'] }) {
+  const g = (code: string) => c.lines.find(l => l.code === code)?.amount ?? 0;
+  const t = c.totals;
+  return {
+    ...c.fields,
+    // legacy denormalised columns so older views keep working
+    basic: g('BASIC'), hra: g('HRA'), allowances: Math.max(0, t.earnings - g('BASIC') - g('HRA')),
+    grossPay: t.earnings, pf: g('PF_EMP'), professionalTax: g('PT'),
+    otherDeductions: Math.max(0, t.deductions - g('PF_EMP') - g('PT')),
+    totalDeductions: t.deductions, netPay: t.net,
+    totalEarnings: t.earnings, totalReimbursements: t.reimbursements, employerContributions: t.employer,
+  };
+}
+
+export function lineRows(lines: SlipLine[]) {
+  return lines.map(l => ({ code: l.code, name: l.name, category: l.category as any, amount: l.amount, basis: l.basis ?? null, showOnPayslip: l.showOnPayslip !== false, displayOrder: l.displayOrder ?? 0, adjusted: !!l.adjusted }));
+}
+
+/** Compute + write one employee's payslip (draft) for a run. */
+async function buildPayslip(orgId: string, run: RunForCompute, es: SalaryForCompute, comps: any[], cycle: any) {
+  const c = await computeSlip(orgId, run, es, comps, cycle);
+  const payslipNumber = await nextPayslipNumber(orgId, run.year, run.month);
+  return prisma.payslip.create({
+    data: {
+      orgId, userId: es.userId, payrollRunId: run.id, payslipNumber,
+      month: run.month, year: run.year, periodStart: run.periodStart, periodEnd: run.periodEnd,
+      ...slipColumns(c),
       status: 'DRAFT',
-      lines: { create: result.lines.map(l => ({ code: l.code, name: l.name, category: l.category, amount: l.amount, basis: l.basis, showOnPayslip: l.showOnPayslip, displayOrder: l.displayOrder })) },
+      lines: { create: lineRows(c.lines) },
     },
   });
 }
@@ -190,27 +223,7 @@ export async function runPayroll(req: AuthRequest, res: Response, next: NextFunc
   } catch (err) { next(err); }
 }
 
-/** POST /hr/payroll/runs/:id/recalculate — recompute every DRAFT payslip (after changing components/salaries). Adjusted lines are kept. */
-export async function recalculateRun(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const orgId = req.user!.orgId;
-    const run = await prisma.payrollRun.findFirst({ where: { id: req.params.id, orgId }, include: { payslips: { include: { lines: true } }, payrollCycle: true } });
-    if (!run) throw new AppError(404, 'Payroll run not found');
-    if (run.status !== 'DRAFT') throw new AppError(400, 'Only draft runs can be recalculated');
-    const comps = await prisma.salaryComponent.findMany({ where: { orgId } });
-    const cycle = run.payrollCycle ?? { frequency: 'MONTHLY' };
-    for (const p of run.payslips) {
-      const es = await prisma.employeeSalary.findFirst({ where: { orgId, userId: p.userId, isActive: true } });
-      if (!es) continue;
-      const adjusted = p.lines.filter(l => l.adjusted).map(l => ({ code: l.code, amount: Number(l.amount) }));
-      await prisma.payslip.delete({ where: { id: p.id } });
-      const fresh = await buildPayslip(orgId, { id: run.id, periodStart: run.periodStart!, periodEnd: run.periodEnd!, month: run.month, year: run.year, payrollCycleId: run.payrollCycleId, attendanceMode: run.attendanceMode }, es, comps, cycle);
-      for (const a of adjusted) await applyAdjustment(fresh.id, a.code, a.amount);
-    }
-    logAction(req.user!.id, 'UPDATE', 'PayrollRun', run.id, { action: 'recalculate' });
-    res.json(await prisma.payrollRun.findUnique({ where: { id: run.id }, include: runInclude }));
-  } catch (err) { next(err); }
-}
+// Rerun / recalculate / finalise / reopen live in payrollRevision.controller.ts.
 
 /** Overwrite one line's amount and re-total the payslip. */
 async function applyAdjustment(payslipId: string, code: string, amount: number) {
@@ -239,6 +252,7 @@ export async function adjustDraftPayslip(req: AuthRequest, res: Response, next: 
     const payslip = await prisma.payslip.findFirst({ where: { id: req.params.payslipId, payrollRunId: req.params.id, orgId: req.user!.orgId }, include: { payrollRun: true } });
     if (!payslip) throw new AppError(404, 'Payslip not found');
     if (payslip.payrollRun.status !== 'DRAFT') throw new AppError(400, 'Only draft payslips can be adjusted');
+    if (payslip.payrollRun.lockedAt && payslip.payrollRun.lockedAt.getTime() > Date.now() - 10 * 60_000) throw new AppError(409, 'This run is being rerun or finalised right now — try again in a moment.');
     await applyAdjustment(payslip.id, code, amount);
     logAction(req.user!.id, 'UPDATE', 'Payslip', payslip.id, { action: 'adjust', code, amount });
     res.json(await prisma.payslip.findUnique({ where: { id: payslip.id }, include: { lines: { orderBy: { displayOrder: 'asc' } }, user: { select: { id: true, name: true } } } }));
@@ -251,33 +265,12 @@ export async function discardRun(req: AuthRequest, res: Response, next: NextFunc
     const run = await prisma.payrollRun.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!run) throw new AppError(404, 'Payroll run not found');
     if (run.status !== 'DRAFT') throw new AppError(400, 'Only draft runs can be discarded');
+    // A reopened run's payslips were already issued (and maybe paid) — its
+    // history must survive. Re-finalise it instead.
+    if (run.version > 1) throw new AppError(400, 'This run was issued before and is reopened for changes — finalise it again instead of discarding');
     await prisma.payrollRun.delete({ where: { id: run.id } });
     logAction(req.user!.id, 'DELETE', 'PayrollRun', run.id, {});
     res.json({ ok: true });
-  } catch (err) { next(err); }
-}
-
-/** POST /hr/payroll/runs/:id/finalize — issue the payslips (DRAFT → PROCESSED) */
-export async function finalizeRun(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const run = await prisma.payrollRun.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
-    if (!run) throw new AppError(404, 'Payroll run not found');
-    if (run.status !== 'DRAFT') throw new AppError(400, 'This run is already finalised');
-    // Pin each payslip to the template that applies to the employee today, so
-    // later template edits never restyle an issued document.
-    const slips = await prisma.payslip.findMany({ where: { payrollRunId: run.id }, select: { id: true, userId: true } });
-    const pins: { id: string; templateId: string }[] = [];
-    for (const s of slips) {
-      const emp = await prisma.employee.findFirst({ where: { orgId: run.orgId, userId: s.userId }, select: { departmentId: true, locationId: true, employmentType: true } });
-      const t = await resolveTemplate(run.orgId, emp);
-      pins.push({ id: s.id, templateId: t.id });
-    }
-    await prisma.$transaction([
-      ...pins.map(p => prisma.payslip.update({ where: { id: p.id }, data: { status: 'GENERATED', templateId: p.templateId } })),
-      prisma.payrollRun.update({ where: { id: run.id }, data: { status: 'PROCESSED', finalizedAt: new Date() } }),
-    ]);
-    logAction(req.user!.id, 'UPDATE', 'PayrollRun', run.id, { action: 'finalize' });
-    res.json(await prisma.payrollRun.findUnique({ where: { id: run.id }, include: runInclude }));
   } catch (err) { next(err); }
 }
 
@@ -315,7 +308,7 @@ export async function markRunPaid(req: AuthRequest, res: Response, next: NextFun
       prisma.payrollRun.update({ where: { id: run.id }, data: { status: 'PAID' } }),
     ]);
 
-    logAction(req.user!.id, 'UPDATE', 'PayrollRun', run.id, { action: 'marked paid' });
+    logAction(req.user!.id, 'UPDATE', 'PayrollRun', run.id, run.version > 1 ? { action: 'marked paid', version: run.version, note: 'revision differences settled' } : { action: 'marked paid' });
     const full = await prisma.payrollRun.findUnique({ where: { id: run.id }, include: runInclude });
     res.json(full);
   } catch (err) { next(err); }
@@ -372,6 +365,8 @@ export async function markPayslipPaid(req: AuthRequest, res: Response, next: Nex
   try {
     const payslip = await prisma.payslip.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!payslip) throw new AppError(404, 'Payslip not found');
+    // Drafts (including payslips of a reopened run) aren't issued yet.
+    if (payslip.status === 'DRAFT') throw new AppError(400, 'Finalise the run before marking this payslip paid');
     const updated = await prisma.payslip.update({
       where: { id: payslip.id },
       data: { status: 'PAID', paidAt: new Date() },

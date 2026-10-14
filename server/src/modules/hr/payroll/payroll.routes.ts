@@ -5,6 +5,7 @@ import { HR_MANAGERS as MANAGERS } from '../../../utils/hrAccess';
 import * as c from './payroll.controller';
 import * as cfg from './payrollConfig.controller';
 import * as tpl from './payslipTemplates.controller';
+import * as rev from './payrollRevision.controller';
 
 const router = Router();
 router.use(authenticate);
@@ -33,9 +34,14 @@ router.post('/preview',              requireRole(...MANAGERS), cfg.previewPaysli
 router.get('/runs',                  requireRole(...MANAGERS), c.listRuns);
 router.post('/runs',                 requireRole(...MANAGERS), c.runPayroll);
 router.get('/runs/:id',              requireRole(...MANAGERS), c.getRun);
-router.post('/runs/:id/recalculate', requireRole(...MANAGERS), c.recalculateRun);
+router.post('/runs/:id/recalculate', requireRole(...MANAGERS), rev.recalculateRun); // legacy shape for older app builds
+router.post('/runs/:id/rerun',       requireRole(...MANAGERS), rev.rerunRun);
+router.post('/runs/:id/reopen',      requireRole(...MANAGERS), rev.reopenRun);
+router.get('/runs/:id/history',      requireRole(...MANAGERS), rev.runHistory);
+router.get('/runs/:id/settlement',   requireRole(...MANAGERS), rev.runSettlement);
+router.get('/runs/:id/payslips/:payslipId/compare', requireRole(...MANAGERS), rev.comparePayslip);
 router.patch('/runs/:id/payslips/:payslipId', requireRole(...MANAGERS), c.adjustDraftPayslip);
-router.post('/runs/:id/finalize',    requireRole(...MANAGERS), c.finalizeRun);
+router.post('/runs/:id/finalize',    requireRole(...MANAGERS), rev.finalizeRun);
 router.delete('/runs/:id',           requireRole(...MANAGERS), c.discardRun);
 router.patch('/runs/:id/mark-paid',  requireRole(...MANAGERS), c.markRunPaid);
 

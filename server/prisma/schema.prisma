@@ -2322,10 +2322,17 @@ model PayrollRun {
   finalizedAt    DateTime? @map("finalized_at")
   /// ATTENDANCE: paid/LOP/OT days come from the attendance register; CALENDAR: every day paid
   attendanceMode String   @default("ATTENDANCE") @map("attendance_mode")
+  /// Issued version of the run: bumped when a finalised/paid run is reopened (see payrollRevision.controller.ts)
+  version        Int      @default(1)
+  /// Who last finalised (issued) the run — shown in the run's version history
+  finalizedBy    String?  @map("finalized_by")
+  /// Set while a rerun/reopen/finalise is in progress so two managers can't run them at once (stale after 10 min)
+  lockedAt       DateTime? @map("locked_at")
   org            Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   runByUser      User          @relation("PayrollRunCreator", fields: [runBy], references: [id])
   payrollCycle   PayrollCycle? @relation(fields: [payrollCycleId], references: [id], onDelete: SetNull)
   payslips       Payslip[]
+  revisions      PayslipRevision[]
 
   @@unique([orgId, payrollCycleId, periodStart])
   @@index([orgId, year, month])
@@ -2379,6 +2386,12 @@ model Payslip {
   templateId        String?   @map("template_id")
   /// Set when the payslip was emailed to the employee
   emailedAt         DateTime? @map("emailed_at")
+  /// Times this payslip has been issued: 1 = original, 2+ = revised after the run was reopened
+  version           Int       @default(1)
+  /// When the current (revised) version was issued
+  revisedAt         DateTime? @map("revised_at")
+  /// Net pay of this version minus the net already paid (arrears > 0, recovery < 0); null = never paid before
+  paidDifference    Decimal?  @db.Decimal(12, 2) @map("paid_difference")
 
   org             Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user            User             @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -2387,6 +2400,7 @@ model Payslip {
   employeeSalary  EmployeeSalary?  @relation(fields: [employeeSalaryId], references: [id], onDelete: SetNull)
   template        PayslipTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   lines           PayslipLine[]
+  revisions       PayslipRevision[]
 
   @@unique([orgId, userId, payrollRunId])
   @@index([orgId, month, year])
@@ -2558,6 +2572,32 @@ model EmployeeSalary {
 
   @@index([orgId, userId, isActive])
   @@map("employee_salaries")
+}
+
+/// A frozen copy of an issued payslip, taken when its run is reopened for
+/// changes (utils/payrollRevision.ts snapshotPayslip). `data` holds totals,
+/// lines, days, attendance summary, template, status, emailedAt and paidAt, so
+/// the history and the "difference vs paid" survive even if the live payslip
+/// is later removed from the run (payslipId then becomes null).
+model PayslipRevision {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  payslipId    String?  @map("payslip_id")
+  payrollRunId String   @map("payroll_run_id")
+  userId       String   @map("user_id")
+  /// The payslip version this snapshot preserves (1 = as first issued)
+  version      Int
+  data         Json
+  /// Why the run was reopened
+  reason       String
+  createdBy    String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  payslip      Payslip?   @relation(fields: [payslipId], references: [id], onDelete: SetNull)
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, payrollRunId])
+  @@index([payslipId])
+  @@map("payslip_revisions")
 }
 
 /// One line on a payslip — the evaluated value of a component for that period.

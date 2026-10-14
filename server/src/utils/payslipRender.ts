@@ -21,6 +21,7 @@
 import PDFDocument from 'pdfkit';
 import { loadImage, type LoadedImage } from './safeImageLoader';
 import { resolveWatermark, TILE_SCALE, TILE_GAP, type Watermark } from './payslipWatermark';
+import { revisionNoteLines } from './payrollRevision';
 
 // ─── Layout registry ─────────────────────────────────────────────────────────
 
@@ -110,6 +111,8 @@ export interface PayslipDoc {
   netInWords: string;
   /** Effective watermark (null = none) — see utils/payslipWatermark.ts */
   watermark: Watermark | null;
+  /** Set on a revised payslip (version ≥ 2) — prints a one-line "Revised" note; layouts are otherwise unchanged */
+  revision: { version: number; supersedesIssuedAt: string | null; paidDifference: number | null } | null;
 }
 
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -119,6 +122,8 @@ const mask = (acct: string | null | undefined) => (acct ? acct.replace(/.(?=.{4}
 
 export function buildPayslipDoc(input: {
   payslip: any; template: any; employee: any | null; org: { name: string; currency: string };
+  /** Issue date of the version this payslip supersedes (from its latest PayslipRevision) */
+  supersedesIssuedAt?: string | null;
 }): PayslipDoc {
   const { payslip: p, template: t, employee: e, org } = input;
   const layout = layoutFor(t?.layout);
@@ -164,6 +169,7 @@ export function buildPayslipDoc(input: {
     earnings, reimbursements, deductions, employerContributions, totals,
     netInWords: amountInWords(totals.net, org.currency || 'INR'),
     watermark: resolveWatermark(t),
+    revision: (p.version ?? 1) > 1 ? { version: p.version, supersedesIssuedAt: input.supersedesIssuedAt ?? null, paidDifference: p.paidDifference != null ? n(p.paidDifference) : null } : null,
   };
 }
 
@@ -302,6 +308,7 @@ export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {
     .brand{display:flex;gap:12px;align-items:center} .logo{width:44px;height:44px;object-fit:contain;border-radius:6px;background:#fff}
     .co{font-size:${fs + 6}px;font-weight:700} .branch{font-weight:600;margin-top:2px;color:${accent}} .addr{white-space:pre-line;font-size:${fs - 1}px;color:#6b7280;margin-top:2px}
     .title{text-align:right} .t{font-size:${fs + 4}px;font-weight:700;color:${primary};letter-spacing:.02em;text-transform:uppercase} .p{margin-top:2px} .n{font-family:ui-monospace,Menlo,monospace;font-size:${fs - 1}px;color:#6b7280}
+    .rev{padding:${pad}px ${pad * 4}px;font-size:${fs - 1}px;color:#92400e;background:#fffbeb;border-bottom:1px solid #fde68a;font-weight:600}
     .note{padding:${pad}px ${pad * 4}px;font-size:${fs - 1}px;color:#4b5563;background:#f9fafb;border-bottom:1px solid #e5e7eb}
     .meta{display:grid;grid-template-columns:1fr 1fr;gap:${pad * 2}px ${pad * 4}px;padding:${pad * 2}px ${pad * 4}px;border-bottom:1px solid #e5e7eb;${L.header === 'boxed' ? `border-left:2px solid ${primary};border-right:2px solid ${primary};` : ''}}
     .kv{display:flex;gap:8px;padding:2px 0;${L.bordered ? 'border-bottom:1px dotted #e5e7eb;' : ''}} .k{color:#6b7280;min-width:110px} .v{font-weight:500}
@@ -330,9 +337,11 @@ export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {
     @media print{.ps{max-width:none} @page{margin:1.4cm}}`;
 
   const stamp = F.paidStamp && doc.payslip.status === 'PAID' ? '<div class="stamp">PAID</div>' : '';
+  const revLines = revisionNoteLines(doc.revision, fm, fmtDate);
   const body = `<div class="ps${doc.watermark ? ' has-wm' : ''}">
     ${watermarkHtml(doc.watermark, mono)}
     <div class="hd ${L.header}">${headerInner}</div>
+    ${revLines.length ? `<div class="rev">${revLines.map(esc).join('<br>')}</div>` : ''}
     ${B.headerNote ? `<div class="note">${esc(B.headerNote)}</div>` : ''}
     <div class="meta"><div>${employeeBlock}</div><div>${periodBlock}</div></div>
     <div class="body">
@@ -530,6 +539,9 @@ function drawPayslipContent(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: Pd
   if (L.header === 'plain') { pdf.save().lineWidth(0.8).strokeColor('#111827').moveTo(left, y).lineTo(right, y).stroke().restore(); }
   y += gap * 2;
 
+  const revLines = revisionNoteLines(doc.revision, fm, fmtDate);
+  // Standard PDF fonts have no U+2212 minus sign.
+  if (revLines.length) { pdf.font(bold).fontSize(fs - 1).fillColor('#92400e').text(revLines.join('\n').replace(/\u2212/g, '-'), left, y, { width }); y = pdf.y + gap; }
   if (B.headerNote) { pdf.font(reg).fontSize(fs - 1).fillColor('#4b5563').text(B.headerNote, left, y, { width }); y = pdf.y + gap; }
 
   // Employee / period details, two columns
