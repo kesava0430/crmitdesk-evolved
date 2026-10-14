@@ -6,11 +6,13 @@ import {
   PageHeader, PageBody, Card, CardHeader, Tabs, Button, Badge, Alert, Avatar,
   DataTable, EmptyState, IconButton,
 } from '../../shared/components';
-import { LogIn, LogOut, MapPin, Users, Clock, ScanFace, ChevronLeft, ChevronRight, PartyPopper } from 'lucide-react';
+import { LogIn, LogOut, MapPin, Users, Clock, ScanFace, ChevronLeft, ChevronRight, PartyPopper, Home } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { FaceCaptureModal, type FaceSample } from '../../shared/components/FaceCaptureModal';
 import { RegisterSection } from './attendance/RegisterSection';
 import { useMyPolicy, useOptionalHolidays, useSetOptionalHoliday } from '../../api/attendanceAdmin';
+import { MyWfhCard } from './wfh/WfhParts';
+import type { WfhDayInfo } from '../../api/wfh';
 const LiveMap = lazy(() => import('./LiveMap').then(m => ({ default: m.LiveMap })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
@@ -31,6 +33,8 @@ interface AttendanceRecord {
   checkOutPassed?: boolean | null;
   checkOutSource?: string | null;
   source: string;
+  /** WFH = started on an approved work-from-home day (office checks skipped) */
+  mode?: 'OFFICE' | 'WFH';
 }
 
 interface VerificationRule { location: boolean; network: boolean; face: boolean; mode: 'ALL' | 'ANY'; enforce: boolean }
@@ -80,7 +84,7 @@ function sumWorkedMinutes(sessions: AttendanceRecord[], now: Date = new Date()):
 
 /** GET /hr/attendance/me/today — the server decides what "today" is (policy time zone, night
  *  shifts) and returns the open session from any day, so the client never compares dates itself. */
-interface TodayData { date: string; timezone: string; shiftStart: string; shiftEnd: string; sessions: AttendanceRecord[]; openSession: AttendanceRecord | null }
+interface TodayData { date: string; timezone: string; shiftStart: string; shiftEnd: string; sessions: AttendanceRecord[]; openSession: AttendanceRecord | null; wfh?: WfhDayInfo | null }
 
 /** "location and network", "location or face", "no verification" */
 function ruleSummary(r: VerificationRule) {
@@ -110,6 +114,7 @@ function SessionChip({ session, compact = false }: { session: AttendanceRecord; 
         compact ? 'px-1.5 py-0.5' : 'px-2 py-1'
       }`}
     >
+      {session.mode === 'WFH' && <Home size={10} className="inline -mt-0.5 mr-1 text-teal-600" aria-label="Worked from home" />}
       {fmtTime(session.checkInAt)}{compact ? '–' : ' – '}{session.checkOutAt ? fmtTime(session.checkOutAt) : 'now'}
       {session.checkOutSource === 'AUTO_GEOFENCE' && <span title="Checked out automatically after leaving the office" className="ml-1 text-warning">⤴</span>}
       {session.checkOutSource === 'AUTO_TIMEOUT' && <span title="Checked out automatically — app lost contact" className="ml-1 text-fg-subtle">⏱</span>}
@@ -145,12 +150,20 @@ function CheckInWidget() {
   const enrolled = !!policy?.myEnrollment;
   const ruleFor = (action: 'in' | 'out') => (action === 'in' ? policy?.checkInRule : policy?.checkOutRule);
   const needsLocation = (action: 'in' | 'out') => { const r = ruleFor(action); return !r || r.location || r.network; };
+  // Approved WFH today (request or recurring): the server skips the office checks.
+  const wfhToday = today?.wfh ?? null;
+  const wfhSession = today?.openSession?.mode === 'WFH';
 
   async function postCheck(action: 'in' | 'out', extra: Record<string, unknown> = {}) {
     // Location is only requested when the rule uses it (or the network check, which is recorded alongside).
     // Otherwise none is sent at all — 0,0 used to be stored and plotted in the Atlantic.
+    // On a WFH day it's still sent when available (live map) but never required.
     let coords: { lat?: number; lng?: number } = {};
-    if (needsLocation(action)) { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; }
+    if (needsLocation(action)) {
+      if (wfhToday || (action === 'out' && wfhSession)) {
+        try { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; } catch { /* not needed from home */ }
+      } else { const pos = await getPosition(); coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; }
+    }
     const { data } = await api.post(`/hr/attendance/check-${action}`, { ...coords, ...extra });
     // Check-out found only a forgotten session from an earlier day: it was closed
     // at that shift's end, and the person isn't checked in today.
@@ -203,7 +216,7 @@ function CheckInWidget() {
         <div>
           <p className="text-fg-subtle text-xs uppercase tracking-wide">Status</p>
           <p className={`font-semibold mt-0.5 ${isCheckedInNow ? 'text-success' : 'text-fg'}`}>
-            {isCheckedInNow ? 'Checked in' : 'Checked out'}
+            {isCheckedInNow ? (wfhSession ? 'Checked in · WFH' : 'Checked in') : 'Checked out'}
           </p>
         </div>
         <div className="w-px h-8 bg-line" />
@@ -226,7 +239,12 @@ function CheckInWidget() {
         </div>
       )}
 
-      {error && <Alert tone="danger" className="mt-4 text-left">{error}</Alert>}
+      {wfhToday && (
+        <p className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-teal-50 dark:bg-teal-500/10 text-teal-800 dark:text-teal-300 px-3 py-1 text-[12px] font-medium" data-testid="wfh-today">
+          <Home size={13} /> Working from home today — no office location needed
+        </p>
+      )}
+      {error && <Alert tone="danger" className="mt-4 text-left">{error}{!wfhToday && /blocked/i.test(error) && <span className="block mt-1 text-[12px]">Working from home today? Use <strong>Request WFH</strong> below — once approved, check-in works from anywhere.</span>}</Alert>}
       {notice && <Alert tone="warning" className="mt-4 text-left">{notice}</Alert>}
 
       <div className="flex gap-3 mt-5 justify-center flex-wrap">
@@ -253,7 +271,9 @@ function CheckInWidget() {
       <p className="text-[11px] text-fg-subtle mt-4 flex items-center justify-center gap-1.5 flex-wrap">
         {policy ? (
           <>
-            <MapPin size={11} /> Check-in: {ruleSummary(policy.checkInRule)} · Check-out: {ruleSummary(policy.checkOutRule)}
+            {wfhToday
+              ? <><Home size={11} /> Today: working from home — no office location or network check{policy.checkInRule.face ? ' (face still required)' : ''}</>
+              : <><MapPin size={11} /> Check-in: {ruleSummary(policy.checkInRule)} · Check-out: {ruleSummary(policy.checkOutRule)}</>}
             {policy.faceVerificationRequired && <> · <ScanFace size={11} /> face</>}
             {myPolicy && <> · shift {myPolicy.shiftStart}–{myPolicy.shiftEnd}{myPolicy.timezone && myPolicy.timezone !== timezone ? ` (${myPolicy.timezone})` : ''}</>}
             {policy.autoCheckoutOnLeave && <> · auto check-out after {policy.autoCheckoutAfterMinutes} min outside the office (keep the app open)</>}
@@ -451,6 +471,8 @@ function MyHistory() {
               const allVerified = d.sessions.every(s => s.source === 'SELF' && (s.checkInPassed ?? (s.checkInLocationOk && s.checkInNetworkOk)));
               const anyManual = d.sessions.some(s => s.source === 'MANUAL');
               const faceVerified = d.sessions.some(s => s.checkInFaceOk || s.checkOutFaceOk);
+              const fromHome = d.sessions.some(s => s.mode === 'WFH');
+              if (fromHome && !anyManual) return <span className="inline-flex items-center gap-1"><Badge variant="teal"><Home size={10} className="mr-0.5" />WFH</Badge>{faceVerified && <Badge variant="teal"><ScanFace size={10} className="mr-0.5" />Face</Badge>}</span>;
               return anyManual ? <Badge variant="gray">Manual entry</Badge>
                 : allVerified ? <span className="inline-flex items-center gap-1"><Badge variant="green">Verified</Badge>{faceVerified && <Badge variant="teal"><ScanFace size={10} className="mr-0.5" />Face</Badge>}</span>
                 : <Badge variant="yellow">Partial</Badge>;
@@ -504,6 +526,8 @@ interface TodayRow {
   record: AttendanceRecord | null;
   isCheckedInNow: boolean;
   totalMinutes: number;
+  /** Approved work from home today (request or recurring) */
+  wfh?: WfhDayInfo | null;
 }
 
 function TeamToday() {
@@ -511,9 +535,12 @@ function TeamToday() {
     queryKey: ['attendance-today'],
     queryFn: () => api.get('/hr/attendance/today').then(r => r.data),
   });
+  const [wfhOnly, setWfhOnly] = useState(false);
 
-  const rows = data || [];
-  const present = rows.filter(r => r.sessions.length > 0).length;
+  const all = data || [];
+  const wfhCount = all.filter(r => r.wfh).length;
+  const rows = wfhOnly ? all.filter(r => r.wfh) : all;
+  const present = all.filter(r => r.sessions.length > 0).length;
 
   return (
     <Card padding="none">
@@ -521,7 +548,16 @@ function TeamToday() {
         <CardHeader
           title="Team — Today"
           icon={<Users size={14} />}
-          actions={<span className="text-xs text-fg-subtle tabular-nums">{present} / {rows.length} checked in at some point</span>}
+          actions={
+            <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" onClick={() => setWfhOnly(v => !v)} aria-pressed={wfhOnly} data-testid="wfh-chip"
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium border transition-colors ${wfhOnly ? 'bg-teal-600 border-teal-600 text-white' : 'bg-teal-50 dark:bg-teal-500/10 border-teal-200 dark:border-teal-400/25 text-teal-800 dark:text-teal-300 hover:bg-teal-100'}`}
+                title={wfhOnly ? 'Show everyone' : 'Show only people working from home today'}>
+                <Home size={12} /> WFH today: {wfhCount}{wfhOnly && <span aria-hidden="true">×</span>}
+              </button>
+              <span className="text-xs text-fg-subtle tabular-nums">{present} / {all.length} checked in at some point</span>
+            </div>
+          }
         />
       </div>
       <DataTable<TodayRow>
@@ -530,21 +566,26 @@ function TeamToday() {
         rows={rows}
         rowKey={r => r.user.id}
         empty={
-          <EmptyState
-            compact
-            icon={<Users />}
-            title="No team members yet"
-            description="People will appear here as soon as they have accounts."
-          />
+          wfhOnly ? (
+            <EmptyState compact icon={<Home />} title="Nobody is working from home today" description="Approved WFH requests and recurring WFH days show up here." />
+          ) : (
+            <EmptyState
+              compact
+              icon={<Users />}
+              title="No team members yet"
+              description="People will appear here as soon as they have accounts."
+            />
+          )
         }
         columns={[
           {
             key: 'employee',
             header: 'Employee',
             cell: r => (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <Avatar name={r.user.name} src={r.user.avatarUrl} size="sm" />
                 <span className="text-fg truncate" title={r.user.name}>{r.user.name}</span>
+                {r.wfh && <Badge variant="teal" size="sm"><Home size={10} className="mr-0.5" />WFH{r.wfh.halfDay ? ' ½' : ''}</Badge>}
               </div>
             ),
           },
@@ -571,8 +612,8 @@ function TeamToday() {
             key: 'status',
             header: 'Status',
             mobile: 'actions',
-            cell: r => r.sessions.length === 0 ? <Badge variant="gray">Not checked in</Badge>
-              : r.isCheckedInNow ? <Badge variant="green">On-site now</Badge>
+            cell: r => r.sessions.length === 0 ? <Badge variant="gray">{r.wfh ? 'WFH · not checked in' : 'Not checked in'}</Badge>
+              : r.isCheckedInNow ? (r.sessions.some(s => s.mode === 'WFH' && !s.checkOutAt) ? <Badge variant="teal">Working from home</Badge> : <Badge variant="green">On-site now</Badge>)
               : <Badge variant="yellow">Checked out</Badge>,
           },
         ]}
@@ -612,6 +653,7 @@ export default function AttendancePage() {
         {tab === 'me' ? (
           <div className="space-y-5">
             <CheckInWidget />
+            <MyWfhCard />
             <FaceIdCard />
             <OptionalHolidaysCard />
             <MyHistory />

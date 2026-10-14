@@ -18,13 +18,18 @@ interface Person {
   /** The phone app reported it went to the background (screen locked) — no fixes until it's reopened */
   backgroundedAt?: string | null;
   inside: boolean | null;
+  /** Checked in on an approved work-from-home day — never "away from office", never flagged */
+  wfh?: boolean;
   nearestOffice: { name: string; distanceMeters: number } | null;
   outsideSince: string | null;
 }
 interface Live { generatedAt: string; offices: Office[]; people: Person[] }
 interface Trail { user: { id: string; name: string }; date: string; pings: { at: string; lat: number; lng: number; accuracy: number | null; inside: boolean | null }[]; sessions: { id: string; checkInAt: string | null; checkOutAt: string | null; checkInLat: number | null; checkInLng: number | null; checkOutLat: number | null; checkOutLng: number | null }[] }
 
-const colour = (p: Person) => (p.stale ? '#9ca3af' : p.inside ? '#16a34a' : '#d97706');
+const WFH_COLOUR = '#0d9488';
+const colour = (p: Person) => (p.stale ? '#9ca3af' : p.wfh ? WFH_COLOUR : p.inside ? '#16a34a' : '#d97706');
+/** Where someone is, in words: at the office / working from home / distance from the nearest office. */
+const whereText = (p: Person) => (p.wfh ? 'working from home' : p.inside ? `at ${p.nearestOffice?.name ?? 'office'}` : `${p.nearestOffice?.distanceMeters ?? '?'} m from ${p.nearestOffice?.name ?? 'office'}`);
 const ago = (iso: string | null) => {
   if (!iso) return 'never';
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -79,7 +84,8 @@ export function LiveMap() {
   }
 
   const inside = people.filter(p => p.inside && !p.stale).length;
-  const outside = people.filter(p => p.inside === false && !p.stale).length;
+  const outside = people.filter(p => p.inside === false && !p.wfh && !p.stale).length;
+  const fromHome = people.filter(p => p.wfh && !p.stale).length;
   const stale = people.filter(p => p.stale).length;
 
   return (
@@ -89,6 +95,7 @@ export function LiveMap() {
           <div className="flex items-center gap-3 text-[12px]">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#16a34a]" /> {inside} at office</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#d97706]" /> {outside} away</span>
+            {fromHome > 0 && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#0d9488]" /> {fromHome} WFH</span>}
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#9ca3af]" /> {stale} no recent fix</span>
           </div>
           <div className="flex items-center gap-2 text-[11.5px] text-fg-subtle">
@@ -127,7 +134,7 @@ export function LiveMap() {
                   <Popup>
                     <div className="text-[12.5px]">
                       <p className="font-semibold">{p.user.name}</p>
-                      <p>{p.stale ? 'No recent fix' : p.inside ? 'At the office' : 'Away from office'}{p.nearestOffice ? ` · ${p.nearestOffice.distanceMeters} m from ${p.nearestOffice.name}` : ''}</p>
+                      <p>{p.wfh ? 'Working from home (approved)' : <>{p.stale ? 'No recent fix' : p.inside ? 'At the office' : 'Away from office'}{p.nearestOffice ? ` · ${p.nearestOffice.distanceMeters} m from ${p.nearestOffice.name}` : ''}</>}</p>
                       <p className="text-gray-500">Seen {ago(p.seenAt)} · checked in {time(p.checkInAt)}</p>
                     </div>
                   </Popup>
@@ -154,9 +161,9 @@ export function LiveMap() {
                       <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface" style={{ background: colour(p) }} />
                     </span>
                     <span className="flex-1 min-w-0">
-                      <span className="block text-[13px] font-medium text-fg truncate">{p.user.name}</span>
+                      <span className="flex items-center gap-1.5 min-w-0"><span className="text-[13px] font-medium text-fg truncate">{p.user.name}</span>{p.wfh && <Badge variant="teal" size="sm">WFH</Badge>}</span>
                       <span className="block text-[11.5px] text-fg-subtle truncate">
-                        {p.stale ? `${p.backgroundedAt ? 'app in background' : 'no fix'} · last seen ${ago(p.seenAt)}` : p.inside ? `at ${p.nearestOffice?.name ?? 'office'}` : `${p.nearestOffice?.distanceMeters ?? '?'} m from ${p.nearestOffice?.name ?? 'office'}`}
+                        {p.stale ? `${p.backgroundedAt ? 'app in background' : 'no fix'} · last seen ${ago(p.seenAt)}` : whereText(p)}
                         {' · '}in since {time(p.checkInAt)}
                       </span>
                     </span>
