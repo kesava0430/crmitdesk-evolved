@@ -15,6 +15,7 @@ import {
 } from '../../../utils/payslipRender';
 
 import { isHrManager } from '../../../utils/hrAccess';
+import { imageUrlSchema, watermarkSchemaFields } from '../../../utils/payslipWatermark';
 const emptyToNull = (v: unknown) => (v === '' ? null : v);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
@@ -25,7 +26,7 @@ const TemplateSchema = z.object({
   isActive: z.boolean().optional(),
   companyName: z.preprocess(emptyToNull, z.string().nullable().optional()),
   companyAddress: z.preprocess(emptyToNull, z.string().nullable().optional()),
-  logoUrl: z.preprocess(emptyToNull, z.string().url().nullable().optional()),
+  logoUrl: z.preprocess(emptyToNull, imageUrlSchema.nullable().optional()),
   primaryColor: hexColor.default('#2563eb'),
   accentColor: z.preprocess(emptyToNull, hexColor.nullable().optional()),
   headerTitle: z.string().min(1).max(60).default('Payslip'),
@@ -34,7 +35,9 @@ const TemplateSchema = z.object({
   showSignature: z.boolean().default(true),
   signatureLabel: z.string().max(80).default('Authorized Signatory'),
   signatoryName: z.preprocess(emptyToNull, z.string().max(80).nullable().optional()),
-  signatureUrl: z.preprocess(emptyToNull, z.string().url().nullable().optional()),
+  signatureUrl: z.preprocess(emptyToNull, imageUrlSchema.nullable().optional()),
+  watermarkImageUrl: z.preprocess(emptyToNull, imageUrlSchema.nullable().optional()),
+  ...watermarkSchemaFields,
   showFields: z.record(z.boolean()).nullable().optional(),
   applicability: z.object({
     departmentIds: z.array(z.string()).optional(),

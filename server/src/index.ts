@@ -155,6 +155,9 @@ app.use('/api/inbox/whatsapp/webhook', express.urlencoded({ extended: false, lim
 // the body first; the route-level raw() in billing.routes.ts then sees the
 // body is already read and no-ops.
 app.use('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
+// Payslip templates carry uploaded logo / signature / watermark images as
+// data URLs (≤ 600 KB each, enforced by the schema) — allow room for all three.
+app.use('/api/hr/payroll/templates', express.json({ limit: '3mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 

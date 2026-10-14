@@ -2420,6 +2420,20 @@ model PayslipTemplate {
   signatureLabel String   @default("Authorized Signatory") @map("signature_label")
   signatoryName  String?  @map("signatory_name")
   signatureUrl   String?  @map("signature_url")
+  /// Faded logo behind the payslip content (HTML + PDF) — see utils/payslipWatermark.ts.
+  /// Off by default so existing templates print exactly as before.
+  watermarkEnabled  Boolean @default(false) @map("watermark_enabled")
+  /// LOGO = reuse logoUrl | IMAGE = watermarkImageUrl
+  watermarkSource   String  @default("LOGO") @map("watermark_source")
+  watermarkImageUrl String? @map("watermark_image_url")
+  /// 0.03–0.30
+  watermarkOpacity  Float   @default(0.08) @map("watermark_opacity")
+  /// % of page width, 20–90
+  watermarkSize     Int     @default(55) @map("watermark_size")
+  /// degrees, -45..45
+  watermarkRotation Int     @default(0) @map("watermark_rotation")
+  /// false = one centred mark, true = tiled pattern
+  watermarkRepeat   Boolean @default(false) @map("watermark_repeat")
   /// Which optional blocks/fields print — keys in PAYSLIP_FIELDS (utils/payslipRender.ts)
   showFields     Json?    @map("show_fields")
   /// { departmentIds, locationIds, employmentTypes } — first matching non-default template wins
