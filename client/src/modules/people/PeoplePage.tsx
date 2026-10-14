@@ -393,6 +393,30 @@ export default function PeoplePage() {
   const assignRole = useAssignPersonRole();
   const repair = useRepairUnlinked();
 
+  const rowActions = (p: Person) => (
+    <RowActions
+      items={[
+        ...(p.employeeId && !p.hasLogin
+          ? [{ label: 'Give a login', icon: <KeyRound size={13} />, onClick: () => setGranting(p) }]
+          : []),
+        ...(p.employeeId && p.hasLogin && p.userId !== currentUser?.id
+          ? [{
+              label: 'Revoke access',
+              icon: <ShieldOff size={13} />,
+              variant: 'danger' as const,
+              onClick: () => {
+                setError('');
+                revoke.mutate(p.employeeId!, {
+                  onError: (err: any) =>
+                    setError(err?.response?.data?.error || 'Could not revoke access.'),
+                });
+              },
+            }]
+          : []),
+      ]}
+    />
+  );
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -480,8 +504,11 @@ export default function PeoplePage() {
               {data.data.map(p => (
                 <div
                   key={p.id}
-                  className="flex items-center gap-3 px-4 py-3 border-b border-line-subtle last:border-0 hover:bg-surface-hover transition-colors"
+                  className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-4 py-3 border-b border-line-subtle last:border-0 hover:bg-surface-hover transition-colors"
                 >
+                  {/* Phones: avatar + name + code on top, role/status/actions
+                      on their own row below so the name keeps the full width. */}
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                   <Avatar name={p.displayName} size="md" />
 
                   <div className="min-w-0 flex-1">
@@ -497,8 +524,10 @@ export default function PeoplePage() {
                       )}
                     </div>
                   </div>
+                  <div className="sm:hidden">{rowActions(p)}</div>
+                  </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0 pl-[52px] sm:pl-0">
                     {/* Access state, said plainly rather than in table terms. */}
                     {!p.hasLogin ? (
                       <Badge variant="gray">No login</Badge>
@@ -507,7 +536,7 @@ export default function PeoplePage() {
                     ) : p.employeeId && canManagePeople ? (
                       <Select
                         selectSize="sm"
-                        className="max-w-[150px]"
+                        className="min-w-0 max-w-[150px]"
                         aria-label={`Role for ${p.displayName}`}
                         value={p.roleId ?? ''}
                         onChange={e => {
@@ -537,27 +566,7 @@ export default function PeoplePage() {
                       {p.joiningDate ? fmt.date(p.joiningDate) : ''}
                     </span>
 
-                    <RowActions
-                      items={[
-                        ...(p.employeeId && !p.hasLogin
-                          ? [{ label: 'Give a login', icon: <KeyRound size={13} />, onClick: () => setGranting(p) }]
-                          : []),
-                        ...(p.employeeId && p.hasLogin && p.userId !== currentUser?.id
-                          ? [{
-                              label: 'Revoke access',
-                              icon: <ShieldOff size={13} />,
-                              variant: 'danger' as const,
-                              onClick: () => {
-                                setError('');
-                                revoke.mutate(p.employeeId!, {
-                                  onError: (err: any) =>
-                                    setError(err?.response?.data?.error || 'Could not revoke access.'),
-                                });
-                              },
-                            }]
-                          : []),
-                      ]}
-                    />
+                    <div className="hidden sm:block">{rowActions(p)}</div>
                   </div>
                 </div>
               ))}

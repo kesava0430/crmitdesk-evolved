@@ -124,7 +124,7 @@ function EmployeeDetail({ id, onClose }: { id: string | null; onClose: () => voi
             <div>
               <ProfileSectionTitle>Contact</ProfileSectionTitle>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
-                <ProfileField label="Work email" value={employee.workEmail} />
+                <div className="col-span-2 sm:col-span-1 min-w-0"><ProfileField label="Work email" value={employee.workEmail} /></div>
                 <ProfileField label="Phone" value={employee.phone} />
                 <ProfileField label="Location" value={employee.location?.name} />
               </div>
@@ -593,8 +593,10 @@ export default function EmployeesPage() {
                 <button
                   key={e.id}
                   onClick={() => setDetailId(e.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 border-b border-line-subtle last:border-0 hover:bg-surface-hover text-left transition-colors"
+                  className="w-full flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 px-4 py-3 border-b border-line-subtle last:border-0 hover:bg-surface-hover text-left transition-colors"
                 >
+                  {/* Phones: badges drop under the name instead of squeezing it. */}
+                  <div className="flex items-center gap-3 min-w-0 flex-1 w-full">
                   <Avatar name={e.displayName} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="text-[13.5px] font-medium text-fg truncate" title={e.displayName}>{e.displayName}</p>
@@ -618,7 +620,8 @@ export default function EmployeesPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0 pl-11 sm:pl-0">
                     {!e.user && <Badge variant="orange">No login</Badge>}
                     <StatusBadge value={e.employmentStatus} map={STATUS_VARIANT} dot />
                     <span className="text-[11px] text-fg-subtle tabular-nums hidden sm:block">
