@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,14 +7,16 @@ import {
   Field, Input, Select, Alert,
   IconButton, DataTable, SkeletonTable, type BadgeProps,
 } from '../../shared/components';
-import { Wallet, FileText, PlayCircle, CheckCircle2, Printer, RefreshCw, Send, XCircle, FileDown, Mail } from 'lucide-react';
+import { Wallet, FileText, PlayCircle, CheckCircle2, Printer, RefreshCw, Send, XCircle, FileDown, Mail, RotateCcw, GitCompare } from 'lucide-react';
 import { PayslipTemplatesSection } from './payroll/PayslipTemplatesSection';
 import { downloadPdf, openPayslipPrintView, useEmailPayslip, useEmailRun } from '../../api/payslipTemplates';
 import { SalaryComponentsSection } from './payroll/SalaryComponentsSection';
 import { EmployeeSalariesSection, PayslipLines } from './payroll/EmployeeSalariesSection';
 import { PayrollCyclesSection } from './payroll/PayrollCyclesSection';
-import { usePayrollCycles, type Line, type AttendanceBasis } from '../../api/payroll';
+import { usePayrollCycles, useEmployeeSalaries, type Line, type AttendanceBasis } from '../../api/payroll';
 import { useFormat } from '../../hooks/useFormat';
+import { useRunHistory, useFinalize, type RerunSummary } from '../../api/payrollRevision';
+import { RerunDialog, RerunResults, ReopenDialog, FinaliseDialog, RevisionNotices, VersionsSection, SettlementPanel, CompareModal, DeltaText } from './payroll/RunRevision';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
@@ -36,13 +38,15 @@ interface Payslip {
   presentDays?: string | null; leaveDays?: string | null; halfDays?: string | null; overtimeHours?: string | null;
   attendanceSummary?: (AttendanceBasis & { source?: 'attendance' | 'calendar'; warnings?: string[] }) | null;
   status: string; paidAt: string | null; createdAt: string; emailedAt?: string | null;
+  /** 2+ once the payslip was revised after its run was reopened */
+  version?: number; revisedAt?: string | null; paidDifference?: string | null;
   user: EmployeeRef;
   lines?: Line[];
   payrollRun?: { id: string; status: string; periodStart: string | null; periodEnd: string | null; payrollCycle?: { name: string; frequency: string } | null };
 }
 
 interface PayrollRun {
-  id: string; month: number; year: number; status: string; runAt: string; finalizedAt?: string | null;
+  id: string; month: number; year: number; status: string; runAt: string; finalizedAt?: string | null; version?: number;
   periodStart?: string | null; periodEnd?: string | null; attendanceMode?: 'ATTENDANCE' | 'CALENDAR' | null;
   payrollCycle?: { id: string; name: string; frequency: string } | null;
   runByUser: { id: string; name: string };
@@ -147,10 +151,15 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
   const [adjust, setAdjust] = useState<{ code: string; amount: string } | null>(null);
   const [error, setError] = useState('');
   const { data: run, isLoading } = useQuery<PayrollRun>({ queryKey: ['payroll-run', runId], queryFn: () => api.get(`/hr/payroll/runs/${runId}`).then(r => r.data) });
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['payroll-runs'] }); qc.invalidateQueries({ queryKey: ['payroll-run', runId] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['payroll-runs'] }); qc.invalidateQueries({ queryKey: ['payroll-run', runId] }); qc.invalidateQueries({ queryKey: ['payroll-run-history', runId] }); };
   const onErr = (e: any) => setError(e?.response?.data?.error || 'Something went wrong');
-  const recalc = useMutation({ mutationFn: () => api.post(`/hr/payroll/runs/${runId}/recalculate`), onSuccess: refresh, onError: onErr });
-  const finalize = useMutation({ mutationFn: () => api.post(`/hr/payroll/runs/${runId}/finalize`), onSuccess: refresh, onError: onErr });
+  const finalize = useFinalize(runId);
+  const { data: history } = useRunHistory(runId);
+  const { data: salaries } = useEmployeeSalaries();
+  const [dialog, setDialog] = useState<null | 'rerun' | 'reopen' | 'finalise'>(null);
+  const [comparing, setComparing] = useState<string | null>(null);
+  const [summary, setSummary] = useState<RerunSummary | null>(null);
+  const [notice, setNotice] = useState('');
   const discard = useMutation({ mutationFn: () => api.delete(`/hr/payroll/runs/${runId}`), onSuccess: () => { refresh(); onClose(); }, onError: onErr });
   const markPaid = useMutation({ mutationFn: () => api.patch(`/hr/payroll/runs/${runId}/mark-paid`), onSuccess: refresh, onError: onErr });
   const adjustLine = useMutation({
@@ -163,22 +172,34 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
   const [pdfBusy, setPdfBusy] = useState(false);
 
   const isDraft = run?.status === 'DRAFT';
+  const version = run?.version ?? 1;
+  const reopened = isDraft && version > 1;
   const payslips = run?.payslips ?? [];
+  // Rerun subset picker: people in the run + people with a salary on this cycle who aren't in it yet.
+  const candidates = [
+    ...payslips.map(p => ({ userId: p.user.id, name: p.user.name, inRun: true })),
+    ...(salaries ?? []).filter(s => s.payrollCycleId === run?.payrollCycle?.id && !payslips.some(p => p.user.id === s.userId)).map(s => ({ userId: s.userId, name: s.user.name, inRun: false })),
+  ];
+  const label = run ? periodLabel(run) : '';
+  // A rerun summary belongs to one draft: drop it once the run is issued or reopened as a new version.
+  useEffect(() => { setSummary(null); }, [run?.status, version]);
   const current = payslips.find(p => p.id === selected) ?? null;
   const sum = (k: 'grossPay' | 'totalDeductions' | 'netPay') => payslips.reduce((s, p) => s + Number(p[k]), 0);
   const totalLop = payslips.reduce((s, p) => s + Number(p.lopDays ?? 0), 0);
   const projected = payslips.reduce((s, p) => s + Number(p.attendanceSummary?.futureDaysAssumedPaid ?? 0), 0);
   const fromAttendance = run?.attendanceMode !== 'CALENDAR';
 
-  return (
-    <Modal open onClose={onClose} title={run ? `${periodLabel(run)} · ${run.payrollCycle?.name ?? 'Monthly'}` : 'Payroll run'} icon={<FileText size={16} />} size="xl"
-      subtitle={run ? (isDraft ? 'Draft — review, adjust, then finalise to issue payslips.' : `${run.status === 'PAID' ? 'Paid' : 'Finalised'} · run by ${run.runByUser?.name}`) : undefined}
+  return (<>
+    {/* Escape/back must close only the dialog on top, not the review behind it. */}
+    <Modal open onClose={dialog || comparing ? () => undefined : onClose} title={run ? `${periodLabel(run)} · ${run.payrollCycle?.name ?? 'Monthly'}${version > 1 ? ` · v${version}` : ''}` : 'Payroll run'} icon={<FileText size={16} />} size="xl"
+      subtitle={run ? (reopened ? 'Reopened for changes — rerun, review, then finalise to issue the revised payslips.' : isDraft ? 'Draft — review, adjust, then finalise to issue payslips.' : `${run.status === 'PAID' ? 'Paid' : 'Finalised'} · run by ${run.runByUser?.name}`) : undefined}
       footer={run ? (
         <>
-          {isDraft && <Button variant="ghost" icon={<XCircle size={13} />} loading={discard.isPending} onClick={() => discard.mutate()}>Discard draft</Button>}
+          {isDraft && !reopened && <Button variant="ghost" icon={<XCircle size={13} />} loading={discard.isPending} onClick={() => discard.mutate()}>Discard draft</Button>}
           <span className="mr-auto" />
-          {isDraft && <Button variant="secondary" icon={<RefreshCw size={13} />} loading={recalc.isPending} onClick={() => recalc.mutate()}>Recalculate</Button>}
-          {isDraft && <Button icon={<Send size={13} />} loading={finalize.isPending} onClick={() => finalize.mutate()}>Finalise &amp; issue payslips</Button>}
+          {isDraft && <Button variant="secondary" icon={<RefreshCw size={13} />} onClick={() => { qc.invalidateQueries({ queryKey: ['employee-salaries'] }); setDialog('rerun'); }}>Rerun</Button>}
+          {isDraft && <Button icon={<Send size={13} />} loading={finalize.isPending} onClick={() => reopened ? setDialog('finalise') : finalize.mutate({}, { onError: onErr })}>{reopened ? `Finalise v${version}` : 'Finalise & issue payslips'}</Button>}
+          {!isDraft && <Button variant="secondary" icon={<RotateCcw size={13} />} onClick={() => setDialog('reopen')}>{run.status === 'PAID' ? 'Revise' : 'Reopen for changes'}</Button>}
           {!isDraft && <Button variant="secondary" icon={<FileDown size={13} />} loading={pdfBusy} onClick={async () => { setPdfBusy(true); try { await downloadPdf(`/hr/payroll/runs/${runId}/pdf`, `payslips-${run.year}-${String(run.month).padStart(2, '0')}.pdf`); } catch { setError('Could not build the PDF'); } finally { setPdfBusy(false); } }}>All payslips (PDF)</Button>}
           {!isDraft && <Button variant="secondary" icon={<Mail size={13} />} loading={emailAll.isPending} onClick={() => emailAll.mutate({ id: runId }, { onSuccess: r => setMailNotice(`${r.sent} e-mailed${r.skipped ? `, ${r.skipped} already sent` : ''}${r.failed.length ? `, ${r.failed.length} failed (no e-mail address)` : ''}.`), onError: onErr })}>E-mail payslips</Button>}
           {run.status === 'PROCESSED' && <Button icon={<CheckCircle2 size={13} />} loading={markPaid.isPending} onClick={() => markPaid.mutate()}>Mark all paid</Button>}
@@ -186,11 +207,15 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
       ) : undefined}>
       {error && <Alert tone="danger" className="mb-3" onDismiss={() => setError('')}>{error}</Alert>}
       {mailNotice && <Alert tone="success" className="mb-3" onDismiss={() => setMailNotice('')}>{mailNotice}</Alert>}
+      {notice && <Alert tone="success" className="mb-3" onDismiss={() => setNotice('')}>{notice}</Alert>}
+      {run && <RevisionNotices runId={runId} status={run.status} version={version} history={history} onMessage={(m, tone) => tone === 'danger' ? setError(m) : setMailNotice(m)} />}
+      {summary && isDraft && <RerunResults summary={summary} onClose={() => setSummary(null)} />}
+      {run && history?.settlement.applicable && !isDraft && <SettlementPanel settlement={history.settlement} runLabel={label} />}
       {run && isDraft && fromAttendance && projected > 0 && (
         <Alert tone="warning" className="mb-3">This period is not over yet — {projected} future day{projected === 1 ? '' : 's'} across the run are assumed paid. Recalculate after the period ends (or after attendance corrections) before finalising.</Alert>
       )}
       {run && isDraft && !fromAttendance && <Alert tone="info" className="mb-3">Calendar mode: every day is paid in full; the attendance register was not consulted.</Alert>}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(300px,2fr)] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4">
         <div>
           {run && (
             <div className="flex flex-wrap gap-4 text-xs text-fg-muted mb-3 tabular-nums">
@@ -204,7 +229,7 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
             rowKey={p => p.id}
             onRowClick={p => setSelected(p.id)}
             columns={[
-              { key: 'employee', header: 'Employee', cell: p => <span className={`truncate ${selected === p.id ? 'font-semibold text-accent' : ''}`} title={p.user.name}>{p.user.name}</span> },
+              { key: 'employee', header: 'Employee', cell: p => <span className="inline-flex items-center gap-1.5 min-w-0"><span className={`truncate ${selected === p.id ? 'font-semibold text-accent' : ''}`} title={p.user.name}>{p.user.name}</span>{(p.version ?? 1) > 1 && <span className="shrink-0 rounded-full bg-warning/15 text-warning px-1.5 text-[10px] font-semibold" title={`Revised — version ${p.version}`}>v{p.version}</span>}</span> },
               { key: 'days', header: 'Paid days', align: 'right', hideBelow: 'sm', muted: true, cell: p => <span className={`tabular-nums ${Number(p.lopDays) > 0 ? 'text-danger' : ''}`}>{p.paidDays != null ? `${Number(p.paidDays)}/${Number(p.workingDays)}` : '—'}{Number(p.attendanceSummary?.futureDaysAssumedPaid ?? 0) > 0 && <span title={`${p.attendanceSummary!.futureDaysAssumedPaid} future days assumed paid`} className="text-warning"> ●</span>}</span> },
               { key: 'gross', header: 'Gross', align: 'right', cell: p => <span className="tabular-nums">{money(p.grossPay)}</span> },
               { key: 'deductions', header: 'Deductions', align: 'right', muted: true, hideBelow: 'sm', cell: p => <span className="tabular-nums">{money(p.totalDeductions)}</span> },
@@ -223,7 +248,13 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
         <aside>
           {current ? (
             <Card tone="sunken" flat padding="sm">
-              <p className="text-[12px] font-semibold text-fg mb-2">{current.user.name} · {current.payslipNumber}</p>
+              <div className="flex items-start gap-2 mb-2">
+                <p className="min-w-0 flex-1 text-[12px] font-semibold text-fg">{current.user.name} · {current.payslipNumber}{(current.version ?? 1) > 1 && <span className="font-normal text-warning"> · revised v{current.version}</span>}</p>
+                {(history?.revisionCounts[current.user.id] ?? 0) > 0 && <Button size="xs" variant="secondary" icon={<GitCompare size={12} />} onClick={() => setComparing(current.id)}>Compare</Button>}
+              </div>
+              {current.paidDifference != null && Number(current.paidDifference) !== 0 && (
+                <p className="text-[11.5px] mb-2">Difference vs paid: <DeltaText value={Number(current.paidDifference)} /> {Number(current.paidDifference) > 0 ? 'arrears' : 'recovery'}{current.status === 'PAID' ? ' · settled' : ''}</p>
+              )}
               <AttendanceBasisPanel payslip={current} />
               <PayslipLines lines={current.lines ?? []} totals={payslipTotals(current)} currencyMoney={money} />
               {isDraft && (
@@ -237,15 +268,20 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
                     <Input type="number" min={0} className="flex-1 sm:flex-none w-28" disabled={!adjust} value={adjust?.amount ?? ''} onChange={e => adjust && setAdjust({ ...adjust, amount: e.target.value })} />
                     <Button size="sm" disabled={!adjust} loading={adjustLine.isPending} onClick={() => adjust && adjustLine.mutate({ payslipId: current.id, code: adjust.code, amount: Number(adjust.amount) })}>Apply</Button>
                   </div>
-                  <p className="text-[10.5px] text-fg-subtle mt-1.5">Adjustments survive Recalculate; totals update automatically.</p>
+                  <p className="text-[10.5px] text-fg-subtle mt-1.5">Adjustments survive Rerun (unless you untick “Keep manual adjustments”); totals update automatically.</p>
                 </div>
               )}
             </Card>
           ) : <p className="text-xs text-fg-subtle p-2">Select an employee to see the breakdown{isDraft ? ' and adjust lines' : ''}.</p>}
+          {history && <VersionsSection versions={history.versions} />}
         </aside>
       </div>
     </Modal>
-  );
+    {dialog === 'rerun' && <RerunDialog runId={runId} candidates={candidates} onClose={() => setDialog(null)} onDone={s => { setSummary(s); setSelected(null); }} />}
+    {dialog === 'reopen' && run && <ReopenDialog runId={runId} status={run.status} version={version} laterRuns={history?.laterFinalisedRuns ?? []} onClose={() => setDialog(null)} />}
+    {dialog === 'finalise' && <FinaliseDialog runId={runId} version={version} onClose={() => setDialog(null)} onDone={m => { setNotice(m); setSummary(null); }} />}
+    {comparing && <CompareModal runId={runId} payslipId={comparing} onClose={() => setComparing(null)} />}
+  </>);
 }
 
 function PayrollRunsSection() {
@@ -284,9 +320,10 @@ function PayrollRunsSection() {
                   <span className="font-medium text-fg text-sm tabular-nums">{periodLabel(r)}</span>
                   {r.payrollCycle && <span className="text-xs text-fg-subtle">{r.payrollCycle.name}</span>}
                   <StatusBadge value={r.status} map={PAYSLIP_STATUS_VARIANT} fallback="yellow" dot />
+                  {(r.version ?? 1) > 1 && <span className="text-[10.5px] font-semibold text-warning">v{r.version}</span>}
                 </div>
                 <p className="text-xs text-fg-subtle mt-0.5 tabular-nums">
-                  {r._count?.payslips ?? 0} payslip{(r._count?.payslips ?? 0) === 1 ? '' : 's'} · run by {r.runByUser?.name}{r.status === 'DRAFT' ? ' · awaiting review' : ''}
+                  {r._count?.payslips ?? 0} payslip{(r._count?.payslips ?? 0) === 1 ? '' : 's'} · run by {r.runByUser?.name}{r.status === 'DRAFT' ? ((r.version ?? 1) > 1 ? ' · reopened for changes' : ' · awaiting review') : ''}
                 </p>
               </div>
               <Button size="xs" variant="ghost" className="shrink-0">{r.status === 'DRAFT' ? 'Review' : 'View'}</Button>
@@ -313,6 +350,7 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
         <Button icon={<FileDown size={13} />} onClick={() => downloadPdf(`/hr/payroll/payslips/${payslip.id}/pdf`, `${payslip.payslipNumber}.pdf`)}>Download PDF</Button>
       </>}>
       <div className="space-y-4">
+        {(payslip.version ?? 1) > 1 && <p className="text-xs text-warning rounded-lg bg-warning/10 px-2.5 py-1.5">Revised payslip (v{payslip.version}){payslip.revisedAt ? ` issued ${date(payslip.revisedAt)}` : ''} — replaces the earlier version.{payslip.paidDifference != null && Number(payslip.paidDifference) !== 0 ? ` Difference vs paid: ${Number(payslip.paidDifference) > 0 ? '+' : '−'}${money(Math.abs(Number(payslip.paidDifference)))} ${Number(payslip.paidDifference) > 0 ? 'arrears' : 'recovery'}.` : ''}</p>}
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-medium text-fg truncate" title={payslip.user.name}>{payslip.user.name}</p>
@@ -365,6 +403,7 @@ function MyPayslips() {
               <div className="min-w-0">
                 <p className="font-medium text-fg text-sm tabular-nums">{periodLabel({ ...p, payrollCycle: p.payrollRun?.payrollCycle })}</p>
                 <p className="text-xs text-fg-subtle font-mono truncate">{p.payslipNumber}</p>
+                {(p.version ?? 1) > 1 && <p className="text-[11px] text-warning">Revised (v{p.version})</p>}
               </div>
               <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-3 shrink-0">
                 <span className="font-semibold text-fg text-sm tabular-nums">{money(p.netPay)}</span>

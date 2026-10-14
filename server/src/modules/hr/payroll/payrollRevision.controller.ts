@@ -346,7 +346,7 @@ export async function runHistory(req: AuthRequest, res: Response, next: NextFunc
       reopened: run.status === 'DRAFT' && run.version > 1,
       locked: isLocked(run),
       settlement: await settlementFor(orgId, run, revisions),
-      laterFinalisedRuns: run.status === 'DRAFT' || run.version > 1 ? await laterFinalisedRuns(orgId, run) : [],
+      laterFinalisedRuns: await laterFinalisedRuns(orgId, run),
       revisedEmailedBefore,
       revisionCounts: revisions.reduce<Record<string, number>>((m, r) => { m[r.userId] = (m[r.userId] ?? 0) + 1; return m; }, {}),
     });
