@@ -47,14 +47,16 @@ export function Alert({
   return (
     <div
       role={tone === 'danger' ? 'alert' : 'status'}
-      className={`flex items-start gap-2.5 rounded-card border px-3.5 py-3 text-[12.5px] leading-relaxed ${t.box} ${className}`}
+      className={`flex items-start gap-2.5 rounded-card border px-3.5 py-3 text-[12.5px] leading-relaxed ${actions ? 'max-sm:flex-wrap' : ''} ${t.box} ${className}`}
     >
       {showIcon && <span className={`shrink-0 mt-px ${t.icon}`}>{node}</span>}
-      <div className="min-w-0 flex-1">
+      {/* Phones: with actions, the text keeps the full row and the actions
+          wrap underneath — beside it they squeezed the text to a sliver. */}
+      <div className={`min-w-0 flex-1 ${actions ? (showIcon ? 'max-sm:basis-[calc(100%-2rem)]' : 'max-sm:basis-[calc(100%-1.5rem)]') : ''}`}>
         {title && <p className="font-semibold mb-0.5">{title}</p>}
         {children}
       </div>
-      {actions && <div className="shrink-0 flex items-center gap-2">{actions}</div>}
+      {actions && <div className={`shrink-0 flex flex-wrap items-center gap-2 ${showIcon ? 'max-sm:pl-[1.4rem]' : ''}`}>{actions}</div>}
       {onDismiss && (
         <button
           type="button"
