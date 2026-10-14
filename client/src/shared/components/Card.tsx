@@ -62,7 +62,15 @@ export function Card({
   );
 }
 
-/** Header strip inside a Card — title on the left, actions on the right. */
+/**
+ * Header strip inside a Card — title on the left, actions on the right.
+ *
+ * Wraps instead of squeezing: the title block has a ~16rem flex-basis, so
+ * when title + actions don't fit side by side (phones, or a long action
+ * row) the actions drop onto their own line below the title and the
+ * description keeps the full width. Small actions (an icon button) still
+ * sit beside the title. Desktop layout is unchanged.
+ */
 export function CardHeader({
   title,
   subtitle,
@@ -77,15 +85,15 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={`flex items-start justify-between gap-3 ${className}`}>
-      <div className="flex items-start gap-2.5 min-w-0">
+    <div className={`flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5 ${className}`}>
+      <div className="flex items-start gap-2.5 min-w-0 grow basis-[16rem]">
         {icon && <span className="shrink-0 text-fg-muted mt-0.5">{icon}</span>}
         <div className="min-w-0">
-          <h3 className="text-[13.5px] font-semibold text-fg tracking-tight truncate">{title}</h3>
+          <h3 className="text-[13.5px] font-semibold text-fg tracking-tight break-words sm:truncate">{title}</h3>
           {subtitle && <p className="text-[12px] text-fg-muted mt-0.5 leading-relaxed">{subtitle}</p>}
         </div>
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 max-w-full sm:shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -115,15 +123,17 @@ export function StatTile({
   const body = (
     <>
       {icon && (
-        <div className="shrink-0 w-9 h-9 rounded-card bg-accent-soft text-accent-soft-fg flex items-center justify-center">
+        <div className="shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-card bg-accent-soft text-accent-soft-fg flex items-center justify-center">
           {icon}
         </div>
       )}
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle truncate">
+      {/* Labels wrap to two lines and values wrap rather than truncate: a
+          clipped "$294,…" or "OPEN DEA…" is worse than a taller tile. */}
+      <div className="min-w-0 w-full sm:w-auto">
+        <p className="text-[10.5px] sm:text-[11px] font-semibold uppercase tracking-wider text-fg-subtle leading-snug line-clamp-2 break-words">
           {label}
         </p>
-        <p className="text-[19px] font-semibold text-fg leading-tight tracking-tight mt-1 truncate">
+        <p className="text-[17px] sm:text-[19px] font-semibold text-fg leading-tight tracking-tight mt-1 tabular-nums [overflow-wrap:anywhere]">
           {value}
         </p>
         {hint && <p className="text-[11.5px] text-fg-muted mt-0.5 truncate">{hint}</p>}
@@ -137,7 +147,7 @@ export function StatTile({
       tone={tone}
       interactive={!!onClick}
       onClick={onClick}
-      className={`flex items-center gap-3 ${className}`}
+      className={`flex ${icon ? 'flex-col items-start sm:flex-row sm:items-center' : 'items-center'} gap-2 sm:gap-3 ${className}`}
     >
       {body}
     </Card>
@@ -165,7 +175,7 @@ export function CardSection({
   return (
     <div className={`border-t border-line-subtle pt-4 mt-4 first:border-0 first:pt-0 first:mt-0 ${className}`}>
       {title && (
-        <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
           <h4 className="text-[12.5px] font-semibold text-fg flex items-center gap-1.5">
             {icon}
             {title}

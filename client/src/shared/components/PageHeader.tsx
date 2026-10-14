@@ -23,18 +23,18 @@ export function PageHeader({ title, subtitle, actions, breadcrumb, below }: Page
           {breadcrumb}
         </p>
       )}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="text-[18px] font-semibold text-fg leading-tight tracking-tight truncate">
+      <div className="flex items-center justify-between gap-x-4 gap-y-3 flex-wrap">
+        <div className="min-w-0 max-w-full">
+          <h1 className="text-[18px] font-semibold text-fg leading-tight tracking-tight break-words sm:truncate">
             {title}
           </h1>
           {subtitle && (
             <p className="text-[13px] text-fg-muted mt-0.5 leading-relaxed">{subtitle}</p>
           )}
         </div>
-        {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
+        {actions && <div className="flex items-center gap-2 flex-wrap max-w-full">{actions}</div>}
       </div>
-      {below && <div className="mt-3.5">{below}</div>}
+      {below && <div className="mt-3.5 min-w-0">{below}</div>}
     </div>
   );
 }
@@ -82,7 +82,7 @@ export function Toolbar({
   return (
     <div className={`flex items-center gap-2 flex-wrap ${className}`}>
       <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">{children}</div>
-      {right && <div className="flex items-center gap-2 shrink-0">{right}</div>}
+      {right && <div className="flex items-center gap-2 flex-wrap max-w-full sm:shrink-0">{right}</div>}
     </div>
   );
 }
@@ -105,7 +105,7 @@ export function SectionHeader({
         <h2 className="text-[14px] font-semibold text-fg tracking-tight">{title}</h2>
         {subtitle && <p className="text-[12px] text-fg-muted mt-0.5">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-wrap max-w-full sm:shrink-0">{actions}</div>}
     </div>
   );
 }
