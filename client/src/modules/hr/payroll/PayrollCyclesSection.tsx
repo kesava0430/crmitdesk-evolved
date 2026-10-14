@@ -34,8 +34,8 @@ export function PayrollCyclesSection() {
       {isLoading ? <SkeletonTable rows={2} /> : (
         <div className="space-y-2">
           {(data ?? []).map(c => (
-            <div key={c.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap">
-              <div className="min-w-0">
+            <div key={c.id} className="flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap"><span className="text-sm font-medium text-fg">{c.name}</span><Badge variant="gray">{c.frequency.toLowerCase()}</Badge>{c.isDefault && <Badge variant="accent">default</Badge>}{!c.isActive && <Badge variant="red">inactive</Badge>}</div>
                 <p className="text-xs text-fg-subtle mt-0.5">Current period {c.currentPeriod.label} · {c._count?.salaries ?? 0} employee{(c._count?.salaries ?? 0) === 1 ? '' : 's'}</p>
               </div>

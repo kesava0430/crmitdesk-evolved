@@ -121,17 +121,26 @@ export function SalaryComponentsSection() {
           rows={components}
           rowKey={c => c.id}
           columns={[
-            { key: 'order', header: '', cell: c => { const i = components.indexOf(c); return (
+            // On phones the reorder arrows move onto the card's Type line (see
+            // below) instead of a tall stacked column that doubled the card height.
+            { key: 'order', header: '', mobile: 'hidden', cell: c => { const i = components.indexOf(c); return (
               <span className="inline-flex flex-col">
                 <IconButton label="Move up" icon={<ArrowUp size={11} />} onClick={() => move(i, -1)} />
                 <IconButton label="Move down" icon={<ArrowDown size={11} />} onClick={() => move(i, 1)} />
               </span>); } },
             { key: 'name', header: 'Component', cell: c => (
               <div className="min-w-0">
-                <p className={`text-sm font-medium truncate ${c.isActive ? 'text-fg' : 'text-fg-subtle line-through'}`}>{c.name}</p>
+                <p className={`text-sm font-medium break-words md:truncate ${c.isActive ? 'text-fg' : 'text-fg-subtle line-through'}`}>{c.name}</p>
                 <p className="text-[11px] font-mono text-fg-subtle">{c.code}</p>
               </div>) },
-            { key: 'category', header: 'Type', cell: c => <Badge variant={c.category === 'EARNING' ? 'green' : c.category === 'DEDUCTION' ? 'red' : c.category === 'REIMBURSEMENT' ? 'blue' : 'gray'}>{CATEGORY_LABEL[c.category]}</Badge> },
+            { key: 'category', header: 'Type', cell: c => { const i = components.indexOf(c); return (
+              <span className="flex items-center gap-1 min-w-0">
+                <span className="min-w-0 flex"><Badge variant={c.category === 'EARNING' ? 'green' : c.category === 'DEDUCTION' ? 'red' : c.category === 'REIMBURSEMENT' ? 'blue' : 'gray'}>{CATEGORY_LABEL[c.category]}</Badge></span>
+                <span className="md:hidden ml-auto inline-flex shrink-0 -my-2 -mr-1.5">
+                  <IconButton label="Move up" icon={<ArrowUp size={13} />} onClick={() => move(i, -1)} />
+                  <IconButton label="Move down" icon={<ArrowDown size={13} />} onClick={() => move(i, 1)} />
+                </span>
+              </span>); } },
             { key: 'calc', header: 'Calculation', hideBelow: 'sm', cell: c => <span className="text-xs text-fg-muted">{describeCalc(c)}</span> },
             { key: 'flags', header: 'Applies to', hideBelow: 'md', cell: c => {
               const a = c.applicability; const parts: string[] = [];

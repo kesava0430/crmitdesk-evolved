@@ -229,12 +229,12 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
               {isDraft && (
                 <div className="mt-3 pt-3 border-t border-line-subtle">
                   <p className="text-[11px] font-medium text-fg-muted mb-1.5">Adjust a line</p>
-                  <div className="flex gap-2">
-                    <Select value={adjust?.code ?? ''} onChange={e => { const l = current.lines?.find(x => x.code === e.target.value); setAdjust(l ? { code: l.code, amount: String(l.amount) } : null); }}>
+                  <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                    <div className="w-full sm:w-auto"><Select value={adjust?.code ?? ''} onChange={e => { const l = current.lines?.find(x => x.code === e.target.value); setAdjust(l ? { code: l.code, amount: String(l.amount) } : null); }}>
                       <option value="">Pick a line…</option>
                       {(current.lines ?? []).map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-                    </Select>
-                    <Input type="number" min={0} className="w-28" disabled={!adjust} value={adjust?.amount ?? ''} onChange={e => adjust && setAdjust({ ...adjust, amount: e.target.value })} />
+                    </Select></div>
+                    <Input type="number" min={0} className="flex-1 sm:flex-none w-28" disabled={!adjust} value={adjust?.amount ?? ''} onChange={e => adjust && setAdjust({ ...adjust, amount: e.target.value })} />
                     <Button size="sm" disabled={!adjust} loading={adjustLine.isPending} onClick={() => adjust && adjustLine.mutate({ payslipId: current.id, code: adjust.code, amount: Number(adjust.amount) })}>Apply</Button>
                   </div>
                   <p className="text-[10.5px] text-fg-subtle mt-1.5">Adjustments survive Recalculate; totals update automatically.</p>
@@ -278,8 +278,8 @@ function PayrollRunsSection() {
       ) : (
         <div className="space-y-2">
           {(data || []).map(r => (
-            <button key={r.id} onClick={() => setViewing(r.id)} className="w-full text-left flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card flex-wrap hover:border-line-strong hover:bg-surface-hover transition-colors">
-              <div className="min-w-0">
+            <button key={r.id} onClick={() => setViewing(r.id)} className="w-full text-left flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card hover:border-line-strong hover:bg-surface-hover transition-colors">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-fg text-sm tabular-nums">{periodLabel(r)}</span>
                   {r.payrollCycle && <span className="text-xs text-fg-subtle">{r.payrollCycle.name}</span>}
@@ -289,7 +289,7 @@ function PayrollRunsSection() {
                   {r._count?.payslips ?? 0} payslip{(r._count?.payslips ?? 0) === 1 ? '' : 's'} · run by {r.runByUser?.name}{r.status === 'DRAFT' ? ' · awaiting review' : ''}
                 </p>
               </div>
-              <Button size="xs" variant="ghost">{r.status === 'DRAFT' ? 'Review' : 'View'}</Button>
+              <Button size="xs" variant="ghost" className="shrink-0">{r.status === 'DRAFT' ? 'Review' : 'View'}</Button>
             </button>
           ))}
         </div>
@@ -313,7 +313,7 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
         <Button icon={<FileDown size={13} />} onClick={() => downloadPdf(`/hr/payroll/payslips/${payslip.id}/pdf`, `${payslip.payslipNumber}.pdf`)}>Download PDF</Button>
       </>}>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-medium text-fg truncate" title={payslip.user.name}>{payslip.user.name}</p>
             <p className="text-xs text-fg-subtle truncate">{payslip.user.department || payslip.user.email}</p>
@@ -362,11 +362,11 @@ function MyPayslips() {
           {(data || []).map(p => (
             <button key={p.id} onClick={() => setViewing(p)}
               className="w-full flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card hover:border-line-strong hover:bg-surface-hover transition-colors text-left">
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium text-fg text-sm tabular-nums">{periodLabel({ ...p, payrollCycle: p.payrollRun?.payrollCycle })}</p>
-                <p className="text-xs text-fg-subtle font-mono">{p.payslipNumber}</p>
+                <p className="text-xs text-fg-subtle font-mono truncate">{p.payslipNumber}</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-3 shrink-0">
                 <span className="font-semibold text-fg text-sm tabular-nums">{money(p.netPay)}</span>
                 <StatusBadge value={p.status} map={PAYSLIP_STATUS_VARIANT} fallback="yellow" dot />
               </div>

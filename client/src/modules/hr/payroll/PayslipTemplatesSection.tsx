@@ -176,7 +176,7 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Signatory name"><Input value={form.signatoryName} onChange={e => set('signatoryName', e.target.value)} placeholder="e.g. R. Menon" /></Field>
                   <Field label="Signature label"><Input value={form.signatureLabel} onChange={e => set('signatureLabel', e.target.value)} /></Field>
-                  <Field label="Signature image URL" className="col-span-2"><Input value={form.signatureUrl} onChange={e => set('signatureUrl', e.target.value)} placeholder="https://… (PNG with transparent background)" /></Field>
+                  <Field label="Signature image URL" className="sm:col-span-2"><Input value={form.signatureUrl} onChange={e => set('signatureUrl', e.target.value)} placeholder="https://… (PNG with transparent background)" /></Field>
                 </div>
               )}
             </div>

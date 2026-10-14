@@ -146,8 +146,9 @@ export function EmployeeSalariesSection() {
                 const c = byCode.get(r.code)!;
                 const fixedDefault = c.calcType === 'FIXED' && !c.statutory;
                 return (
-                  <div key={r.code} className={`p-2.5 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-2 items-center ${r.enabled ? '' : 'opacity-50'}`}>
-                    <div className="min-w-0">
+                  <div key={r.code} className={`p-2.5 grid grid-cols-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-2 items-center ${r.enabled ? '' : 'opacity-50'}`}>
+                    {/* Phones: name on its own line, mode + value side by side below. */}
+                    <div className="min-w-0 col-span-2 sm:col-span-1">
                       <Checkbox label={<span className="text-[13px] font-medium">{c.name}</span>} checked={r.enabled} onChange={e => setRow(r.code, { enabled: e.target.checked })} />
                       <p className="text-[10.5px] text-fg-subtle ml-6">{CATEGORY_LABEL[c.category]} · {c.statutory ? 'statutory' : c.calcType === 'FIXED' ? 'fixed' : c.calcType === 'PERCENT' ? `${c.percent}% of ${c.percentOf}` : 'formula'}</p>
                     </div>
@@ -157,7 +158,7 @@ export function EmployeeSalariesSection() {
                       {c.calcType === 'PERCENT' && <option value="percent">Percent</option>}
                       {!c.statutory && <option value="formula">Formula</option>}
                     </Select>
-                    <div>
+                    <div className="min-w-0">
                       {(r.mode === 'amount' || (r.mode === 'default' && fixedDefault && !c.amount)) && <Input type="number" min={0} placeholder="Amount" value={r.amount} disabled={!r.enabled} onChange={e => setRow(r.code, { amount: e.target.value, mode: 'amount' })} />}
                       {r.mode === 'percent' && <Input type="number" min={0} step="0.01" placeholder={`% of ${c.percentOf}`} value={r.percent} disabled={!r.enabled} onChange={e => setRow(r.code, { percent: e.target.value })} />}
                       {r.mode === 'formula' && <Input placeholder="e.g. BASIC * 0.1" value={r.formula} disabled={!r.enabled} onChange={e => setRow(r.code, { formula: e.target.value })} />}
