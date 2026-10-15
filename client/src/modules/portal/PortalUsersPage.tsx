@@ -13,6 +13,7 @@ import {
 import { useFormat } from '../../hooks/useFormat';
 import { can } from '../../shared/permissions';
 import { PlanFeatureNotice } from '../../shared/components/PlanFeatureNotice';
+import { publicAppUrl } from '../../shared/appUrl';
 
 export function PortalUsersPage() {
   const { user } = useAuth();
@@ -35,7 +36,11 @@ export function PortalUsersPage() {
   if (!canReadPortalUsers) return <AccessDenied />;
 
   const orgId = user?.orgId || '';
-  const portalUrl = `${window.location.origin}/portal?org=${orgId}`;
+  // Was `${window.location.origin}/portal?…`, which drops the /zenkara base
+  // (app.zenkara.in/portal isn't routed to the app — a 404) and in the
+  // Android app produced http://localhost/portal. publicAppUrl() gives the
+  // public web address in both cases.
+  const portalUrl = publicAppUrl(`/portal?org=${encodeURIComponent(orgId)}`);
 
   function copyPortalLink() {
     navigator.clipboard.writeText(portalUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });

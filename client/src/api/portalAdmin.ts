@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
+import { publicAppRoot } from '../shared/appUrl';
 
 export interface PortalUser {
   id: string;
@@ -19,7 +20,9 @@ export function usePortalUsers(enabled = true) {
 export function useCreatePortalUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; email: string; sendInvite?: boolean }) => api.post('/portal-users', data).then(r => r.data),
+    // appBase: this page's public root, so the emailed link matches the one on
+    // screen even when the server's FRONTEND_URL lacks the /zenkara base.
+    mutationFn: (data: { name: string; email: string; sendInvite?: boolean }) => api.post('/portal-users', { ...data, appBase: publicAppRoot() }).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-users'] }),
   });
 }
@@ -42,6 +45,6 @@ export function useDeletePortalUser() {
 
 export function useResendPortalInvite() {
   return useMutation({
-    mutationFn: (id: string) => api.post(`/portal-users/${id}/resend-invite`).then(r => r.data),
+    mutationFn: (id: string) => api.post(`/portal-users/${id}/resend-invite`, { appBase: publicAppRoot() }).then(r => r.data),
   });
 }

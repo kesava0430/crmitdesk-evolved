@@ -9,6 +9,7 @@ import { PortalRequest } from '../../middleware/authenticatePortal';
 import { AppError } from '../../middleware/errorHandler';
 import { sseManager, SSEEvent } from '../../utils/sse';
 import { notifyOrgAdmins } from '../notifications/notifications.controller';
+import { portalVerifyLink, resolveAppBase } from '../../utils/frontendUrl';
 
 function hashToken(raw: string) {
   return crypto.createHash('sha256').update(raw).digest('hex');
@@ -18,7 +19,7 @@ function hashToken(raw: string) {
 // Public — customer enters email to get magic link
 export async function requestAccess(req: Request, res: Response, next: NextFunction) {
   try {
-    const { email, orgId } = z.object({ email: emailField(), orgId: z.string() }).parse(req.body);
+    const { email, orgId, appBase } = z.object({ email: emailField(), orgId: z.string(), appBase: z.string().optional() }).parse(req.body);
 
     // Distinct from the "email not registered" case below, which stays
     // silent on purpose (anti-enumeration) — a missing orgId isn't a
@@ -45,7 +46,11 @@ export async function requestAccess(req: Request, res: Response, next: NextFunct
 
     await prisma.portalToken.create({ data: { portalUserId: portalUser.id, tokenHash, expiresAt } });
 
-    const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/portal/verify?token=${raw}&org=${orgId}`;
+    // The portal page sends its own public root (appBase) so the link comes
+    // back to the same host + base path; resolveAppBase only accepts our own
+    // origins and otherwise uses FRONTEND_URL — this link carries a login
+    // token, so it must never point anywhere a caller chooses.
+    const portalUrl = portalVerifyLink(raw, orgId, resolveAppBase(appBase));
 
     await sendMail({
       orgId,

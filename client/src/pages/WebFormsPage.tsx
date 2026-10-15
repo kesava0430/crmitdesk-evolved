@@ -21,6 +21,7 @@ import {
   PageBody, PageHeader, Select, Textarea, Toggle,
 } from '../shared/components';
 import { addToast } from '../shared/components/toastStore';
+import { publicAppUrl } from '../shared/appUrl';
 
 interface WebForm {
   id: string;
@@ -85,7 +86,9 @@ export default function WebFormsPage() {
     onError: (e: any) => addToast(e?.response?.data?.error || 'Delete failed', 'error'),
   });
 
-  const publicUrl = (id: string) => `${window.location.origin}/form/${id}`;
+  // Same base-path rule as the portal link (shared/appUrl.ts): the hosted
+  // form lives under /zenkara/ in production, not at the domain root.
+  const publicUrl = (id: string) => publicAppUrl(`/form/${id}`);
   const embedSnippet = (id: string) =>
     `<iframe src="${publicUrl(id)}" style="width:100%;max-width:560px;height:640px;border:0;border-radius:12px" title="Contact form"></iframe>`;
 

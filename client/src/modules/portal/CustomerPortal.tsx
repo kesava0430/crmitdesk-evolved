@@ -1,6 +1,6 @@
 import { asset } from '../../shared/asset';
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { Plus, ArrowLeft, Send, LogOut, Ticket, CheckCircle, Clock, AlertCircle, MessageCircle, X } from 'lucide-react';
 import {
@@ -8,6 +8,7 @@ import {
   Badge, Alert, EmptyState, SkeletonCard, ticketStatusVariant,
 } from '../../shared/components';
 import { formatDate, formatDateTime } from '../../utils/format';
+import { publicAppRoot } from '../../shared/appUrl';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,7 +79,12 @@ function LoginView({ orgId }: { orgId: string }) {
     setLoading(true);
     setError('');
     try {
-      await axios.post(`${BASE}/request-access`, { email, orgId });
+      // appBase: where THIS portal is being served from, so the emailed
+      // magic link returns the customer to the same place (app.zenkara.in/
+      // zenkara or 360.zenkara.in/zenkara) even if the server's FRONTEND_URL
+      // lacks the base path. The server only accepts it for its own trusted
+      // origins — see server utils/frontendUrl.ts.
+      await axios.post(`${BASE}/request-access`, { email, orgId, appBase: publicAppRoot() });
       setSent(true);
     } catch (err: any) {
       // Surface the server's actual message (e.g. missing org id) instead of
@@ -163,9 +169,11 @@ function VerifyView({ token, orgId, onLogin }: { token: string; orgId: string; o
         <AlertCircle size={48} className="text-danger mx-auto mb-4" />
         <h2 className="font-semibold text-fg mb-2">Link expired</h2>
         <p className="text-sm text-fg-muted mb-4 leading-relaxed">{error}</p>
-        <a href={`/portal?org=${orgId}`} className="text-accent text-sm hover:underline font-medium">
+        {/* <Link>, not <a href="/portal…">: a raw href skips the router
+            basename and lands outside /zenkara/ in production. */}
+        <Link to={`/portal?org=${encodeURIComponent(orgId)}`} className="text-accent text-sm hover:underline font-medium">
           Request a new link →
-        </a>
+        </Link>
       </Card>
     </PortalSplash>
   );
