@@ -5,7 +5,7 @@ import { useBackButtonClose } from '../../native/overlayStack';
 interface ModalProps {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   icon?: React.ReactNode;
   children: React.ReactNode;

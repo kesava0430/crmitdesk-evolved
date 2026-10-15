@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown, MessageCircleMore, Link2 } from 'lucide-react';
+import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown, MessageCircleMore, Link2, X } from 'lucide-react';
 import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports, useArticleSuggestions, useCreateArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
 import { useUsers } from '../../../api/users';
@@ -149,7 +149,7 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
               keeps matching for the seeded test org, which never sets
               labelOverrides. */}
           <Field label={fieldLabel('ticket', 'title', 'Title')} required>
-            <Input aria-label={fieldLabel('ticket', 'title', 'Title')} required value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
+            <Input aria-label={fieldLabel('ticket', 'title', 'Title')} required maxLength={TITLE_MAX} value={form.title} onChange={f('title')} placeholder="Brief description of the issue" />
             <AiNote id="ticket.duplicate" className="mt-1.5" />
             {aiDupes.data?.duplicates && aiDupes.data.duplicates.length > 0 && (
               <Alert tone="warning" className="mt-2">
@@ -244,6 +244,97 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
   );
 }
 
+/** Matches the server's limit (tickets/ticketTitle.ts TICKET_TITLE_MAX). */
+const TITLE_MAX = 200;
+
+/**
+ * The ticket's subject in the detail modal header, editable in place.
+ *
+ * The subject used to be read-only text in the modal header: the only way
+ * to change it was the generic "Edit" button beside the status badges,
+ * which opened a form further down — and nothing on the subject itself
+ * suggested it could be edited ("No option to update the subject").
+ * Pencil → input → Enter/✓ saves, Escape/✕ cancels.
+ *
+ * Reads the live ['tickets', id] query (shared with TicketDetailModal), so
+ * the header updates the moment a save lands instead of waiting for the
+ * list to refetch.
+ */
+function EditableTicketTitle({ id, fallback, canEdit }: { id: string; fallback: string; canEdit: boolean }) {
+  const { data: ticket } = useTicket(id);
+  const updateTicket = useUpdateTicket();
+  const title: string = ticket?.title ?? fallback;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const [error, setError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  // Another ticket opened in the same modal — drop any half-typed edit.
+  useEffect(() => { setEditing(false); setError(''); }, [id]);
+
+  const trimmed = draft.trim();
+  const unchanged = trimmed === title.trim();
+
+  function start() { setDraft(title); setError(''); setEditing(true); }
+  function cancel() { setEditing(false); setError(''); }
+  async function save() {
+    if (!trimmed) { setError('Subject cannot be empty.'); return; }
+    if (unchanged) { cancel(); return; }
+    try {
+      await updateTicket.mutateAsync({ id, title: trimmed });
+      setEditing(false);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not save the subject. Try again.');
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span className="inline-flex items-start gap-1.5 max-w-full">
+        <span className="min-w-0 break-words">{title}</span>
+        {canEdit && ticket && (
+          <IconButton
+            label="Edit subject"
+            size="xs"
+            tone="accent"
+            className="mt-[-1px]"
+            icon={<Pencil size={12} />}
+            onClick={start}
+          />
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span className="block">
+      <span className="flex items-center gap-1.5">
+        <Input
+          ref={inputRef}
+          aria-label="Ticket subject"
+          value={draft}
+          maxLength={Math.max(TITLE_MAX, title.length)}
+          onChange={e => { setDraft(e.target.value); setError(''); }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            // stopPropagation: the Modal closes on Escape at the document
+            // level — here Escape should only abandon the edit.
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+          }}
+          className="flex-1 min-w-0 font-semibold"
+          disabled={updateTicket.isPending}
+        />
+        <IconButton label="Save subject" size="md" tone="success" icon={<Check size={15} />} onClick={save} disabled={!trimmed || updateTicket.isPending} />
+        <IconButton label="Cancel editing subject" size="md" icon={<X size={15} />} onClick={cancel} disabled={updateTicket.isPending} />
+      </span>
+      {error
+        ? <span role="alert" className="block text-[12px] font-normal text-danger mt-1">{error}</span>
+        : <span className="block text-[11px] font-normal text-fg-subtle mt-1">Enter to save · Esc to cancel</span>}
+    </span>
+  );
+}
+
 function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
   const updateTicket = useUpdateTicket();
   const { data: departmentsRes } = useDepartments();
@@ -267,7 +358,7 @@ function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
   return (
     <Card tone="sunken" padding="sm" flat className="space-y-3">
       <Field label="Title">
-        <Input aria-label="Edit title" value={form.title} onChange={f('title')} />
+        <Input aria-label="Edit title" value={form.title} onChange={f('title')} maxLength={Math.max(TITLE_MAX, (ticket.title || '').length)} />
       </Field>
       <Field label="Description">
         <RichTextEditor ariaLabel="Edit description" value={form.body} onChange={html => setForm(p => ({ ...p, body: html }))} minHeight={80} />
@@ -303,7 +394,7 @@ function SummaryItem({ label, children, className = '' }: { label: string; child
   );
 }
 
-function TicketDetailModal({ id, users, categories }: any) {
+function TicketDetailModal({ id, users, categories, canEdit }: any) {
   // Own live query keyed by id (not a snapshot prop from the list row) so
   // status/assignee/etc. update in-place the moment a mutation invalidates
   // ['tickets', id] — previously this took `ticket` as a prop sourced from
@@ -455,7 +546,9 @@ function TicketDetailModal({ id, users, categories }: any) {
                 <AiInfo id="ticket.sentiment" />
               </>
             )}
-            {!editingDetails && (
+            {/* PATCH /itdesk/tickets/:id is IT_STAFF-only; an employee
+                viewing their own request used to get this button and a 403. */}
+            {canEdit && !editingDetails && (
               <Button size="xs" variant="secondary" className="ml-auto" icon={<Pencil size={11} />} onClick={() => setEditingDetails(true)}>
                 Edit
               </Button>
@@ -770,6 +863,8 @@ export function TicketsPage() {
   // in tickets.controller.ts's create()) — same group as editTickets, read off
   // the shared capability table rather than a local copy of the role names.
   const canFileOnBehalf = can.editTickets(role);
+  // Same group the server allows to PATCH a ticket (subject, description…).
+  const canEditTickets = can.editTickets(role);
   /* Filing on behalf of a CRM contact needs the contact list, which is
      CRM_STAFF-only — IT_MANAGER/IT_AGENT can file on behalf but cannot read
      /crm/contacts, and EMPLOYEE can do neither. */
@@ -939,8 +1034,13 @@ export function TicketsPage() {
           }} />
       </Modal>
 
-      <Modal open={!!selectedId} onClose={() => setSelectedId(null)} title={filtered?.find((t: any) => t.id === selectedId)?.title || ''} size="lg">
-        <TicketDetailModal id={selectedId} users={users} categories={categories} onClose={() => setSelectedId(null)} />
+      <Modal
+        open={!!selectedId}
+        onClose={() => setSelectedId(null)}
+        title={selectedId ? <EditableTicketTitle id={selectedId} fallback={filtered?.find((t: any) => t.id === selectedId)?.title || ''} canEdit={canEditTickets} /> : ''}
+        size="lg"
+      >
+        <TicketDetailModal id={selectedId} users={users} categories={categories} canEdit={canEditTickets} onClose={() => setSelectedId(null)} />
       </Modal>
       </PageBody>
     </div>
