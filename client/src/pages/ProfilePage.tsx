@@ -5,8 +5,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 import {
   PageHeader, PageBody, Card, Tabs, Button, IconButton, Badge, Alert, Avatar,
-  Field, Input,
+  Field, Input, FormGrid,
 } from '../shared/components';
+import { useMyDetails, useUpdateMyDetails, type MyDetails } from '../api/people';
+import { useFormat } from '../hooks/useFormat';
 import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
 import { saveOrShareBlob } from '../native/download';
 
@@ -47,6 +49,10 @@ function AvatarSection({ user }: { user: { name: string; avatarUrl?: string } })
 /* ── Profile form ── */
 function ProfileForm() {
   const { user, updateProfile } = useAuth();
+  // With an employee record, department is HR's to set (People → Edit) —
+  // shown here for reference rather than as a second, disconnected copy.
+  const { data: mine } = useMyDetails();
+  const hrDepartment = mine?.data ? mine.data.department?.name ?? '' : null;
   const [form, setForm] = useState({
     name:       user?.name       ?? '',
     email:      user?.email      ?? '',
@@ -95,10 +101,11 @@ function ProfileForm() {
         />
       </Field>
 
-      <Field label="Department">
+      <Field label="Department" hint={hrDepartment !== null ? 'Set by HR. Ask them if it needs changing.' : undefined}>
         <Input
           icon={<Briefcase size={15} />}
-          value={form.department}
+          value={hrDepartment ?? form.department}
+          disabled={hrDepartment !== null}
           onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
           placeholder="e.g. Engineering, Sales"
         />
@@ -119,6 +126,124 @@ function ProfileForm() {
         </Button>
       </div>
     </form>
+  );
+}
+
+/* ── Work details (read-only) + own contact details (editable) ── */
+const MY_FIELDS = [
+  'phone', 'alternatePhone', 'personalEmail', 'addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'country',
+] as const;
+type MyKey = (typeof MY_FIELDS)[number] | 'ecName' | 'ecRelationship' | 'ecPhone';
+
+function myForm(d: MyDetails): Record<MyKey, string> {
+  const out = {} as Record<MyKey, string>;
+  for (const k of MY_FIELDS) out[k] = (d[k] as string | null | undefined) ?? '';
+  out.ecName = d.emergencyContact?.name ?? '';
+  out.ecRelationship = d.emergencyContact?.relationship ?? '';
+  out.ecPhone = d.emergencyContact?.phone ?? '';
+  return out;
+}
+
+function Info({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] text-fg-subtle">{label}</p>
+      <p className="text-[12.5px] text-fg break-words">{value || '—'}</p>
+    </div>
+  );
+}
+
+function MyDetailsSection() {
+  const { data, isLoading } = useMyDetails();
+  const save = useUpdateMyDetails();
+  const fmt = useFormat();
+  const details = data?.data ?? null;
+  const [initial, setInitial] = useState<Record<MyKey, string> | null>(null);
+  const [form, setForm] = useState<Record<MyKey, string> | null>(null);
+  const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (details) { const f = myForm(details); setInitial(f); setForm(f); }
+  }, [details]);
+
+  if (isLoading) return <div className="skeleton h-40 w-full" aria-hidden="true" />;
+  if (!details || !form || !initial) {
+    return (
+      <p className="text-[12.5px] text-fg-muted">
+        No employee record is linked to your login yet, so there are no work details to show. Ask HR to add you
+        under People.
+      </p>
+    );
+  }
+
+  const set = (k: MyKey, v: string) => setForm(f => (f ? { ...f, [k]: v } : f));
+  const ec = [form.ecName, form.ecRelationship, form.ecPhone].map(v => v.trim());
+  const ecPartial = ec.some(Boolean) && !ec.every(Boolean);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!form || !initial) return;
+    const body: Record<string, unknown> = {};
+    for (const k of MY_FIELDS) if (form[k] !== initial[k]) body[k] = form[k].trim() || null;
+    if (['ecName', 'ecRelationship', 'ecPhone'].some(k => form[k as MyKey] !== initial[k as MyKey])) {
+      body.emergencyContact = ec.every(v => !v) ? null : { name: ec[0], relationship: ec[1], phone: ec[2] };
+    }
+    if (!Object.keys(body).length) { setToast({ type: 'ok', msg: 'Nothing to save.' }); return; }
+    setToast(null);
+    try {
+      await save.mutateAsync(body);
+      setToast({ type: 'ok', msg: 'Your details were updated.' });
+    } catch (err: any) {
+      setToast({ type: 'err', msg: err?.response?.data?.error ?? 'Could not save your details.' });
+    }
+  }
+
+  const input = (k: MyKey, label: string, type = 'text', span = false) => (
+    <Field label={label} className={span ? 'sm:col-span-2' : ''}>
+      <Input aria-label={label} type={type} value={form[k]} onChange={e => set(k, e.target.value)} />
+    </Field>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mb-2">Work (managed by HR)</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
+          <Info label="Employee ID" value={details.employeeCode} />
+          <Info label="Designation" value={details.designation} />
+          <Info label="Department" value={details.department?.name} />
+          <Info label="Reports to" value={details.manager?.displayName} />
+          <Info label="Location" value={details.location?.name} />
+          <Info label="Joined" value={details.joiningDate ? fmt.date(details.joiningDate) : null} />
+        </div>
+      </div>
+
+      <form onSubmit={submit} className="space-y-4 border-t border-line-subtle pt-5">
+        {toast && <Toast type={toast.type} msg={toast.msg} onDismiss={() => setToast(null)} />}
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Contact &amp; address</p>
+        <FormGrid>
+          {input('phone', 'Phone', 'tel')}
+          {input('alternatePhone', 'Alternate phone', 'tel')}
+          {input('personalEmail', 'Personal email', 'email', true)}
+          {input('addressLine1', 'Address line 1', 'text', true)}
+          {input('addressLine2', 'Address line 2', 'text', true)}
+          {input('city', 'City')}
+          {input('state', 'State')}
+          {input('postalCode', 'Postal code')}
+          {input('country', 'Country')}
+        </FormGrid>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle pt-1">Emergency contact</p>
+        <FormGrid cols={3}>
+          {input('ecName', 'Contact name')}
+          {input('ecRelationship', 'Relationship')}
+          {input('ecPhone', 'Contact phone', 'tel')}
+        </FormGrid>
+        {ecPartial && (
+          <p className="text-[12px] text-danger">Fill in name, relationship and phone — or clear all three.</p>
+        )}
+        <Button type="submit" loading={save.isPending} disabled={ecPartial}>Save my details</Button>
+      </form>
+    </div>
   );
 }
 
@@ -397,6 +522,7 @@ function PrivacyPanel() {
 /* ── Main page ── */
 const TABS = [
   { key: 'profile', label: 'Profile details' },
+  { key: 'work', label: 'Work & contact' },
   { key: 'security', label: 'Security' },
   { key: 'connections', label: 'Connections' },
   { key: 'privacy', label: 'Privacy & Data' },
@@ -447,6 +573,15 @@ export default function ProfilePage() {
             <>
               <h2 className="text-[14px] font-semibold text-fg tracking-tight mb-5">Personal information</h2>
               <ProfileForm />
+            </>
+          )}
+          {tab === 'work' && (
+            <>
+              <h2 className="text-[14px] font-semibold text-fg tracking-tight mb-1">Work &amp; contact details</h2>
+              <p className="text-[13px] text-fg-muted mb-5">
+                Keep your phone, address and emergency contact current. Job details are maintained by HR.
+              </p>
+              <MyDetailsSection />
             </>
           )}
           {tab === 'security' && (
