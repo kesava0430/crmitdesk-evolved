@@ -16,10 +16,15 @@ export function ChatThreadView({ threadId, compact = false }: { threadId: string
   const { data, isLoading } = useChatMessages(threadId);
   const send = useSendChatMessage();
   const [draft, setDraft] = useState('');
-  const endRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
+  // Scroll the message list itself, not scrollIntoView() on an end marker: that also
+  // scrolls every scrollable ancestor, so opening a ticket (whose detail
+  // modal embeds this pane near the bottom) jumped the modal down to Team
+  // Chat — the subject, description and Edit controls opened off-screen.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const el = listRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [data?.messages?.length]);
 
   async function submit() {
@@ -33,7 +38,7 @@ export function ChatThreadView({ threadId, compact = false }: { threadId: string
 
   return (
     <div className={`flex flex-col ${compact ? 'h-72' : 'h-full'}`}>
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-canvas">
+      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-canvas">
         {isLoading ? (
           <div className="space-y-2" aria-hidden="true">
             <div className="skeleton h-10 w-3/5" />
@@ -72,7 +77,6 @@ export function ChatThreadView({ threadId, compact = false }: { threadId: string
             No messages yet — say hello, or type <span className="font-medium text-fg-muted">@ai</span> to bring the assistant in.
           </p>
         )}
-        <div ref={endRef} />
       </div>
       <form
         onSubmit={e => { e.preventDefault(); submit(); }}
