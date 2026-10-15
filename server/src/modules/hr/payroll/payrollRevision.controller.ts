@@ -26,7 +26,9 @@ import {
   snapshotPayslip, paidBaselines, latestRevision, refinalizeDecision, computeSettlement, runVersionHistory,
   type RerunOptions, type ChangeEntry, type SlipFigures, type SlipLine, type RevisionRow, type RevisionData,
 } from '../../../utils/payrollRevision';
-import { computeSlip, slipColumns, lineRows, nextPayslipNumber, type ComputedSlip } from './payroll.controller';
+import { computeSlip, slipColumns, lineRows, nextPayslipNumber, loanEntryRows, reapplyLoans, type ComputedSlip } from './payroll.controller';
+import { settleLoanStatuses } from './loans.controller';
+import { isLoanCode, loanIdOf } from '../../../utils/payrollLoans';
 import { resolveTemplate } from './payslipTemplates.controller';
 
 const LOCK_STALE_MS = 10 * 60_000;
@@ -119,17 +121,27 @@ async function rerunCore(orgId: string, runId: string, options: RerunOptions, le
   for (const r of plan.rebuild) {
     const p = slipById.get(r.payslipId)!;
     const before = figuresOfPayslip(p);
-    const c = await computeSlip(orgId, runC, salaryById.get(r.employeeSalaryId)!, comps, cycle);
+    const c = await computeSlip(orgId, runC, salaryById.get(r.employeeSalaryId)!, comps, cycle, p.id);
     let lines = c.lines, totals = c.totals, kept = 0, dropped: string[] = [];
     const adj = options.keepAdjustments ? p.lines.filter(l => l.adjusted).map(l => ({ code: l.code, amount: Number(l.amount) })) : [];
+    let loans = c.loans;
     if (adj.length) {
       const a = applyAdjustments(c.lines, adj);
       lines = a.lines; kept = a.applied; dropped = a.missing;
       totals = { earnings: a.totals.earnings, deductions: a.totals.deductions, reimbursements: a.totals.reimbursements, employer: a.totals.employer, net: a.totals.net };
+      // Re-applied adjustments change what's left for loan EMIs: recompute them so net pay stays ≥ 0.
+      if (lines.some(l => isLoanCode(l.code)) || a.totals.net < 0) {
+        const r = await reapplyLoans(orgId, p.userId, runC, lines, p.id);
+        lines = r.lines; loans = r.loans;
+        const w = (c.fields.attendanceSummary.warnings ?? []).filter((x: string) => !/could be recovered without making net pay negative/.test(x));
+        c.fields.attendanceSummary = { ...c.fields.attendanceSummary, warnings: [...w, ...r.loans.warnings] };
+        totals = { earnings: r.totals.earnings, deductions: r.totals.deductions, reimbursements: r.totals.reimbursements, employer: r.totals.employer, net: r.totals.net };
+      }
     }
     writes.push(prisma.payslip.update({
       where: { id: p.id },
-      data: { ...slipColumns({ lines, totals, fields: c.fields }), lines: { deleteMany: {}, create: lineRows(lines) } },
+      // Loan recoveries are replaced with this computation's (never added to) — rerun is idempotent.
+      data: { ...slipColumns({ lines, totals, fields: c.fields }), lines: { deleteMany: {}, create: lineRows(lines) }, loanEntries: { deleteMany: {}, create: loanEntryRows(orgId, runC, lines, loans) } },
     }));
     entries.push({ userId: p.userId, name: p.user.name, payslipId: p.id, kind: 'UPDATED', diff: diffSlip(before, figuresOfComputed(c, lines, totals)), adjustmentsKept: kept, adjustmentsDropped: dropped });
   }
@@ -141,7 +153,7 @@ async function rerunCore(orgId: string, runId: string, options: RerunOptions, le
     writes.push(prisma.payslip.create({
       data: {
         orgId, userId: a.userId, payrollRunId: run.id, payslipNumber, month: run.month, year: run.year, periodStart: run.periodStart, periodEnd: run.periodEnd,
-        ...slipColumns(c), status: 'DRAFT', lines: { create: lineRows(c.lines) },
+        ...slipColumns(c), status: 'DRAFT', lines: { create: lineRows(c.lines) }, loanEntries: { create: loanEntryRows(orgId, runC, c.lines, c.loans) },
       },
     }));
     entries.push({ userId: a.userId, name: es.user.name, payslipId: null, kind: 'ADDED', diff: diffSlip(null, figuresOfComputed(c, c.lines, c.totals)) });
@@ -262,6 +274,15 @@ export async function finalizeRun(req: AuthRequest, res: Response, next: NextFun
       if (run.status !== 'DRAFT') throw new AppError(400, 'This run is already finalised');
       const slips = await prisma.payslip.findMany({ where: { payrollRunId: run.id, orgId }, include: { lines: true } });
       if (slips.length === 0) throw new AppError(400, 'This run has no payslips to issue');
+      // A loan cancelled/closed after this draft was computed leaves a recovery
+      // line without its ledger row (or the reverse) — issue only consistent payslips.
+      const loanRows = await prisma.loanLedgerEntry.findMany({ where: { orgId, payslipId: { in: slips.map(s => s.id) }, type: 'RECOVERY' }, select: { payslipId: true, loanId: true, amount: true } });
+      const stale = slips.filter(s => {
+        const lineSet = s.lines.filter(l => isLoanCode(l.code) && Number(l.amount) > 0).map(l => `${loanIdOf(l.code)}:${Number(l.amount).toFixed(2)}`).sort().join('|');
+        const rowSet = loanRows.filter(r => r.payslipId === s.id && Number(r.amount) > 0).map(r => `${r.loanId}:${Number(r.amount).toFixed(2)}`).sort().join('|');
+        return lineSet !== rowSet;
+      });
+      if (stale.length) throw new AppError(400, `Loan recoveries changed since this draft was calculated (${stale.length} payslip${stale.length === 1 ? '' : 's'}) — rerun the draft before finalising.`);
       const revisions = run.version > 1 ? await revisionsFor(orgId, run.id) : [];
       const baselines = paidBaselines(revisions);
       const now = new Date();
@@ -308,6 +329,9 @@ export async function finalizeRun(req: AuthRequest, res: Response, next: NextFun
           await prisma.payrollRun.update({ where: { id: run.id }, data: { status: 'PAID' } });
         }
       }
+      // Loans whose last EMI was just issued close themselves; a revision
+      // that gave money back to a closed loan reopens it.
+      await settleLoanStatuses(orgId, run.id, req.user!.id);
       return { run, stats, settlement };
     });
     logAction(req.user!.id, 'UPDATE', 'PayrollRun', req.params.id, out.run.version > 1

@@ -119,6 +119,7 @@ model Organization {
   salaryComponents  SalaryComponent[]
   payrollCycles     PayrollCycle[]
   employeeSalaries  EmployeeSalary[]
+  employeeLoans     EmployeeLoan[]
   leaveBalanceAdjustments LeaveBalanceAdjustment[]
   attendancePolicyGroups  AttendancePolicyGroup[]
   holidays                Holiday[]
@@ -367,6 +368,7 @@ model User {
   faceReenrollmentsDecided FaceReenrollmentRequest[] @relation("FaceReenrolDecider")
   locationPings     AttendanceLocationPing[]
   employeeSalaries  EmployeeSalary[]
+  employeeLoans     EmployeeLoan[]
   leaveBalanceAdjustments LeaveBalanceAdjustment[]
   attendanceDays          AttendanceDay[]
   wfhSchedules            WfhSchedule[]      @relation("WfhScheduleUser")
@@ -2402,6 +2404,7 @@ model Payslip {
   template        PayslipTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   lines           PayslipLine[]
   revisions       PayslipRevision[]
+  loanEntries     LoanLedgerEntry[]
 
   @@unique([orgId, userId, payrollRunId])
   @@index([orgId, month, year])
@@ -2619,6 +2622,79 @@ model PayslipLine {
 
   @@index([payslipId])
   @@map("payslip_lines")
+}
+
+/// A loan or salary advance given to an employee, recovered through payroll
+/// in monthly instalments (utils/payrollLoans.ts). The balance is never stored
+/// on the loan: it is totalRepayable minus the ledger, so every rupee of it is
+/// explained by a LoanLedgerEntry row.
+model EmployeeLoan {
+  id             String    @id @default(cuid())
+  orgId          String    @map("org_id")
+  userId         String    @map("user_id")
+  /// Shown on the payslip line: "Loan recovery — <name> (EMI 3 of 10)"
+  name           String
+  /// LOAN | ADVANCE (salary advance) — only changes wording
+  type           String    @default("LOAN")
+  principal      Decimal   @db.Decimal(12, 2)
+  /// Optional flat interest, % per year on the principal for the tenure; null = interest-free
+  interestRate   Decimal?  @db.Decimal(5, 2) @map("interest_rate")
+  interestAmount Decimal   @default(0) @db.Decimal(12, 2) @map("interest_amount")
+  /// principal + interestAmount — what the ledger recovers down to zero
+  totalRepayable Decimal   @db.Decimal(12, 2) @map("total_repayable")
+  emiAmount      Decimal   @db.Decimal(12, 2) @map("emi_amount")
+  instalments    Int
+  disbursedOn    DateTime  @db.Date @map("disbursed_on")
+  /// First payroll month (period-start month) that recovers an EMI
+  startMonth     Int       @map("start_month")
+  startYear      Int       @map("start_year")
+  /// ACTIVE | CLOSED | CANCELLED
+  status         String    @default("ACTIVE")
+  notes          String?
+  createdBy      String    @map("created_by")
+  closedAt       DateTime? @map("closed_at")
+  closedBy       String?   @map("closed_by")
+  /// "Fully recovered" (set automatically when payroll recovers the last EMI) or HR's reason
+  closeReason    String?   @map("close_reason")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  org            Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries        LoanLedgerEntry[]
+
+  @@index([orgId, userId])
+  @@index([orgId, status])
+  @@map("employee_loans")
+}
+
+/// One movement on a loan. RECOVERY rows belong to a payslip and are replaced
+/// whenever that payslip is recomputed (rerun) and deleted with it (discarded
+/// draft), so payroll can never deduct the same EMI twice.
+model LoanLedgerEntry {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  loanId       String   @map("loan_id")
+  /// RECOVERY (payroll) | REPAYMENT (lump sum to HR) | WAIVER (written off at closure) | SKIP (no EMI this month, amount 0)
+  type         String
+  amount       Decimal  @default(0) @db.Decimal(12, 2)
+  /// Payroll month the entry belongs to (period-start month for RECOVERY)
+  month        Int
+  year         Int
+  entryDate    DateTime @default(now()) @map("entry_date")
+  payslipId    String?  @map("payslip_id")
+  payrollRunId String?  @map("payroll_run_id")
+  /// Outstanding balance right after this entry, when it was written
+  balanceAfter Decimal? @db.Decimal(12, 2) @map("balance_after")
+  note         String?
+  createdBy    String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  loan         EmployeeLoan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  payslip      Payslip?     @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+
+  @@index([loanId])
+  @@index([payslipId])
+  @@index([orgId, year, month])
+  @@map("loan_ledger_entries")
 }
 
 // ─── Invoicing ───────────────────────────────────────────────────────────────

@@ -8,9 +8,11 @@ import { ensureDefaultComponents, computePayslip, periodFor, defaultPeriodInputs
 import { payrollSummary } from '../../../utils/attendanceRegister';
 import { ensureDefaultCycle, employeeContext, toDef } from './payrollConfig.controller';
 import { ensureDefaultTemplate } from './payslipTemplates.controller';
+import { loanSummaryForPayslip } from './loans.controller';
 
 import { isHrManager } from '../../../utils/hrAccess';
-import { nextSequence, type SlipLine } from '../../../utils/payrollRevision';
+import { nextSequence, totalsOfLines, type SlipLine } from '../../../utils/payrollRevision';
+import { computeLoanRecoveries, recoveryLines, withLoanLines, recoveryEntriesFromLines, outstandingOf, isLoanCode, loanIdOf, round2 } from '../../../utils/payrollLoans';
 
 // ─── Salary Structures ───────────────────────────────────────────────────────
 
@@ -123,8 +125,51 @@ export async function nextPayslipNumber(orgId: string, year: number, month: numb
 export type RunForCompute = { id: string; periodStart: Date; periodEnd: Date; month: number; year: number; payrollCycleId: string | null; attendanceMode?: string | null };
 export type SalaryForCompute = { id: string; userId: string; overrides: any; ctcAnnual: any; currency: string };
 
-/** Compute one employee's payslip for a run (reads attendance + employee context) without writing anything. */
-export async function computeSlip(orgId: string, run: RunForCompute, es: SalaryForCompute, comps: any[], cycle: any) {
+/**
+ * Loan/advance recoveries for one payslip (utils/payrollLoans.ts). The
+ * payslip's own earlier recoveries (`payslipId`, on a rerun) are ignored so the
+ * balance it sees is the one before this payslip — that is what makes a rerun
+ * idempotent: the ledger rows are then replaced, not added to.
+ */
+export async function loanRecoveriesFor(orgId: string, userId: string, run: { month: number; year: number }, netBeforeLoans: number, payslipId?: string | null, excludeLoanIds: string[] = []) {
+  const all = await prisma.employeeLoan.findMany({ where: { orgId, userId, status: { not: 'CANCELLED' } }, include: { entries: true } });
+  const outstandingAll: Record<string, number> = {};
+  for (const l of all) outstandingAll[l.id] = outstandingOf(l as any, l.entries.filter(e => !payslipId || e.payslipId !== payslipId) as any);
+  const loans = all.filter(l => !excludeLoanIds.includes(l.id));
+  if (!loans.length) return { lines: [] as SlipLine[], outstandingBefore: outstandingAll, notes: {} as Record<string, string>, warnings: [] as string[] };
+  const r = computeLoanRecoveries({
+    year: run.year, month: run.month, netBeforeLoans,
+    loans: loans.map(l => ({ loan: l as any, otherEntries: l.entries.filter(e => !payslipId || e.payslipId !== payslipId) as any })),
+  });
+  const outstandingBefore: Record<string, number> = { ...outstandingAll }, notes: Record<string, string> = {};
+  for (const x of r.recoveries) {
+    if (x.shortfall > 0) notes[x.loanId] = `short by ${x.shortfall.toFixed(2)} (net pay floor) — carried in balance`;
+  }
+  return { lines: recoveryLines(r.recoveries), outstandingBefore, notes, warnings: r.warnings };
+}
+
+/**
+ * Recompute the automatic loan lines of a payslip whose other lines changed
+ * (a manual adjustment in review, or adjustments re-applied on rerun), so the
+ * net-pay floor still holds. Loan lines a manager adjusted by hand are kept.
+ */
+export async function reapplyLoans(orgId: string, userId: string, run: { month: number; year: number }, lines: SlipLine[], payslipId?: string | null) {
+  const manual = lines.filter(l => isLoanCode(l.code) && l.adjusted);
+  const nonLoan = lines.filter(l => !isLoanCode(l.code));
+  const net = totalsOfLines(nonLoan).net - manual.reduce((s, l) => s + l.amount, 0);
+  const loans = await loanRecoveriesFor(orgId, userId, run, net, payslipId, manual.map(l => loanIdOf(l.code)!));
+  const out = [...nonLoan, ...manual, ...loans.lines];
+  return { lines: out, totals: totalsOfLines(out), loans };
+}
+
+/** Ledger rows for a payslip's final lines (create these under Payslip.loanEntries). */
+export function loanEntryRows(orgId: string, run: { id: string; month: number; year: number }, lines: SlipLine[], loans: { outstandingBefore: Record<string, number>; notes: Record<string, string> }) {
+  return recoveryEntriesFromLines(lines, { orgId, year: run.year, month: run.month, payrollRunId: run.id, outstandingBefore: loans.outstandingBefore, note: loans.notes });
+}
+
+/** Compute one employee's payslip for a run (reads attendance + employee context) without writing anything.
+ *  `payslipId`: the payslip being recomputed (rerun), so its own loan recoveries aren't counted twice. */
+export async function computeSlip(orgId: string, run: RunForCompute, es: SalaryForCompute, comps: any[], cycle: any, payslipId?: string | null) {
   const period = periodFor(cycle, run.periodStart);
   const useAttendance = (run.attendanceMode ?? 'ATTENDANCE') !== 'CALENDAR';
   let inputs = defaultPeriodInputs(period);
@@ -141,15 +186,19 @@ export async function computeSlip(orgId: string, run: RunForCompute, es: SalaryF
   }
   const ctx = await employeeContext(orgId, es.userId);
   const result = computePayslip(comps.map(toDef), (es.overrides ?? {}) as Overrides, ctx, inputs, es.ctcAnnual != null ? Number(es.ctcAnnual) : null);
-  const lines: SlipLine[] = result.lines.map(l => ({ code: l.code, name: l.name, category: l.category, amount: l.amount, basis: l.basis, showOnPayslip: l.showOnPayslip, displayOrder: l.displayOrder }));
+  const baseLines: SlipLine[] = result.lines.map(l => ({ code: l.code, name: l.name, category: l.category, amount: l.amount, basis: l.basis, showOnPayslip: l.showOnPayslip, displayOrder: l.displayOrder }));
+  const baseTotals = { earnings: result.totals.earnings, deductions: result.totals.deductions, reimbursements: result.totals.reimbursements, employer: result.totals.employerContributions, net: result.totals.net };
+  const loans = await loanRecoveriesFor(orgId, es.userId, run, baseTotals.net, payslipId);
+  const { lines, totals } = withLoanLines({ lines: baseLines, totals: baseTotals }, loans.lines);
   return {
     lines,
-    totals: { earnings: result.totals.earnings, deductions: result.totals.deductions, reimbursements: result.totals.reimbursements, employer: result.totals.employerContributions, net: result.totals.net },
+    totals,
+    loans: { outstandingBefore: loans.outstandingBefore, notes: loans.notes },
     fields: {
       employeeSalaryId: es.id, currency: es.currency,
       workingDays: inputs.workingDays, presentDays: inputs.presentDays, paidDays: inputs.paidDays, leaveDays: inputs.leaveDays,
       lopDays: inputs.lopDays, halfDays: inputs.halfDays, overtimeHours: inputs.overtimeHours,
-      attendanceSummary: { ...attendanceSummary, warnings: result.warnings },
+      attendanceSummary: { ...attendanceSummary, warnings: [...result.warnings, ...loans.warnings] },
     },
   };
 }
@@ -185,6 +234,7 @@ async function buildPayslip(orgId: string, run: RunForCompute, es: SalaryForComp
       ...slipColumns(c),
       status: 'DRAFT',
       lines: { create: lineRows(c.lines) },
+      loanEntries: { create: loanEntryRows(orgId, run, c.lines, c.loans) },
     },
   });
 }
@@ -229,7 +279,32 @@ export async function runPayroll(req: AuthRequest, res: Response, next: NextFunc
 async function applyAdjustment(payslipId: string, code: string, amount: number) {
   const line = await prisma.payslipLine.findFirst({ where: { payslipId, code } });
   if (!line) throw new AppError(404, `Line ${code} not found on this payslip`);
+  if (isLoanCode(code)) {
+    // A loan recovery can be lowered (or raised up to the balance); its ledger row follows.
+    const loanId = loanIdOf(code)!;
+    const loan = await prisma.employeeLoan.findUnique({ where: { id: loanId }, include: { entries: true } });
+    if (!loan) throw new AppError(404, 'Loan not found');
+    const others = loan.entries.filter(e => e.payslipId !== payslipId && ['RECOVERY', 'REPAYMENT', 'WAIVER'].includes(e.type)).reduce((s, e) => s + Number(e.amount), 0);
+    const before = round2(Math.max(0, Number(loan.totalRepayable) - others));
+    if (amount > before + 0.004) throw new AppError(400, `The outstanding balance of ${loan.name} is only ${before.toFixed(2)}`);
+    const entry = loan.entries.find(e => e.payslipId === payslipId && e.type === 'RECOVERY');
+    if (entry) await prisma.loanLedgerEntry.update({ where: { id: entry.id }, data: { amount, balanceAfter: round2(before - amount), note: 'adjusted in run review' } });
+  }
   await prisma.payslipLine.update({ where: { id: line.id }, data: { amount, adjusted: true } });
+  if (!isLoanCode(code)) {
+    const p = await prisma.payslip.findUnique({ where: { id: payslipId }, include: { lines: true, payrollRun: true } });
+    if (p && (p.lines.some(l => isLoanCode(l.code)) || await prisma.employeeLoan.count({ where: { orgId: p.orgId, userId: p.userId, status: 'ACTIVE' } }) > 0)) {
+      const cur: SlipLine[] = p!.lines.map(l => ({ code: l.code, name: l.name, category: l.category, amount: Number(l.amount), basis: l.basis, showOnPayslip: l.showOnPayslip, displayOrder: l.displayOrder, adjusted: l.adjusted }));
+      const r = await reapplyLoans(p!.orgId, p!.userId, p!.payrollRun, cur, payslipId);
+      const loanLines = r.lines.filter(l => isLoanCode(l.code) && !l.adjusted);
+      await prisma.$transaction([
+        prisma.payslipLine.deleteMany({ where: { payslipId, code: { startsWith: 'LOAN_' }, adjusted: false } }),
+        prisma.loanLedgerEntry.deleteMany({ where: { payslipId, type: 'RECOVERY', loanId: { in: [...new Set([...loanLines, ...cur.filter(l => isLoanCode(l.code) && !l.adjusted)].map(l => loanIdOf(l.code)!))] } } }),
+        ...(loanLines.length ? [prisma.payslipLine.createMany({ data: lineRows(loanLines).map(x => ({ ...x, payslipId })) })] : []),
+        ...loanEntryRows(p!.orgId, p!.payrollRun, loanLines, r.loans).map(d => prisma.loanLedgerEntry.create({ data: { ...d, payslipId } })),
+      ]);
+    }
+  }
   const lines = await prisma.payslipLine.findMany({ where: { payslipId } });
   const sum = (cat: string) => Math.round(lines.filter(l => l.category === cat).reduce((s, l) => s + Number(l.amount), 0) * 100) / 100;
   const earnings = sum('EARNING'), deductions = sum('DEDUCTION'), reimb = sum('REIMBURSEMENT'), employer = sum('EMPLOYER_CONTRIBUTION');
@@ -356,7 +431,7 @@ export async function getPayslip(req: AuthRequest, res: Response, next: NextFunc
     const isManager = isHrManager(req.user!.role);
     if (!isManager && payslip.userId !== req.user!.id) throw new AppError(403, 'You can only view your own payslips');
     if (!isManager && payslip.status === 'DRAFT') throw new AppError(404, 'Payslip not found');
-    res.json(payslip);
+    res.json({ ...payslip, loanSummary: await loanSummaryForPayslip(payslip) });
   } catch (err) { next(err); }
 }
 

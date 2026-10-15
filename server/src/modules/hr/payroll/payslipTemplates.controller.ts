@@ -15,6 +15,7 @@ import {
 } from '../../../utils/payslipRender';
 
 import { isHrManager } from '../../../utils/hrAccess';
+import { loanSummaryForPayslip } from './loans.controller';
 import { imageUrlSchema, watermarkSchemaFields } from '../../../utils/payslipWatermark';
 const emptyToNull = (v: unknown) => (v === '' ? null : v);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -184,7 +185,8 @@ export async function docFor(payslip: any, templateOverride?: string): Promise<P
     const prev = await prisma.payslipRevision.findFirst({ where: { orgId: payslip.orgId, payslipId: payslip.id }, orderBy: [{ version: 'desc' }, { createdAt: 'desc' }], select: { data: true } });
     supersedesIssuedAt = (prev?.data as any)?.issuedAt ?? null;
   }
-  return buildPayslipDoc({ payslip, template, employee, org: payslip.org, supersedesIssuedAt });
+  const loans = await loanSummaryForPayslip(payslip);
+  return buildPayslipDoc({ payslip, template, employee, org: payslip.org, supersedesIssuedAt, loans });
 }
 
 /** GET /payslips/:id/html[?templateId&embed=1] */
@@ -233,7 +235,7 @@ export async function previewTemplate(req: AuthRequest, res: Response, next: Nex
     if (typeof req.query.payslipId === 'string') {
       const p = await prisma.payslip.findFirst({ where: { id: req.query.payslipId, orgId }, include: payslipInclude });
       if (!p) throw new AppError(404, 'Payslip not found');
-      doc = buildPayslipDoc({ payslip: p, template, employee: await employeeFor(orgId, p.userId), org: p.org });
+      doc = buildPayslipDoc({ payslip: p, template, employee: await employeeFor(orgId, p.userId), org: p.org, loans: await loanSummaryForPayslip(p) });
     } else doc = samplePayslipDoc(template, org!);
     if (req.query.format === 'pdf') {
       res.setHeader('Content-Type', 'application/pdf');

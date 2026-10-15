@@ -6,6 +6,7 @@ import * as c from './payroll.controller';
 import * as cfg from './payrollConfig.controller';
 import * as tpl from './payslipTemplates.controller';
 import * as rev from './payrollRevision.controller';
+import * as loans from './loans.controller';
 
 const router = Router();
 router.use(authenticate);
@@ -44,6 +45,18 @@ router.patch('/runs/:id/payslips/:payslipId', requireRole(...MANAGERS), c.adjust
 router.post('/runs/:id/finalize',    requireRole(...MANAGERS), rev.finalizeRun);
 router.delete('/runs/:id',           requireRole(...MANAGERS), c.discardRun);
 router.patch('/runs/:id/mark-paid',  requireRole(...MANAGERS), c.markRunPaid);
+
+// Loans & salary advances — managers manage; an employee reads their own.
+router.get('/loans/mine',               requireRole(...ALL_USERS), loans.myLoans);
+router.get('/loans',                    requireRole(...MANAGERS), loans.listLoans);
+router.post('/loans',                   requireRole(...MANAGERS), loans.createLoan);
+router.get('/loans/:id',                requireRole(...ALL_USERS), loans.getLoan); // owner check inside
+router.patch('/loans/:id',              requireRole(...MANAGERS), loans.updateLoan);
+router.post('/loans/:id/skip',          requireRole(...MANAGERS), loans.skipMonth);
+router.delete('/loans/:id/skip/:entryId', requireRole(...MANAGERS), loans.unskipMonth);
+router.post('/loans/:id/repayment',     requireRole(...MANAGERS), loans.recordRepayment);
+router.post('/loans/:id/close',         requireRole(...MANAGERS), loans.closeLoan);
+router.post('/loans/:id/cancel',        requireRole(...MANAGERS), loans.cancelLoan);
 
 // Payslips — an employee can see their own; managers can see everyone's.
 router.get('/payslips',                requireRole(...ALL_USERS), c.listPayslips);
