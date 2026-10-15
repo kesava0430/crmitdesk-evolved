@@ -14,6 +14,7 @@ import { slackNewTicket } from '../../../utils/slack';
 import { logAction } from '../../../utils/auditLog';
 import { purgeEntityChildren } from '../../../utils/entityCleanup';
 import { tagIdFilter } from '../../../utils/tagFilter';
+import { normalizeTicketTitle } from './ticketTitle';
 
 const Schema = z.object({
   title: z.string().min(1),
@@ -83,6 +84,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
   try {
     const orgId = req.user!.orgId;
     const raw = Schema.parse(req.body);
+    raw.title = normalizeTicketTitle(raw.title)!;
     // Coerce empty string to undefined so Prisma receives null, not a bad FK
     const { requesterId: requestedRequesterId, contactId: requestedContactId, ...rest } = raw;
     const data = { ...rest, categoryId: raw.categoryId || undefined };
@@ -154,6 +156,10 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const orgId = req.user!.orgId;
     const existing = await prisma.ticket.findFirst({ where: { id: req.params.id, orgId } });
     if (!existing) throw new AppError(404, 'Ticket not found');
+    // Subject edits (inline on the ticket header, or the Edit form): trimmed,
+    // 1–200 chars when it changes. See ticketTitle.ts for legacy long titles.
+    if (data.title !== undefined) data.title = normalizeTicketTitle(data.title, existing.title);
+    const titleChanged = data.title !== undefined && data.title !== existing.title;
     // '' arrives as undefined via the schema transform; an explicit null
     // never reaches here, so a set department can be changed but a partial
     // update that omits it leaves it alone. Validate any new value.
@@ -163,7 +169,12 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
 
     await prisma.ticket.updateMany({ where: { id: req.params.id, orgId }, data });
     const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id }, include });
-    logAction(req.user!.id, 'UPDATE', 'Ticket', req.params.id, data as Record<string, unknown>);
+    // A renamed ticket keeps its old subject in the audit trail — the new
+    // value alone says nothing about what agents/requesters knew it as.
+    logAction(req.user!.id, 'UPDATE', 'Ticket', req.params.id, {
+      ...(data as Record<string, unknown>),
+      ...(titleChanged && { previousTitle: existing.title }),
+    });
 
     /* TICKET_UPDATED was offered in the rule builder, accepted by the API and
        shown as "Active" with a run counter — and nothing in the codebase ever
