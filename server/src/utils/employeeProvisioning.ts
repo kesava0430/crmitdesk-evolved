@@ -173,7 +173,7 @@ export async function ensureEmployeeForUser(
  */
 export async function syncUserToEmployee(
   userId: string,
-  changes: { name?: string; phone?: string | null; department?: string | null; isActive?: boolean }
+  changes: { name?: string; phone?: string | null; department?: string | null; isActive?: boolean; email?: string }
 ): Promise<void> {
   try {
     const employee = await prisma.employee.findUnique({
@@ -191,6 +191,9 @@ export async function syncUserToEmployee(
       data.displayName = changes.name;
     }
     if (changes.phone !== undefined) data.phone = changes.phone;
+    // The login address is the work email on file; keep HR's copy current
+    // when someone changes it from My Profile.
+    if (changes.email !== undefined) data.workEmail = changes.email;
     if (changes.department !== undefined) {
       data.departmentId = await resolveDepartmentId(employee.orgId, changes.department);
     }

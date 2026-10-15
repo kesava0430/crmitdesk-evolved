@@ -12,7 +12,7 @@ import { logAction } from '../../../utils/auditLog';
 import { verifyTotpLogin } from '../../totp/totp.controller';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
 // New logins become employees automatically — see utils/employeeProvisioning.ts.
-import { ensureEmployeeForUser } from '../../../utils/employeeProvisioning';
+import { ensureEmployeeForUser, syncUserToEmployee } from '../../../utils/employeeProvisioning';
 import { assertSeatAvailable } from '../../../utils/licensing';
 import { DEMO_LOGIN_EMAIL, DEMO_VERTICAL_SLUGS, DEFAULT_VERTICAL, loginEmailFor } from '../../../utils/seedDemoData';
 import { verifyGoogleIdToken, isGoogleSsoConfigured } from '../../../utils/googleAuth';
@@ -701,6 +701,11 @@ export async function updateMe(req: AuthRequest, res: Response, next: NextFuncti
       },
     });
     logAction(req.user!.id, 'UPDATE', 'User', req.user!.id);
+    // My Profile edits the login; mirror name and email onto the person
+    // record so the directory and org chart don't keep the old ones.
+    // Department is deliberately NOT mirrored: it is an HR field, changed
+    // through People → Edit, not by the employee.
+    await syncUserToEmployee(req.user!.id, { name: body.name, email: body.email });
     res.json(updated);
   } catch (err) { next(err); }
 }

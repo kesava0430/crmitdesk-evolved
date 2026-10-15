@@ -15,6 +15,7 @@ import { emailTemplates } from '../../../utils/mailer';
 // in day-to-day use.
 import { ensureEmployeeForUser, syncUserToEmployee, reconcileOrphans, linkUserToEmployee } from '../../../utils/employeeProvisioning';
 import { invalidatePermCtx } from '../../../utils/permissions';
+import { LEGACY_ROLES, assertCanManage, assertCanAssign, type LegacyRole } from '../../../utils/roleRank';
 
 // phone is preprocessed so an empty string (the form's untouched default)
 // doesn't get stored as '' — the WhatsApp "assignee" recipient resolver
@@ -58,45 +59,11 @@ const UpdateSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-type LegacyRole = 'SUPER_ADMIN' | 'CRM_MANAGER' | 'SALES_REP' | 'IT_MANAGER' | 'IT_AGENT' | 'EMPLOYEE';
-const LEGACY_ROLES: LegacyRole[] = ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP', 'IT_MANAGER', 'IT_AGENT', 'EMPLOYEE'];
-
 // The admin routes admit SUPER_ADMIN and both managers, so authorization
 // inside them has to be rank-aware: without it, an IT_MANAGER could PATCH
 // themselves (or anyone) to SUPER_ADMIN, or reset the SUPER_ADMIN's password
-// and take over the account. Rank comparisons below enforce two rules:
-//   - you can only ASSIGN a role of your own rank or lower (a manager can add
-//     another manager, but never mint a SUPER_ADMIN), and
-//   - you can only MANAGE (edit/deactivate/reset) users of your rank or lower
-//     (a manager can never touch the SUPER_ADMIN's account).
-// Custom roles are ranked by their resolved legacyRole, so they can't be used
-// as a side door.
-const ROLE_RANK: Record<LegacyRole, number> = {
-  SUPER_ADMIN: 3,
-  CRM_MANAGER: 2,
-  IT_MANAGER: 2,
-  SALES_REP: 1,
-  IT_AGENT: 1,
-  EMPLOYEE: 0,
-};
-
-function rankOf(role: string): number {
-  return ROLE_RANK[role as LegacyRole] ?? 0;
-}
-
-/** Caller may not act on a user who outranks them. */
-function assertCanManage(callerRole: string, targetRole: string) {
-  if (rankOf(targetRole) > rankOf(callerRole)) {
-    throw new AppError(403, 'You cannot manage a user with a higher role than your own');
-  }
-}
-
-/** Caller may not hand out a role above their own rank. */
-function assertCanAssign(callerRole: string, newRole: LegacyRole) {
-  if (rankOf(newRole) > rankOf(callerRole)) {
-    throw new AppError(403, 'You cannot assign a role higher than your own');
-  }
-}
+// and take over the account. The rules live in utils/roleRank.ts so the People
+// endpoints, which also create logins and change roles, apply the same ones.
 
 /**
  * Turns whatever the caller sent into the pair the database needs.

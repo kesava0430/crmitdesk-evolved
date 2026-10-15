@@ -16,6 +16,7 @@ import {
   stripUnwritableFields,
   invalidatePermCtx,
 } from '../../../utils/permissions';
+import { assertOrgRefs } from '../../people/personRefs';
 
 /**
  * Employee records — the people side of the platform.
@@ -34,7 +35,7 @@ import {
  *     field permissions protect against a logged-in colleague.
  */
 
-const SENSITIVE_COLUMNS = [
+export const SENSITIVE_COLUMNS = [
   'bankAccountName',
   'bankAccountNumber',
   'bankName',
@@ -108,7 +109,7 @@ function toDate(v?: string | null): Date | undefined {
 }
 
 /** Encrypts the sensitive columns present on an input object, in place. */
-function encryptSensitive<T extends Record<string, any>>(data: T): T {
+export function encryptSensitive<T extends Record<string, any>>(data: T): T {
   const out: Record<string, any> = { ...data };
   for (const col of SENSITIVE_COLUMNS) {
     if (typeof out[col] === 'string' && out[col]) out[col] = encryptSecret(out[col]);
@@ -117,7 +118,7 @@ function encryptSensitive<T extends Record<string, any>>(data: T): T {
 }
 
 /** Decrypts sensitive columns so redact() can then mask them per role. */
-function decryptSensitive<T extends Record<string, any>>(row: T): T {
+export function decryptSensitive<T extends Record<string, any>>(row: T): T {
   const out: Record<string, any> = { ...row };
   for (const col of SENSITIVE_COLUMNS) {
     if (typeof out[col] === 'string' && out[col]) {
@@ -364,6 +365,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     const input = CreateSchema.parse(req.body);
     const data = stripUnwritableFields(ctx, 'employee', input);
 
+    await assertOrgRefs(orgId, data);
     if (data.userId) {
       const linked = await prisma.employee.findUnique({ where: { userId: data.userId } });
       if (linked) throw new AppError(409, 'That login is already linked to another employee');
@@ -414,21 +416,9 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const input = UpdateSchema.parse(req.body);
     const data = stripUnwritableFields(ctx, 'employee', input);
 
-    // A cycle in the reporting line would make resolveReports() and the org
-    // chart both wrong, so reject it at the edge rather than defending against
-    // it in six read paths.
-    if (data.managerId) {
-      if (data.managerId === existing.id) throw new AppError(400, 'An employee cannot report to themselves');
-      let cursor: string | null = data.managerId;
-      for (let i = 0; i < 20 && cursor; i++) {
-        if (cursor === existing.id) throw new AppError(400, 'That change would create a reporting loop');
-        const next: { managerId: string | null } | null = await prisma.employee.findUnique({
-          where: { id: cursor },
-          select: { managerId: true },
-        });
-        cursor = next?.managerId ?? null;
-      }
-    }
+    // Tenancy of every referenced id, plus the reporting-loop check — shared
+    // with People → Edit (modules/people/personRefs.ts).
+    await assertOrgRefs(orgId, data, existing.id);
 
     const displayName =
       data.displayName ??
