@@ -7,10 +7,11 @@ import {
   SearchableSelect, RowActions, Alert, Avatar, Field, Input, FormGrid, FormActions,
   AccessDenied, DataTable, type Column,
 } from '../shared/components';
-import { Users, Plus, UserX, Pencil, Shield, Mail, Copy, Check, KeyRound } from 'lucide-react';
+import { Users, Plus, UserX, Pencil, Shield, Mail, KeyRound } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
 import { useRoles } from '../api/work';
 import { useDepartments } from '../api/people';
+import { AddPersonModal, EditPersonModal } from '../modules/people/PersonForms';
 import { can } from '../shared/permissions';
 
 /**
@@ -151,96 +152,21 @@ function UserForm({ initial, onSubmit, loading }: any) {
   );
 }
 
-function InviteForm({ onSuccess }: { onSuccess: (link: string) => void }) {
-  const { options: roleOptions, isLoading: rolesLoading } = useRoleOptions();
-  const [form, setForm] = useState({ email: '', roleId: '' });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const res = await api.post('/admin/users/invite', form);
-      onSuccess(res.data.link);
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to send invite');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      {error && <Alert tone="danger">{error}</Alert>}
-      <div className="form-section">
-        <p className="form-section-title">Invite Details</p>
-        <div className="space-y-4">
-          <Field label="Email address" required>
-            <Input aria-label="Email" required type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="colleague@company.com" />
-          </Field>
-          <Field
-            label="Role"
-            required
-            hint="The role is stored on the invite, so a custom role survives until the person accepts."
-          >
-            <SearchableSelect
-              ariaLabel="Role"
-              value={form.roleId}
-              onChange={val => setForm(f => ({ ...f, roleId: val }))}
-              required
-              options={rolesLoading ? [{ value: '', label: 'Loading roles…' }] : roleOptions}
-            />
-          </Field>
-        </div>
-      </div>
-      <FormActions>
-        <Button type="submit" loading={loading} icon={<Mail size={14} />}>Generate Invite Link</Button>
-      </FormActions>
-    </form>
-  );
-}
-
-function CopyLink({ link }: { link: string }) {
-  const [copied, setCopied] = useState(false);
-  function copy() {
-    navigator.clipboard.writeText(link).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-  return (
-    <div className="space-y-3">
-      <Alert tone="success" icon={<Check size={16} />} className="font-medium">
-        Invite link generated!
-      </Alert>
-      <p className="text-[13px] text-fg-muted">Share this link with the invitee — it expires in 7 days:</p>
-      <div className="flex gap-2">
-        <Input
-          readOnly
-          value={link}
-          aria-label="Invite link"
-          inputSize="sm"
-          className="flex-1 font-mono truncate !bg-surface-sunken"
-        />
-        <Button size="sm" icon={copied ? <Check size={13} /> : <Copy size={13} />} onClick={copy}>
-          {copied ? 'Copied!' : 'Copy'}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 type ModalState = null | 'create' | 'invite' | { type: 'edit'; user: any };
+
+/* Create User and Invite User open the shared Add-person form (People's)
+   with the access mode pre-selected — one form, one endpoint (POST /people),
+   one result (a person record plus a login) wherever an admin starts. Edit
+   opens the shared Edit-person form for anyone who has a person record; the
+   small login-only form below remains for service accounts that have none. */
 
 export function UsersPage() {
   const { user: currentUser } = useAuth();
   const { date } = useFormat();
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<ModalState>(null);
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
   const qc = useQueryClient();
+  const [editPersonId, setEditPersonId] = useState<string | null>(null);
 
   /* This page already refused these roles — but only after firing its two
      admin-scoped reads, so the refusal arrived with a pair of 403s behind it.
@@ -269,10 +195,6 @@ export function UsersPage() {
     enabled: !blocked,
   });
 
-  const create = useMutation({
-    mutationFn: (data: any) => api.post('/admin/users', data).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); setModal(null); },
-  });
   const update = useMutation({
     mutationFn: ({ id, ...data }: any) => api.patch(`/admin/users/${id}`, data).then(r => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); setModal(null); },
@@ -300,7 +222,6 @@ export function UsersPage() {
 
   function closeModal() {
     setModal(null);
-    setInviteLink(null);
   }
 
   const columns: Column<any>[] = [
@@ -362,7 +283,7 @@ export function UsersPage() {
       header: 'Actions',
       cell: u => (
         <RowActions items={[
-          { label: 'Edit', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', user: u }) },
+          { label: 'Edit', icon: <Pencil size={14} />, onClick: () => (u.employee ? setEditPersonId(u.employee.id) : setModal({ type: 'edit', user: u })) },
           { label: 'Reset Password', icon: <KeyRound size={14} />, onClick: () => resetPassword.mutate(u.id), hidden: !u.isActive },
           { label: 'Deactivate', icon: <UserX size={14} />, onClick: () => deactivate.mutate(u.id), variant: 'danger', hidden: !u.isActive },
           { label: 'Reactivate', icon: <Shield size={14} />, onClick: () => update.mutate({ id: u.id, isActive: true }), hidden: u.isActive },
@@ -382,7 +303,7 @@ export function UsersPage() {
         subtitle={`${filtered?.length ?? 0} users`}
         actions={<>
           <SearchInput value={search} onChange={setSearch} placeholder="Search users..." />
-          <Button variant="secondary" icon={<Mail size={15} />} onClick={() => { setInviteLink(null); setModal('invite'); }}>Invite User</Button>
+          <Button variant="secondary" icon={<Mail size={15} />} onClick={() => setModal('invite')}>Invite User</Button>
           <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>Create User</Button>
         </>}
       />
@@ -451,14 +372,6 @@ export function UsersPage() {
         </Card>
       </PageBody>
 
-      {/* Create User Modal */}
-      <Modal open={modal === 'create'} onClose={closeModal} title="Create User">
-        <UserForm
-          loading={create.isPending}
-          onSubmit={(form: any) => create.mutate(form)}
-        />
-      </Modal>
-
       {/* Edit User Modal */}
       <Modal open={!!(modal && typeof modal === 'object' && modal.type === 'edit')} onClose={closeModal} title="Edit User">
         <UserForm
@@ -472,17 +385,16 @@ export function UsersPage() {
         />
       </Modal>
 
-      {/* Invite User Modal */}
-      <Modal open={modal === 'invite'} onClose={closeModal} title="Invite Team Member">
-        {inviteLink ? (
-          <CopyLink link={inviteLink} />
-        ) : (
-          <InviteForm onSuccess={(link) => {
-            setInviteLink(link);
-            qc.invalidateQueries({ queryKey: ['admin-invites'] });
-          }} />
-        )}
-      </Modal>
+      {/* Create / Invite — the shared Add-person form, access mode pre-selected. */}
+      <AddPersonModal
+        open={modal === 'create' || modal === 'invite'}
+        onClose={() => {
+          closeModal();
+          qc.invalidateQueries({ queryKey: ['admin-invites'] });
+        }}
+        defaults={{ loginMode: modal === 'invite' ? 'invite' : 'password' }}
+      />
+      <EditPersonModal personId={editPersonId} onClose={() => setEditPersonId(null)} />
 
     </div>
   );

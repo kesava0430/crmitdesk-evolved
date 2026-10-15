@@ -174,6 +174,10 @@ function invalidatePeople(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['employee'] });
   qc.invalidateQueries({ queryKey: ['org-chart'] });
   qc.invalidateQueries({ queryKey: ['employee-stats'] });
+  // The People list and profile read the same rows through /people.
+  qc.invalidateQueries({ queryKey: ['people'] });
+  qc.invalidateQueries({ queryKey: ['people-stats'] });
+  qc.invalidateQueries({ queryKey: ['person'] });
 }
 
 export const useCreateEmployee = () => {
@@ -372,6 +376,13 @@ export interface Person {
   roleName: string | null;
 }
 
+/** What the caller may do on the People surface — decided by the server's permission engine. */
+export interface PeopleAccess {
+  canCreate: boolean;
+  canEdit: boolean;
+  canCreateLogin: boolean;
+}
+
 export interface PeopleStats {
   total: number;
   canSignIn: number;
@@ -379,10 +390,11 @@ export interface PeopleStats {
   onNotice: number;
   activeLogins: number;
   unlinkedLogins: number;
+  access?: PeopleAccess;
 }
 
 export const usePeople = (params: Record<string, string | undefined> = {}) =>
-  useQuery<Paged<Person>>({
+  useQuery<Paged<Person> & { access?: PeopleAccess }>({
     queryKey: ['people', params],
     queryFn: () => api.get('/people', { params }).then(r => r.data),
   });
@@ -400,6 +412,7 @@ function invalidatePeopleViews(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['employee-stats'] });
   qc.invalidateQueries({ queryKey: ['org-chart'] });
   qc.invalidateQueries({ queryKey: ['admin-users'] });
+  qc.invalidateQueries({ queryKey: ['person'] });
 }
 
 export interface CreatePersonInput {
@@ -412,6 +425,8 @@ export interface CreatePersonInput {
   phone?: string;
   joiningDate: string;
   employmentType?: string;
+  employmentStatus?: string;
+  employeeCode?: string;
   loginMode: 'none' | 'password' | 'invite';
   email?: string;
   password?: string;
@@ -458,5 +473,118 @@ export const useRepairUnlinked = () => {
   return useMutation({
     mutationFn: () => api.post('/people/repair-unlinked').then(r => r.data as { created: number; message: string }),
     onSuccess: () => invalidatePeopleViews(qc),
+  });
+};
+
+// ─── One person: profile, edit, self-service ──────────────────────────────────
+
+export interface PersonAccess {
+  canEdit: boolean;
+  isSelf: boolean;
+  canEditRole: boolean;
+  canEditEmail: boolean;
+  canSetPolicyGroup: boolean;
+  canManageLogin: boolean;
+  /** Sensitive fields the caller's field permissions keep read-only. */
+  readOnlyFields: string[];
+}
+
+export interface EmergencyContact {
+  id?: string;
+  name: string;
+  relationship: string;
+  phone: string;
+}
+
+/** GET /people/:id — the employee record (redacted per role) plus login, policy and access. */
+export interface PersonProfile extends Employee {
+  alternatePhone?: string | null;
+  gender?: string | null;
+  maritalStatus?: string | null;
+  bloodGroup?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  postalCode?: string | null;
+  dottedLineManagerId?: string | null;
+  dottedLineManager?: { id: string; displayName: string } | null;
+  bankAccountName?: string | null;
+  bankIfsc?: string | null;
+  socialSecurityId?: string | null;
+  user?: { id: string; email: string; role: string; isActive: boolean; roleId?: string | null; roleRef?: { id: string; name: string } | null } | null;
+  person: Person;
+  emergencyContact: EmergencyContact | null;
+  attendancePolicy: {
+    explicitId: string | null;
+    effective: { id: string; name: string } | null;
+    options?: Array<{ id: string; name: string; isDefault: boolean }>;
+  } | null;
+  access: PersonAccess;
+  ignoredFields?: string[];
+}
+
+export const usePerson = (id?: string | null) =>
+  useQuery<PersonProfile>({
+    queryKey: ['person', id],
+    queryFn: () => api.get(`/people/${id}`).then(r => r.data),
+    enabled: !!id,
+  });
+
+export const useUpdatePerson = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      api.patch(`/people/${id}`, body).then(r => r.data as PersonProfile),
+    onSuccess: data => {
+      invalidatePeopleViews(qc);
+      qc.invalidateQueries({ queryKey: ['employee'] });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+      qc.invalidateQueries({ queryKey: ['department-tree'] });
+      qc.setQueryData(['person', data.id], data);
+    },
+  });
+};
+
+/** The caller's own HR details (GET /people/me) — null when no employee record is linked. */
+export interface MyDetails {
+  id: string;
+  employeeCode: string;
+  displayName: string;
+  workEmail?: string | null;
+  designation?: string | null;
+  department?: { id: string; name: string } | null;
+  location?: { id: string; name: string } | null;
+  manager?: { id: string; displayName: string } | null;
+  employmentType: string;
+  employmentStatus: string;
+  joiningDate: string;
+  phone?: string | null;
+  alternatePhone?: string | null;
+  personalEmail?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  postalCode?: string | null;
+  emergencyContact: EmergencyContact | null;
+}
+
+export const useMyDetails = () =>
+  useQuery<{ data: MyDetails | null }>({
+    queryKey: ['person', 'me'],
+    queryFn: () => api.get('/people/me').then(r => r.data),
+  });
+
+export const useUpdateMyDetails = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.patch('/people/me', body).then(r => r.data as { data: MyDetails }),
+    onSuccess: data => {
+      qc.setQueryData(['person', 'me'], data);
+      invalidatePeopleViews(qc);
+    },
   });
 };

@@ -262,6 +262,9 @@ export async function stats(req: AuthRequest, res: Response, next: NextFunction)
       // Surfaced so the UI can offer the one-click repair rather than leaving
       // these people quietly missing from HR.
       unlinkedLogins: orphanLogins,
+      // Lets any screen that offers "Add person" (People, Org Chart, Org
+      // Structure, Users) decide whether to show it without a second call.
+      access: listAccess(ctx),
     });
   } catch (err) {
     next(err);

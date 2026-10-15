@@ -2,27 +2,26 @@ import { useState } from 'react';
 import {
   usePeople,
   usePeopleStats,
-  useCreatePerson,
   useGrantLogin,
   useRevokeLogin,
   useAssignPersonRole,
   useRepairUnlinked,
   useDepartments,
-  useLocations,
-  useEmployees,
   type Person,
 } from '../../api/people';
 import { useRoles } from '../../api/work';
 import {
   PageHeader, PageBody, Toolbar, Card, StatTile, Tabs, Button, Modal, Badge, StatusBadge, Avatar,
   Field, Input, Select, Alert, FormError, EmptyState, SearchInput, RowActions,
-  SkeletonTable, type BadgeProps,
+  SkeletonTable,
 } from '../../shared/components';
-import { UserSquare2, Plus, KeyRound, ShieldOff, Copy, Check, Link2, Building2, Mail } from 'lucide-react';
+import { UserSquare2, Plus, KeyRound, ShieldOff, Link2, Building2, Mail, Eye, Pencil } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { useAuth } from '../../contexts/AuthContext';
 import { can, inGroup, ADMIN } from '../../shared/permissions';
 import { FaceApprovals } from './FaceApprovals';
+import { AddPersonModal, EditPersonModal, InviteLinkBox } from './PersonForms';
+import { PersonDetailModal, STATUS_VARIANT } from './PersonDetail';
 
 /**
  * People — one screen for everyone in the organization.
@@ -32,234 +31,10 @@ import { FaceApprovals } from './FaceApprovals';
  * metered seat, and bank/tax data has no business on an auth record), but that
  * is an implementation detail an admin should never have to hold in their head.
  * Here a person simply either can sign in or cannot.
+ *
+ * Add and Edit are the shared forms in PersonForms.tsx — the same ones the
+ * Org Chart, Org Structure and Logins & Invites screens open.
  */
-
-const STATUS_VARIANT: Record<string, NonNullable<BadgeProps['variant']>> = {
-  ACTIVE: 'green',
-  PROBATION: 'yellow',
-  ON_LEAVE: 'blue',
-  NOTICE_PERIOD: 'orange',
-  SUSPENDED: 'red',
-  EXITED: 'gray',
-};
-
-const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'CONSULTANT', 'TEMPORARY'];
-
-function InviteLinkBox({ link, onDone }: { link: string; onDone: () => void }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Alert tone="success" title="Invite created">
-      <p className="mb-3">
-        We emailed it too, but sending can fail quietly — copy the link so you have it either way.
-      </p>
-      <div className="flex items-center gap-2">
-        <Input readOnly value={link} aria-label="Invite link" className="font-mono !text-[11.5px]" />
-        <Button
-          size="sm"
-          variant="secondary"
-          aria-label="Copy invite link"
-          icon={copied ? <Check size={13} /> : <Copy size={13} />}
-          onClick={() => {
-            navigator.clipboard?.writeText(link);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          }}
-        />
-      </div>
-      <div className="flex justify-end mt-3">
-        <Button size="sm" onClick={onDone}>Done</Button>
-      </div>
-    </Alert>
-  );
-}
-
-// ─── Add person ───────────────────────────────────────────────────────────────
-
-const LOGIN_MODES = [
-  { key: 'invite', label: 'Send an invite' },
-  { key: 'password', label: 'Set a password' },
-  { key: 'none', label: 'No login' },
-] as const;
-
-function AddPersonModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const create = useCreatePerson();
-  const { data: departments } = useDepartments();
-  const { data: locations } = useLocations();
-  const { data: managers } = useEmployees({ limit: '200' });
-  // GET /permissions/roles is MANAGERS-only, and this modal stays mounted
-  // (closed) for the life of the page — so the lookup used to go out for every
-  // role that can open People, including reps and employees.
-  const { user } = useAuth();
-  const { data: roles } = useRoles(can.readRoles(user?.role));
-
-  const [error, setError] = useState('');
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    firstName: '',
-    lastName: '',
-    designation: '',
-    departmentId: '',
-    locationId: '',
-    managerId: '',
-    phone: '',
-    joiningDate: new Date().toISOString().slice(0, 10),
-    employmentType: 'FULL_TIME',
-    loginMode: 'invite' as 'none' | 'password' | 'invite',
-    email: '',
-    password: '',
-    roleId: '',
-  });
-
-  const needsEmail = form.loginMode !== 'none';
-
-  const reset = () => {
-    setForm({
-      firstName: '', lastName: '', designation: '', departmentId: '', locationId: '', managerId: '',
-      phone: '', joiningDate: new Date().toISOString().slice(0, 10), employmentType: 'FULL_TIME',
-      loginMode: 'invite', email: '', password: '', roleId: '',
-    });
-    setInviteLink(null);
-    setError('');
-  };
-
-  const submit = () => {
-    setError('');
-    create.mutate(
-      {
-        ...form,
-        departmentId: form.departmentId || null,
-        locationId: form.locationId || null,
-        managerId: form.managerId || null,
-        email: needsEmail ? form.email : undefined,
-        password: form.loginMode === 'password' ? form.password : undefined,
-        roleId: needsEmail ? form.roleId || undefined : undefined,
-      },
-      {
-        onSuccess: res => {
-          if (res.inviteLink) setInviteLink(res.inviteLink);
-          else {
-            reset();
-            onClose();
-          }
-        },
-        onError: (err: any) => setError(err?.response?.data?.error || 'Could not add that person.'),
-      }
-    );
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={() => { reset(); onClose(); }}
-      title="Add a person"
-      subtitle="Everyone who works here — whether or not they need to sign in."
-      icon={<UserSquare2 size={16} />}
-      size="lg"
-      footer={
-        inviteLink ? undefined : (
-          <>
-            <Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-            <Button
-              onClick={submit}
-              loading={create.isPending}
-              disabled={!form.firstName.trim() || !form.joiningDate || (needsEmail && !form.email.trim())}
-            >
-              Add person
-            </Button>
-          </>
-        )
-      }
-    >
-      {inviteLink ? (
-        <InviteLinkBox link={inviteLink} onDone={() => { reset(); onClose(); }} />
-      ) : (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="First name" required>
-              <Input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
-            </Field>
-            <Field label="Last name">
-              <Input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} />
-            </Field>
-            <Field label="Designation">
-              <Input value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} placeholder="e.g. Account Executive" />
-            </Field>
-            <Field label="Joining date" required>
-              <Input type="date" value={form.joiningDate} onChange={e => setForm({ ...form, joiningDate: e.target.value })} />
-            </Field>
-            <Field label="Department">
-              <Select value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })}>
-                <option value="">—</option>
-                {(departments?.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Location">
-              <Select value={form.locationId} onChange={e => setForm({ ...form, locationId: e.target.value })}>
-                <option value="">—</option>
-                {(locations?.data ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Reports to">
-              <Select value={form.managerId} onChange={e => setForm({ ...form, managerId: e.target.value })}>
-                <option value="">—</option>
-                {(managers?.data ?? []).map(m => <option key={m.id} value={m.id}>{m.displayName}</option>)}
-              </Select>
-            </Field>
-            <Field label="Employment type">
-              <Select
-                value={form.employmentType}
-                onChange={e => setForm({ ...form, employmentType: e.target.value })}
-                options={EMPLOYMENT_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ') }))}
-              />
-            </Field>
-          </div>
-
-          {/* ── Access ── */}
-          <div className="border-t border-line-subtle pt-4">
-            <Field label="System access">
-              <Tabs
-                variant="segmented"
-                aria-label="System access"
-                className="mb-3 w-fit"
-                value={form.loginMode}
-                onChange={key => setForm({ ...form, loginMode: key })}
-                items={LOGIN_MODES.map(o => ({ key: o.key, label: o.label }))}
-              />
-            </Field>
-
-            {form.loginMode === 'none' ? (
-              <p className="text-[12px] text-fg-muted">
-                They'll appear in the directory and org chart, can be assigned tasks and hold assets — but cannot sign
-                in, and don't use a licensed seat. You can grant access later at any time.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Work email" required>
-                  <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="name@company.com" />
-                </Field>
-                <Field label="Role">
-                  <Select value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
-                    <option value="">Employee (self-service only)</option>
-                    {(roles?.data ?? []).filter(r => r.isActive).map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </Select>
-                </Field>
-                {form.loginMode === 'password' && (
-                  <Field label="Password" required className="sm:col-span-2">
-                    <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="At least 8 characters" />
-                  </Field>
-                )}
-              </div>
-            )}
-          </div>
-
-          <FormError>{error}</FormError>
-        </div>
-      )}
-    </Modal>
-  );
-}
 
 // ─── Grant login to an existing person ────────────────────────────────────────
 
@@ -370,6 +145,8 @@ export default function PeoplePage() {
   const [departmentId, setDepartmentId] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [granting, setGranting] = useState<Person | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const { data, isLoading } = usePeople({
@@ -378,6 +155,9 @@ export default function PeoplePage() {
     departmentId: departmentId || undefined,
   });
   const { data: stats } = usePeopleStats();
+  /* Add / Edit visibility comes from the server's permission engine (an HR
+     Manager custom role can add people even though its enum is EMPLOYEE). */
+  const access = data?.access ?? stats?.access;
   const { data: departments } = useDepartments();
   /* The role list drives the per-row role selector, and both it and the
      assignment endpoint behind that selector are MANAGERS-only. For everyone
@@ -395,11 +175,18 @@ export default function PeoplePage() {
 
   const rowActions = (p: Person) => (
     <RowActions
+      triggerLabel={`Actions for ${p.displayName}`}
       items={[
-        ...(p.employeeId && !p.hasLogin
+        ...(p.employeeId
+          ? [{ label: 'View profile', icon: <Eye size={13} />, onClick: () => setDetailId(p.employeeId) }]
+          : []),
+        ...(p.employeeId && access?.canEdit
+          ? [{ label: 'Edit details', icon: <Pencil size={13} />, onClick: () => setEditId(p.employeeId) }]
+          : []),
+        ...(p.employeeId && !p.hasLogin && canManagePeople
           ? [{ label: 'Give a login', icon: <KeyRound size={13} />, onClick: () => setGranting(p) }]
           : []),
-        ...(p.employeeId && p.hasLogin && p.userId !== currentUser?.id
+        ...(p.employeeId && p.hasLogin && p.loginActive && p.userId !== currentUser?.id && canManagePeople
           ? [{
               label: 'Revoke access',
               icon: <ShieldOff size={13} />,
@@ -423,9 +210,11 @@ export default function PeoplePage() {
         title="People"
         subtitle="Everyone in the organization — staff who sign in, and staff who don't."
         actions={
-          <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>
-            Add person
-          </Button>
+          access?.canCreate ? (
+            <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>
+              Add person
+            </Button>
+          ) : undefined
         }
       />
 
@@ -497,7 +286,7 @@ export default function PeoplePage() {
               icon={<UserSquare2 />}
               title="Nobody here yet"
               description="Add your first person — you can decide whether they need a login."
-              action={{ label: 'Add person', onClick: () => setAddOpen(true) }}
+              action={access?.canCreate ? { label: 'Add person', onClick: () => setAddOpen(true) } : undefined}
             />
           ) : (
             <Card padding="none" className="overflow-hidden">
@@ -511,7 +300,12 @@ export default function PeoplePage() {
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                   <Avatar name={p.displayName} size="md" />
 
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left disabled:cursor-default"
+                    disabled={!p.employeeId}
+                    onClick={() => p.employeeId && setDetailId(p.employeeId)}
+                  >
                     <p className="text-[13.5px] font-medium text-fg truncate" title={p.displayName}>{p.displayName}</p>
                     <div className="flex items-center gap-2 text-[11px] text-fg-subtle flex-wrap">
                       {p.employeeCode && <span>{p.employeeCode}</span>}
@@ -520,10 +314,10 @@ export default function PeoplePage() {
                         <span className="inline-flex items-center gap-1">· <Building2 size={10} /> {p.department.name}</span>
                       )}
                       {p.email && (
-                        <span className="inline-flex items-center gap-1">· <Mail size={10} /> {p.email}</span>
+                        <span className="inline-flex items-center gap-1 min-w-0 break-all">· <Mail size={10} /> {p.email}</span>
                       )}
                     </div>
-                  </div>
+                  </button>
                   <div className="sm:hidden">{rowActions(p)}</div>
                   </div>
 
@@ -583,6 +377,8 @@ export default function PeoplePage() {
       </div>
 
       <AddPersonModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <PersonDetailModal id={detailId} onClose={() => setDetailId(null)} />
+      <EditPersonModal personId={editId} onClose={() => setEditId(null)} />
       <GrantLoginModal person={granting} onClose={() => setGranting(null)} />
     </div>
   );

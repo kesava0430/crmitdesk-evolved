@@ -13,13 +13,15 @@ import {
   useCreateLocation,
   useDeleteLocation,
   useEmployees,
+  usePeopleStats,
   type Department,
 } from '../../api/people';
+import { AddPersonModal } from '../people/PersonForms';
 import {
   PageHeader, PageBody, Card, Tabs, Button, IconButton, Modal, Badge, EmptyState,
   Field, Input, Select, FormError, SkeletonCard, SkeletonTable,
 } from '../../shared/components';
-import { Building2, Plus, Users2, MapPin, Trash2, ChevronRight, X } from 'lucide-react';
+import { Building2, Plus, Users2, MapPin, Trash2, ChevronRight, X, UserPlus } from 'lucide-react';
 
 /**
  * Org structure — departments, teams and locations.
@@ -33,7 +35,16 @@ import { Building2, Plus, Users2, MapPin, Trash2, ChevronRight, X } from 'lucide
 
 // ─── Departments ──────────────────────────────────────────────────────────────
 
-function DepartmentNode({ dept, depth = 0 }: { dept: Department; depth?: number }) {
+function DepartmentNode({
+  dept,
+  depth = 0,
+  onAddPerson,
+}: {
+  dept: Department;
+  depth?: number;
+  /** Opens the shared Add-person form with this department pre-filled. */
+  onAddPerson?: (dept: Department) => void;
+}) {
   const [open, setOpen] = useState(true);
   const del = useDeleteDepartment();
   const [error, setError] = useState('');
@@ -65,6 +76,13 @@ function DepartmentNode({ dept, depth = 0 }: { dept: Department; depth?: number 
           </p>
         </div>
         {!dept.isActive && <Badge variant="gray">Inactive</Badge>}
+        {onAddPerson && (
+          <IconButton
+            label={`Add a person to ${dept.name}`}
+            icon={<UserPlus size={13} />}
+            onClick={() => onAddPerson(dept)}
+          />
+        )}
         <IconButton
           label="Delete department"
           tone="danger"
@@ -79,7 +97,7 @@ function DepartmentNode({ dept, depth = 0 }: { dept: Department; depth?: number 
         />
       </div>
       {error && <FormError className="ml-10 mb-1 !text-[11.5px]">{error}</FormError>}
-      {open && children.map(c => <DepartmentNode key={c.id} dept={c} depth={depth + 1} />)}
+      {open && children.map(c => <DepartmentNode key={c.id} dept={c} depth={depth + 1} onAddPerson={onAddPerson} />)}
     </div>
   );
 }
@@ -92,6 +110,9 @@ function DepartmentsPanel() {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({ name: '', code: '', parentId: '', headId: '', costCenter: '' });
+  const { data: peopleStats } = usePeopleStats();
+  const [addTo, setAddTo] = useState<Department | null>(null);
+  const onAddPerson = peopleStats?.access?.canCreate ? setAddTo : undefined;
 
   return (
     <>
@@ -116,7 +137,7 @@ function DepartmentsPanel() {
       ) : (
         <Card padding="sm">
           {data.data.map(d => (
-            <DepartmentNode key={d.id} dept={d} />
+            <DepartmentNode key={d.id} dept={d} onAddPerson={onAddPerson} />
           ))}
         </Card>
       )}
@@ -194,6 +215,14 @@ function DepartmentsPanel() {
           <FormError>{error}</FormError>
         </div>
       </Modal>
+
+      {/* Same shared form as People → Add person; only the department is pre-filled. */}
+      <AddPersonModal
+        open={!!addTo}
+        onClose={() => setAddTo(null)}
+        defaults={addTo ? { departmentId: addTo.id } : undefined}
+        context={addTo ? `Adding to ${addTo.name}. Everything else works exactly like People → Add person.` : undefined}
+      />
     </>
   );
 }
