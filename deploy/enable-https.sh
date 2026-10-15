@@ -25,4 +25,6 @@ nginx -t && systemctl reload nginx
 systemctl list-timers certbot.timer --no-pager | head -3
 echo
 echo "Done. Check: curl -sI https://$DOMAIN/zenkara/ | head -1   (expect HTTP/2 200 or 302)"
-echo "Then set in /opt/zenkara-crm/server/.env:  FRONTEND_URL, CORS_ORIGIN, APP_URL = https://$DOMAIN  and restart the API."
+echo "Then set in /opt/zenkara-crm/server/.env and restart the API:"
+echo "  FRONTEND_URL=https://$DOMAIN/zenkara   APP_URL=https://$DOMAIN/zenkara   CORS_ORIGIN=https://$DOMAIN"
+echo "  (FRONTEND_URL/APP_URL need the /zenkara base path, CORS_ORIGIN must not have it.)"

@@ -192,8 +192,19 @@ sudo bash /opt/zenkara-crm/deploy/enable-https.sh ops@zenkara.in
 
 That installs certbot, obtains the Let's Encrypt certificate, rewrites the
 nginx site to serve 443 and redirect 80, and leaves renewal to certbot's
-timer. Afterwards set `FRONTEND_URL`, `CORS_ORIGIN` and `APP_URL` in
-`server/.env` to `https://app.zenkara.in` and restart the API.
+timer. Afterwards set these in `server/.env` and restart the API:
+
+```
+FRONTEND_URL=https://app.zenkara.in/zenkara   # WITH the base path
+APP_URL=https://app.zenkara.in/zenkara        # WITH the base path (must match the OAuth redirect URIs registered with Google/Microsoft)
+CORS_ORIGIN=https://app.zenkara.in            # origin only (add ,https://360.zenkara.in if used)
+```
+
+`FRONTEND_URL` without `/zenkara` makes every emailed link (user invites,
+password resets, customer-portal invites, Stripe returns) point at
+`https://app.zenkara.in/<page>`, which nginx doesn't route to the app — 404.
+`APP_URL` is how the Google/Microsoft OAuth callbacks and CSAT survey links
+reach the API (`<APP_URL>/api/...` → nginx `/zenkara/api/`).
 
 ## Billing (Stripe)
 
