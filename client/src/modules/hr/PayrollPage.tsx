@@ -7,12 +7,14 @@ import {
   Field, Input, Select, Alert,
   IconButton, DataTable, SkeletonTable, type BadgeProps,
 } from '../../shared/components';
-import { Wallet, FileText, PlayCircle, CheckCircle2, Printer, RefreshCw, Send, XCircle, FileDown, Mail, RotateCcw, GitCompare } from 'lucide-react';
+import { Wallet, FileText, PlayCircle, CheckCircle2, Printer, RefreshCw, Send, XCircle, FileDown, Mail, RotateCcw, GitCompare, Table2 } from 'lucide-react';
 import { PayslipTemplatesSection } from './payroll/PayslipTemplatesSection';
 import { downloadPdf, openPayslipPrintView, useEmailPayslip, useEmailRun } from '../../api/payslipTemplates';
 import { SalaryComponentsSection } from './payroll/SalaryComponentsSection';
 import { EmployeeSalariesSection, PayslipLines } from './payroll/EmployeeSalariesSection';
 import { PayrollCyclesSection } from './payroll/PayrollCyclesSection';
+import { LoansSection, MyLoans } from './payroll/LoansSection';
+import type { LoanSummaryRow } from '../../api/payrollLoans';
 import { usePayrollCycles, useEmployeeSalaries, type Line, type AttendanceBasis } from '../../api/payroll';
 import { useFormat } from '../../hooks/useFormat';
 import { useRunHistory, useFinalize, type RerunSummary } from '../../api/payrollRevision';
@@ -57,6 +59,31 @@ interface PayrollRun {
 function periodLabel(r: { month: number; year: number; periodStart?: string | null; periodEnd?: string | null; payrollCycle?: { frequency: string } | null }) {
   if (r.periodStart && r.periodEnd && r.payrollCycle && r.payrollCycle.frequency !== 'MONTHLY') return `${r.periodStart.slice(0, 10)} – ${r.periodEnd.slice(0, 10)}`;
   return `${MONTH_NAMES[r.month]} ${r.year}`;
+}
+
+/** Loan/advance recovery lines carry codes "LOAN_<loanId>" (server utils/payrollLoans.ts). */
+const isLoanLine = (code: string) => code.startsWith('LOAN_') && code !== code.toUpperCase();
+const loanTotal = (p: Payslip) => (p.lines ?? []).filter(l => isLoanLine(l.code)).reduce((s, l) => s + Number(l.amount), 0);
+
+/** Payroll register for a run as CSV — one row per employee, deductions itemised by component, loans as one column. */
+function downloadRegister(run: PayrollRun) {
+  const slips = run.payslips ?? [];
+  const codes: { code: string; name: string; category: string }[] = [];
+  for (const p of slips) for (const l of p.lines ?? []) if (!isLoanLine(l.code) && !codes.some(c => c.code === l.code)) codes.push({ code: l.code, name: l.name, category: l.category });
+  const order = ['EARNING', 'REIMBURSEMENT', 'DEDUCTION', 'EMPLOYER_CONTRIBUTION'];
+  codes.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
+  const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['Employee', 'Payslip no.', 'Paid days', 'LOP days', ...codes.map(c => c.name), 'Loan recovery', 'Gross', 'Total deductions', 'Net pay', 'Status'];
+  const rows = slips.map(p => {
+    const amt = (code: string) => { const l = p.lines?.find(x => x.code === code); return l ? Number(l.amount).toFixed(2) : ''; };
+    return [p.user.name, p.payslipNumber, p.paidDays ?? '', p.lopDays ?? '', ...codes.map(c => amt(c.code)), loanTotal(p).toFixed(2), Number(p.grossPay).toFixed(2), Number(p.totalDeductions).toFixed(2), Number(p.netPay).toFixed(2), p.status];
+  });
+  const sum = (i: number) => rows.reduce((s, r) => s + (Number(r[i]) || 0), 0).toFixed(2);
+  const totalRow = head.map((_, i) => i === 0 ? 'Total' : i < 4 || i === head.length - 1 ? '' : sum(i));
+  const csv = [head, ...rows, totalRow].map(r => r.map(q).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a = document.createElement('a'); a.href = url; a.download = `payroll-register-${run.year}-${String(run.month).padStart(2, '0')}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function payslipTotals(p: Payslip) {
@@ -186,6 +213,7 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
   const current = payslips.find(p => p.id === selected) ?? null;
   const sum = (k: 'grossPay' | 'totalDeductions' | 'netPay') => payslips.reduce((s, p) => s + Number(p[k]), 0);
   const totalLop = payslips.reduce((s, p) => s + Number(p.lopDays ?? 0), 0);
+  const totalLoans = payslips.reduce((s, p) => s + loanTotal(p), 0);
   const projected = payslips.reduce((s, p) => s + Number(p.attendanceSummary?.futureDaysAssumedPaid ?? 0), 0);
   const fromAttendance = run?.attendanceMode !== 'CALENDAR';
 
@@ -200,6 +228,7 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
           {isDraft && <Button variant="secondary" icon={<RefreshCw size={13} />} onClick={() => { qc.invalidateQueries({ queryKey: ['employee-salaries'] }); setDialog('rerun'); }}>Rerun</Button>}
           {isDraft && <Button icon={<Send size={13} />} loading={finalize.isPending} onClick={() => reopened ? setDialog('finalise') : finalize.mutate({}, { onError: onErr })}>{reopened ? `Finalise v${version}` : 'Finalise & issue payslips'}</Button>}
           {!isDraft && <Button variant="secondary" icon={<RotateCcw size={13} />} onClick={() => setDialog('reopen')}>{run.status === 'PAID' ? 'Revise' : 'Reopen for changes'}</Button>}
+          {payslips.length > 0 && <Button variant="secondary" icon={<Table2 size={13} />} onClick={() => downloadRegister(run)}>Register (CSV)</Button>}
           {!isDraft && <Button variant="secondary" icon={<FileDown size={13} />} loading={pdfBusy} onClick={async () => { setPdfBusy(true); try { await downloadPdf(`/hr/payroll/runs/${runId}/pdf`, `payslips-${run.year}-${String(run.month).padStart(2, '0')}.pdf`); } catch { setError('Could not build the PDF'); } finally { setPdfBusy(false); } }}>All payslips (PDF)</Button>}
           {!isDraft && <Button variant="secondary" icon={<Mail size={13} />} loading={emailAll.isPending} onClick={() => emailAll.mutate({ id: runId }, { onSuccess: r => setMailNotice(`${r.sent} e-mailed${r.skipped ? `, ${r.skipped} already sent` : ''}${r.failed.length ? `, ${r.failed.length} failed (no e-mail address)` : ''}.`), onError: onErr })}>E-mail payslips</Button>}
           {run.status === 'PROCESSED' && <Button icon={<CheckCircle2 size={13} />} loading={markPaid.isPending} onClick={() => markPaid.mutate()}>Mark all paid</Button>}
@@ -219,7 +248,7 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
         <div>
           {run && (
             <div className="flex flex-wrap gap-4 text-xs text-fg-muted mb-3 tabular-nums">
-              <span>{payslips.length} payslips</span><span>Gross {money(sum('grossPay'))}</span><span>Deductions {money(sum('totalDeductions'))}</span><span className="font-semibold text-fg">Net {money(sum('netPay'))}</span>{fromAttendance && <span className={totalLop ? 'text-danger' : ''}>LOP {totalLop} day{totalLop === 1 ? '' : 's'}</span>}
+              <span>{payslips.length} payslips</span><span>Gross {money(sum('grossPay'))}</span><span>Deductions {money(sum('totalDeductions'))}</span>{totalLoans > 0 && <span>incl. loan recovery {money(totalLoans)}</span>}<span className="font-semibold text-fg">Net {money(sum('netPay'))}</span>{fromAttendance && <span className={totalLop ? 'text-danger' : ''}>LOP {totalLop} day{totalLop === 1 ? '' : 's'}</span>}
             </div>
           )}
           <DataTable<Payslip>
@@ -340,8 +369,31 @@ function PayrollRunsSection() {
 
 // ─── My Payslips (everyone) ──────────────────────────────────────────────────
 
+function LoanSummaryList({ rows, money }: { rows: LoanSummaryRow[]; money: (v: number) => string }) {
+  if (!rows.length) return null;
+  return (
+    <div className="border-t border-line-subtle pt-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mb-2">Loans &amp; advances</p>
+      <div className="space-y-2">
+        {rows.map(r => (
+          <div key={r.loanId} className="rounded-lg bg-surface-sunken p-2.5 text-sm">
+            <div className="flex items-baseline justify-between gap-2"><p className="font-medium text-fg min-w-0 truncate">{r.name}</p><p className="text-[11px] text-fg-subtle shrink-0">{r.emiLabel ?? 'No EMI this month'}</p></div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 mt-1.5 text-xs tabular-nums">
+              <div><p className="text-fg-subtle">Principal</p><p className="text-fg">{money(r.principal)}</p></div>
+              <div><p className="text-fg-subtle">This month</p><p className="text-fg">{money(r.recoveredThisPeriod)}</p></div>
+              <div><p className="text-fg-subtle">Total recovered</p><p className="text-fg">{money(r.totalRecovered)}</p></div>
+              <div><p className="text-fg-subtle">Outstanding</p><p className="font-semibold text-fg">{money(r.outstanding)}</p></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => void }) {
   const { money, date } = useFormat();
+  const { data: detail } = useQuery<Payslip & { loanSummary?: LoanSummaryRow[] }>({ queryKey: ['payslip', payslip.id], queryFn: () => api.get(`/hr/payroll/payslips/${payslip.id}`).then(r => r.data) });
   return (
     <Modal open onClose={onClose} title={payslip.payslipNumber} subtitle={periodLabel({ ...payslip, payrollCycle: payslip.payrollRun?.payrollCycle })} icon={<FileText size={16} />}
       footer={<>
@@ -359,7 +411,7 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
           <StatusBadge value={payslip.status} map={PAYSLIP_STATUS_VARIANT} fallback="yellow" dot />
         </div>
         <div className="border-t border-line-subtle pt-3">
-          {payslip.lines?.length ? <PayslipLines lines={payslip.lines.filter(l => l.showOnPayslip !== false)} totals={payslipTotals(payslip)} currencyMoney={money} /> : (
+          {payslip.lines?.length ? <PayslipLines hideZero lines={payslip.lines.filter(l => l.showOnPayslip !== false)} totals={payslipTotals(payslip)} currencyMoney={money} /> : (
             <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm tabular-nums">
               <p className="text-fg-muted">Basic</p><p className="text-right text-fg">{money(payslip.basic)}</p>
               <p className="text-fg-muted">HRA</p><p className="text-right text-fg">{money(payslip.hra)}</p>
@@ -371,6 +423,7 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
           )}
           {payslip.paidDays != null && <p className="text-[11px] text-fg-subtle mt-2 tabular-nums">Paid days {Number(payslip.paidDays)} of {Number(payslip.workingDays)}{Number(payslip.lopDays) > 0 ? ` · LOP ${Number(payslip.lopDays)}` : ''}</p>}
         </div>
+        <LoanSummaryList rows={detail?.loanSummary ?? []} money={v => money(v)} />
         {payslip.paidAt && <p className="text-xs text-fg-subtle">Paid on {date(payslip.paidAt)}</p>}
       </div>
     </Modal>
@@ -418,6 +471,10 @@ function MyPayslips() {
   );
 }
 
+function MyPayslipsTab() {
+  return <><MyPayslips /><MyLoans /></>;
+}
+
 // ─── Payslip Template (managers) ─────────────────────────────────────────────
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -425,7 +482,7 @@ function MyPayslips() {
 export default function PayrollPage() {
   const { user } = useAuth();
   const isManager = MANAGER_ROLES.includes(user?.role || '');
-  const [tab, setTab] = useState<'me' | 'salaries' | 'components' | 'cycles' | 'runs' | 'template'>('me');
+  const [tab, setTab] = useState<'me' | 'salaries' | 'components' | 'cycles' | 'runs' | 'loans' | 'template'>('me');
 
   return (
     <div>
@@ -433,7 +490,7 @@ export default function PayrollPage() {
         title="Payroll"
         subtitle="Configurable salary components, payroll cycles, runs and payslips"
         below={isManager ? (
-          <Tabs<'me' | 'salaries' | 'components' | 'cycles' | 'runs' | 'template'>
+          <Tabs<'me' | 'salaries' | 'components' | 'cycles' | 'runs' | 'loans' | 'template'>
             aria-label="Payroll views"
             variant="segmented"
             value={tab}
@@ -444,18 +501,20 @@ export default function PayrollPage() {
               { key: 'components', label: 'Salary Components' },
               { key: 'cycles', label: 'Cycles' },
               { key: 'runs', label: 'Payroll Runs' },
+              { key: 'loans', label: 'Loans & Advances' },
               { key: 'template', label: 'Templates' },
             ]}
           />
         ) : undefined}
       />
 
-      <PageBody width="full" className={tab === 'components' || tab === 'salaries' ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}>
-        {tab === 'me' && <MyPayslips />}
+      <PageBody width="full" className={tab === 'components' || tab === 'salaries' || tab === 'loans' ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}>
+        {tab === 'me' && <MyPayslipsTab />}
         {tab === 'salaries' && isManager && <EmployeeSalariesSection />}
         {tab === 'components' && isManager && <SalaryComponentsSection />}
         {tab === 'cycles' && isManager && <PayrollCyclesSection />}
         {tab === 'runs' && isManager && <PayrollRunsSection />}
+        {tab === 'loans' && isManager && <LoansSection />}
         {tab === 'template' && isManager && <PayslipTemplatesSection />}
       </PageBody>
     </div>
