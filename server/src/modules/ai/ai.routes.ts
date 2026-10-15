@@ -7,6 +7,7 @@ import * as studio from './aiStudio.controller';
 import * as solution from './solutionBuilder.controller';
 import { recordUsage } from '../../utils/usageTracking';
 import { requireFeature } from '../../utils/licensing';
+import { aiConfigSource, AI_NOT_CONFIGURED_MESSAGE } from '../../utils/aiStatus';
 
 export const aiRouter = Router();
 aiRouter.use(authenticate);
@@ -17,7 +18,14 @@ aiRouter.use(authenticate);
 // they never call out to Groq/OpenAI. Fires before the handler runs rather
 // than after, so a downstream error doesn't skip the count — an attempted
 // AI call still costs the same API round-trip either way.
-function trackAiCall(req: AuthRequest, _res: Response, next: NextFunction) {
+async function trackAiCall(req: AuthRequest, res: Response, next: NextFunction) {
+  /* With no provider configured, every AI handler used to "succeed" with an
+     empty answer (utils/ai.ts returns early without a key), so the whole AI
+     surface looked silently broken with no hint why. Say so explicitly —
+     503 and a message the UI shows — instead. */
+  if ((await aiConfigSource()) === 'none') {
+    return res.status(503).json({ error: AI_NOT_CONFIGURED_MESSAGE, code: 'AI_NOT_CONFIGURED' });
+  }
   recordUsage(req.user!.orgId, 'AI_CALL');
   next();
 }
@@ -28,6 +36,11 @@ function trackAiCall(req: AuthRequest, _res: Response, next: NextFunction) {
 // requires the 'ai_advanced' feature. Placed after requireRole so a 403
 // (wrong role) always wins over a 402 (wrong plan) when both would apply.
 const aiAdvanced = requireFeature('ai_advanced');
+
+// ── Health: is AI configured on this server, and does a real call work? ──────
+// GET /ai/status → config only; GET /ai/status?test=1 → also makes one tiny
+// provider call and explains any failure. Managers only; never returns keys.
+aiRouter.get('/status', requireRole(...MANAGERS), ai.aiStatusHandler);
 
 // ── CRM AI (leads, deals, contacts) ──────────────────────────────────────────
 aiRouter.post('/lead/:id/score',           requireRole(...CRM_STAFF),    trackAiCall, ai.scoreLeadHandler); // Free

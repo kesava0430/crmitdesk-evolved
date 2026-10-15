@@ -83,3 +83,13 @@ test('planner menu: filtered to the caller role', () => {
   assert.ok(agent.every(a => all.some(b => b.name === a.name)));
   assert.equal(actionMenuForPrompt('SUPER_ADMIN').length, all.length);
 });
+
+import { explainAiError } from '../../src/utils/aiStatus';
+
+test('AI status: provider failures are explained with a fix', () => {
+  assert.match(explainAiError({ status: 401 }, 'groq').hint, /GROQ_API_KEY/);
+  assert.match(explainAiError({ name: 'APIConnectionError', cause: { code: 'ENOTFOUND' } }, 'groq').error, /api\.groq\.com.*ENOTFOUND/);
+  assert.match(explainAiError({ name: 'APIConnectionTimeoutError' }, 'groq').hint, /outbound internet/);
+  assert.match(explainAiError({ status: 404 }, 'groq').hint, /AI_MODEL_FAST/);
+  assert.match(explainAiError({ status: 429 }, 'groq').error, /429/);
+});

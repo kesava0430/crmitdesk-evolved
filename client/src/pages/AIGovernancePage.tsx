@@ -7,6 +7,8 @@ import {
   useReindexKnowledge,
   useKnowledgeAsk,
   useAiFeedback,
+  useAiStatus,
+  useTestAiConnection,
 } from '../api/work';
 import {
   AiGeneratedTag, AiInfo, AiNote,
@@ -14,7 +16,7 @@ import {
   Select, SkeletonCard, SkeletonStats, SkeletonTable, StatTile, StatusBadge, Tabs, Toolbar,
   AccessDenied,
 } from '../shared/components';
-import { Brain, Database, RefreshCw, DollarSign, ThumbsUp, ThumbsDown, Search } from 'lucide-react';
+import { Brain, Database, RefreshCw, DollarSign, ThumbsUp, ThumbsDown, Search, PlugZap } from 'lucide-react';
 import { useFormat } from '../hooks/useFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
@@ -60,6 +62,57 @@ function ListPanel({ title, rows, empty }: {
   );
 }
 
+/**
+ * "Is AI actually working on this server?" — config at a glance, plus a
+ * button that makes one tiny real call and explains a failure in plain words
+ * (missing key, rejected key, no network route to the provider, retired
+ * model). Before this, a server without a working provider just made every
+ * AI feature look empty.
+ */
+function AiConnectionCard() {
+  const status = useAiStatus();
+  const test = useTestAiConnection();
+  const s = status.data;
+  const result = test.data?.test;
+  if (!s) return null;
+  return (
+    <Card>
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+        <div className="flex items-start gap-2 min-w-0 flex-1">
+          <PlugZap size={16} className="text-accent mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-fg">AI connection</div>
+            <div className="text-[12px] text-fg-muted break-words">
+              {s.configured
+                ? <>Provider: <span className="font-medium">{s.provider ?? s.source}</span>{s.models.fast ? <> · models {s.models.fast}{s.models.smart && s.models.smart !== s.models.fast ? ` / ${s.models.smart}` : ''}</> : null}</>
+                : 'No AI provider is configured on this server.'}
+            </div>
+          </div>
+        </div>
+        <Button size="sm" variant="secondary" onClick={() => test.mutate()} disabled={test.isPending}
+          icon={<RefreshCw size={12} className={test.isPending ? 'animate-spin' : ''} />}>
+          {test.isPending ? 'Testing…' : 'Test connection'}
+        </Button>
+      </div>
+      {!s.configured && !result && (
+        <Alert tone="danger" className="mt-3">
+          Every AI feature is off until a key is added. On the server, add <code>GROQ_API_KEY=&lt;your key&gt;</code> to <code>/opt/zenkara-crm/server/.env</code>, then run <code>sudo systemctl restart zenkara-crm-api</code>.
+        </Alert>
+      )}
+      {result && (
+        <Alert tone={result.ok ? 'success' : 'danger'} className="mt-3">
+          {result.ok
+            ? `Working — ${result.provider} answered in ${result.latencyMs} ms using ${result.model}.`
+            : <><span className="font-medium">{result.error}</span>{result.hint ? <> {result.hint}</> : null}</>}
+        </Alert>
+      )}
+      {test.isError && (
+        <Alert tone="danger" className="mt-3">Could not run the test: {(test.error as any)?.response?.data?.error || 'request failed'}.</Alert>
+      )}
+    </Card>
+  );
+}
+
 function ObservabilityPanel() {
   const [days, setDays] = useState(30);
   const { user } = useAuth();
@@ -87,6 +140,7 @@ function ObservabilityPanel() {
 
   return (
     <div className="space-y-4">
+      <AiConnectionCard />
       <Toolbar>
         <Select
           className="w-auto"

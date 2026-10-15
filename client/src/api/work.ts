@@ -563,6 +563,31 @@ export interface AiObservability {
   budget: { allowed: boolean; hardStop: boolean; limitUsd: number; spendUsd: number; percentUsed: number };
 }
 
+export interface AiConnectionTest {
+  ok: boolean;
+  source: 'env' | 'database' | 'none';
+  provider: string | null;
+  model: string | null;
+  latencyMs: number | null;
+  httpStatus: number | null;
+  error: string | null;
+  hint: string | null;
+}
+export interface AiStatus {
+  configured: boolean;
+  source: 'env' | 'database' | 'none';
+  provider: string | null;
+  models: { fast: string | null; smart: string | null };
+  embeddings: boolean;
+  test?: AiConnectionTest;
+}
+/** Whether AI is configured on the server (no provider call). */
+export const useAiStatus = (enabled = true) =>
+  useQuery<AiStatus>({ queryKey: ['ai-status'], queryFn: () => api.get('/ai/status').then(r => r.data), enabled, staleTime: 60_000 });
+/** Makes one tiny real call to the provider and explains any failure. */
+export const useTestAiConnection = () =>
+  useMutation({ mutationFn: () => api.get('/ai/status', { params: { test: '1' } }).then(r => r.data as AiStatus) });
+
 export const useAiObservability = (days = 30, enabled = true) =>
   useQuery<AiObservability>({
     queryKey: ['ai-observability', days],

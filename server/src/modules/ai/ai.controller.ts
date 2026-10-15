@@ -3,6 +3,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { runAiRuleManually } from '../../utils/ai-rules';
 import { runAiRules } from '../../utils/ai-rules';
 import { complete } from '../../utils/aiGateway';
+import { aiConfigSource, explainAiError, testAiConnection } from '../../utils/aiStatus';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest, IT_STAFF } from '../../middleware/authenticate';
@@ -62,7 +63,43 @@ function handleAIError(err: any, res: Response): boolean {
     res.status(502).json({ error: usingGroq ? 'Invalid API key. Check GROQ_API_KEY in server/.env and restart the server.' : 'Invalid API key. Check OPENAI_API_KEY in server/.env and restart the server.' });
     return true;
   }
+  /* Network-level failures (no route to the provider, DNS, timeouts) carry
+     no HTTP status and used to fall through to a generic 500 — the exact
+     symptom of a server that can't reach api.groq.com. Name the cause. */
+  const name = String(err?.name || err?.constructor?.name || '');
+  const code = String(err?.code || err?.cause?.code || '');
+  if (/Connection|Timeout/i.test(name) || ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(code)) {
+    const { error } = explainAiError(err, usingGroq ? 'groq' : 'openai');
+    console.error('[ai] provider unreachable:', name, code, err?.message);
+    res.status(503).json({ error: `${error} The AI service is unreachable from the server right now — an administrator can run the check under AI Governance → AI connection.` });
+    return true;
+  }
+  if (err?.status === 404) {
+    res.status(502).json({ error: explainAiError(err, usingGroq ? 'groq' : 'openai').hint });
+    return true;
+  }
   return false; // caller must call next(err)
+}
+
+// ─── AI status / connection test ──────────────────────────────────────────────
+export async function aiStatusHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const source = await aiConfigSource();
+    const base = {
+      configured: source !== 'none',
+      source,
+      provider: process.env.GROQ_API_KEY ? 'groq' : process.env.OPENAI_API_KEY ? (process.env.OPENAI_BASE_URL ? 'custom' : 'openai') : source === 'database' ? 'database' : null,
+      models: {
+        fast: process.env.AI_MODEL_FAST || (process.env.GROQ_API_KEY ? 'openai/gpt-oss-20b' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : null),
+        smart: process.env.AI_MODEL_SMART || (process.env.GROQ_API_KEY ? 'openai/gpt-oss-120b' : process.env.OPENAI_API_KEY ? 'gpt-4o' : null),
+      },
+      // Groq has no embeddings endpoint; knowledge-base search needs OpenAI
+      // (or an AiProvider with an EMBEDDING model) for semantic matching.
+      embeddings: !!process.env.OPENAI_API_KEY,
+    };
+    if (req.query.test !== '1') return res.json(base);
+    res.json({ ...base, test: await testAiConnection(req.user!.orgId) });
+  } catch (err) { next(err); }
 }
 
 // ─── Lead: Score ──────────────────────────────────────────────────────────────
