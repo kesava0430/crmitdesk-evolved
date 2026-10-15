@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown, MessageCircleMore, Link2 } from 'lucide-react';
 import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports, useArticleSuggestions, useCreateArticle } from '../../../api/itdesk';
 import { useCategories } from '../../../api/itdesk';
@@ -71,10 +71,23 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
   const { entityLabel, fieldLabel } = useLabels();
   const singular = entityLabel('ticket', 'singular', 'Ticket');
 
+  /* Duplicate check — one AI call per pause in typing, not per keystroke.
+     This effect used to call the model on every character once the title
+     reached 10 chars, so a 40-character title cost ~30 calls. Now it waits
+     900ms after the last keystroke and skips a title it already checked
+     (ignoring case and spacing), so retyping or fixing a typo back to the
+     same text is free. */
+  const lastDupeTitle = useRef('');
   useEffect(() => {
-    if (form.title.length >= 10) {
-      aiDupes.mutate({ title: form.title });
-    }
+    const title = form.title.trim();
+    if (title.length < 10) return;
+    const t = setTimeout(() => {
+      const norm = title.toLowerCase().replace(/\s+/g, ' ');
+      if (norm === lastDupeTitle.current) return;
+      lastDupeTitle.current = norm;
+      aiDupes.mutate({ title });
+    }, 900);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.title]);
 

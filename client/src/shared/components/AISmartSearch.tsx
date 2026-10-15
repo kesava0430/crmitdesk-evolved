@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Search, Sparkles, X, Loader2, User, Ticket, TrendingUp, Handshake, BookOpen, Monitor, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
@@ -48,6 +48,10 @@ function useSearch(query: string) {
   const [failed, setFailed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const { money } = useFormat();
+  // Read through a ref: `money` is a new function each render, and search()
+  // must stay stable or the debounce effect below would re-fire every render.
+  const moneyRef = useRef(money);
+  moneyRef.current = money;
 
   const search = useCallback(async (q: string) => {
     if (!q.trim() || q.length < 2) { setResults([]); setFailed(false); return; }
@@ -70,7 +74,7 @@ function useSearch(query: string) {
         ...(data.contacts ?? []).map((c: any) => ({ id: c.id, type: 'contact', title: c.name, subtitle: c.email, url: `/crm/contacts/${c.id}` })),
         ...(data.tickets ?? []).map((t: any) => ({ id: t.id, type: 'ticket', title: t.title, subtitle: t.status, url: `/itdesk/tickets/${t.id}` })),
         ...(data.leads ?? []).map((l: any) => ({ id: l.id, type: 'lead', title: l.contact?.name ?? l.id, subtitle: l.status, url: `/crm/leads` })),
-        ...(data.deals ?? []).map((d: any) => ({ id: d.id, type: 'deal', title: d.title, subtitle: money(Number(d.value ?? 0)), url: `/crm/deals` })),
+        ...(data.deals ?? []).map((d: any) => ({ id: d.id, type: 'deal', title: d.title, subtitle: moneyRef.current(Number(d.value ?? 0)), url: `/crm/deals` })),
         ...(data.articles ?? []).map((a: any) => ({ id: a.id, type: 'article', title: a.title, subtitle: 'Knowledge base', url: `/itdesk/articles` })),
         ...(data.assets ?? []).map((a: any) => ({ id: a.id, type: 'asset', title: a.name, subtitle: a.serialNumber ?? a.type, url: `/itdesk/assets` })),
         ...(data.invoices ?? []).map((i: any) => ({ id: i.id, type: 'invoice', title: `${i.invoiceNumber} — ${i.title}`, subtitle: i.status, url: `/invoices` })),
@@ -82,12 +86,18 @@ function useSearch(query: string) {
     } finally {
       setLoading(false);
     }
-  }, [money]);
+  }, []);
 
-  const debouncedQuery = useDebounce(query, 300);
-  useState(() => { search(debouncedQuery); });
+  /* Search runs once the user pauses typing, not on every keystroke. The
+     input used to call search() from onChange, so typing "printer issue"
+     fired ~13 requests — each one an AI query-interpretation call on the
+     server (the client-side abort cancels the response, not the server's
+     work or its AI bill). The old `useState(() => search(debounced))` was
+     meant to do this but only ever ran once, on mount. */
+  const debouncedQuery = useDebounce(query, 400);
+  useEffect(() => { search(debouncedQuery); }, [debouncedQuery, search]);
 
-  return { results, loading, aiPowered, failed, search };
+  return { results, loading, aiPowered, failed };
 }
 
 interface AISmartSearchProps {
@@ -99,13 +109,11 @@ export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…'
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const { results, loading, aiPowered, failed, search } = useSearch(query);
+  const { results, loading, aiPowered, failed } = useSearch(query);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value;
-    setQuery(v);
+    setQuery(e.target.value);
     setOpen(true);
-    search(v);
   }
 
   function handleSelect(r: SearchResult) {
