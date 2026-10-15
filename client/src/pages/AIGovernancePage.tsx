@@ -50,7 +50,7 @@ function ListPanel({ title, rows, empty }: {
           <div key={r.key} className="flex items-center gap-3 px-4 py-2 border-b border-line-subtle last:border-0 hover:bg-surface-hover transition-colors">
             <span className="text-[12.5px] font-mono text-fg flex-1 truncate" title={r.label}>{r.label}</span>
             <span className="text-[12px] text-fg-muted tabular-nums">{r.calls}</span>
-            <span className="text-[12px] text-fg-subtle w-16 text-right tabular-nums">${r.costUsd.toFixed(3)}</span>
+            <span className="text-[12px] text-fg-subtle w-16 text-right tabular-nums">${r.costUsd.toFixed(4)}</span>
           </div>
         ))
       ) : (
@@ -124,7 +124,11 @@ function ObservabilityPanel() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile label="AI calls" value={<span className="tabular-nums">{data.totalCalls.toLocaleString()}</span>} />
+        <StatTile
+          label="AI calls"
+          value={<span className="tabular-nums">{data.totalCalls.toLocaleString()}</span>}
+          hint={data.cachedCalls ? `${data.cachedCalls.toLocaleString()} answered from cache (free)` : undefined}
+        />
         <StatTile
           label="Success rate"
           value={
@@ -132,7 +136,7 @@ function ObservabilityPanel() {
           }
           hint={`${data.errorCount} error${data.errorCount === 1 ? '' : 's'}`}
         />
-        <StatTile label="Total cost" value={<span className="tabular-nums">${data.totalCostUsd.toFixed(2)}</span>} hint={`${data.totalTokens.toLocaleString()} tokens`} />
+        <StatTile label="Total cost" value={<span className="tabular-nums">${data.totalCostUsd.toFixed(data.totalCostUsd > 0 && data.totalCostUsd < 1 ? 4 : 2)}</span>} hint={`${data.totalTokens.toLocaleString()} tokens`} />
         <StatTile label="Avg latency" value={<span className="tabular-nums">{data.avgLatencyMs} ms</span>} />
       </div>
 

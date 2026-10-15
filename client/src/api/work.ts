@@ -548,6 +548,8 @@ export const useAiFeedback = () =>
 
 export interface AiObservability {
   totalCalls: number;
+  /** Calls answered from the server's own cache (no model call, no cost). */
+  cachedCalls?: number;
   successRate: number;
   errorCount: number;
   totalTokens: number;
