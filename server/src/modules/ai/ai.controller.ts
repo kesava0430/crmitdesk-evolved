@@ -28,6 +28,7 @@ import {
   checkEmailTone,
   parseNaturalLanguageCommand,
   planAiAction,
+  pickRelevant,
   routeChatTurn,
 } from '../../utils/ai';
 import { getAiAction, actionMenuForPrompt, listActionsForRole } from '../../utils/ai-actions';
@@ -88,7 +89,13 @@ export async function scoreLeadHandler(req: AuthRequest, res: Response, next: Ne
         where: { id: req.params.id, orgId },
         data: { aiScore: result.score, aiScoreReason: result.reason },
       });
-      runAiRules({ trigger: 'LEAD_SCORED', orgId, entityType: 'LEAD', entityId: req.params.id, entity: { ...lead, aiScore: result.score }, userId: req.user!.id });
+      /* Fire LEAD_SCORED rules only when the score actually changed.
+         Re-scoring an unchanged lead (a second click, or an answer served
+         from the AI cache) used to re-run every rule — e.g. drafting another
+         follow-up email on the lead each time, each one a paid AI call. */
+      if (lead.aiScore !== result.score) {
+        runAiRules({ trigger: 'LEAD_SCORED', orgId, entityType: 'LEAD', entityId: req.params.id, entity: { ...lead, aiScore: result.score }, userId: req.user!.id });
+      }
     }
 
     res.json(result);
@@ -804,25 +811,31 @@ export async function buildActionPlanForOrg(orgId: string, role: string, command
       };
     });
 
+    /* Each list is cut down to the records the command names plus a few of
+       the newest (pickRelevant), and the action menu to what this role may
+       run — the full context used to be several thousand prompt tokens per
+       command. Module definitions stay whole: their field keys are needed
+       to create records even when the command names none of them. */
+    const rel = <T,>(items: T[], label: (i: T) => string, recent = 5) => pickRelevant(items, label, command, recent);
     const plan = await planAiAction(command, {
-      actions: actionMenuForPrompt(),
-      deals,
-      tickets,
-      leads: leads.map(l => ({ id: l.id, name: (l as any).contact?.name || 'Unknown' })),
-      rules,
-      contacts,
-      modules: modulesForPlan,
-      assignableUsers,
-      quotes,
-      invoices,
-      campaigns,
-      assets,
+      actions: actionMenuForPrompt(role),
+      deals: rel(deals, d => d.title),
+      tickets: rel(tickets, t => t.title),
+      leads: rel(leads.map(l => ({ id: l.id, name: (l as any).contact?.name || 'Unknown' })), l => l.name),
+      rules: rel(rules, r => r.name),
+      contacts: rel(contacts, c => c.name),
+      modules: modulesForPlan.map(m => (m.records ? { ...m, records: rel(m.records, r => r.title, 3) } : m)),
+      assignableUsers: rel(assignableUsers, u => u.name),
+      quotes: rel(quotes, q => q.title),
+      invoices: rel(invoices, i => `${i.invoiceNumber} ${i.title}`),
+      campaigns: rel(campaigns, c => c.name),
+      assets: rel(assets, a => a.name),
       leaveTypes,
-      pendingLeaveRequests: pendingLeaveRequests.map(r => ({
+      pendingLeaveRequests: rel(pendingLeaveRequests.map(r => ({
         id: r.id, userName: r.user.name, leaveTypeName: r.leaveType.name,
         startDate: r.startDate.toISOString().slice(0, 10), endDate: r.endDate.toISOString().slice(0, 10),
-      })),
-      orgUsers,
+      })), r => r.userName),
+      orgUsers: rel(orgUsers, u => u.name),
     });
 
     // Filter to what this user's role is actually allowed to run, so the

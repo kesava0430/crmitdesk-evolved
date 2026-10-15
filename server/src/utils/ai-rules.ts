@@ -269,7 +269,11 @@ export async function runAiRules(ctx: AiRuleContext): Promise<void> {
             orgId: ctx.orgId,
             userId: ctx.userId ?? null,
             feature: `airule.${action.toLowerCase()}`,
-            task: action === 'SUMMARIZE' || action === 'EMAIL' ? 'SMART' : 'FAST',
+            // All rule actions run on the FAST model: they are short drafts,
+            // summaries and labels filed for a person to review (EMAIL drafts
+            // are never sent automatically), and rules fire unattended on
+            // every matching event, so they add up quickly on the large model.
+            task: 'FAST',
             system,
             user: `${ctx.entityType}:\n${view}`,
             maxTokens: action === 'EMAIL' ? 900 : 400,

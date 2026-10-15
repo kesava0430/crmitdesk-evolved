@@ -104,6 +104,7 @@ model Organization {
   knowledgeChunks   KnowledgeChunk[]
   aiProviders       AiProvider[]
   aiInteractionLogs AiInteractionLog[]
+  aiResponseCache   AiResponseCache[]
   aiBudgets         AiBudget[]
 
   @@map("organizations")
@@ -3884,6 +3885,9 @@ model AiInteractionLog {
 
   promptTokens     Int     @default(0) @map("prompt_tokens")
   completionTokens Int     @default(0) @map("completion_tokens")
+  /// Prompt tokens the provider served from its prompt cache (billed at a
+  /// discount — half price on Groq). Part of promptTokens, not added to it.
+  cachedPromptTokens Int   @default(0) @map("cached_prompt_tokens")
   totalTokens      Int     @default(0) @map("total_tokens")
   costUsd          Decimal @default(0) @db.Decimal(12, 6) @map("cost_usd")
   latencyMs        Int     @default(0) @map("latency_ms")
@@ -3923,6 +3927,28 @@ model AiInteractionLog {
   @@index([orgId, status])
   @@index([orgId, userId])
   @@map("ai_interaction_logs")
+}
+
+/// Shared answer cache for repeatable AI features (scores, labels, search
+/// interpretations). Keyed by a hash of the full prompt, so a change to the
+/// underlying record produces a new key and a fresh answer; the cache only
+/// saves the call when nothing changed. Unlike the in-process cache it
+/// survives restarts and deploys.
+model AiResponseCache {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  cacheKey  String   @map("cache_key")
+  feature   String
+  response  String
+  hits      Int      @default(0)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, cacheKey])
+  @@index([expiresAt])
+  @@map("ai_response_cache")
 }
 
 /// Spend ceiling per org per period. `hardStop` decides whether hitting the

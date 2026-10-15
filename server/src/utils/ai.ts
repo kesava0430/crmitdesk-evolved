@@ -1,7 +1,8 @@
 import OpenAI from 'openai';
 import crypto from 'crypto';
 import { getAiContext } from './aiContext';
-import { complete } from './aiGateway';
+import { complete, logCacheHit } from './aiGateway';
+import { readPersistentCache, writePersistentCache } from './aiCache';
 
 // ─── Client Factory ───────────────────────────────────────────────────────────
 
@@ -59,19 +60,25 @@ const AI_MODEL = AI_MODEL_FAST;
 
 // ─── Per-feature tier routing ─────────────────────────────────────────────────
 //
-// The hybrid-hosting knob: which features deserve the SMART (large/paid) model
-// and which run fine on FAST (small/cheap — possibly a self-hosted Ollama/vLLM
-// endpoint via OPENAI_BASE_URL). Long-form writing features default to SMART
-// because users read their prose; classification-style features default to
-// FAST because their output is a score or a label nobody can tell apart.
+// Which features deserve the SMART (large) model; everything else runs on
+// FAST. On Groq that is gpt-oss-120b vs gpt-oss-20b, and the 20B model is
+// half the price per token and noticeably quicker, so SMART is reserved for
+// long-form writing a person reads closely and the one high-stakes structured
+// output. Scores, labels, short drafts, reminders and classifications are
+// indistinguishable on the smaller model.
 //
-// Override without a deploy: AI_SMART_FEATURES="ticket.kbArticle,ticket.summary"
+// The previous list named several features by ids that no call site uses
+// ('ticket.summary', 'lead.followUp', 'account.nurture', 'pipeline.health'…),
+// so those entries never matched and the features already ran on FAST. The
+// list now uses the real ids, and is checked by a unit test against the
+// labels in this file so a typo can't silently re-route a feature again.
+// (rag.answer picks SMART itself in utils/rag.ts.)
+//
+// Override without a deploy: AI_SMART_FEATURES="ticket.kbArticle,ticket.reply"
 // replaces the default list entirely (set it to "" to force everything FAST).
-const DEFAULT_SMART_FEATURES = new Set([
-  'ticket.kbArticle', 'ticket.summary', 'ticket.reply',
-  'invoice.reminder',
-  'lead.followUp', 'deal.followUp', 'account.nurture',
-  'meeting.notes', 'pipeline.health',
+export const DEFAULT_SMART_FEATURES = new Set([
+  'ticket.kbArticle',   // full knowledge-base article
+  'meeting.notes',      // structured notes from a long transcript
   // Generates a whole workspace (modules, stages, relations, skin) from one
   // business description — the highest-stakes structured output in the
   // product, so it always deserves the large model.
@@ -84,7 +91,7 @@ function smartFeatures(): Set<string> {
 }
 /** SMART/FAST tier for a call: the feature's routing wins; an unlabelled call
     falls back to whatever model the call site asked for. */
-function tierFor(feature: string | undefined, requestedModel: string): 'SMART' | 'FAST' {
+export function tierFor(feature: string | undefined, requestedModel: string): 'SMART' | 'FAST' {
   if (feature) return smartFeatures().has(feature) ? 'SMART' : 'FAST';
   return requestedModel === AI_MODEL_SMART ? 'SMART' : 'FAST';
 }
@@ -96,9 +103,13 @@ function tierFor(feature: string | undefined, requestedModel: string): 'SMART' |
 // title should not re-bill. Generative features keep the short 5-minute TTL:
 // long enough to absorb a double-click, short enough that "Regenerate"
 // actually regenerates.
-const DETERMINISTIC_FEATURES = new Set([
+export const DETERMINISTIC_FEATURES = new Set([
   'ticket.duplicate', 'ticket.sentiment', 'ticket.slaRisk', 'ticket.estimate',
-  'ticket.autoRoute', 'lead.score', 'deal.winProbability', 'account.churn',
+  'ticket.autoRoute', 'ticket.autoTag', 'lead.score', 'deal.winProbability',
+  // was 'account.churn' — an id no call site uses, so churn risk was never
+  // cached for the longer TTL.
+  'contact.churnRisk', 'contact.health', 'deal.closeDate',
+  'competitors.detect', 'search.interpret',
 ]);
 const DETERMINISTIC_TTL_MS = 30 * 60 * 1000;
 
@@ -154,24 +165,45 @@ async function chat(
     feature?: string;
   } = {}
 ): Promise<string> {
-  const model = opts.model ?? AI_MODEL;
+  /* Tier comes from the feature's routing (see tierFor above) so ops can move
+     features between the cheap and premium model without touching call
+     sites. The no-context fallback below uses the same tier — it used to
+     honour the call site's `model:` instead, so a background call and an
+     interactive call of the same feature could run on different models. */
+  const tier = tierFor(opts.feature, opts.model ?? AI_MODEL);
+  const model = tier === 'SMART' ? AI_MODEL_SMART : AI_MODEL_FAST;
   const maxTokens = opts.maxTokens ?? 800;
   const temperature = opts.temperature ?? 0.3;
-
-  const key = cacheKey(model, system, user, opts.json ? 'json' : '');
-  const cached = getCached(key);
-  if (cached) return cached;
+  const deterministic = !!opts.feature && DETERMINISTIC_FEATURES.has(opts.feature);
 
   const ctx = getAiContext();
+  /* Scoped by org: two orgs never share an answer, even for an identical
+     prompt — no cross-tenant timing signal, and per-org stats stay honest. */
+  const key = cacheKey(ctx?.orgId ?? '-', model, system, user, opts.json ? 'json' : '');
+  const cached = getCached(key);
+  if (cached) {
+    if (ctx && deterministic) logCacheHit({ orgId: ctx.orgId, userId: ctx.userId, feature: opts.feature!, task: tier });
+    return cached;
+  }
+
   if (ctx) {
+    /* Repeatable features also check the shared, persistent cache — it
+       outlives restarts and deploys. The key includes the full prompt, so
+       any change to the record means a miss and a fresh answer. */
+    if (deterministic) {
+      const stored = await readPersistentCache(ctx.orgId, key);
+      if (stored) {
+        setCached(key, stored, DETERMINISTIC_TTL_MS);
+        logCacheHit({ orgId: ctx.orgId, userId: ctx.userId, feature: opts.feature!, task: tier });
+        return stored;
+      }
+    }
+
     const res = await complete({
       orgId: ctx.orgId,
       userId: ctx.userId,
       feature: opts.feature ?? 'legacy.unlabelled',
-      // Tier comes from the feature's routing (see tierFor above) so ops can
-      // move features between the cheap and premium model without touching
-      // call sites — the gateway then maps the tier to the org's providers.
-      task: tierFor(opts.feature, model),
+      task: tier,
       system,
       user,
       maxTokens,
@@ -189,7 +221,8 @@ async function chat(
       throw err;
     }
 
-    setCached(key, res.text, opts.feature && DETERMINISTIC_FEATURES.has(opts.feature) ? DETERMINISTIC_TTL_MS : undefined);
+    setCached(key, res.text, deterministic ? DETERMINISTIC_TTL_MS : undefined);
+    if (deterministic) await writePersistentCache(ctx.orgId, key, opts.feature!, res.text);
     return res.text;
   }
 
@@ -216,7 +249,7 @@ async function chat(
         ...(opts.json ? { response_format: { type: 'json_object' as const } } : {}),
       });
       const text = res.choices[0]?.message?.content?.trim() || '';
-      setCached(key, text, opts.feature && DETERMINISTIC_FEATURES.has(opts.feature) ? DETERMINISTIC_TTL_MS : undefined);
+      setCached(key, text, deterministic ? DETERMINISTIC_TTL_MS : undefined);
       return text;
     } catch (err: any) {
       lastErr = err;
@@ -628,7 +661,7 @@ export async function detectDuplicates(newTicket: {
   const reply = await chat(client,
     'You are a duplicate detection AI. Given a new support ticket, identify semantically similar existing tickets. Respond ONLY with valid JSON: {"duplicates": [{"id": "...", "confidence": 0-100, "reason": "1 sentence"}]}. Only include tickets with confidence > 60.',
     `New ticket: "${newTicket.title}"\n${newTicket.body}\n\nExisting tickets:\n${JSON.stringify(sample.map(t => ({ id: t.id, title: t.title, status: t.status })))}`,
-    { feature: 'ticket.duplicate', maxTokens: 300 }
+    { feature: 'ticket.duplicate', maxTokens: 300, json: true }
   );
   try {
     const parsed = JSON.parse(reply);
@@ -1117,6 +1150,41 @@ Respond with a single JSON object only: {"intent": "create"|"update", "entity": 
 // never invents one, and every id it returns still gets re-validated against
 // the org by the action's own handler before anything runs.
 
+/* Words too common to identify a record by. */
+const PLAN_STOPWORDS = new Set(['the', 'and', 'for', 'with', 'from', 'this', 'that', 'into', 'onto', 'mark', 'move', 'set', 'add', 'create', 'new', 'update', 'change', 'assign', 'close', 'open', 'please', 'deal', 'ticket', 'lead', 'contact', 'invoice', 'quote', 'campaign', 'asset', 'rule', 'leave', 'request', 'user', 'stage', 'status', 'today', 'tomorrow']);
+
+function planWords(text: string): string[] {
+  return text.toLowerCase().split(/[^a-z0-9@.\-]+/).filter(w => w.length >= 3 && !PLAN_STOPWORDS.has(w));
+}
+
+/**
+ * Trims a context list for the action planner to what the command could be
+ * referring to: every item whose name shares a distinctive word with the
+ * command, plus the `recent` newest items (the list arrives newest-first)
+ * for commands like "close the latest ticket".
+ *
+ * The planner used to receive ~25 of everything — deals, tickets, leads,
+ * quotes, invoices, two user lists… — on every request: thousands of prompt
+ * tokens, most of them irrelevant, which made it slower, dearer and (on the
+ * small model) more likely to pick the wrong record.
+ */
+export function pickRelevant<T>(items: T[], label: (item: T) => string, command: string, recent = 5): T[] {
+  const words = new Set(planWords(command));
+  const cmd = command.toLowerCase();
+  const matched = items.filter(item => {
+    const name = (label(item) || '').toLowerCase().trim();
+    if (!name) return false;
+    if (name.length >= 3 && cmd.includes(name)) return true;
+    return planWords(name).some(w => words.has(w));
+  });
+  const out = [...matched];
+  for (const item of items) {
+    if (out.length >= matched.length + recent) break;
+    if (!out.includes(item)) out.push(item);
+  }
+  return out;
+}
+
 export async function planAiAction(
   command: string,
   context: {
@@ -1168,7 +1236,9 @@ export async function planAiAction(
     reply = await chat(client,
       `You are a CRM automation planner. Given a natural language request, pick the SINGLE best-matching action from this whitelist, or return null if nothing matches well enough:\n${menu}\n\nMatch any deal/ticket/lead/rule/contact/custom-module/quote/invoice/campaign/asset/leave-type/leave-request/user mentioned by name (or invoice number) to its id using the context lists provided — never invent an id that isn't in the context. For custom module records/fields, only ever use a fieldKey that's actually listed under that module's "fields" in the context — never invent one, even if the wording suggests an obvious key. A module's "stages" list holds its valid stage keys: any stage param must be one of those keys, and a record named by the user should be matched to an id in that module's "records" list when it appears there. Pending leave requests are matched by the requester's name, not the manager's. If you can't find a confident id/fieldKey match for something the action requires, lower the confidence instead of guessing.\nRespond ONLY with valid JSON: {"action": "<one of the names above>"|null, "params": {...matching that action's params shape}, "confidence": 0-100, "explanation": "1 short sentence describing what will happen, for the user to confirm"}`,
       `Command: "${command}"\n\nContext:\nDeals: ${JSON.stringify(context.deals ?? [])}\nTickets: ${JSON.stringify(context.tickets ?? [])}\nLeads: ${JSON.stringify(context.leads ?? [])}\nWorkflow rules: ${JSON.stringify(context.rules ?? [])}\nContacts: ${JSON.stringify(context.contacts ?? [])}\nCustom modules: ${JSON.stringify(context.modules ?? [])}\nAssignable users (for ASSIGN_TICKET): ${JSON.stringify(context.assignableUsers ?? [])}\nQuotes: ${JSON.stringify(context.quotes ?? [])}\nInvoices: ${JSON.stringify(context.invoices ?? [])}\nCampaigns: ${JSON.stringify(context.campaigns ?? [])}\nAssets: ${JSON.stringify(context.assets ?? [])}\nLeave types: ${JSON.stringify(context.leaveTypes ?? [])}\nPending leave requests: ${JSON.stringify(context.pendingLeaveRequests ?? [])}\nOrg users (for MANUAL_ATTENDANCE_ENTRY): ${JSON.stringify(context.orgUsers ?? [])}`,
-      { feature: 'command.plan', maxTokens: 500, model: AI_MODEL_SMART }
+      // JSON mode: the API guarantees parseable JSON instead of the reply
+      // sometimes arriving wrapped in prose or markdown fences.
+      { feature: 'command.plan', maxTokens: 500, model: AI_MODEL_SMART, json: true }
     );
   } catch (err: any) {
     console.error('[planAiAction] chat call failed:', err?.status, err?.message || err);
@@ -1357,6 +1427,29 @@ export interface SearchInterpretation {
 
 const SEARCH_ENTITY_TYPES = ['contact', 'deal', 'ticket', 'lead', 'article', 'asset', 'invoice'];
 
+/* Words that only an interpreter can turn into a filter — a status, a
+   priority or a record type. A query without any of them ("acme",
+   "priya sharma", "INV-0042") is just a name, and the plain substring match
+   finds it exactly as well, so it is not worth an AI call. */
+const SEARCH_HINT_RE = /\b(open|opened|closed|resolved|pending|progress|won|lost|new|contacted|qualified|converted|paid|unpaid|overdue|draft|sent|void|active|inactive|retired|repair|low|medium|high|critical|urgent|tickets?|deals?|leads?|contacts?|articles?|assets?|invoices?|show|find|list|all|my|from|with|about|last|this|week|month|today)\b/i;
+
+/**
+ * Whether a search query is worth sending to the AI interpreter.
+ *
+ * The global search box is the most-used AI surface in the product, and most
+ * of what people type into it is a name or a number. Those go straight to
+ * substring matching; only queries that read like a sentence ("open tickets
+ * about vpn", "deals won this month") are interpreted.
+ */
+export function searchNeedsAi(query: string): boolean {
+  const q = query.trim();
+  if (q.length < 4) return false;
+  const words = q.split(/\s+/).filter(Boolean);
+  if (words.length === 1) return false;
+  if (words.length >= 4) return true;
+  return SEARCH_HINT_RE.test(q);
+}
+
 export async function interpretSearchQuery(query: string): Promise<SearchInterpretation> {
   const client = getClient();
   if (!client) return { keywords: query, entityTypes: [], status: null, priority: null };
@@ -1370,8 +1463,10 @@ export async function interpretSearchQuery(query: string): Promise<SearchInterpr
 3. status: a status hint if mentioned (e.g. "open", "resolved", "won", "lost", "paid", "overdue"), else null.
 4. priority: a priority hint if mentioned (e.g. "critical", "high"), else null.
 Respond ONLY with valid JSON: {"keywords": "...", "entityTypes": [...], "status": "..."|null, "priority": "..."|null}`,
-      `Search query: "${query}"`,
-      { feature: 'search.interpret', maxTokens: 150, model: AI_MODEL_FAST },
+      // Normalised so "Open Tickets" and "open  tickets" share one cached
+      // interpretation; matching downstream is case-insensitive anyway.
+      `Search query: "${query.trim().toLowerCase().replace(/\s+/g, ' ')}"`,
+      { feature: 'search.interpret', maxTokens: 150, model: AI_MODEL_FAST, json: true },
     );
     const parsed = JSON.parse(reply);
     const entityTypes = Array.isArray(parsed.entityTypes)

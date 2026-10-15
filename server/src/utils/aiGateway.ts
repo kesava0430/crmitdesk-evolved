@@ -45,6 +45,46 @@ export interface ResolvedModel {
   embeddingDim?: number;
 }
 
+// ─── Built-in Groq prices ─────────────────────────────────────────────────────
+//
+// USD per 1K tokens for the models Groq runs for us. These used to default to
+// 0 unless the operator set GROQ_INPUT_COST_PER_1K / GROQ_OUTPUT_COST_PER_1K,
+// so AI Governance showed $0 spend for every Groq call — useless for seeing
+// which feature costs what. The env vars still win when set (one rate for
+// every model, as before); otherwise known models get their list price and
+// unknown ones stay unpriced (0) rather than guessed.
+const GROQ_PRICES_PER_1K: Record<string, { input: number; output: number }> = {
+  'openai/gpt-oss-20b':  { input: 0.000075, output: 0.0003 },
+  'openai/gpt-oss-120b': { input: 0.00015,  output: 0.0006 },
+};
+
+export function groqPriceFor(model: string): { inputCostPer1k: number; outputCostPer1k: number } {
+  const known = GROQ_PRICES_PER_1K[model];
+  return {
+    inputCostPer1k: process.env.GROQ_INPUT_COST_PER_1K !== undefined
+      ? Number(process.env.GROQ_INPUT_COST_PER_1K) : (known?.input ?? 0),
+    outputCostPer1k: process.env.GROQ_OUTPUT_COST_PER_1K !== undefined
+      ? Number(process.env.GROQ_OUTPUT_COST_PER_1K) : (known?.output ?? 0),
+  };
+}
+
+/* Interactive calls: 30s is already generous. The SDK default is a 10-minute
+   timeout plus 2 hidden retries on top of complete()'s own retry loop, so a
+   stuck provider could hold a request — and the user's spinner — for half an
+   hour. utils/ai.ts's direct client already used these settings; the gateway,
+   which carries nearly all traffic, did not. */
+const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 30_000);
+/** Embedding batches are larger; give them longer, but still bounded. */
+const AI_EMBED_TIMEOUT_MS = Number(process.env.AI_EMBED_TIMEOUT_MS ?? 60_000);
+
+function clientFor(m: ResolvedModel, timeout = AI_REQUEST_TIMEOUT_MS): OpenAI {
+  return new OpenAI({ apiKey: m.apiKey, ...(m.baseUrl ? { baseURL: m.baseUrl } : {}), timeout, maxRetries: 0 });
+}
+
+/** Share of the input price charged for prompt tokens served from the
+    provider's prompt cache. Groq bills cached input at 50%. */
+const CACHED_INPUT_PRICE_FACTOR = Number(process.env.AI_CACHED_INPUT_PRICE_FACTOR ?? 0.5);
+
 // ─── Env fallback ─────────────────────────────────────────────────────────────
 //
 // Preserves exactly what utils/ai.ts does today, so an org with no AiProvider
@@ -62,11 +102,8 @@ function envProviders(): ResolvedModel[] {
       // AI_MODEL_FAST / AI_MODEL_SMART env vars override without a deploy
       // (kept in sync with utils/ai.ts's model routing).
       model: process.env.AI_MODEL_FAST || 'openai/gpt-oss-20b',
-      // Groq pricing as configured by the operator; 0 means "don't attribute
-      // a cost" rather than "free", so an unpriced provider shows 0 spend
-      // instead of a fabricated number.
-      inputCostPer1k: Number(process.env.GROQ_INPUT_COST_PER_1K ?? 0),
-      outputCostPer1k: Number(process.env.GROQ_OUTPUT_COST_PER_1K ?? 0),
+      // Priced per model (see groqPriceFor) — env overrides still apply.
+      ...groqPriceFor(process.env.AI_MODEL_FAST || 'openai/gpt-oss-20b'),
       supportsJson: true,
     });
   }
@@ -95,7 +132,10 @@ function envProviders(): ResolvedModel[] {
 
 function envModelFor(task: AiTaskType, base: ResolvedModel): ResolvedModel {
   if (base.providerKey === 'groq') {
-    if (task === 'SMART') return { ...base, model: process.env.AI_MODEL_SMART || 'openai/gpt-oss-120b' };
+    if (task === 'SMART') {
+      const model = process.env.AI_MODEL_SMART || 'openai/gpt-oss-120b';
+      return { ...base, model, ...groqPriceFor(model) };
+    }
     if (task === 'EMBEDDING') return { ...base, model: 'text-embedding-3-small', embeddingDim: 1536 };
     return base;
   }
@@ -281,8 +321,12 @@ export interface CompleteResult {
   blockedBy?: 'USD_BUDGET' | 'TOKEN_LIMIT';
 }
 
-function costOf(m: ResolvedModel, promptTokens: number, completionTokens: number): number {
-  return (promptTokens / 1000) * m.inputCostPer1k + (completionTokens / 1000) * m.outputCostPer1k;
+export function costOf(m: Pick<ResolvedModel, 'inputCostPer1k' | 'outputCostPer1k'>, promptTokens: number, completionTokens: number, cachedPromptTokens = 0): number {
+  const cached = Math.min(Math.max(cachedPromptTokens, 0), promptTokens);
+  const uncached = promptTokens - cached;
+  return (uncached / 1000) * m.inputCostPer1k
+    + (cached / 1000) * m.inputCostPer1k * CACHED_INPUT_PRICE_FACTOR
+    + (completionTokens / 1000) * m.outputCostPer1k;
 }
 
 const PREVIEW_LIMIT = 500;
@@ -339,7 +383,7 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
   let lastErr: any;
 
   for (const m of candidates) {
-    const client = new OpenAI({ apiKey: m.apiKey, ...(m.baseUrl ? { baseURL: m.baseUrl } : {}) });
+    const client = clientFor(m);
 
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await new Promise(r => setTimeout(r, 2 ** attempt * 1000));
@@ -358,7 +402,10 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
         const text = res.choices[0]?.message?.content?.trim() ?? '';
         const promptTokens = res.usage?.prompt_tokens ?? 0;
         const completionTokens = res.usage?.completion_tokens ?? 0;
-        const costUsd = costOf(m, promptTokens, completionTokens);
+        // Groq/OpenAI report prompt-cache hits here; they are part of
+        // prompt_tokens and billed at a discount.
+        const cachedPromptTokens = (res.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
+        const costUsd = costOf(m, promptTokens, completionTokens, cachedPromptTokens);
         const latencyMs = Date.now() - started;
 
         const logId = await logInteraction({
@@ -368,6 +415,7 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
           model: m.model,
           promptTokens,
           completionTokens,
+          cachedPromptTokens,
           costUsd,
           latencyMs,
           status: 'SUCCESS',
@@ -389,6 +437,8 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
       } catch (err: any) {
         lastErr = err;
         const status = err?.status;
+        // A timeout won't get better by waiting longer on the same provider;
+        // move on to the next candidate (if any) instead.
         if (status !== 429 && status !== 503) break; // next provider
       }
     }
@@ -436,7 +486,7 @@ export async function embed(orgId: string, texts: string[], feature = 'rag.index
 
   let lastErr: any;
   for (const m of candidates) {
-    const client = new OpenAI({ apiKey: m.apiKey, ...(m.baseUrl ? { baseURL: m.baseUrl } : {}) });
+    const client = clientFor(m, AI_EMBED_TIMEOUT_MS);
     try {
       const res = await client.embeddings.create({ model: m.model, input: texts });
       const vectors = res.data.map(d => d.embedding as number[]);
@@ -479,6 +529,7 @@ interface LogInput extends Partial<CompleteOptions> {
   model: string;
   promptTokens: number;
   completionTokens: number;
+  cachedPromptTokens?: number;
   costUsd: number;
   latencyMs: number;
   status: 'SUCCESS' | 'ERROR' | 'CACHED' | 'BLOCKED' | 'BUDGET_EXCEEDED';
@@ -503,6 +554,7 @@ async function logInteraction(input: LogInput): Promise<string | null> {
         model: input.model,
         promptTokens: input.promptTokens,
         completionTokens: input.completionTokens,
+        cachedPromptTokens: input.cachedPromptTokens ?? 0,
         totalTokens: input.promptTokens + input.completionTokens,
         costUsd: input.costUsd,
         latencyMs: input.latencyMs,
@@ -523,6 +575,26 @@ async function logInteraction(input: LogInput): Promise<string | null> {
     console.error('[aiGateway] failed to write interaction log', err);
     return null;
   }
+}
+
+/**
+ * Records an answer served from our own cache (utils/ai.ts / aiCache.ts):
+ * no model ran and nothing was billed. Logged so AI Governance can show how
+ * many calls the cache saved, per feature, next to the ones that were paid.
+ */
+export async function logCacheHit(input: { orgId: string; userId?: string | null; feature: string; task: AiTaskType }): Promise<void> {
+  await logInteraction({
+    ...input,
+    providerKey: 'cache',
+    model: 'cache',
+    promptTokens: 0,
+    completionTokens: 0,
+    costUsd: 0,
+    latencyMs: 0,
+    status: 'CACHED',
+    errorMessage: null,
+    responsePreview: null,
+  });
 }
 
 /** Records 👍/👎 on a previous interaction (§78). */
@@ -559,6 +631,8 @@ export async function markActionExecuted(
 
 export interface AiObservability {
   totalCalls: number;
+  /** Calls answered from our own cache — no model ran, nothing billed. */
+  cachedCalls: number;
   successRate: number;
   errorCount: number;
   totalTokens: number;
@@ -576,13 +650,15 @@ export async function getObservability(orgId: string, sinceDays = 30): Promise<A
   const since = new Date(Date.now() - sinceDays * 86_400_000);
   const where = { orgId, createdAt: { gte: since } };
 
-  const [agg, statuses, features, models, budget] = await Promise.all([
+  const [agg, latency, statuses, features, models, budget] = await Promise.all([
     prisma.aiInteractionLog.aggregate({
       where,
       _count: { _all: true },
       _sum: { totalTokens: true, costUsd: true },
-      _avg: { latencyMs: true },
     }),
+    // Latency of real model calls only — cache hits are 0 ms and would make
+    // the provider look faster than it is.
+    prisma.aiInteractionLog.aggregate({ where: { ...where, status: { not: 'CACHED' } }, _avg: { latencyMs: true } }),
     prisma.aiInteractionLog.groupBy({ by: ['status'], where, _count: { _all: true } }),
     prisma.aiInteractionLog.groupBy({
       by: ['feature'],
@@ -602,14 +678,16 @@ export async function getObservability(orgId: string, sinceDays = 30): Promise<A
 
   const total = agg._count._all || 0;
   const errors = statuses.filter(s => s.status === 'ERROR').reduce((n, s) => n + s._count._all, 0);
+  const cachedCalls = statuses.filter(s => s.status === 'CACHED').reduce((n, s) => n + s._count._all, 0);
 
   return {
     totalCalls: total,
+    cachedCalls,
     successRate: total ? Math.round(((total - errors) / total) * 1000) / 10 : 100,
     errorCount: errors,
     totalTokens: agg._sum.totalTokens ?? 0,
     totalCostUsd: Number(agg._sum.costUsd ?? 0),
-    avgLatencyMs: Math.round(agg._avg.latencyMs ?? 0),
+    avgLatencyMs: Math.round(latency._avg.latencyMs ?? 0),
     actionsExecuted,
     feedbackUp,
     feedbackDown,

@@ -906,8 +906,15 @@ export function getAiAction(name: string): AiActionDefinition | undefined {
 }
 
 /** Menu shape handed to the LLM planner — name/description/params only, no handler/roles leaked into the prompt. */
-export function actionMenuForPrompt() {
-  return AI_ACTIONS.map(a => ({ name: a.name, description: a.description, params: a.paramsHint }));
+export function actionMenuForPrompt(role?: string) {
+  /* With a role, only the actions that role may run. Every action costs the
+     planner ~80 prompt tokens on every request, and offering an action the
+     execute step would reject only produces a "you're not allowed" card. The
+     list is the same for everyone with that role, so the provider's prompt
+     cache still applies. */
+  return AI_ACTIONS
+    .filter(a => !role || a.allowedRoles.includes(role as any))
+    .map(a => ({ name: a.name, description: a.description, params: a.paramsHint }));
 }
 
 /**

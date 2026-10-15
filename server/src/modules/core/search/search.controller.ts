@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
-import { interpretSearchQuery, isAiConfigured } from '../../../utils/ai';
+import { interpretSearchQuery, isAiConfigured, searchNeedsAi } from '../../../utils/ai';
 import { hasFeature } from '../../../utils/licensing';
 
 /**
@@ -36,7 +36,10 @@ export async function search(req: AuthRequest, res: Response, next: NextFunction
     const mode = 'insensitive' as const;
     // Natural-language interpretation is Advanced AI (LIC-4); without it the
     // search is the plain substring match over every entity type.
-    const aiPowered = isAiConfigured() && await hasFeature(orgId, 'ai_advanced');
+    // A bare name or number ("acme", "INV-0042") is matched exactly as well
+    // without the model, so only sentence-like queries pay for an AI call —
+    // and the response's aiPowered flag stays honest about which happened.
+    const aiPowered = searchNeedsAi(q) && isAiConfigured() && await hasFeature(orgId, 'ai_advanced');
 
     // interpretSearchQuery() is a no-op passthrough when no AI provider is
     // configured (returns the raw query, all entity types, no filters) — so
