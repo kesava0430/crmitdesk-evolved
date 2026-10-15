@@ -33,31 +33,39 @@ function overridesFrom(rows: Row[]): Overrides {
   return out;
 }
 
-export function PayslipLines({ lines, totals, currencyMoney }: { lines: Line[]; totals: { earnings: number; deductions: number; reimbursements: number; employerContributions: number; net: number }; currencyMoney: (n: number | string) => string }) {
-  const group = (cat: Line['category']) => lines.filter(l => l.category === cat);
+export function PayslipLines({ lines, totals, currencyMoney, hideZero = false }: { lines: Line[]; totals: { earnings: number; deductions: number; reimbursements: number; employerContributions: number; net: number }; currencyMoney: (n: number | string) => string; hideZero?: boolean }) {
+  // Full-width flex rows (not a two-cell grid) so rules run unbroken across the
+  // row and long names wrap beside a right-aligned amount on phones.
+  const group = (cat: Line['category']) => lines.filter(l => l.category === cat && (!hideZero || Number(l.amount) !== 0 || l.adjusted));
+  const Row = ({ label, value, strong, tone, rule }: { label: React.ReactNode; value: string; strong?: 'medium' | 'semibold'; tone?: string; rule?: 'line' | 'line-subtle' }) => (
+    <div className={`flex items-start justify-between gap-4 ${rule === 'line' ? 'border-t border-line pt-2 mt-1' : rule ? 'border-t border-line-subtle pt-2 mt-1' : ''}`}>
+      <div className={`min-w-0 ${strong === 'semibold' ? 'font-semibold text-fg' : strong ? 'font-medium text-fg' : 'text-fg-muted'}`}>{label}</div>
+      <p className={`shrink-0 text-right tabular-nums ${strong === 'semibold' ? 'font-semibold' : strong ? 'font-medium' : ''} ${tone ?? 'text-fg'}`}>{value}</p>
+    </div>
+  );
   const Section = ({ title, cat, sign }: { title: string; cat: Line['category']; sign?: string }) => {
     const ls = group(cat); if (!ls.length) return null;
     return (
       <>
-        <p className="col-span-2 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mt-2">{title}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mt-2">{title}</p>
         {ls.map(l => (
-          <div key={l.code} className="contents">
-            <p className="text-fg-muted flex items-center gap-1.5">{l.name}{l.adjusted && <Badge variant="yellow">adjusted</Badge>}<span className="text-[10px] text-fg-subtle hidden sm:inline">{l.basis}</span></p>
-            <p className={`text-right tabular-nums ${cat === 'DEDUCTION' ? 'text-danger' : 'text-fg'}`}>{sign}{currencyMoney(l.amount)}</p>
-          </div>
+          <Row key={l.code} tone={cat === 'DEDUCTION' ? 'text-danger' : undefined} value={`${sign ?? ''}${currencyMoney(l.amount)}`}
+            label={<span className="inline-flex flex-wrap items-center gap-x-1.5">{l.name}{l.adjusted && <Badge variant="yellow">adjusted</Badge>}{l.basis && <span className="text-[10px] text-fg-subtle hidden sm:inline">{l.basis}</span>}</span>} />
         ))}
       </>
     );
   };
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+    <div className="space-y-1.5 text-sm">
       <Section title="Earnings" cat="EARNING" />
-      <p className="font-medium text-fg border-t border-line-subtle pt-2">Gross earnings</p><p className="text-right font-medium text-fg border-t border-line-subtle pt-2 tabular-nums">{currencyMoney(totals.earnings)}</p>
+      <Row label="Gross earnings" value={currencyMoney(totals.earnings)} strong="medium" rule="line-subtle" />
       <Section title="Reimbursements" cat="REIMBURSEMENT" />
       <Section title="Deductions" cat="DEDUCTION" sign="−" />
-      <p className="font-medium text-fg border-t border-line-subtle pt-2">Total deductions</p><p className="text-right font-medium text-danger border-t border-line-subtle pt-2 tabular-nums">−{currencyMoney(totals.deductions)}</p>
-      <p className="font-semibold text-fg border-t border-line pt-2">Net pay</p><p className="text-right font-semibold text-fg border-t border-line pt-2 tabular-nums">{currencyMoney(totals.net)}</p>
-      {totals.employerContributions > 0 && (<><p className="text-fg-subtle text-xs mt-1">Employer contributions (not paid to employee)</p><p className="text-right text-fg-subtle text-xs mt-1 tabular-nums">{currencyMoney(totals.employerContributions)}</p></>)}
+      <Row label="Total deductions" value={`−${currencyMoney(totals.deductions)}`} strong="medium" tone="text-danger" rule="line-subtle" />
+      <Row label="Net pay" value={currencyMoney(totals.net)} strong="semibold" rule="line" />
+      {totals.employerContributions > 0 && (
+        <div className="flex items-start justify-between gap-4 text-xs text-fg-subtle pt-1"><p className="min-w-0">Employer contributions (not paid to employee)</p><p className="shrink-0 tabular-nums">{currencyMoney(totals.employerContributions)}</p></div>
+      )}
     </div>
   );
 }
