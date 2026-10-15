@@ -92,6 +92,7 @@ export function resolveFields(layout: LayoutStyle, stored: any): Record<FieldKey
 
 // ─── Document model ──────────────────────────────────────────────────────────
 
+export interface PayslipLoanRow { name: string; type?: string; principal: number; recoveredThisPeriod: number; totalRecovered: number; outstanding: number; emiLabel: string | null }
 export interface DocLine { code: string; name: string; amount: number; basis?: string | null }
 export interface PayslipDoc {
   layout: LayoutStyle;
@@ -111,6 +112,8 @@ export interface PayslipDoc {
   netInWords: string;
   /** Effective watermark (null = none) — see utils/payslipWatermark.ts */
   watermark: Watermark | null;
+  /** "Loans & advances" block (utils/payrollLoans.ts payslipLoanSummary) — empty = not printed */
+  loans: PayslipLoanRow[];
   /** Set on a revised payslip (version ≥ 2) — prints a one-line "Revised" note; layouts are otherwise unchanged */
   revision: { version: number; supersedesIssuedAt: string | null; paidDifference: number | null } | null;
 }
@@ -124,12 +127,16 @@ export function buildPayslipDoc(input: {
   payslip: any; template: any; employee: any | null; org: { name: string; currency: string };
   /** Issue date of the version this payslip supersedes (from its latest PayslipRevision) */
   supersedesIssuedAt?: string | null;
+  /** Loans & advances summary for this payslip (loans.controller.ts loanSummaryForPayslip) */
+  loans?: PayslipLoanRow[] | null;
 }): PayslipDoc {
   const { payslip: p, template: t, employee: e, org } = input;
   const layout = layoutFor(t?.layout);
   const fields = resolveFields(layout, t?.showFields);
   const lines: any[] = (p.lines ?? []).slice().sort((a: any, b: any) => a.displayOrder - b.displayOrder);
-  const visible = lines.filter(l => l.showOnPayslip !== false);
+  // Zero-amount lines (e.g. "Loss of Pay 0.00", an unused allowance) are noise
+  // on the employee's document; the run review still lists them.
+  const visible = lines.filter(l => l.showOnPayslip !== false && n(l.amount) !== 0);
   const toLine = (l: any): DocLine => ({ code: l.code, name: l.name, amount: n(l.amount), basis: l.basis ?? null });
   const legacy = lines.length === 0;
   const earnings = legacy
@@ -169,6 +176,7 @@ export function buildPayslipDoc(input: {
     earnings, reimbursements, deductions, employerContributions, totals,
     netInWords: amountInWords(totals.net, org.currency || 'INR'),
     watermark: resolveWatermark(t),
+    loans: (input.loans ?? []).map(l => ({ name: l.name, type: l.type, principal: n(l.principal), recoveredThisPeriod: n(l.recoveredThisPeriod), totalRecovered: n(l.totalRecovered), outstanding: n(l.outstanding), emiLabel: l.emiLabel ?? null })),
     revision: (p.version ?? 1) > 1 ? { version: p.version, supersedesIssuedAt: input.supersedesIssuedAt ?? null, paidDifference: p.paidDifference != null ? n(p.paidDifference) : null } : null,
   };
 }
@@ -181,16 +189,18 @@ export function samplePayslipDoc(template: any, org: { name: string; currency: s
     mk('BASIC', 'Basic Salary', 'EARNING', 30000, 10, 'fixed'), mk('HRA', 'House Rent Allowance', 'EARNING', 12000, 20, '40% of BASIC'),
     mk('CONVEYANCE', 'Conveyance Allowance', 'EARNING', 1600, 30, 'fixed'), mk('SPECIAL', 'Special Allowance', 'EARNING', 6400, 40, 'fixed'),
     mk('PF_EMP', 'Provident Fund', 'DEDUCTION', 1800, 100, '12% of BASIC (ceiling 15000)'), mk('PT', 'Professional Tax', 'DEDUCTION', 200, 120, 'slab'),
-    mk('LOP', 'Loss of Pay', 'DEDUCTION', 2272.73, 150, '1 day'), mk('PF_EMPLOYER', 'Employer PF', 'EMPLOYER_CONTRIBUTION', 1800, 300),
+    mk('LOP', 'Loss of Pay', 'DEDUCTION', 2272.73, 150, '1 day'), mk('LOAN_sample', 'Loan recovery — Laptop loan (EMI 3 of 10)', 'DEDUCTION', 5000, 9000, 'EMI'),
+    mk('PF_EMPLOYER', 'Employer PF', 'EMPLOYER_CONTRIBUTION', 1800, 300),
   ];
   const payslip = {
     payslipNumber: `PAY-${y}-${String(m).padStart(2, '0')}-0001`, month: m, year: y, status: 'PAID', paidAt: new Date(), createdAt: new Date(),
-    totalEarnings: 50000, totalReimbursements: 0, totalDeductions: 4272.73, employerContributions: 1800, netPay: 45727.27,
+    totalEarnings: 50000, totalReimbursements: 0, totalDeductions: 9272.73, employerContributions: 1800, netPay: 40727.27,
     workingDays: 22, paidDays: 21, presentDays: 20, leaveDays: 1, halfDays: 0, lopDays: 1, overtimeHours: 2.5, lines,
     user: { name: 'Priya Sharma', email: 'priya@example.com', department: 'Engineering' }, employeeSalary: { ctcAnnual: 720000 },
   };
   const employee = { employeeCode: 'EMP-0042', designation: 'Senior Engineer', department: { name: 'Engineering' }, location: { name: 'Hyderabad', addressLine1: 'Plot 12, HITEC City', city: 'Hyderabad', state: 'Telangana', postalCode: '500081', country: 'India' }, joiningDate: new Date(y - 2, 3, 1), costCenter: 'CC-ENG-01', workEmail: 'priya@example.com', bankName: 'HDFC Bank', bankAccountNumber: '50100123456789', bankIfsc: 'HDFC0001234', taxId: 'ABCDE1234F', socialSecurityId: '100987654321', nationalId: null };
-  return buildPayslipDoc({ payslip, template, employee, org });
+  const loans = [{ name: 'Laptop loan', type: 'LOAN', principal: 50000, recoveredThisPeriod: 5000, totalRecovered: 15000, outstanding: 35000, emiLabel: 'EMI 3 of 10' }];
+  return buildPayslipDoc({ payslip, template, employee, org, loans });
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -228,133 +238,233 @@ export function amountInWords(amount: number, currency: string): string {
 }
 
 // ─── HTML renderer ───────────────────────────────────────────────────────────
+//
+// One clean structure for every layout (the layout only changes the header
+// treatment, density, colour use and table framing):
+//   letterhead · revision note · employee | payment details · attendance strip
+//   · Earnings | Deductions (subtotals aligned at the bottom) · Net pay box
+//   (amount in words) · Loans & advances · employer contributions · signature.
+// Amount columns carry the currency once in the header ("Amount (₹)") and
+// print bare, grouped numbers (en-IN → 1,31,781.75); totals and net pay print
+// the full currency. The document is its own CSS container, so a narrow pane
+// (phone, the template editor's preview) stacks the columns even on a wide
+// screen; print/PDF keep the A4 layout.
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+
+/** Grouped number with two decimals in the org's locale (no currency symbol). */
+export function amountText(v: number, locale: string) {
+  try { return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v); }
+  catch { return v.toFixed(2); }
+}
+/** The currency's symbol as the locale prints it (₹, $, €…). */
+export function currencySymbol(currency: string, locale: string) {
+  try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).formatToParts(0).find(p => p.type === 'currency')?.value ?? currency; }
+  catch { return currency; }
+}
+
+/** Mix a #rrggbb colour with white (t = share of white, 0–1). */
+export function tint(c: string, t: number) {
+  const h = /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#2563eb';
+  const ch = (i: number) => Math.round(parseInt(h.slice(i, i + 2), 16) * (1 - t) + 255 * t).toString(16).padStart(2, '0');
+  return `#${ch(1)}${ch(3)}${ch(5)}`;
+}
+
+/** Employee / payment key–value pairs, in print order (shared by HTML and PDF). */
+export function detailPairs(doc: PayslipDoc) {
+  const F = doc.fields, e = doc.employee;
+  const fm = (v: number) => money(v, doc.currency, doc.locale);
+  const employee: [string, string | null | undefined][] = [
+    ['Name', e.name],
+    F.employeeCode ? ['Employee code', e.code] : null,
+    F.designation ? ['Designation', e.designation] : null,
+    F.department ? ['Department', e.department] : null,
+    F.location ? ['Location', e.location] : null,
+    F.joiningDate ? ['Date of joining', e.joiningDate && fmtDate(e.joiningDate)] : null,
+    F.costCenter ? ['Cost centre', e.costCenter] : null,
+    F.email ? ['E-mail', e.email] : null,
+    F.ctc && doc.totals.ctcAnnual != null ? ['Annual CTC', fm(doc.totals.ctcAnnual)] : null,
+  ].filter(Boolean) as [string, string | null | undefined][];
+  const payment: [string, string | null | undefined][] = [
+    ['Pay period', doc.payslip.periodLabel],
+    ['Payslip no.', doc.payslip.number],
+    doc.payslip.cycleName ? ['Payroll cycle', doc.payslip.cycleName] : null,
+    ['Status', doc.payslip.status === 'PAID' ? `Paid${doc.payslip.paidAt ? ' on ' + fmtDate(doc.payslip.paidAt) : ''}` : 'Issued'],
+    F.bankDetails ? ['Bank', [e.bankName, e.bankAccountMasked].filter(Boolean).join(' · ') || null] : null,
+    F.bankDetails ? ['IFSC', e.bankIfsc] : null,
+    F.statutoryIds ? ['PAN', e.pan] : null,
+    F.statutoryIds ? ['UAN', e.uan] : null,
+    F.statutoryIds ? ['ESI no.', e.esi] : null,
+  ].filter(Boolean) as [string, string | null | undefined][];
+  const keep = (rows: [string, string | null | undefined][]) => rows.filter(([, v]) => v != null && v !== '') as [string, string][];
+  return { employee: keep(employee), payment: keep(payment) };
+}
+
+/** Attendance tiles (label, value, is-negative) — only figures that exist. */
+export function dayTiles(doc: PayslipDoc): [string, string, boolean][] {
+  const d = doc.days;
+  if (!doc.fields.daysSummary || !d) return [];
+  const t: [string, string, boolean][] = [['Working days', String(d.working), false], ['Paid days', String(d.paid), false]];
+  if (d.lop) t.push(['LOP days', String(d.lop), true]);
+  if (d.leave) t.push(['Leave', String(d.leave), false]);
+  if (d.half) t.push(['Half days', String(d.half), false]);
+  if (d.overtimeHours) t.push(['Overtime', `${d.overtimeHours} h`, false]);
+  return t;
+}
 
 export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {}): string {
   const { layout: L, fields: F, brand: B } = doc;
   const fm = (v: number) => money(v, doc.currency, doc.locale);
-  const fs = L.density === 'compact' ? 11 : L.density === 'airy' ? 13 : 12;
-  const pad = L.density === 'compact' ? 4 : L.density === 'airy' ? 8 : 6;
+  const an = (v: number) => amountText(v, doc.locale);
+  const sym = currencySymbol(doc.currency, doc.locale);
+  const fs = L.density === 'compact' ? 12 : L.density === 'airy' ? 13.5 : 13;
+  const P = L.density === 'compact' ? 24 : L.density === 'airy' ? 36 : 32;
+  const rowPad = L.density === 'compact' ? 5 : L.density === 'airy' ? 9 : 7;
   const font = L.serif ? "Georgia, 'Times New Roman', serif" : "-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-  const border = L.bordered ? `border:1px solid #d1d5db;` : '';
   const mono = L.header === 'plain';
   const primary = mono ? '#111827' : B.primary;
   const accent = mono ? '#374151' : B.accent;
+  const band = L.header === 'band';
 
-  const detail = (label: string, value: string | null | undefined) => value ? `<div class="kv"><span class="k">${esc(label)}</span><span class="v">${esc(value)}</span></div>` : '';
-  const employeeBlock = [
-    detail('Employee', doc.employee.name),
-    F.employeeCode && detail('Employee code', doc.employee.code),
-    F.designation && detail('Designation', doc.employee.designation),
-    F.department && detail('Department', doc.employee.department),
-    F.location && detail('Location', doc.employee.location),
-    F.joiningDate && detail('Date of joining', doc.employee.joiningDate && fmtDate(doc.employee.joiningDate)),
-    F.costCenter && detail('Cost centre', doc.employee.costCenter),
-    F.email && detail('E-mail', doc.employee.email),
-    F.bankDetails && detail('Bank', [doc.employee.bankName, doc.employee.bankAccountMasked].filter(Boolean).join(' · ')),
-    F.bankDetails && detail('IFSC', doc.employee.bankIfsc),
-    F.statutoryIds && detail('PAN', doc.employee.pan),
-    F.statutoryIds && detail('UAN', doc.employee.uan),
-    F.statutoryIds && detail('ESI No.', doc.employee.esi),
-    F.ctc && doc.totals.ctcAnnual != null && detail('Annual CTC', fm(doc.totals.ctcAnnual)),
-  ].filter(Boolean).join('');
-  const periodBlock = [
-    detail('Pay period', doc.payslip.periodLabel),
-    detail('Payslip no.', doc.payslip.number),
-    doc.payslip.cycleName && detail('Cycle', doc.payslip.cycleName),
-    detail('Status', doc.payslip.status === 'PAID' ? `Paid${doc.payslip.paidAt ? ' on ' + fmtDate(doc.payslip.paidAt) : ''}` : 'Generated'),
-  ].filter(Boolean).join('');
+  const kvs = (rows: [string, string][]) => rows.map(([k, v]) => `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('');
+  const pairs = detailPairs(doc);
+  const tiles = dayTiles(doc);
+  const basis = (l: DocLine) => F.lineBasis && l.basis ? `<span class="basis">${esc(l.basis)}</span>` : '';
+  const row = (l: DocLine) => `<div class="row"><span class="nm">${esc(l.name)}${basis(l)}</span><span class="am">${an(l.amount)}</span></div>`;
+  const colHead = (title: string) => `<div class="th"><span>${esc(title)}</span><span>Amount (${esc(sym)})</span></div>`;
 
-  const row = (l: DocLine, cls = '') => `<tr class="${cls}"><td>${esc(l.name)}${F.lineBasis && l.basis ? `<div class="basis">${esc(l.basis)}</div>` : ''}</td><td class="amt">${fm(l.amount)}</td></tr>`;
-  const totalRow = (label: string, v: number) => `<tr class="total"><td>${esc(label)}</td><td class="amt">${fm(v)}</td></tr>`;
-  const earnTable = `<table class="lines"><thead><tr><th>Earnings</th><th class="amt">Amount</th></tr></thead><tbody>${doc.earnings.map(l => row(l)).join('')}${doc.reimbursements.map(l => row(l)).join('')}${totalRow('Gross earnings', doc.totals.earnings + doc.totals.reimbursements)}</tbody></table>`;
-  const dedTable = `<table class="lines"><thead><tr><th>Deductions</th><th class="amt">Amount</th></tr></thead><tbody>${doc.deductions.length ? doc.deductions.map(l => row(l)).join('') : '<tr><td class="muted">None</td><td></td></tr>'}${totalRow('Total deductions', doc.totals.deductions)}</tbody></table>`;
-  const statementTable = `<table class="lines"><thead><tr><th>Description</th><th class="amt">Earnings</th><th class="amt">Deductions</th></tr></thead><tbody>
-    ${doc.earnings.concat(doc.reimbursements).map(l => `<tr><td>${esc(l.name)}${F.lineBasis && l.basis ? `<div class="basis">${esc(l.basis)}</div>` : ''}</td><td class="amt">${fm(l.amount)}</td><td class="amt"></td></tr>`).join('')}
-    ${doc.deductions.map(l => `<tr><td>${esc(l.name)}${F.lineBasis && l.basis ? `<div class="basis">${esc(l.basis)}</div>` : ''}</td><td class="amt"></td><td class="amt">${fm(l.amount)}</td></tr>`).join('')}
-    <tr class="total"><td>Totals</td><td class="amt">${fm(doc.totals.earnings + doc.totals.reimbursements)}</td><td class="amt">${fm(doc.totals.deductions)}</td></tr>
+  const earnCol = `<div class="tbl">${colHead('Earnings')}${doc.earnings.map(row).join('')}${doc.reimbursements.length ? `<div class="subh">Reimbursements</div>${doc.reimbursements.map(row).join('')}` : ''}<div class="row tot"><span class="nm">Gross earnings</span><span class="am">${fm(doc.totals.earnings + doc.totals.reimbursements)}</span></div></div>`;
+  const dedCol = `<div class="tbl">${colHead('Deductions')}${doc.deductions.length ? doc.deductions.map(row).join('') : '<div class="row"><span class="nm muted">No deductions</span><span class="am"></span></div>'}<div class="row tot"><span class="nm">Total deductions</span><span class="am">${fm(doc.totals.deductions)}</span></div></div>`;
+  const statement = `<table class="stmt"><thead><tr><th>Description</th><th class="am">Earnings (${esc(sym)})</th><th class="am">Deductions (${esc(sym)})</th></tr></thead><tbody>
+    ${doc.earnings.concat(doc.reimbursements).map(l => `<tr><td>${esc(l.name)}${basis(l)}</td><td class="am">${an(l.amount)}</td><td class="am"></td></tr>`).join('')}
+    ${doc.deductions.map(l => `<tr><td>${esc(l.name)}${basis(l)}</td><td class="am"></td><td class="am">${an(l.amount)}</td></tr>`).join('')}
+    <tr class="tot"><td>Totals</td><td class="am">${fm(doc.totals.earnings + doc.totals.reimbursements)}</td><td class="am">${fm(doc.totals.deductions)}</td></tr>
   </tbody></table>`;
-  const employerTable = F.employerContributions && doc.employerContributions.length ? `<table class="lines sub"><thead><tr><th>Employer contributions (not part of net pay)</th><th class="amt">Amount</th></tr></thead><tbody>${doc.employerContributions.map(l => row(l)).join('')}${totalRow('Total', doc.totals.employer)}</tbody></table>` : '';
-  const daysBlock = F.daysSummary && doc.days ? `<div class="days">
-    <div><span>Working days</span><b>${doc.days.working}</b></div><div><span>Paid days</span><b>${doc.days.paid}</b></div>
-    ${doc.days.leave ? `<div><span>Leave</span><b>${doc.days.leave}</b></div>` : ''}${doc.days.half ? `<div><span>Half days</span><b>${doc.days.half}</b></div>` : ''}
-    ${doc.days.lop ? `<div><span>Loss of pay</span><b class="neg">${doc.days.lop}</b></div>` : ''}${doc.days.overtimeHours ? `<div><span>Overtime</span><b>${doc.days.overtimeHours} h</b></div>` : ''}
-  </div>` : '';
 
+  const loansBlock = doc.loans.length ? `<section class="blk"><h3 class="h">Loans &amp; advances</h3>
+    <table class="loans"><thead><tr><th>Loan</th><th class="am">Principal</th><th class="am">Recovered this month</th><th class="am">Total recovered</th><th class="am">Outstanding</th></tr></thead><tbody>
+    ${doc.loans.map(l => `<tr><td data-l="Loan"><b>${esc(l.name)}</b>${l.emiLabel ? `<span class="basis">${esc(l.emiLabel)}</span>` : l.recoveredThisPeriod ? '' : '<span class="basis">No EMI this month</span>'}</td><td class="am" data-l="Principal">${an(l.principal)}</td><td class="am" data-l="This month">${an(l.recoveredThisPeriod)}</td><td class="am" data-l="Total recovered">${an(l.totalRecovered)}</td><td class="am strong" data-l="Outstanding">${an(l.outstanding)}</td></tr>`).join('')}
+    </tbody></table></section>` : '';
+  const employerBlock = F.employerContributions && doc.employerContributions.length ? `<section class="blk"><h3 class="h">Employer contributions <span class="hint">not part of net pay</span></h3>
+    <div class="tbl solo">${doc.employerContributions.map(row).join('')}<div class="row tot"><span class="nm">Total</span><span class="am">${fm(doc.totals.employer)}</span></div></div></section>` : '';
+
+  const reimb = doc.totals.reimbursements;
+  const eq = `Gross ${fm(doc.totals.earnings + reimb)} − Deductions ${fm(doc.totals.deductions)}`;
+
+  const css = `
+    .ps{font-family:${font};font-size:${fs}px;line-height:1.45;color:#1f2937;background:#fff;max-width:760px;margin:0 auto;position:relative;container-type:inline-size;-webkit-text-size-adjust:100%}
+    .ps *{box-sizing:border-box} .ps h3{margin:0}
+    .ps.boxed{border:1.5px solid ${primary}}
+    .hd{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:${Math.round(P * 0.75)}px ${P}px}
+    .hd.line{border-bottom:3px solid ${primary}} .hd.plain{border-bottom:1px solid #111827} .hd.boxed{border-bottom:1.5px solid ${primary}}
+    .hd.band{background:${primary}} .hd.band .co,.hd.band .t,.hd.band .p{color:#fff} .hd.band .addr,.hd.band .n{color:rgba(255,255,255,.82)}
+    .brand{display:flex;gap:14px;align-items:center;min-width:0;flex:1 1 auto}
+    .logo{width:52px;height:52px;object-fit:contain;flex:none;border-radius:8px;background:#fff}
+    .hd.band .logo{padding:4px}
+    .co{font-size:${fs + 6}px;font-weight:700;line-height:1.25;color:#111827;overflow-wrap:anywhere}
+    .branch{font-weight:600;color:${band ? '#fff' : accent};margin-top:1px}
+    .addr{font-size:${fs - 1.5}px;color:#6b7280;white-space:pre-line;margin-top:3px;line-height:1.4}
+    .title{text-align:right;flex:none}
+    .t{font-size:${fs - 2.5}px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${primary}}
+    .p{font-size:${fs + 5}px;font-weight:700;color:#111827;line-height:1.25;margin-top:2px}
+    .n{font-size:${fs - 2}px;color:#6b7280;font-variant-numeric:tabular-nums;margin-top:2px}
+    .rev{padding:${rowPad + 1}px ${P}px;font-size:${fs - 1}px;color:#92400e;background:#fffbeb;border-bottom:1px solid #fde68a;font-weight:600}
+    .note{padding:${rowPad + 1}px ${P}px;font-size:${fs - 1}px;color:#4b5563;background:#f9fafb;border-bottom:1px solid #eef0f3}
+    .sec{padding:${Math.round(P * 0.6)}px ${P}px 0}
+    .h{font-size:${fs - 2.5}px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${accent};margin-bottom:6px}
+    .h .hint{font-weight:500;letter-spacing:0;text-transform:none;color:#9ca3af;margin-left:6px}
+    .details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 32px}
+    .kv{display:grid;grid-template-columns:112px minmax(0,1fr);gap:10px;padding:${Math.max(3, rowPad - 3)}px 0;border-bottom:1px solid #f1f3f5}
+    .k{color:#6b7280} .v{font-weight:600;color:#111827;overflow-wrap:anywhere}
+    .stats{display:grid;grid-template-columns:repeat(${Math.max(tiles.length, 1)},minmax(0,1fr));gap:8px}
+    .stat{border:1px solid #e5e7eb;border-radius:8px;padding:${rowPad}px 10px;background:rgba(255,255,255,.7)}
+    .stat span{display:block;font-size:${fs - 3}px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em}
+    .stat b{display:block;font-size:${fs + 3}px;color:#111827;font-variant-numeric:tabular-nums} .stat b.neg{color:#b91c1c}
+    .cols{display:grid;grid-template-columns:${L.columns === 2 ? 'repeat(2,minmax(0,1fr))' : '1fr'};gap:28px;align-items:stretch}
+    .tbl{display:flex;flex-direction:column;height:100%;${L.bordered ? 'border:1px solid #e5e7eb;border-radius:6px;padding:0 12px 2px;' : ''}}
+    .tbl.solo{height:auto}
+    .th{display:flex;justify-content:space-between;gap:12px;padding:${rowPad}px 0;border-bottom:1.5px solid ${L.bordered ? '#e5e7eb' : primary};font-size:${fs - 2.5}px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${accent}}
+    .th span:last-child{letter-spacing:.04em;white-space:nowrap}
+    .row{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:${rowPad}px 0;border-bottom:1px solid #f1f3f5}
+    .nm{min-width:0;overflow-wrap:anywhere} .am{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+    .basis{display:block;font-size:${fs - 3}px;color:#9ca3af;font-weight:400}
+    .subh{font-size:${fs - 3}px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;padding:${rowPad + 2}px 0 0}
+    .row.tot{margin-top:auto;border-top:1px solid #cbd5e1;border-bottom:0;font-weight:700;color:#111827;padding-top:${rowPad + 2}px}
+    .muted{color:#9ca3af}
+    table.stmt{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+    .stmt th{text-align:left;font-size:${fs - 2.5}px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${accent};padding:${rowPad}px 8px;border-bottom:1.5px solid ${primary}}
+    .stmt td{padding:${rowPad}px 8px;border-bottom:1px solid #f1f3f5;vertical-align:top;overflow-wrap:anywhere}
+    .stmt th.am,.stmt td.am{text-align:right;white-space:nowrap} .stmt tr.tot td{font-weight:700;border-top:1px solid #cbd5e1;border-bottom:0}
+    .net{display:flex;justify-content:space-between;align-items:center;gap:8px 20px;flex-wrap:wrap;margin-top:${Math.round(P * 0.6)}px;padding:${rowPad + 9}px 20px;border-radius:10px;
+      background:${band ? primary : mono ? '#f3f4f6' : tint(primary, 0.93)};border:1px solid ${band ? primary : mono ? '#d1d5db' : tint(primary, 0.7)}}
+    .net .lbl{font-size:${fs - 2.5}px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:${band ? '#fff' : primary}}
+    .net .words{font-size:${fs - 1}px;color:${band ? 'rgba(255,255,255,.9)' : '#374151'};margin-top:3px;font-style:italic}
+    .net .eq{font-size:${fs - 2.5}px;color:${band ? 'rgba(255,255,255,.75)' : '#6b7280'};margin-top:3px;font-variant-numeric:tabular-nums}
+    .net .val{font-size:${fs + 13}px;font-weight:800;color:${band ? '#fff' : primary};font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.1}
+    .blk{margin-top:${Math.round(P * 0.6)}px}
+    table.loans{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+    .loans th{font-size:${fs - 3}px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;text-align:left;padding:${rowPad - 1}px 8px;border-bottom:1px solid #e5e7eb;background:#f9fafb}
+    .loans td{padding:${rowPad}px 8px;border-bottom:1px solid #f1f3f5;vertical-align:top;overflow-wrap:anywhere}
+    .loans .am{text-align:right;white-space:nowrap} .loans .strong{font-weight:700;color:#111827}
+    .foot-row{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-top:${Math.round(P * 0.9)}px}
+    .sigbox{text-align:center;min-width:180px;margin-left:auto;font-size:${fs - 1}px;color:#4b5563}
+    .sigbox img{height:40px;max-width:180px;object-fit:contain;display:block;margin:0 auto 4px} .sigbox .sl{border-top:1px solid ${L.serif ? '#111827' : '#cbd5e1'};padding-top:6px} .sigbox b{display:block;color:#111827}
+    .stamp{display:inline-block;transform:rotate(-10deg);border:2.5px solid #16a34a;color:#16a34a;font-weight:800;font-size:18px;letter-spacing:.2em;padding:2px 14px;border-radius:6px;opacity:.85}
+    .foot{margin-top:${Math.round(P * 0.6)}px;padding-top:10px;border-top:1px solid #f1f3f5;text-align:center;font-size:${fs - 2.5}px;color:#9ca3af;white-space:pre-line}
+    .end{height:${Math.round(P * 0.8)}px}
+    .wm{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .wm.mono{filter:grayscale(1)} .wm img{position:absolute;left:50%;top:50%;max-width:none;height:auto} .wm svg{position:absolute;inset:0;width:100%;height:100%}
+    .ps>*:not(.wm){position:relative;z-index:1}
+    .has-wm .note{background:rgba(249,250,251,.6)} .has-wm .loans th{background:rgba(249,250,251,.6)}
+    @container (max-width: 620px){
+      .hd{flex-direction:column;align-items:flex-start;gap:12px;padding:18px 16px} .title{text-align:left}
+      .rev,.note{padding-left:16px;padding-right:16px} .sec{padding:16px 16px 0}
+      .details{grid-template-columns:1fr;gap:0} .details>div+div{margin-top:12px}
+      .kv{grid-template-columns:104px minmax(0,1fr)}
+      .stats{grid-template-columns:repeat(${Math.min(Math.max(tiles.length, 1), 3)},minmax(0,1fr))}
+      .cols{grid-template-columns:1fr;gap:20px}
+      .stmt th,.stmt td{padding-left:4px;padding-right:4px} .stmt{font-size:${fs - 1}px}
+      .net{padding:14px 16px} .net .val{font-size:${fs + 8}px}
+      .loans thead{display:none} .loans,.loans tbody,.loans tr,.loans td{display:block;width:100%}
+      .loans tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;padding:8px 0;border-bottom:1px solid #e5e7eb}
+      .loans td{border:0;padding:2px 0} .loans td:first-child{grid-column:1/-1}
+      .loans td.am{text-align:left} .loans td.am::before{content:attr(data-l);display:block;font-size:${fs - 3}px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;font-weight:400}
+      .sigbox{min-width:150px}
+    }
+    @media print{.ps{max-width:none} @page{size:A4;margin:1.2cm} .row,.stmt tr,.loans tr,.net,.kv{break-inside:avoid}}`;
+
+  const stamp = F.paidStamp && doc.payslip.status === 'PAID' ? '<div class="stamp">PAID</div>' : '';
+  const revLines = revisionNoteLines(doc.revision, fm, fmtDate);
   const headerInner = `
     <div class="brand">
       ${doc.company.logoUrl && !mono ? `<img src="${esc(doc.company.logoUrl)}" alt="" class="logo">` : ''}
-      <div>
+      <div style="min-width:0">
         <div class="co">${esc(doc.company.name)}</div>
         ${L.branchHeader && doc.company.branch ? `<div class="branch">${esc(doc.company.branch)} branch</div>` : ''}
         ${L.branchHeader && doc.company.branchAddress ? `<div class="addr">${esc(doc.company.branchAddress)}</div>` : doc.company.address ? `<div class="addr">${esc(doc.company.address)}</div>` : ''}
       </div>
     </div>
-    <div class="title">
-      <div class="t">${esc(B.title)}</div>
-      <div class="p">${esc(doc.payslip.periodLabel)}</div>
-      <div class="n">${esc(doc.payslip.number)}</div>
-    </div>`;
+    <div class="title"><div class="t">${esc(B.title)} for</div><div class="p">${esc(doc.payslip.periodLabel)}</div><div class="n">${esc(doc.payslip.number)}</div></div>`;
 
-  const css = `
-    .ps{font-family:${font};font-size:${fs}px;color:#111827;background:#fff;max-width:760px;margin:0 auto;position:relative}
-    .ps *{box-sizing:border-box}
-    .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:${pad * 3}px ${pad * 4}px}
-    .hd.line{border-bottom:2px solid ${primary}} .hd.plain{border-bottom:1px solid #111827}
-    .hd.band{background:${primary};color:#fff;border-radius:${L.density === 'airy' ? 10 : 0}px ${L.density === 'airy' ? 10 : 0}px 0 0}
-    .hd.band .t,.hd.band .co,.hd.band .p,.hd.band .n,.hd.band .addr,.hd.band .branch{color:#fff}
-    .hd.boxed{border:2px solid ${primary};border-bottom-width:2px}
-    .brand{display:flex;gap:12px;align-items:center} .logo{width:44px;height:44px;object-fit:contain;border-radius:6px;background:#fff}
-    .co{font-size:${fs + 6}px;font-weight:700} .branch{font-weight:600;margin-top:2px;color:${accent}} .addr{white-space:pre-line;font-size:${fs - 1}px;color:#6b7280;margin-top:2px}
-    .title{text-align:right} .t{font-size:${fs + 4}px;font-weight:700;color:${primary};letter-spacing:.02em;text-transform:uppercase} .p{margin-top:2px} .n{font-family:ui-monospace,Menlo,monospace;font-size:${fs - 1}px;color:#6b7280}
-    .rev{padding:${pad}px ${pad * 4}px;font-size:${fs - 1}px;color:#92400e;background:#fffbeb;border-bottom:1px solid #fde68a;font-weight:600}
-    .note{padding:${pad}px ${pad * 4}px;font-size:${fs - 1}px;color:#4b5563;background:#f9fafb;border-bottom:1px solid #e5e7eb}
-    .meta{display:grid;grid-template-columns:1fr 1fr;gap:${pad * 2}px ${pad * 4}px;padding:${pad * 2}px ${pad * 4}px;border-bottom:1px solid #e5e7eb;${L.header === 'boxed' ? `border-left:2px solid ${primary};border-right:2px solid ${primary};` : ''}}
-    .kv{display:flex;gap:8px;padding:2px 0;${L.bordered ? 'border-bottom:1px dotted #e5e7eb;' : ''}} .k{color:#6b7280;min-width:110px} .v{font-weight:500}
-    .body{padding:${pad * 2}px ${pad * 4}px;${L.header === 'boxed' ? `border:2px solid ${primary};border-top:0;` : ''}}
-    .days{display:flex;flex-wrap:wrap;gap:${pad}px;margin-bottom:${pad * 2}px}
-    .days div{display:flex;flex-direction:column;padding:${pad}px ${pad * 2}px;background:${L.density === 'airy' ? '#f3f4f6' : '#fff'};border:1px solid #e5e7eb;border-radius:${L.density === 'airy' ? 8 : 3}px;min-width:88px}
-    .days span{font-size:${fs - 2}px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em} .days b{font-size:${fs + 2}px} .neg{color:#b91c1c}
-    .cols{display:grid;grid-template-columns:${L.columns === 2 ? '1fr 1fr' : '1fr'};gap:${pad * 3}px}
-    table.lines{width:100%;border-collapse:collapse;${border}} .lines th{text-align:left;font-size:${fs - 2}px;text-transform:uppercase;letter-spacing:.05em;color:${accent};padding:${pad}px ${L.bordered ? pad : 0}px;border-bottom:1px solid ${L.bordered ? '#d1d5db' : primary};${L.bordered ? 'background:#f9fafb;' : ''}}
-    .lines td{padding:${pad}px ${L.bordered ? pad : 0}px;${L.bordered ? 'border:1px solid #d1d5db;' : 'border-bottom:1px solid #f3f4f6;'}vertical-align:top} .amt{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-    .lines tr.total td{font-weight:700;border-top:1px solid #9ca3af;border-bottom:0;${L.bordered ? 'background:#f9fafb;' : ''}} .basis{font-size:${fs - 3}px;color:#9ca3af} .muted{color:#9ca3af}
-    .sub{margin-top:${pad * 2}px} .sub th{color:#6b7280}
-    .net{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:${pad * 3}px;padding-top:${pad * 2}px;border-top:2px solid ${primary}}
-    .net .lbl{font-size:${fs - 1}px;color:#6b7280} .net .val{font-size:${fs + 12}px;font-weight:700;color:${primary};font-variant-numeric:tabular-nums}
-    .net.band{background:${primary};color:#fff;border-radius:${L.density === 'airy' ? 8 : 0}px;padding:${pad * 2}px ${pad * 3}px;border-top:0} .net.band .lbl,.net.band .val{color:#fff} .net.band .words{color:#dbeafe}
-    .words{font-size:${fs - 1}px;color:#4b5563;font-style:italic;margin-top:${pad}px}
-    .sig{margin-top:${pad * 6}px;display:flex;justify-content:flex-end} .sig .sigbox{text-align:center;min-width:180px;border-top:1px ${L.serif ? 'solid #111827' : 'dashed #9ca3af'};padding-top:${pad}px;font-size:${fs - 1}px;color:#4b5563}
-    .sig img{height:40px;display:block;margin:0 auto 4px} .sig b{display:block;color:#111827}
-    .foot{margin-top:${pad * 4}px;text-align:center;font-size:${fs - 2}px;color:#9ca3af;white-space:pre-line}
-    .stamp{display:inline-block;transform:rotate(-12deg);border:3px solid #16a34a;color:#16a34a;font-weight:800;font-size:20px;letter-spacing:.2em;padding:3px 14px;border-radius:6px;opacity:.8;margin:8px 0 0 12px}
-    .sig{align-items:flex-end}
-    .wm{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .wm.mono{filter:grayscale(1)} .wm img{position:absolute;left:50%;top:50%;max-width:none;height:auto} .wm svg{position:absolute;inset:0;width:100%;height:100%}
-    .ps>*:not(.wm){position:relative;z-index:1}
-    .has-wm .days div{background:${L.density === 'airy' ? 'rgba(243,244,246,.6)' : 'rgba(255,255,255,.5)'}} .has-wm .note{background:rgba(249,250,251,.6)}
-    @media print{.ps{max-width:none} @page{margin:1.4cm}}`;
-
-  const stamp = F.paidStamp && doc.payslip.status === 'PAID' ? '<div class="stamp">PAID</div>' : '';
-  const revLines = revisionNoteLines(doc.revision, fm, fmtDate);
-  const body = `<div class="ps${doc.watermark ? ' has-wm' : ''}">
+  const body = `<div class="ps${L.header === 'boxed' ? ' boxed' : ''}${doc.watermark ? ' has-wm' : ''}">
     ${watermarkHtml(doc.watermark, mono)}
     <div class="hd ${L.header}">${headerInner}</div>
     ${revLines.length ? `<div class="rev">${revLines.map(esc).join('<br>')}</div>` : ''}
     ${B.headerNote ? `<div class="note">${esc(B.headerNote)}</div>` : ''}
-    <div class="meta"><div>${employeeBlock}</div><div>${periodBlock}</div></div>
-    <div class="body">
-      ${daysBlock}
-      ${L.columns === 2 ? `<div class="cols"><div>${earnTable}</div><div>${dedTable}</div></div>` : statementTable}
-      ${employerTable}
-      <div class="net ${L.header === 'band' ? 'band' : ''}"><div><div class="lbl">Net pay</div>${F.amountInWords ? `<div class="words">${esc(doc.netInWords)}</div>` : ''}</div><div class="val">${fm(doc.totals.net)}</div></div>
-      ${B.showSignature ? `<div class="sig" style="justify-content:space-between"><span>${stamp}</span><div class="sigbox">${B.signatureUrl ? `<img src="${esc(B.signatureUrl)}" alt="">` : ''}${B.signatoryName ? `<b>${esc(B.signatoryName)}</b>` : ''}${esc(B.signatureLabel)}</div></div>` : stamp}
+    <div class="sec"><div class="details"><div><h3 class="h">Employee details</h3>${kvs(pairs.employee)}</div><div><h3 class="h">Payment details</h3>${kvs(pairs.payment)}</div></div></div>
+    ${tiles.length ? `<div class="sec"><h3 class="h">Attendance</h3><div class="stats">${tiles.map(([l, v, neg]) => `<div class="stat"><span>${esc(l)}</span><b${neg ? ' class="neg"' : ''}>${esc(v)}</b></div>`).join('')}</div></div>` : ''}
+    <div class="sec">
+      ${L.columns === 2 ? `<div class="cols">${earnCol}${dedCol}</div>` : statement}
+      <div class="net"><div style="min-width:0"><div class="lbl">Net pay</div>${F.amountInWords ? `<div class="words">${esc(doc.netInWords)}</div>` : ''}<div class="eq">${esc(eq)}</div></div><div class="val">${fm(doc.totals.net)}</div></div>
+      ${loansBlock}
+      ${employerBlock}
+      ${B.showSignature || stamp ? `<div class="foot-row"><span>${stamp}</span>${B.showSignature ? `<div class="sigbox">${B.signatureUrl ? `<img src="${esc(B.signatureUrl)}" alt="">` : ''}<div class="sl">${B.signatoryName ? `<b>${esc(B.signatoryName)}</b>` : ''}${esc(B.signatureLabel)}</div></div>` : ''}</div>` : ''}
       ${B.footerNote ? `<div class="foot">${esc(B.footerNote)}</div>` : ''}
+      <div class="end"></div>
     </div>
   </div>`;
   if (opts.embed) return `<style>${css}</style>${body}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.payslip.number)}</title><style>body{margin:0;padding:24px;background:#f3f4f6}@media print{body{padding:0;background:#fff}}${css}</style></head><body>${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(doc.payslip.number)}</title><style>body{margin:0;padding:24px 12px;background:#f3f4f6}@media (max-width:600px){body{padding:0}}@media print{body{padding:0;background:#fff}}${css}</style></head><body>${body}</body></html>`;
 }
 
 /** Width the HTML tile size is computed against (the .ps max-width). */
@@ -496,187 +606,307 @@ function drawPayslip(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: PdfAssets
   try { drawPayslipContent(pdf, doc, assets); } finally { pdf.removeListener('pageAdded', onPage); }
 }
 
+/** Currency prefix the standard PDF fonts can print (they have no ₹ glyph). */
+function pdfSymbol(currency: string, locale: string) {
+  const s = currencySymbol(currency, locale);
+  return s === '₹' ? 'Rs.' : s === '€' ? 'EUR' : s === '£' ? 'GBP' : /^[\x20-\x7e]+$/.test(s) ? s : currency;
+}
+
+/**
+ * The PDF mirrors the HTML structure. Every block is measured before it is
+ * drawn and `ensure()` starts a new page when it would not fit, so long names
+ * wrap instead of overlapping and PDFKit never auto-breaks mid-text (which used
+ * to leave blank pages and push the net pay onto a page of its own). Paired
+ * Earnings | Deductions rows share a height, so both subtotals line up.
+ */
 function drawPayslipContent(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: PdfAssets) {
   const { layout: L, fields: F, brand: B } = doc;
   const wmOn = !!(doc.watermark && assets.watermark);
   const mono = L.header === 'plain';
+  const band = L.header === 'band';
   const primary = mono ? '#111827' : hex(B.primary);
   const accent = mono ? '#374151' : hex(B.accent);
-  const fs = L.density === 'compact' ? 8.5 : L.density === 'airy' ? 10 : 9.5;
-  const reg = L.serif ? 'Times-Roman' : 'Helvetica', bold = L.serif ? 'Times-Bold' : 'Helvetica-Bold';
-  const fm = (v: number) => money(v, doc.currency, doc.locale).replace(/ /g, ' ').replace(/^₹/, 'Rs. ').replace(/^€/, 'EUR ').replace(/^£/, 'GBP ');
+  const fs = L.density === 'compact' ? 8.4 : L.density === 'airy' ? 9.6 : 9;
+  const small = fs - 1.6;
+  const reg = L.serif ? 'Times-Roman' : 'Helvetica', bold = L.serif ? 'Times-Bold' : 'Helvetica-Bold', ital = L.serif ? 'Times-Italic' : 'Helvetica-Oblique';
+  const sym = pdfSymbol(doc.currency, doc.locale);
+  // Standard PDF fonts have no ₹ or U+2212 minus sign.
+  const clean = (s: string) => s.replace(/−/g, '-').replace(/ | /g, ' ').replace(/₹\s?/g, 'Rs. ').replace(/€\s?/g, 'EUR ').replace(/£\s?/g, 'GBP ');
+  const fm = (v: number) => clean(money(v, doc.currency, doc.locale));
+  const an = (v: number) => clean(amountText(v, doc.locale));
   const left = pdf.page.margins.left, right = pdf.page.width - pdf.page.margins.right, width = right - left;
+  const bottom = () => pdf.page.height - pdf.page.margins.bottom;
+  const padX = L.header === 'boxed' ? 10 : 0;
+  const rowPad = L.density === 'compact' ? 3.2 : L.density === 'airy' ? 5.5 : 4.4;
+  const blockGap = L.density === 'compact' ? 10 : L.density === 'airy' ? 16 : 13;
   let y = pdf.page.margins.top;
-  const gap = L.density === 'compact' ? 3 : L.density === 'airy' ? 7 : 5;
+  const newPage = () => { pdf.addPage(); y = pdf.page.margins.top; };
+  const ensure = (h: number) => { if (y + h > bottom()) newPage(); };
+  const H = (s: string, font: string, size: number, w: number) => pdf.font(font).fontSize(size).heightOfString(s || ' ', { width: w });
+  const T = (s: string, x: number, yy: number, font: string, size: number, color: string, o: PDFKit.Mixins.TextOptions = {}) => {
+    pdf.font(font).fontSize(size).fillColor(color).text(s, x, yy, { lineBreak: true, ...o });
+  };
+  const hr = (yy: number, color = '#eef0f3', w = 0.6, x0 = left, x1 = right) => pdf.save().lineWidth(w).strokeColor(color).moveTo(x0, yy).lineTo(x1, yy).stroke().restore();
+  const heading = (s: string, x: number, w: number, hint?: string) => {
+    T(s.toUpperCase(), x, y, bold, small, accent, { width: w, characterSpacing: 0.6, continued: !!hint });
+    if (hint) pdf.font(reg).fontSize(small).fillColor('#9ca3af').text(`   ${hint}`, { characterSpacing: 0 });
+  };
 
-  // Header
-  const headerH = L.header === 'band' ? 64 : 58;
-  if (L.header === 'band') pdf.save().rect(left, y, width, headerH).fill(primary).restore();
-  if (L.header === 'boxed') pdf.save().lineWidth(1.5).strokeColor(primary).rect(left, y, width, headerH).stroke().restore();
-  const textColor = L.header === 'band' ? '#ffffff' : '#111827';
-  const subColor = L.header === 'band' ? '#e5e7eb' : '#6b7280';
-  // Logo left of the company name (not on MINIMAL — same as the HTML view).
+  // ── Letterhead ──
   const logo = mono ? null : openImage(pdf, assets.logo);
-  const logoBox = L.density === 'compact' ? 34 : 40;
+  const logoBox = L.density === 'compact' ? 36 : 44;
+  const hp = band || L.header === 'boxed' ? 12 : 4;
+  const titleW = 170;
+  const nameX = left + hp + padX + (logo ? logoBox + 12 : 0);
+  const nameW = width - titleW - (nameX - left) - 12;
+  const addr = L.branchHeader && doc.company.branchAddress ? doc.company.branchAddress : doc.company.address;
+  const branch = L.branchHeader && doc.company.branch ? `${doc.company.branch} branch` : null;
+  const leftH = H(doc.company.name, bold, fs + 6, nameW) + (branch ? H(branch, bold, fs, nameW) + 1 : 0) + (addr ? H(addr, reg, small, nameW) + 3 : 0);
+  const rightH = small + 3 + (fs + 6) + 3 + small + 2;
+  const headerH = Math.max(logo ? logoBox : 0, leftH, rightH) + hp * 2 + (band ? 0 : 6);
+  if (band) pdf.save().rect(left, y, width, headerH).fill(primary).restore();
+  if (L.header === 'boxed') pdf.save().lineWidth(1.2).strokeColor(primary).rect(left, y, width, headerH).stroke().restore();
+  const onBand = (c: string) => (band ? '#ffffff' : c);
   if (logo) {
-    const lx = left + 10, ly = y + (headerH - logoBox) / 2;
-    // On a colour band the logo sits on a white tile, like the HTML header.
-    if (L.header === 'band') pdf.save().fillColor('#ffffff').roundedRect(lx - 2, ly - 2, logoBox + 4, logoBox + 4, 4).fill().restore();
+    const lx = left + hp + padX, ly = y + (headerH - logoBox) / 2 - (band ? 0 : 3);
+    if (band) pdf.save().fillColor('#ffffff').roundedRect(lx - 3, ly - 3, logoBox + 6, logoBox + 6, 5).fill().restore();
     drawFitted(pdf, logo, lx, ly, logoBox, logoBox);
   }
-  const hx = left + 12 + (logo ? logoBox + 10 : 0);
-  const hw = width * 0.6 - (logo ? logoBox + 10 : 0);
-  pdf.font(bold).fontSize(fs + 6).fillColor(textColor).text(doc.company.name, hx, y + 12, { width: hw });
-  let hy = pdf.y;
-  if (L.branchHeader && doc.company.branch) { pdf.font(bold).fontSize(fs).fillColor(L.header === 'band' ? '#ffffff' : accent).text(`${doc.company.branch} branch`, hx, hy, { width: hw }); hy = pdf.y; }
-  const addr = L.branchHeader && doc.company.branchAddress ? doc.company.branchAddress : doc.company.address;
-  if (addr) pdf.font(reg).fontSize(fs - 1).fillColor(subColor).text(addr.replace(/\n/g, ', '), hx, hy, { width: hw, height: Math.max(fs * 2.5, y + headerH - hy - 2), ellipsis: true });
-  pdf.font(bold).fontSize(fs + 4).fillColor(L.header === 'band' ? '#ffffff' : primary).text(B.title.toUpperCase(), left, y + 12, { width: width - 12, align: 'right' });
-  pdf.font(reg).fontSize(fs).fillColor(textColor).text(doc.payslip.periodLabel, left, pdf.y + 1, { width: width - 12, align: 'right' });
-  pdf.font('Courier').fontSize(fs - 1).fillColor(subColor).text(doc.payslip.number, left, pdf.y + 1, { width: width - 12, align: 'right' });
+  let hy = y + (headerH - leftH) / 2 - (band ? 0 : 3);
+  T(doc.company.name, nameX, hy, bold, fs + 6, onBand('#111827'), { width: nameW }); hy = pdf.y;
+  if (branch) { T(branch, nameX, hy + 1, bold, fs, band ? '#ffffff' : accent, { width: nameW }); hy = pdf.y; }
+  if (addr) T(addr, nameX, hy + 3, reg, small, band ? '#e5e7eb' : '#6b7280', { width: nameW, lineGap: 0.5 });
+  const tx = right - titleW - hp - padX;
+  let ty = y + (headerH - rightH) / 2 - (band ? 0 : 3);
+  T(`${B.title} for`.toUpperCase(), tx, ty, bold, small, onBand(primary), { width: titleW, align: 'right', characterSpacing: 1 }); ty += small + 3;
+  T(doc.payslip.periodLabel, tx, ty, bold, fs + 6, onBand('#111827'), { width: titleW, align: 'right' }); ty = pdf.y + 2;
+  T(doc.payslip.number, tx, ty, reg, small, band ? '#e5e7eb' : '#6b7280', { width: titleW, align: 'right' });
   y += headerH;
-  if (L.header === 'line') { pdf.save().lineWidth(1.5).strokeColor(primary).moveTo(left, y).lineTo(right, y).stroke().restore(); }
-  if (L.header === 'plain') { pdf.save().lineWidth(0.8).strokeColor('#111827').moveTo(left, y).lineTo(right, y).stroke().restore(); }
-  y += gap * 2;
+  if (L.header === 'line') hr(y, primary, 2.2);
+  if (mono) hr(y, '#111827', 0.8);
+  y += 10;
 
-  const revLines = revisionNoteLines(doc.revision, fm, fmtDate);
-  // Standard PDF fonts have no U+2212 minus sign.
-  if (revLines.length) { pdf.font(bold).fontSize(fs - 1).fillColor('#92400e').text(revLines.join('\n').replace(/\u2212/g, '-'), left, y, { width }); y = pdf.y + gap; }
-  if (B.headerNote) { pdf.font(reg).fontSize(fs - 1).fillColor('#4b5563').text(B.headerNote, left, y, { width }); y = pdf.y + gap; }
+  const revLines = revisionNoteLines(doc.revision, fm, fmtDate).map(clean);
+  if (revLines.length) {
+    const rh = H(revLines.join('\n'), bold, fs - 0.5, width - 16) + 10;
+    pdf.save().fillColor('#fffbeb').strokeColor('#fde68a').lineWidth(0.6).roundedRect(left, y, width, rh, 3).fillAndStroke().restore();
+    T(revLines.join('\n'), left + 8, y + 5, bold, fs - 0.5, '#92400e', { width: width - 16 });
+    y += rh + 8;
+  }
+  if (B.headerNote) { const nh = H(B.headerNote, reg, fs - 0.5, width - padX * 2); T(B.headerNote, left + padX, y, reg, fs - 0.5, '#4b5563', { width: width - padX * 2 }); y += nh + 8; }
 
-  // Employee / period details, two columns
-  const kv = (col: { x: number; w: number }, label: string, value: string | null | undefined) => {
-    if (!value) return;
-    pdf.font(reg).fontSize(fs).fillColor('#6b7280').text(label, col.x, colY[col.x], { width: 95, continued: false });
-    pdf.font(bold).fontSize(fs).fillColor('#111827').text(value, col.x + 98, colY[col.x], { width: col.w - 98 });
-    colY[col.x] = Math.max(pdf.y, colY[col.x] + fs + 4) + 1;
-  };
-  const c1 = { x: left + (L.header === 'boxed' ? 8 : 0), w: width / 2 - 10 }, c2 = { x: left + width / 2 + 6, w: width / 2 - 14 };
-  const colY: Record<number, number> = { [c1.x]: y, [c2.x]: y };
-  kv(c1, 'Employee', doc.employee.name);
-  if (F.employeeCode) kv(c1, 'Employee code', doc.employee.code);
-  if (F.designation) kv(c1, 'Designation', doc.employee.designation);
-  if (F.department) kv(c1, 'Department', doc.employee.department);
-  if (F.location) kv(c1, 'Location', doc.employee.location);
-  if (F.joiningDate) kv(c1, 'Date of joining', doc.employee.joiningDate && fmtDate(doc.employee.joiningDate));
-  if (F.costCenter) kv(c1, 'Cost centre', doc.employee.costCenter);
-  if (F.email) kv(c1, 'E-mail', doc.employee.email);
-  if (F.bankDetails) { kv(c1, 'Bank', [doc.employee.bankName, doc.employee.bankAccountMasked].filter(Boolean).join(' · ') || null); kv(c1, 'IFSC', doc.employee.bankIfsc); }
-  if (F.statutoryIds) { kv(c1, 'PAN', doc.employee.pan); kv(c1, 'UAN', doc.employee.uan); kv(c1, 'ESI No.', doc.employee.esi); }
-  if (F.ctc && doc.totals.ctcAnnual != null) kv(c1, 'Annual CTC', fm(doc.totals.ctcAnnual));
-  kv(c2, 'Pay period', doc.payslip.periodLabel);
-  kv(c2, 'Payslip no.', doc.payslip.number);
-  if (doc.payslip.cycleName) kv(c2, 'Cycle', doc.payslip.cycleName);
-  kv(c2, 'Status', doc.payslip.status === 'PAID' ? `Paid${doc.payslip.paidAt ? ' on ' + fmtDate(doc.payslip.paidAt) : ''}` : 'Generated');
-  y = Math.max(colY[c1.x], colY[c2.x]) + gap;
-  pdf.save().lineWidth(0.5).strokeColor('#e5e7eb').moveTo(left, y).lineTo(right, y).stroke().restore();
-  y += gap * 2;
-
-  // Days summary
-  if (F.daysSummary && doc.days) {
-    const tiles = [['Working days', String(doc.days.working)], ['Paid days', String(doc.days.paid)]];
-    if (doc.days.leave) tiles.push(['Leave', String(doc.days.leave)]);
-    if (doc.days.half) tiles.push(['Half days', String(doc.days.half)]);
-    if (doc.days.lop) tiles.push(['Loss of pay', String(doc.days.lop)]);
-    if (doc.days.overtimeHours) tiles.push(['Overtime', `${doc.days.overtimeHours} h`]);
-    const tw = 84, th = 30; let tx = left;
-    for (const [l, v] of tiles) {
-      // Translucent over a watermark so the tiles don't punch holes in it.
-      pdf.save().lineWidth(0.5).strokeColor('#e5e7eb').fillColor(L.density === 'airy' ? '#f3f4f6' : '#ffffff').fillOpacity(wmOn ? 0.5 : 1).roundedRect(tx, y, tw - 6, th, L.density === 'airy' ? 5 : 2).fillAndStroke().restore();
-      pdf.font(reg).fontSize(fs - 2.5).fillColor('#6b7280').text(l.toUpperCase(), tx + 6, y + 5, { width: tw - 12 });
-      pdf.font(bold).fontSize(fs + 2).fillColor(l === 'Loss of pay' ? '#b91c1c' : '#111827').text(v, tx + 6, y + 14, { width: tw - 12 });
-      tx += tw;
+  // ── Employee | payment details ──
+  const pairs = detailPairs(doc);
+  const colGap = 22, colW = (width - padX * 2 - colGap) / 2, labelW = 78, valW = colW - labelW - 6;
+  const kvH = ([, v]: [string, string]) => Math.max(H(v, bold, fs, valW), fs + 1) + rowPad * 2 - 1;
+  const colHeight = (rows: [string, string][]) => small + 6 + rows.reduce((s, r) => s + kvH(r), 0);
+  ensure(Math.max(colHeight(pairs.employee), colHeight(pairs.payment)));
+  const drawKvs = (x: number, title: string, rows: [string, string][]) => {
+    let yy = y;
+    T(title.toUpperCase(), x, yy, bold, small, accent, { width: colW, characterSpacing: 0.6 }); yy += small + 6;
+    for (const r of rows) {
+      const h = kvH(r);
+      T(r[0], x, yy + rowPad - 0.5, reg, fs, '#6b7280', { width: labelW });
+      T(clean(r[1]), x + labelW + 6, yy + rowPad - 0.5, bold, fs, '#111827', { width: valW });
+      hr(yy + h, '#f1f3f5', 0.5, x, x + colW);
+      yy += h;
     }
-    y += th + gap * 2;
+    return yy;
+  };
+  y = Math.max(drawKvs(left + padX, 'Employee details', pairs.employee), drawKvs(left + padX + colW + colGap, 'Payment details', pairs.payment)) + blockGap;
+
+  // ── Attendance ──
+  const tiles = dayTiles(doc);
+  if (tiles.length) {
+    const th = fs * 2 + 14;
+    ensure(small + 6 + th);
+    heading('Attendance', left + padX, width); y += small + 6;
+    const gap = 6, tw = (width - padX * 2 - gap * (tiles.length - 1)) / tiles.length;
+    tiles.forEach(([l, v, neg], i) => {
+      const x = left + padX + i * (tw + gap);
+      pdf.save().lineWidth(0.6).strokeColor('#e5e7eb').fillColor('#ffffff').fillOpacity(wmOn ? 0.55 : 1).roundedRect(x, y, tw, th, 4).fillAndStroke().restore();
+      T(l.toUpperCase(), x + 7, y + 5, reg, small - 0.6, '#6b7280', { width: tw - 14, characterSpacing: 0.3, lineBreak: false, ellipsis: true });
+      T(v, x + 7, y + 6 + small + 1, bold, fs + 2.5, neg ? '#b91c1c' : '#111827', { width: tw - 14, lineBreak: false });
+    });
+    y += th + blockGap;
   }
 
-  // Line tables
-  const rowH = fs + (L.density === 'compact' ? 5 : 8);
-  const table = (x: number, w: number, title: string, lines: DocLine[], totalLabel: string, total: number, emptyText?: string) => {
-    let ty = y;
-    // header
-    if (L.bordered) pdf.save().fillColor('#f9fafb').rect(x, ty, w, rowH).fill().restore();
-    pdf.font(bold).fontSize(fs - 1.5).fillColor(accent).text(title.toUpperCase(), x + 4, ty + 5, { width: w * 0.6, characterSpacing: 0.5 });
-    pdf.text('AMOUNT', x, ty + 5, { width: w - 4, align: 'right' });
-    pdf.save().lineWidth(L.bordered ? 0.5 : 1).strokeColor(L.bordered ? '#d1d5db' : primary).moveTo(x, ty + rowH).lineTo(x + w, ty + rowH).stroke().restore();
-    if (L.bordered) pdf.save().lineWidth(0.5).strokeColor('#d1d5db').rect(x, ty, w, rowH).stroke().restore();
-    ty += rowH;
-    const draw = (name: string, amount: string, isTotal = false, basis?: string | null) => {
-      const h = rowH + (F.lineBasis && basis ? fs : 0);
-      if (isTotal && L.bordered) pdf.save().fillColor('#f9fafb').rect(x, ty, w, h).fill().restore();
-      pdf.font(isTotal ? bold : reg).fontSize(fs).fillColor('#111827').text(name, x + 4, ty + 4, { width: w * 0.65 });
-      if (F.lineBasis && basis) pdf.font(reg).fontSize(fs - 2.5).fillColor('#9ca3af').text(basis, x + 4, ty + 4 + fs + 1, { width: w * 0.65 });
-      pdf.font(isTotal ? bold : reg).fontSize(fs).fillColor('#111827').text(amount, x, ty + 4, { width: w - 4, align: 'right' });
-      pdf.save().lineWidth(0.5).strokeColor(isTotal ? '#9ca3af' : L.bordered ? '#d1d5db' : '#f3f4f6');
-      if (L.bordered) pdf.rect(x, ty, w, h).stroke(); else pdf.moveTo(x, ty + h).lineTo(x + w, ty + h).stroke();
-      pdf.restore();
-      ty += h;
-    };
-    if (!lines.length && emptyText) draw(emptyText, '');
-    for (const l of lines) draw(l.name, fm(l.amount), false, l.basis);
-    draw(totalLabel, fm(total), true);
-    return ty;
+  // ── Earnings | Deductions ──
+  const amtW = 74;
+  type Cell = { name: string; amount: string; basis?: string | null; sub?: boolean } | null;
+  const cellH = (c: Cell, nameW: number) => !c ? 0 : c.sub ? small + rowPad * 2 : H(c.name, reg, fs, nameW) + (F.lineBasis && c.basis ? H(c.basis, reg, small - 0.4, nameW) + 1 : 0) + rowPad * 2;
+  const drawCell = (c: Cell, x: number, w: number, h: number, isTotal = false) => {
+    if (!c) return;
+    const nameW = w - amtW - 8;
+    if (c.sub) { T(c.name.toUpperCase(), x, y + rowPad + 1, reg, small - 0.4, '#6b7280', { width: w, characterSpacing: 0.4 }); return; }
+    T(c.name, x, y + rowPad, isTotal ? bold : reg, fs, '#111827', { width: nameW });
+    if (F.lineBasis && c.basis) T(c.basis, x, pdf.y + 1, reg, small - 0.4, '#9ca3af', { width: nameW });
+    T(c.amount, x + w - amtW, y + rowPad, isTotal ? bold : reg, fs, '#111827', { width: amtW, align: 'right' });
+    if (!isTotal) hr(y + h, '#f1f3f5', 0.5, x, x + w);
+  };
+  const toCell = (l: DocLine): Cell => ({ name: clean(l.name), amount: an(l.amount), basis: l.basis ? clean(l.basis) : null });
+  const headerRow = (cols: { x: number; w: number; title: string; amt?: string }[]) => {
+    const h = small + rowPad * 2 + 2;
+    ensure(h + fs * 3);
+    for (const c of cols) {
+      if (L.bordered) pdf.save().fillColor('#f8fafc').rect(c.x, y, c.w, h).fill().restore();
+      T(c.title.toUpperCase(), c.x + (L.bordered ? 4 : 0), y + rowPad + 1, bold, small, accent, { width: c.w - amtW, characterSpacing: 0.6 });
+      if (c.amt) T(c.amt.toUpperCase(), c.x + c.w - amtW - 30, y + rowPad + 1, bold, small, accent, { width: amtW + 30 - (L.bordered ? 4 : 0), align: 'right', characterSpacing: 0.3 });
+      hr(y + h, L.bordered ? '#e5e7eb' : primary, 1.1, c.x, c.x + c.w);
+    }
+    y += h;
   };
   if (L.columns === 2) {
-    const w = (width - 14) / 2;
-    const y1 = table(left, w, 'Earnings', doc.earnings.concat(doc.reimbursements), 'Gross earnings', doc.totals.earnings + doc.totals.reimbursements);
-    const y2 = table(left + w + 14, w, 'Deductions', doc.deductions, 'Total deductions', doc.totals.deductions, 'None');
-    y = Math.max(y1, y2) + gap * 2;
+    const cw = (width - padX * 2 - 22) / 2, xL = left + padX, xR = xL + cw + 22;
+    const cols = [{ x: xL, w: cw, title: 'Earnings', amt: `Amount (${sym})` }, { x: xR, w: cw, title: 'Deductions', amt: `Amount (${sym})` }];
+    const leftCells: Cell[] = [...doc.earnings.map(toCell), ...(doc.reimbursements.length ? [{ name: 'Reimbursements', amount: '', sub: true }, ...doc.reimbursements.map(toCell)] : [])];
+    const rightCells: Cell[] = doc.deductions.length ? doc.deductions.map(toCell) : [{ name: 'No deductions', amount: '' }];
+    headerRow(cols);
+    const n = Math.max(leftCells.length, rightCells.length);
+    const nw = cw - amtW - 8;
+    const colTotal = (cells: Cell[]) => cells.reduce((s, c) => s + cellH(c, nw), 0);
+    const totalRowH = fs + rowPad * 2 + 5;
+    if (y + Math.max(colTotal(leftCells), colTotal(rightCells)) + totalRowH <= bottom()) {
+      // Both columns fit: draw each at its own row heights (no gaps opposite a
+      // wrapped line), then the subtotals side by side under the taller one.
+      const y0 = y;
+      let yl = y0, yr = y0;
+      for (const c of leftCells) { const h = cellH(c, nw); y = yl; drawCell(c, xL, cw, h); yl += h; }
+      for (const c of rightCells) { const h = cellH(c, nw); y = yr; drawCell(c, xR, cw, h); yr += h; }
+      y = Math.max(yl, yr);
+    } else for (let i = 0; i < n; i++) {
+      const a = leftCells[i] ?? null, b = rightCells[i] ?? null;
+      const h = Math.max(cellH(a, cw - amtW - 8), cellH(b, cw - amtW - 8));
+      if (y + h > bottom()) { newPage(); headerRow(cols); }
+      drawCell(a, xL, cw, h); drawCell(b, xR, cw, h);
+      y += h;
+    }
+    const th = fs + rowPad * 2 + 3;
+    ensure(th);
+    hr(y, '#cbd5e1', 0.8, xL, xL + cw); hr(y, '#cbd5e1', 0.8, xR, xR + cw);
+    y += 2;
+    drawCell({ name: 'Gross earnings', amount: fm(doc.totals.earnings + doc.totals.reimbursements) }, xL, cw, th, true);
+    drawCell({ name: 'Total deductions', amount: fm(doc.totals.deductions) }, xR, cw, th, true);
+    y += th;
   } else {
-    // statement: single table with two amount columns
-    let ty = y; const w = width; const cw = 110;
-    if (L.bordered) pdf.save().fillColor('#f9fafb').rect(left, ty, w, rowH).fill().restore();
-    pdf.font(bold).fontSize(fs - 1.5).fillColor(accent).text('DESCRIPTION', left + 4, ty + 5).text('EARNINGS', right - cw * 2, ty + 5, { width: cw - 4, align: 'right' }).text('DEDUCTIONS', right - cw, ty + 5, { width: cw - 4, align: 'right' });
-    pdf.save().lineWidth(0.5).strokeColor('#d1d5db').rect(left, ty, w, rowH).stroke().restore();
-    ty += rowH;
-    const line = (name: string, e: string, d: string, isTotal = false) => {
-      if (isTotal) pdf.save().fillColor('#f9fafb').rect(left, ty, w, rowH).fill().restore();
-      pdf.font(isTotal ? bold : reg).fontSize(fs).fillColor('#111827').text(name, left + 4, ty + 4, { width: w - cw * 2 - 8 });
-      pdf.text(e, right - cw * 2, ty + 4, { width: cw - 4, align: 'right' }).text(d, right - cw, ty + 4, { width: cw - 4, align: 'right' });
-      pdf.save().lineWidth(0.5).strokeColor('#d1d5db').rect(left, ty, w, rowH).stroke().restore();
-      ty += rowH;
+    // Statement: one table, two amount columns.
+    const x = left + padX, w = width - padX * 2, aw = 96, nameW = w - aw * 2 - 8;
+    const head = () => {
+      const h = small + rowPad * 2 + 2;
+      ensure(h + fs * 3);
+      if (L.bordered) pdf.save().fillColor('#f8fafc').rect(x, y, w, h).fill().restore();
+      T('DESCRIPTION', x + 4, y + rowPad + 1, bold, small, accent, { width: nameW, characterSpacing: 0.6 });
+      T(`EARNINGS (${sym})`, x + w - aw * 2, y + rowPad + 1, bold, small, accent, { width: aw - 4, align: 'right' });
+      T(`DEDUCTIONS (${sym})`, x + w - aw, y + rowPad + 1, bold, small, accent, { width: aw - 4, align: 'right' });
+      hr(y + h, primary, 1.1, x, x + w);
+      y += h;
     };
-    for (const l of doc.earnings.concat(doc.reimbursements)) line(l.name, fm(l.amount), '');
-    for (const l of doc.deductions) line(l.name, '', fm(l.amount));
-    line('Totals', fm(doc.totals.earnings + doc.totals.reimbursements), fm(doc.totals.deductions), true);
-    y = ty + gap * 2;
+    head();
+    const line = (name: string, e: string, d: string, basisText?: string | null, isTotal = false) => {
+      const h = H(name, isTotal ? bold : reg, fs, nameW) + (F.lineBasis && basisText ? H(basisText, reg, small - 0.4, nameW) + 1 : 0) + rowPad * 2;
+      if (y + h > bottom()) { newPage(); head(); }
+      if (isTotal) { hr(y, '#cbd5e1', 0.8, x, x + w); }
+      T(name, x + 4, y + rowPad, isTotal ? bold : reg, fs, '#111827', { width: nameW });
+      if (F.lineBasis && basisText) T(basisText, x + 4, pdf.y + 1, reg, small - 0.4, '#9ca3af', { width: nameW });
+      T(e, x + w - aw * 2, y + rowPad, isTotal ? bold : reg, fs, '#111827', { width: aw - 4, align: 'right' });
+      T(d, x + w - aw, y + rowPad, isTotal ? bold : reg, fs, '#111827', { width: aw - 4, align: 'right' });
+      if (!isTotal) hr(y + h, '#f1f3f5', 0.5, x, x + w);
+      y += h;
+    };
+    for (const l of doc.earnings.concat(doc.reimbursements)) line(clean(l.name), an(l.amount), '', l.basis);
+    for (const l of doc.deductions) line(clean(l.name), '', an(l.amount), l.basis);
+    line('Totals', fm(doc.totals.earnings + doc.totals.reimbursements), fm(doc.totals.deductions), null, true);
   }
+  y += blockGap - 2;
+
+  // ── Net pay ──
+  {
+    const boxW = width - padX * 2, x = left + padX, valW = 190, textW = boxW - valW - 28;
+    const eq = clean(`Gross ${fm(doc.totals.earnings + doc.totals.reimbursements)} - Deductions ${fm(doc.totals.deductions)}`);
+    const wordsH = F.amountInWords ? H(doc.netInWords, ital, fs - 0.3, textW) + 2 : 0;
+    const eqH = H(eq, reg, small, textW);
+    const inner = Math.max(small + 3 + wordsH + eqH, fs + 14);
+    const h = inner + 22;
+    ensure(h);
+    const fill = band ? primary : mono ? '#f3f4f6' : tint(primary, 0.93);
+    const stroke = band ? primary : mono ? '#d1d5db' : tint(primary, 0.7);
+    pdf.save().fillColor(fill).strokeColor(stroke).lineWidth(0.8).roundedRect(x, y, boxW, h, 6).fillAndStroke().restore();
+    let yy = y + 11;
+    T('NET PAY', x + 14, yy, bold, small, band ? '#ffffff' : primary, { width: textW, characterSpacing: 1 }); yy += small + 3;
+    if (F.amountInWords) { T(doc.netInWords, x + 14, yy, ital, fs - 0.3, band ? '#ffffff' : '#374151', { width: textW }); yy += wordsH; }
+    T(eq, x + 14, yy, reg, small, band ? '#e5e7eb' : '#6b7280', { width: textW });
+    T(fm(doc.totals.net), x + boxW - valW - 14, y + (h - (fs + 11)) / 2 + 1, bold, fs + 11, band ? '#ffffff' : primary, { width: valW, align: 'right', lineBreak: false });
+    y += h + blockGap;
+  }
+
+  // ── Loans & advances ──
+  if (doc.loans.length) {
+    const x = left + padX, w = width - padX * 2, aw = 82, nameW = w - aw * 4 - 6;
+    const head = () => {
+      const h = small + rowPad * 2 + 2;
+      ensure(small + 8 + h + fs * 3);
+      heading('Loans & advances', x, w); y += small + 6;
+      pdf.save().fillColor('#f8fafc').fillOpacity(wmOn ? 0.6 : 1).rect(x, y, w, h).fill().restore();
+      const hs = ['Principal', 'This month', 'Total recovered', 'Outstanding'];
+      T('LOAN', x + 4, y + rowPad + 1, bold, small - 0.4, '#6b7280', { width: nameW, characterSpacing: 0.3 });
+      hs.forEach((s, i) => T(s.toUpperCase(), x + nameW + 6 + i * aw, y + rowPad + 1, bold, small - 0.4, '#6b7280', { width: aw - 4, align: 'right', characterSpacing: 0.2 }));
+      hr(y + h, '#e5e7eb', 0.6, x, x + w);
+      y += h;
+    };
+    head();
+    for (const l of doc.loans) {
+      const sub = l.emiLabel ?? (l.recoveredThisPeriod ? '' : 'No EMI this month');
+      const h = H(clean(l.name), bold, fs, nameW - 4) + (sub ? H(sub, reg, small - 0.4, nameW - 4) + 1 : 0) + rowPad * 2;
+      if (y + h > bottom()) { newPage(); head(); }
+      T(clean(l.name), x + 4, y + rowPad, bold, fs, '#111827', { width: nameW - 4 });
+      if (sub) T(sub, x + 4, pdf.y + 1, reg, small - 0.4, '#6b7280', { width: nameW - 4 });
+      [l.principal, l.recoveredThisPeriod, l.totalRecovered, l.outstanding].forEach((v, i) =>
+        T(an(v), x + nameW + 6 + i * aw, y + rowPad, i === 3 ? bold : reg, fs, '#111827', { width: aw - 4, align: 'right' }));
+      hr(y + h, '#f1f3f5', 0.5, x, x + w);
+      y += h;
+    }
+    y += blockGap;
+  }
+
+  // ── Employer contributions ──
   if (F.employerContributions && doc.employerContributions.length) {
-    y = table(left, width, 'Employer contributions (not part of net pay)', doc.employerContributions, 'Total', doc.totals.employer) + gap * 2;
+    const x = left + padX, w = width - padX * 2;
+    ensure(small + 8 + (fs + rowPad * 2) * 2);
+    heading('Employer contributions', x, w, 'not part of net pay'); y += small + 6;
+    for (const l of doc.employerContributions) {
+      const c = toCell(l), h = cellH(c, w - amtW - 8);
+      ensure(h); drawCell(c, x, w, h); y += h;
+    }
+    const th = fs + rowPad * 2 + 3;
+    ensure(th); hr(y, '#cbd5e1', 0.8, x, x + w); y += 2;
+    drawCell({ name: 'Total', amount: fm(doc.totals.employer) }, x, w, th, true); y += th + blockGap;
   }
 
-  // Net pay
-  // Grow the net-pay block when the amount in words wraps to two lines, so it
-  // doesn't spill out of the colour band (MODERN/BRANCH).
-  const wordsH = F.amountInWords ? pdf.font(L.serif ? 'Times-Italic' : 'Helvetica-Oblique').fontSize(fs - 1).heightOfString(doc.netInWords, { width: width * 0.62 }) : 0;
-  const netH = Math.max(44, 22 + wordsH + 8);
-  if (L.header === 'band') pdf.save().fillColor(primary).roundedRect(left, y, width, netH, L.density === 'airy' ? 5 : 0).fill().restore();
-  else pdf.save().lineWidth(1.5).strokeColor(primary).moveTo(left, y).lineTo(right, y).stroke().restore();
-  const nc = L.header === 'band' ? '#ffffff' : primary;
-  pdf.font(reg).fontSize(fs - 1).fillColor(L.header === 'band' ? '#e5e7eb' : '#6b7280').text('Net pay', left + 8, y + 8);
-  if (F.amountInWords) pdf.font(L.serif ? 'Times-Italic' : 'Helvetica-Oblique').fontSize(fs - 1).fillColor(L.header === 'band' ? '#ffffff' : '#4b5563').text(doc.netInWords, left + 8, y + 22, { width: width * 0.62 });
-  pdf.font(bold).fontSize(fs + 10).fillColor(nc).text(fm(doc.totals.net), left, y + 10, { width: width - 8, align: 'right' });
-  y += netH + gap * 3;
-
-  // PAID stamp sits bottom-left, opposite the signature, where nothing else prints
-  if (F.paidStamp && doc.payslip.status === 'PAID') {
-    pdf.save().rotate(-12, { origin: [left + 70, y + 30] }).lineWidth(2).strokeColor('#16a34a').roundedRect(left + 20, y + 15, 100, 30, 4).stroke()
-      .font('Helvetica-Bold').fontSize(16).fillColor('#16a34a').text('PAID', left + 20, y + 22, { width: 100, align: 'center', characterSpacing: 4 }).restore();
+  // ── PAID stamp + signature ──
+  const sig = B.showSignature ? openImage(pdf, assets.signature) : null;
+  const stamp = F.paidStamp && doc.payslip.status === 'PAID';
+  if (B.showSignature || stamp) {
+    const sigH = (sig ? 44 : 22) + (B.signatoryName ? fs + 3 : 0) + small + 6;
+    ensure(Math.max(sigH, 50));
+    if (stamp) {
+      pdf.save().rotate(-10, { origin: [left + padX + 60, y + 26] }).lineWidth(2).strokeColor('#16a34a').roundedRect(left + padX + 12, y + 12, 96, 28, 4).stroke()
+        .font('Helvetica-Bold').fontSize(15).fillColor('#16a34a').text('PAID', left + padX + 12, y + 19, { width: 96, align: 'center', characterSpacing: 4 }).restore();
+    }
+    if (B.showSignature) {
+      const sw = 180, sx = right - padX - sw;
+      let sy = y + (sig ? 44 : 22);
+      if (sig) drawFitted(pdf, sig, sx + 20, sy - 40, sw - 40, 36);
+      hr(sy, L.serif ? '#111827' : '#cbd5e1', 0.7, sx, sx + sw);
+      sy += 4;
+      if (B.signatoryName) { T(clean(B.signatoryName), sx, sy, bold, fs, '#111827', { width: sw, align: 'center' }); sy = pdf.y; }
+      T(clean(B.signatureLabel), sx, sy, reg, small, '#4b5563', { width: sw, align: 'center' });
+    }
+    y += Math.max(sigH, 50) + 4;
   }
-
-  // Signature
-  if (B.showSignature) {
-    const sx = right - 190, sw = 190;
-    const sig = openImage(pdf, assets.signature);
-    let sy = y + (sig ? 50 : 22);
-    if (sig) drawFitted(pdf, sig, sx + 20, sy - 42, sw - 40, 38);
-    pdf.save().lineWidth(0.6).strokeColor(L.serif ? '#111827' : '#9ca3af');
-    if (!L.serif) pdf.dash(3, { space: 2 });
-    pdf.moveTo(sx, sy).lineTo(sx + sw, sy).stroke().restore();
-    sy += 4;
-    if (B.signatoryName) { pdf.font(bold).fontSize(fs).fillColor('#111827').text(B.signatoryName, sx, sy, { width: sw, align: 'center' }); sy = pdf.y; }
-    pdf.font(reg).fontSize(fs - 1).fillColor('#4b5563').text(B.signatureLabel, sx, sy, { width: sw, align: 'center' });
-    y = pdf.y + gap * 2;
+  if (B.footerNote) {
+    const fh = H(clean(B.footerNote), reg, small, width) + 10;
+    ensure(fh);
+    hr(y, '#f1f3f5', 0.5);
+    T(clean(B.footerNote), left, y + 6, reg, small, '#9ca3af', { width, align: 'center' });
   }
-  if (B.footerNote) pdf.font(reg).fontSize(fs - 2).fillColor('#9ca3af').text(B.footerNote, left, y + gap * 2, { width, align: 'center' });
 }
