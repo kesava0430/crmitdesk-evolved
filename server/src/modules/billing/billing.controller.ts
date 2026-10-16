@@ -1,3 +1,4 @@
+import { publicCatalogue } from '../../utils/modules';
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
@@ -97,7 +98,10 @@ export async function getPricing(_req: AuthRequest, res: Response, next: NextFun
 export async function getEntitlements(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const [lic, cfg] = await Promise.all([getEffectiveLicense(req.user!.orgId), getPricingConfig()]);
-    res.json({ ...lic, gracePeriodDays: cfg.gracePeriodDays });
+    // The area / module catalogue rides along so the app can hide switched-off
+    // areas (sidebar, routes, dashboard, quick-create) without its own copy
+    // of which routes belong to which module (utils/modules.ts).
+    res.json({ ...lic, gracePeriodDays: cfg.gracePeriodDays, ...publicCatalogue() });
   } catch (err) { next(err); }
 }
 

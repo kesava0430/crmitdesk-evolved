@@ -14,6 +14,7 @@ import { getSendCounts, getSendCountsForOrgs } from '../../utils/usageTracking';
 import { getPlatformStorageConfig, getPlatformSettingsForAdmin, upsertPlatformSettings } from '../../utils/platformSettings';
 import { PLANS, isFeatureKey, stripe, isBillingEnabled } from '../../utils/stripe';
 import { secretsMatch } from '../../utils/crypto';
+import { publicCatalogue, applyAreaChanges, disabledAreas, AREAS, MODULE_CATALOGUE, AreaKey } from '../../utils/modules';
 
 const GB = 1024 * 1024 * 1024;
 
@@ -28,6 +29,27 @@ const DEFAULT_SUB_ROW = (orgId: string): SubRow => ({
  * row per org on every admin page load (LIC-23). */
 function licenseFor(orgId: string, sub: unknown, cfg: PricingConfig) {
   return evaluateLicense((sub as SubRow | null) ?? DEFAULT_SUB_ROW(orgId), new Date(), cfg);
+}
+
+/** Area / module switches of one org for the console's Areas section: what
+ *  the plan alone grants, what the operator changed, and the result. */
+function moduleStatesFor(orgId: string, sub: unknown, cfg: PricingConfig) {
+  const row = (sub as SubRow | null) ?? DEFAULT_SUB_ROW(orgId);
+  const lic = evaluateLicense(row, new Date(), cfg);
+  // The plan (after payment state) without any operator override.
+  const planOnly = evaluateLicense({ ...row, extraFeatures: [], disabledFeatures: [] }, new Date(), cfg);
+  const disabled = lic.disabledFeatures as string[];
+  const extra = (row.extraFeatures ?? []) as string[];
+  return {
+    areas: AREAS.map(a => ({ key: a.key, enabled: !disabled.includes(a.root) })),
+    modules: MODULE_CATALOGUE.map(m => ({
+      key: m.key,
+      inPlan: planOnly.features.includes(m.key),
+      forcedOn: extra.includes(m.key),
+      switchedOff: disabled.includes(m.key),
+      enabled: lic.features.includes(m.key),
+    })),
+  };
 }
 
 /** Billable seats in use per org, one grouped query (same rule as getBillableSeatCount). */
@@ -46,7 +68,7 @@ async function billableSeatsByOrg(orgIds: string[]): Promise<Record<string, numb
 /** The licence fields shown in the console (and diffed into the audit log). */
 const LICENSE_FIELDS = [
   'plan', 'status', 'seats', 'features', 'interval', 'cancelAtPeriodEnd', 'currentPeriodEnd', 'graceUntil',
-  'storageQuotaOverrideGb', 'aiTokenLimitMonthly', 'seatsOverride', 'extraFeatures', 'manualNote', 'manualExpiresAt',
+  'storageQuotaOverrideGb', 'aiTokenLimitMonthly', 'seatsOverride', 'extraFeatures', 'disabledFeatures', 'manualNote', 'manualExpiresAt',
   'platformEmailQuotaMonthly', 'platformWhatsAppQuotaMonthly',
 ] as const;
 
@@ -156,6 +178,8 @@ export async function listOrgs(_req: AuthRequest, res: Response, next: NextFunct
           : null,
         // What the org can actually do right now (payment state + overrides applied).
         license: { effectivePlan: lic.effectivePlan, access: lic.access, seats: lic.seats, reason: lic.reason, stripeManaged: lic.stripeManaged },
+        // Areas switched on for the org (Platform Admin → Areas), for the list's compact chips.
+        enabledAreas: AREAS.filter(a => !disabledAreas(lic.disabledFeatures).includes(a.key)).map(a => a.key),
         seatsUsed: seatsByOrg[o.id] ?? 0,
         branding: o.branding
           ? {
@@ -247,6 +271,8 @@ export async function getOrg(req: AuthRequest, res: Response, next: NextFunction
       ...org,
       plan: org.subscription?.plan ?? 'FREE',
       license: lic,
+      moduleCatalogue: publicCatalogue(),
+      moduleStates: moduleStatesFor(org.id, org.subscription, cfg),
       seatsUsed,
       licenceHistory: history,
       storageLicense: { quotaBytes, usedBytes },
@@ -383,6 +409,51 @@ export async function updateSubscription(req: AuthRequest, res: Response, next: 
     if (Object.keys(changes).length) logAction(req.user!.id, 'UPDATE', 'Subscription', orgId, { changes, stripeManaged: !!stripeSubId });
 
     res.json(sub);
+  } catch (err) { next(err); }
+}
+
+const UpdateModulesSchema = z.object({
+  /** Area switches: true = on (all its sub-modules back), false = off. */
+  areas: z.record(z.enum(['hr', 'crm', 'itdesk']), z.boolean()).optional(),
+  /** Advanced: single sub-modules inside an enabled area. */
+  modules: z.record(z.string(), z.boolean()).optional(),
+});
+
+/**
+ * PATCH /platform/orgs/:id/modules — the operator switches product areas
+ * (HR / CRM / IT Desk) or single sub-modules on or off for one org. Stored as
+ * Subscription.disabledFeatures (utils/modules.ts applyAreaChanges); works on
+ * every licence, Stripe-billed included — it's an operator override, and
+ * Stripe's webhook never writes the column. Refuses to leave an org with no
+ * area at all. Audited like every other licence change, and the licence
+ * cache is dropped so the org's next request sees it.
+ */
+export async function updateModules(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = req.params.id;
+    const data = UpdateModulesSchema.parse(req.body);
+    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true } });
+    if (!org) throw new AppError(404, 'Organization not found');
+    const before = await prisma.subscription.findUnique({ where: { orgId } });
+    let disabledFeatures: string[];
+    try {
+      disabledFeatures = applyAreaChanges(before?.disabledFeatures ?? [], {
+        areas: data.areas as Partial<Record<AreaKey, boolean>> | undefined,
+        modules: data.modules,
+      }).filter(isFeatureKey);
+    } catch (e) {
+      throw new AppError(400, (e as Error).message);
+    }
+    const sub = await prisma.subscription.upsert({
+      where: { orgId },
+      create: { orgId, plan: 'FREE', status: 'active', seats: 5, disabledFeatures },
+      update: { disabledFeatures },
+    });
+    invalidateLicenseCache(orgId);
+    const changes = licenseDiff(before as any, sub as any);
+    if (Object.keys(changes).length) logAction(req.user!.id, 'UPDATE', 'Subscription', orgId, { changes, areas: data.areas ?? null, modules: data.modules ?? null });
+    const cfg = await getPricingConfig();
+    res.json({ disabledFeatures: sub.disabledFeatures, license: licenseFor(orgId, sub, cfg), moduleStates: moduleStatesFor(orgId, sub, cfg) });
   } catch (err) { next(err); }
 }
 
@@ -545,6 +616,8 @@ const PricingSchema = z.object({
     FREE: z.array(z.string()).optional(), PRO: z.array(z.string()).optional(),
     ENTERPRISE: z.array(z.string()).optional(), CUSTOM: z.array(z.string()).optional(),
   }).optional(),
+  /** Feature keys the console showed when saving planFeatures (see pricing.ts mergePlanFeatures). */
+  planFeaturesKeys: z.array(z.string()).max(100).optional(),
   platformEmailMonthly: limitsSchema(),
   platformWhatsAppMonthly: limitsSchema(),
   aiTokensMonthly: limitsSchema(),
