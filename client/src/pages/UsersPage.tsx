@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -31,8 +32,10 @@ function useRoleOptions() {
   const { user } = useAuth();
   const canReadRoles = can.readRoles(user?.role);
   const { data, isLoading } = useRoles(canReadRoles);
+  // Roles of an area switched off for the org (Platform Admin → Areas) aren't offered.
+  const modules = useModules();
   const options = (data?.data ?? [])
-    .filter(r => r.isActive)
+    .filter(r => r.isActive && modules.isRoleOffered(r.legacyRole))
     .map(r => ({
       value: r.id,
       label: r.description ? `${r.name} — ${r.description}` : r.name,
@@ -141,7 +144,11 @@ function UserForm({ initial, onSubmit, loading }: any) {
             value={form.roleId || (initialRoleId ?? '')}
             onChange={val => setForm((p: any) => ({ ...p, roleId: val }))}
             required
-            options={rolesLoading ? [{ value: '', label: 'Loading roles…' }] : roleOptions}
+            options={rolesLoading ? [{ value: '', label: 'Loading roles…' }] : [
+              // An existing user's current role always stays listed, even when its area is switched off.
+              ...roles.filter(r => r.id === initialRoleId && !roleOptions.some(o => o.value === r.id)).map(r => ({ value: r.id, label: r.name })),
+              ...roleOptions,
+            ]}
           />
         </Field>
       </div>

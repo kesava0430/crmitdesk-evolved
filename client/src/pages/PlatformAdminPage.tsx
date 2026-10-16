@@ -5,6 +5,7 @@ import {
   usePlatformOrg,
   useUpdatePlatformOrg,
   useUpdatePlatformSubscription,
+  useUpdatePlatformModules,
   useUpdatePlatformBranding,
   usePlatformSettings,
   useTestPlatformStorage,
@@ -187,6 +188,7 @@ function OrgNameEditor({ org }: { org: PlatformOrgDetail }) {
 
 const LICENSE_STATUSES = ['active', 'trialing', 'past_due', 'incomplete', 'canceled', 'unpaid', 'paused'];
 const ACCESS_BADGE: Record<string, 'green' | 'yellow' | 'red'> = { full: 'green', grace: 'yellow', lapsed: 'red' };
+const AREA_SHORT: Record<'hr' | 'crm' | 'itdesk', string> = { hr: 'HR', crm: 'CRM', itdesk: 'IT Desk' };
 /** "" ⇄ null for optional numeric inputs. */
 const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v));
 const strOf = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v));
@@ -391,6 +393,122 @@ function SubscriptionEditor({ org }: { org: PlatformOrgDetail }) {
           {sub?.manualNote && <p className="text-xs text-fg-muted pt-1 border-t border-line-subtle mt-1">Note: {sub.manualNote}</p>}
         </Card>
       )}
+    </section>
+  );
+}
+
+/** Badge for one sub-module's state in an org (AreasEditor). */
+function moduleBadge(m: { inPlan: boolean; forcedOn: boolean; switchedOff: boolean; enabled: boolean } | undefined, areaOn: boolean): { label: string; variant: 'green' | 'blue' | 'gray' | 'red' } {
+  if (!m) return { label: '—', variant: 'gray' };
+  if (!areaOn) return { label: 'Off with area', variant: 'gray' };
+  if (m.switchedOff) return { label: 'Disabled by platform', variant: 'red' };
+  if (m.enabled && !m.inPlan && m.forcedOn) return { label: 'Enabled by platform', variant: 'blue' };
+  if (m.enabled) return { label: 'Included', variant: 'green' };
+  return { label: 'Not in plan', variant: 'gray' };
+}
+
+/**
+ * Product areas (PATCH /platform/orgs/:id/modules). The operator switches HR,
+ * CRM and IT Desk per org; switching an area on brings every sub-module of it
+ * back, switching it off takes them all away. Plan features still apply on
+ * top (the customer portal needs a plan that has it — comp it with "Extra
+ * features" in the licence above). Advanced: one sub-module off inside an
+ * enabled area (e.g. HR without Payroll). At least one area always stays on.
+ */
+function AreasEditor({ org }: { org: PlatformOrgDetail }) {
+  const mutation = useUpdatePlatformModules();
+  const [confirmOff, setConfirmOff] = useState<'hr' | 'crm' | 'itdesk' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const catalogue = org.moduleCatalogue;
+  const states = org.moduleStates;
+  if (!catalogue || !states) return null;
+
+  const areaOn = (k: string) => states.areas.find(a => a.key === k)?.enabled ?? true;
+  const onCount = states.areas.filter(a => a.enabled).length;
+  const send = (body: Parameters<typeof mutation.mutate>[0]) => {
+    setError(null);
+    mutation.mutate(body, {
+      onSuccess: () => setConfirmOff(null),
+      onError: (e: any) => setError(e?.response?.data?.error ?? 'Could not change the areas'),
+    });
+  };
+  const setArea = (key: 'hr' | 'crm' | 'itdesk', on: boolean) => {
+    if (!on) { setConfirmOff(key); return; }
+    send({ id: org.id, areas: { [key]: true } });
+  };
+  const confirmArea = catalogue.areas.find(a => a.key === confirmOff);
+
+  return (
+    <section data-testid="org-areas-editor">
+      <PanelHeading>Product areas</PanelHeading>
+      <p className="text-xs text-fg-muted mb-2">
+        Switch whole areas on or off for this organisation. Turning an area on enables everything in it; turning it off hides it from every user and its APIs stop answering. Data is kept.
+      </p>
+      {error && <Alert tone="danger" className="mb-2">{error}</Alert>}
+      {confirmArea && (
+        <Alert
+          tone="warning"
+          className="mb-2"
+          title={`Turn off ${confirmArea.label} for ${org.name}?`}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Button size="xs" variant="danger" loading={mutation.isPending} onClick={() => send({ id: org.id, areas: { [confirmArea.key]: false } })}>Turn off</Button>
+              <Button size="xs" variant="secondary" onClick={() => setConfirmOff(null)}>Cancel</Button>
+            </div>
+          }
+        >
+          Its pages disappear for every user of this organisation and its data stops being reachable until you turn it back on. Nothing is deleted.
+        </Alert>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {catalogue.areas.map(a => {
+          const on = areaOn(a.key);
+          const lastOne = on && onCount <= 1;
+          return (
+            <Card key={a.key} tone="sunken" padding="sm" flat className={`min-w-0 ${on ? '' : 'opacity-80'}`} data-testid={`area-${a.key}`}>
+              <Toggle
+                checked={on}
+                disabled={mutation.isPending || lastOne}
+                onChange={v => setArea(a.key, v)}
+                label={<span className="flex items-center gap-1.5">{a.label} <Badge variant={on ? 'green' : 'gray'} size="sm">{on ? 'On' : 'Off'}</Badge></span>}
+                hint={lastOne ? 'At least one area must stay on.' : a.description}
+              />
+              <ul className="mt-2 space-y-1">
+                {a.modules.map(k => {
+                  const def = catalogue.modules.find(m => m.key === k);
+                  const b = moduleBadge(states.modules.find(m => m.key === k), on);
+                  return (
+                    <li key={k} className="flex items-center justify-between gap-2 text-[12px]">
+                      <span className={`min-w-0 leading-tight ${on ? 'text-fg' : 'text-fg-subtle'}`} title={def?.description}>{def?.label ?? k}</span>
+                      <span className="shrink-0"><Badge variant={b.variant} size="sm">{b.label}</Badge></span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          );
+        })}
+      </div>
+      <details className="mt-2 group">
+        <summary className="text-xs font-medium text-fg-muted cursor-pointer select-none">Advanced — switch off a single part of an enabled area</summary>
+        <Card tone="sunken" padding="sm" flat className="mt-2 space-y-2">
+          {catalogue.areas.filter(a => areaOn(a.key)).flatMap(a => a.modules.filter(k => k !== a.root).map(k => {
+            const def = catalogue.modules.find(m => m.key === k);
+            const st = states.modules.find(m => m.key === k);
+            return (
+              <Toggle
+                key={k}
+                checked={!st?.switchedOff}
+                disabled={mutation.isPending}
+                onChange={v => send({ id: org.id, modules: { [k]: v } })}
+                label={`${a.label} · ${def?.label ?? k}`}
+                hint={st && !st.switchedOff && !st.enabled ? 'On, but not in this plan — add it under Extra features to comp it.' : def?.description}
+              />
+            );
+          }))}
+          {catalogue.areas.every(a => !areaOn(a.key)) && <p className="text-xs text-fg-subtle">No area is on.</p>}
+        </Card>
+      </details>
     </section>
   );
 }
@@ -790,6 +908,8 @@ function OrgDetailPanel({ orgId, onClose }: { orgId: string; onClose: () => void
         <div className="space-y-6">
           <OrgNameEditor org={org} />
 
+          <AreasEditor org={org} />
+
           <SubscriptionEditor org={org} />
 
           <LicenceHistory org={org} />
@@ -912,10 +1032,26 @@ export function PlatformAdminPage() {
       ),
     },
     {
+      key: 'areas',
+      header: 'Areas',
+      cell: org => (
+        (() => {
+          const on = org.enabledAreas ?? ['hr', 'crm', 'itdesk'];
+          return (
+            <div className="flex items-center gap-1 whitespace-nowrap" data-testid={`org-areas-${org.slug}`} title={(['hr', 'crm', 'itdesk'] as const).map(a => `${AREA_SHORT[a]}: ${on.includes(a) ? 'on' : 'off'}`).join(' · ')}>
+              {on.length === 3
+                ? <Badge variant="teal" size="sm">All areas</Badge>
+                : on.map(a => <Badge key={a} variant="teal" size="sm">{AREA_SHORT[a]}</Badge>)}
+            </div>
+          );
+        })()
+      ),
+    },
+    {
       key: 'users',
       header: 'Seats',
       cell: org => (
-        <span className="inline-flex items-center gap-1 text-fg tabular-nums" title={`${org.counts.users} users in total (Employees don't use a seat)`}>
+        <span className="inline-flex items-center gap-1 text-fg tabular-nums whitespace-nowrap" title={`${org.counts.users} users in total (Employees don't use a seat)`}>
           <UsersIcon size={13} className="text-fg-subtle" />
           <span className={org.license && (org.seatsUsed ?? 0) > org.license.seats ? 'text-danger' : ''}>{org.seatsUsed ?? '—'}</span>
           <span className="text-fg-subtle">/ {org.license?.seats ?? org.subscription?.seats ?? '—'}</span>
@@ -1129,6 +1265,9 @@ function PricingPanel({ onClose }: { onClose: () => void }) {
       trialDays: Math.max(0, Math.round(Number(form.trialDays) || 0)),
       contactEmail: form.contactEmail.trim(),
       planFeatures: form.planFeatures,
+      // Every key shown in the grid above — keys added to the product after
+      // this save then follow their default instead of reading as unticked.
+      planFeaturesKeys: [...FEATURE_KEYS],
       platformEmailMonthly: formToLimits(form.emailLimits),
       platformWhatsAppMonthly: formToLimits(form.whatsappLimits),
       aiTokensMonthly: formToLimits(form.aiLimits),

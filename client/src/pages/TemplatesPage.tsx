@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import { LayoutTemplate, Plus, Pencil, Trash2 } from 'lucide-react';
 import {
@@ -596,6 +597,10 @@ function QuoteTemplatesTab() {
 export default function TemplatesPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<TopTab>('Records');
+  // Quote templates belong to Quotes & invoices — gone while that module is
+  // switched off for the org (Platform Admin → Areas).
+  const modules = useModules();
+  const topTabs = TOP_TABS.filter(t => t !== 'Quotes' || modules.isModuleOn('sales_docs'));
 
   /* Every one of /templates/records|replies|emails|quotes is ALL_STAFF-only,
      so for an EMPLOYEE — who can reach this page by URL — there is no tab
@@ -612,7 +617,7 @@ export default function TemplatesPage() {
           <Tabs
             variant="pill"
             aria-label="Template type"
-            items={TOP_TABS.map(t => ({ key: t, label: t }))}
+            items={topTabs.map(t => ({ key: t, label: t }))}
             value={tab}
             onChange={setTab}
           />
@@ -623,7 +628,7 @@ export default function TemplatesPage() {
         {tab === 'Records' && <RecordTemplatesTab />}
         {tab === 'Replies' && <ReplyTemplatesTab />}
         {tab === 'Emails' && <EmailTemplatesTab />}
-        {tab === 'Quotes' && <QuoteTemplatesTab />}
+        {tab === 'Quotes' && topTabs.includes('Quotes') && <QuoteTemplatesTab />}
       </PageBody>
     </div>
   );

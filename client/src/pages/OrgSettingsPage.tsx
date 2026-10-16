@@ -1,3 +1,4 @@
+import { OrgAreasCard } from '../shared/components/OrgAreasCard';
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle } from 'lucide-react';
 import { useOrgSettings, useUpdateOrgSettings } from '../api/org';
@@ -148,6 +149,7 @@ export default function OrgSettingsPage() {
             </div>
           </Card>
         )}
+        <OrgAreasCard />
       </PageBody>
     </div>
   );

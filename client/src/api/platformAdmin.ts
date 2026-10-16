@@ -1,3 +1,4 @@
+import type { AreaInfo, ModuleInfo } from './billing';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 
@@ -80,6 +81,8 @@ export interface PlatformOrgSummary {
   license?: { effectivePlan: string; access: 'full' | 'grace' | 'lapsed'; seats: number; reason: string | null; stripeManaged: boolean };
   /** Active billable users (every role except Employee). */
   seatsUsed?: number;
+  /** Product areas switched on for the org (Platform Admin → Areas). */
+  enabledAreas?: ('hr' | 'crm' | 'itdesk')[];
   branding: { companyName: string; logoUrl: string | null; primaryColor: string; supportEmail: string | null } | null;
   emailSending: { connected: boolean; email: string | null; smtpHost: string | null; lastSyncAt: string | null };
   whatsappSending: { connected: boolean; phoneNumber: string | null; notifyNumber: string | null };
@@ -151,7 +154,33 @@ export interface PlatformOrgDetail extends Omit<PlatformOrgSummary, 'emailSendin
   storageLicense: { quotaBytes: number; usedBytes: number };
   users: { id: string; name: string; email: string; role: string; isActive: boolean; createdAt: string }[];
   _count: { contacts: number; tickets: number; deals: number };
+  moduleCatalogue?: { areas: AreaInfo[]; modules: ModuleInfo[] };
+  moduleStates?: ModuleStates;
 }
+
+/** Per-org area / module switches (server platformAdmin.controller.ts moduleStatesFor). */
+export interface ModuleStates {
+  areas: { key: 'hr' | 'crm' | 'itdesk'; enabled: boolean }[];
+  modules: { key: string; inPlan: boolean; forcedOn: boolean; switchedOff: boolean; enabled: boolean }[];
+}
+
+export interface ModulesUpdate {
+  areas?: Partial<Record<'hr' | 'crm' | 'itdesk', boolean>>;
+  modules?: Record<string, boolean>;
+}
+
+/** PATCH /platform/orgs/:id/modules — switch areas / sub-modules for one org. */
+export const useUpdatePlatformModules = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string } & ModulesUpdate) =>
+      api.patch(`/platform/orgs/${id}/modules`, data).then(r => r.data),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['platform-orgs'] });
+      qc.invalidateQueries({ queryKey: ['platform-orgs', id] });
+    },
+  });
+};
 
 /** Platform-admin only: every org's plan/license/branding/sending-connection status (GET /platform/orgs). */
 export const usePlatformOrgs = (enabled = true) =>
@@ -292,6 +321,8 @@ export interface PlatformPricing {
 export type PricingUpdate = Partial<Omit<PricingConfig, 'modules' | 'planPrices' | 'planFeatures' | 'platformEmailMonthly' | 'platformWhatsAppMonthly' | 'aiTokensMonthly'>> & {
   planPrices?: Partial<PricingConfig['planPrices']>;
   planFeatures?: Partial<Record<LimitPlan, string[]>>;
+  /** Feature keys the console showed when saving planFeatures (keys added later follow their default). */
+  planFeaturesKeys?: string[];
   platformEmailMonthly?: Partial<PlanLimits>;
   platformWhatsAppMonthly?: Partial<PlanLimits>;
   aiTokensMonthly?: Partial<PlanLimits>;

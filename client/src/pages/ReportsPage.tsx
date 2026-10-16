@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useModules } from '../shared/modules';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Star, MessageSquare, BarChart2, Inbox } from 'lucide-react';
@@ -85,19 +86,24 @@ export function ReportsPage() {
      it, and keep the capability in the queries' `enabled` so a stale `tab`
      value can't fire them either. */
   const { user } = useAuth();
-  const showCsat = can.readCsat(user?.role);
-  const tabs = TABS.filter(x => x.key !== 'csat' || showCsat);
+  // Tabs of areas switched off for the org (Platform Admin → Areas) go too.
+  const modules = useModules();
+  const ticketsOn = modules.isModuleOn('itdesk');
+  const showCsat = can.readCsat(user?.role) && ticketsOn;
+  const tabs = TABS.filter(x => (x.key !== 'csat' || showCsat) && (x.key !== 'tickets' || ticketsOn) && (x.key !== 'crm' || modules.isModuleOn('crm')));
+  // A remembered / default tab that's no longer offered falls to the first one.
+  useEffect(() => { if (tabs.length && !tabs.some(t => t.key === tab)) setTab(tabs[0].key); }, [tabs.map(t => t.key).join(), tab]);
 
   const { data: ticketData, isLoading: ticketsLoading } = useQuery({
     queryKey: ['reports-tickets'],
     queryFn: () => api.get('/reports/tickets').then(r => r.data),
-    enabled: tab === 'tickets',
+    enabled: tab === 'tickets' && ticketsOn,
   });
 
   const { data: crmData, isLoading: crmLoading } = useQuery({
     queryKey: ['reports-crm'],
     queryFn: () => api.get('/reports/crm').then(r => r.data),
-    enabled: tab === 'crm',
+    enabled: tab === 'crm' && modules.isModuleOn('crm'),
   });
 
   const { data: csatStats, isLoading: csatStatsLoading } = useCsatStats(showCsat && tab === 'csat');

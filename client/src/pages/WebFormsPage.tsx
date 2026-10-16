@@ -8,7 +8,8 @@
  * as in-app records — pair a form with an AI Auto-Assign rule and inbound
  * requests route themselves.
  */
-import { useState } from 'react';
+import { useModules } from '../shared/modules';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   PanelTop, Plus, Link2, Code2, Trash2, CheckCircle2,
@@ -39,7 +40,15 @@ interface WebForm {
 export default function WebFormsPage() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
-  const [draft, setDraft] = useState({ name: '', type: 'LEAD' as 'LEAD' | 'TICKET', title: '', intro: '' });
+  // Lead forms need CRM, ticket forms IT Desk (Platform Admin → Areas).
+  const modules = useModules();
+  const typeOptions = [
+    ...(modules.isModuleOn('crm') ? [{ value: 'LEAD', label: 'Leads (sales inquiry form)' }] : []),
+    ...(modules.isModuleOn('itdesk') ? [{ value: 'TICKET', label: 'Tickets (support request form)' }] : []),
+  ];
+  const defaultType = (typeOptions[0]?.value ?? 'LEAD') as 'LEAD' | 'TICKET';
+  const [draft, setDraft] = useState({ name: '', type: defaultType, title: '', intro: '' });
+  useEffect(() => { if (!typeOptions.some(o => o.value === draft.type)) setDraft(d => ({ ...d, type: defaultType })); }, [defaultType]); // eslint-disable-line react-hooks/exhaustive-deps
   const [copied, setCopied] = useState<string | null>(null);
   const [integrationsFor, setIntegrationsFor] = useState<string | null>(null);
 
@@ -61,7 +70,7 @@ export default function WebFormsPage() {
     onSuccess: () => {
       invalidate();
       setShowCreate(false);
-      setDraft({ name: '', type: 'LEAD', title: '', intro: '' });
+      setDraft({ name: '', type: defaultType, title: '', intro: '' });
       addToast('Form created — copy its link or embed code below', 'success');
     },
     onError: (e: any) => addToast(e?.response?.data?.error || 'Could not create form', 'error'),
@@ -372,10 +381,7 @@ function onFormSubmit(e) {
             <Select
               value={draft.type}
               onChange={e => setDraft(d => ({ ...d, type: e.target.value as 'LEAD' | 'TICKET' }))}
-              options={[
-                { value: 'LEAD', label: 'Leads (sales inquiry form)' },
-                { value: 'TICKET', label: 'Tickets (support request form)' },
-              ]}
+              options={typeOptions}
             />
           </Field>
           <Field label="Public title" hint="Shown as the form heading (optional)">

@@ -1,3 +1,4 @@
+import { useModules } from '../../shared/modules';
 import { useState } from 'react';
 import {
   Zap, Plus, Trash2, ToggleLeft, ToggleRight,
@@ -50,6 +51,11 @@ const TRIGGERS = [
   { value: 'APPROVAL_DECIDED',       label: 'Approval Request Decided', entity: 'APPROVAL' },
   { value: 'LEAVE_REQUESTED',        label: 'Leave Requested', entity: 'LEAVE' },
 ];
+
+// Trigger entity / action → licence module (server utils/modules.ts
+// WORKFLOW_TRIGGER_MODULE / WORKFLOW_ACTION_MODULE).
+const ENTITY_MODULE: Record<string, string> = { TICKET: 'itdesk', LEAD: 'crm', DEAL: 'crm', INVOICE: 'sales_docs', QUOTE: 'sales_docs', LEAVE: 'hr_core' };
+const ACTION_MODULE: Record<string, string> = { CREATE_TICKET: 'itdesk', SEND_CSAT_SURVEY: 'itdesk', SCORE_LEAD: 'crm' };
 
 const CONDITION_FIELDS: Record<string, { value: string; label: string }[]> = {
   TICKET: [
@@ -507,8 +513,16 @@ function RuleEditor({
   onClose: () => void;
   saving: boolean;
 }) {
-  const [form, setForm] = useState(initial);
+  const modules = useModules();
+  // A new rule defaults to "Ticket Created"; with IT Desk off start on Lead Created instead.
+  const [form, setForm] = useState(() => (!initial.name && initial.trigger === 'TICKET_CREATED' && !modules.isModuleOn('itdesk'))
+    ? { ...initial, trigger: modules.isModuleOn('crm') ? 'LEAD_CREATED' : 'APPROVAL_DECIDED' }
+    : initial);
   const { data: orgUsers } = useUsers();
+  // Triggers / actions of areas switched off for the org aren't offered (the
+  // server refuses them too); a rule's current choice always stays listed.
+  const triggerOptions = TRIGGERS.filter(t => (t.value === initial.trigger && !!initial.name) || t.value === form.trigger || !ENTITY_MODULE[t.entity] || t.value === 'DATE_FIELD_REACHED' || modules.isModuleOn(ENTITY_MODULE[t.entity]));
+  const actionOptions = (current: string) => ACTION_TYPES.filter(a => a.value === current || !ACTION_MODULE[a.value] || modules.isModuleOn(ACTION_MODULE[a.value]));
 
   const entity = getEntityForTrigger(form.trigger, form.dateConfig);
   const condFields = CONDITION_FIELDS[entity] || [];
@@ -587,7 +601,7 @@ function RuleEditor({
             trigger: val,
             conditions: [],
             dateConfig: val === 'DATE_FIELD_REACHED' ? (f.dateConfig || DEFAULT_DATE_CONFIG) : f.dateConfig,
-          }))} required options={TRIGGERS.map(t => ({ value: t.value, label: t.label }))} />
+          }))} required options={triggerOptions.map(t => ({ value: t.value, label: t.label }))} />
           {form.trigger === 'DATE_FIELD_REACHED' && (
             <div className="mt-3">
               <DateConfigEditor
@@ -656,7 +670,7 @@ function RuleEditor({
                   <div className="w-full sm:w-40 sm:shrink-0">
                     <Select selectSize="sm" aria-label="Action type" value={action.type}
                       onChange={e => updateAction(i, { type: e.target.value as any, params: {} })}
-                      options={ACTION_TYPES} />
+                      options={actionOptions(action.type)} />
                   </div>
                   <IconButton className="sm:hidden" label="Remove action" icon={<Trash2 size={13} />} tone="danger" onClick={() => removeAction(i)} />
                 </div>

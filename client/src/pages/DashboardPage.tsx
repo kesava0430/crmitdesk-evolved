@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -133,13 +134,14 @@ const PRIORITY_CFG: Record<string, { label: string; bar: string }> = {
 };
 
 const QUERIES = [
-  'How many deals are open?',
-  'What is my forecasted revenue?',
-  'How many tickets need attention?',
-  'Summarise my pipeline.',
+  { q: 'How many deals are open?', area: 'crm' },
+  { q: 'What is my forecasted revenue?', area: 'crm' },
+  { q: 'How many tickets need attention?', area: 'itdesk' },
+  { q: 'Summarise my pipeline.', area: 'crm' },
 ];
 
-function AIQueryBar() {
+function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
+  const suggestions = QUERIES.filter(x => areas[x.area as 'crm' | 'itdesk']).map(x => x.q);
   const [question, setQuestion] = useState('');
   const nlQuery = useNLQuery();
 
@@ -165,7 +167,7 @@ function AIQueryBar() {
             value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && ask(question)}
-            placeholder="e.g. How many tickets are SLA-breached today?"
+            placeholder={`e.g. ${suggestions[0] ?? "What changed this week?"}`}
             aria-label="Ask AI about your data"
             className="flex-1"
           />
@@ -180,7 +182,7 @@ function AIQueryBar() {
         </div>
         {!nlQuery.data && !nlQuery.isPending && (
           <div className="flex flex-wrap gap-2">
-            {QUERIES.map(q => (
+            {suggestions.map(q => (
               <Button key={q} variant="secondary" size="xs" onClick={() => ask(q)} className="!rounded-badge">
                 {q}
               </Button>
@@ -235,9 +237,15 @@ export function DashboardPage() {
      means each person's dashboard is simply the part of it that applies to
      them. */
   const role = user?.role;
-  const showCrm    = can.readCrm(role);
-  const showCrmKpis = can.readCrmReports(role);
-  const showItDesk = can.readTicketReports(role);
+  /* …and which areas the org has at all (Platform Admin switches HR / CRM /
+     IT Desk per org). Widgets and shortcuts of a switched-off area are
+     simply not there. */
+  const modules = useModules();
+  const crmOn = modules.isModuleOn('crm');
+  const itdeskOn = modules.isModuleOn('itdesk');
+  const showCrm    = can.readCrm(role) && crmOn;
+  const showCrmKpis = can.readCrmReports(role) && crmOn;
+  const showItDesk = can.readTicketReports(role) && itdeskOn;
 
   const { data: dealReports, isLoading: dealsLoading } = useDealReports(showCrmKpis);
   const { data: contacts } = useContacts(undefined, showCrm);
@@ -252,10 +260,10 @@ export function DashboardPage() {
     { label: 'New Contact', icon: Users,       color: 'violet'  as IconColor, to: '/crm/contacts',    show: showCrm },
     { label: 'New Lead',    icon: Target,      color: 'indigo'  as IconColor, to: '/crm/leads',       show: showCrm },
     { label: 'New Deal',    icon: TrendingUp,  color: 'blue'    as IconColor, to: '/crm/deals',       show: showCrm },
-    { label: 'New Ticket',  icon: Ticket,      color: 'orange'  as IconColor, to: '/itdesk/tickets',  show: true },
+    { label: 'New Ticket',  icon: Ticket,      color: 'orange'  as IconColor, to: '/itdesk/tickets',  show: itdeskOn },
     { label: 'My Work',     icon: CheckCircle, color: 'emerald' as IconColor, to: '/my-work',         show: true },
     { label: 'Reports',     icon: BarChart2,   color: 'emerald' as IconColor, to: '/reports',         show: can.readAdmin(role) },
-    { label: 'Import CSV',  icon: ArrowUpRight, color: 'gray'   as IconColor, to: '/import',          show: can.readCrmReports(role) },
+    { label: 'Import CSV',  icon: ArrowUpRight, color: 'gray'   as IconColor, to: '/import',          show: can.readCrmReports(role) && (crmOn || itdeskOn) },
   ].filter(a => a.show);
 
   const hour = new Date().getHours();
@@ -273,16 +281,24 @@ export function DashboardPage() {
         subtitle={new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}
         actions={
           <>
-            <Button variant="secondary" icon={<FileText size={14} />} onClick={() => setMeetingNotesOpen(true)}>
-              Parse Meeting Notes
-            </Button>
-            <AiInfo id="meeting.notes" align="left" className="-ml-1" />
-            <Button variant="secondary" icon={<Plus size={14} />} onClick={() => navigate('/crm/contacts')}>
-              Contact
-            </Button>
-            <Button icon={<Plus size={14} />} onClick={() => navigate('/itdesk/tickets')}>
-              Ticket
-            </Button>
+            {crmOn && (
+              <>
+                <Button variant="secondary" icon={<FileText size={14} />} onClick={() => setMeetingNotesOpen(true)}>
+                  Parse Meeting Notes
+                </Button>
+                <AiInfo id="meeting.notes" align="left" className="-ml-1" />
+              </>
+            )}
+            {crmOn && (
+              <Button variant="secondary" icon={<Plus size={14} />} onClick={() => navigate('/crm/contacts')}>
+                Contact
+              </Button>
+            )}
+            {itdeskOn && (
+              <Button icon={<Plus size={14} />} onClick={() => navigate('/itdesk/tickets')}>
+                Ticket
+              </Button>
+            )}
           </>
         }
       />
@@ -294,7 +310,7 @@ export function DashboardPage() {
             const attention = [
               { key: 'sla', count: ticketReports.slaBreached ?? 0, label: 'SLA-breached tickets', icon: AlertCircle, tone: 'danger' as const, to: '/itdesk/tickets' },
               { key: 'open', count: ticketReports.open ?? 0, label: 'Open tickets awaiting action', icon: Ticket, tone: 'info' as const, to: '/itdesk/tickets' },
-              { key: 'leads', count: activeLeads ?? 0, label: 'Leads awaiting follow-up', icon: Target, tone: 'warning' as const, to: '/crm/leads' },
+              { key: 'leads', count: showCrm ? (activeLeads ?? 0) : 0, label: 'Leads awaiting follow-up', icon: Target, tone: 'warning' as const, to: '/crm/leads' },
             ].filter(a => a.count > 0);
             return attention.length ? (
               <section>
@@ -379,7 +395,7 @@ export function DashboardPage() {
             actions are filtered the same way: a shortcut to a page the user
             cannot open is not a shortcut. */}
         <div className={`grid grid-cols-1 gap-6 ${showAiPanels ? 'lg:grid-cols-2' : ''}`}>
-          {showAiPanels && <AIQueryBar />}
+          {showAiPanels && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn }} />}
           {quickActions.length > 0 && (
             <div className="space-y-3">
               <SectionTitle color="bg-line-strong" label="Quick Actions" />

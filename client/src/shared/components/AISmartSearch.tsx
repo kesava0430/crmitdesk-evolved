@@ -1,3 +1,4 @@
+import { useModules } from '../modules';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Search, Sparkles, X, Loader2, User, Ticket, TrendingUp, Handshake, BookOpen, Monitor, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -105,7 +106,17 @@ interface AISmartSearchProps {
   className?: string;
 }
 
-export function AISmartSearch({ placeholder = 'Find contacts, tickets, deals…', className = '' }: AISmartSearchProps) {
+export function AISmartSearch({ placeholder: placeholderProp, className = '' }: AISmartSearchProps) {
+  // Name only what this org can find — areas switched off by the platform
+  // operator aren't searched (server search.controller.ts skips them).
+  const modules = useModules();
+  const things = [
+    ...(modules.isModuleOn('crm') ? ['contacts'] : []),
+    ...(modules.isModuleOn('itdesk') ? ['tickets'] : []),
+    ...(modules.isModuleOn('crm') ? ['deals'] : []),
+    ...(!modules.isModuleOn('crm') && !modules.isModuleOn('itdesk') ? ['records'] : []),
+  ];
+  const placeholder = placeholderProp ?? `Find ${things.join(', ')}…`;
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();

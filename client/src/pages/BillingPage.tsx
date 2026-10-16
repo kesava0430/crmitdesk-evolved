@@ -1,3 +1,4 @@
+import { OrgAreasCard } from '../shared/components/OrgAreasCard';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CreditCard, CheckCircle, Zap, Building2, Star, ExternalLink, Sparkles, AlertTriangle, Gift } from 'lucide-react';
@@ -239,7 +240,7 @@ export function BillingPage() {
             <div className="mt-4 pt-4 border-t border-line-subtle">
               <p className="text-[11.5px] font-medium text-fg-muted mb-1.5">Licensed modules</p>
               <div className="flex flex-wrap gap-1.5" data-testid="licensed-modules">
-                <Badge variant="green">CRM + IT Desk core</Badge>
+                <Badge variant="green">Core platform</Badge>
                 {licensedFeatures.map(k => <Badge key={k} variant="gray">{featureLabel(k)}</Badge>)}
                 {storageGb > 0 && <Badge variant="gray">{storageGb}GB hosted storage</Badge>}
                 {lic?.access === 'lapsed' && <Badge variant="red">Limited to Free until payment is restored</Badge>}
@@ -267,6 +268,9 @@ export function BillingPage() {
             </div>
           </Card>
         )}
+
+        {/* Areas the platform operator enabled for this org — read-only here. */}
+        <OrgAreasCard />
 
         {/* Usage this month, against the plan's allowances (null = unlimited). */}
         {sub && (

@@ -31,7 +31,7 @@ test.describe('Billing', () => {
 
   // Licensed modules come from the effective-licence engine
   test('shows licensed modules for the current plan', async ({ page }) => {
-    await expect(page.getByTestId('licensed-modules')).toContainText(/CRM \+ IT Desk core/);
+    await expect(page.getByTestId('licensed-modules')).toContainText(/Core platform/);
   });
 
   // All four plan cards render, with the custom licence entry point

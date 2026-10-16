@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis,
@@ -99,8 +100,12 @@ export function AnalyticsPage() {
   const { user } = useAuth();
   const role = user?.role;
   const showOverview = can.readAnalytics(role);
-  const showTickets  = can.readTicketReports(role);
-  const showCrm      = can.readCrmReports(role);
+  // …and only for areas switched on for the org (Platform Admin → Areas).
+  const modules = useModules();
+  const ticketsOn = modules.isModuleOn('itdesk');
+  const crmOn = modules.isModuleOn('crm');
+  const showTickets  = can.readTicketReports(role) && ticketsOn;
+  const showCrm      = can.readCrmReports(role) && crmOn;
 
   const { data: overview } = useAnalyticsOverview(showOverview);
   const { data: tickets, isLoading: ticketsLoading } = useTicketAnalytics(days, showTickets);
@@ -164,10 +169,10 @@ export function AnalyticsPage() {
         {/* KPI row — /analytics/overview is MANAGERS-only */}
         {showOverview && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard label="Open Tickets" value={overview?.tickets.current ?? '—'} change={overview?.tickets.change} icon={BarChart2} />
-          <KpiCard label="New Leads" value={overview?.leads.current ?? '—'} change={overview?.leads.change} icon={Target} />
-          <KpiCard label="Revenue Won" value={overview?.revenue.current ? fmt(overview.revenue.current) : '—'} change={overview?.revenue.change} icon={DollarSign} />
-          <KpiCard label="Avg Resolution" value={overview?.avgResolutionHours != null ? `${overview.avgResolutionHours}h` : '—'} icon={Clock} />
+          {ticketsOn && <KpiCard label="Open Tickets" value={overview?.tickets.current ?? '—'} change={overview?.tickets.change} icon={BarChart2} />}
+          {crmOn && <KpiCard label="New Leads" value={overview?.leads.current ?? '—'} change={overview?.leads.change} icon={Target} />}
+          {crmOn && <KpiCard label="Revenue Won" value={overview?.revenue.current ? fmt(overview.revenue.current) : '—'} change={overview?.revenue.change} icon={DollarSign} />}
+          {ticketsOn && <KpiCard label="Avg Resolution" value={overview?.avgResolutionHours != null ? `${overview.avgResolutionHours}h` : '—'} icon={Clock} />}
         </div>
         )}
 
