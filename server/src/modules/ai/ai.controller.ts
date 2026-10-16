@@ -312,10 +312,15 @@ export async function nlQueryHandler(req: AuthRequest, res: Response, next: Next
       openDealData.reduce((sum, d) => sum + (Number(d.value) * d.probability / 100), 0)
     );
 
+    // Figures of an area switched off for the org are not shared with the model.
+    const { blockedModules } = await getEffectiveLicense(orgId);
+    const crm = !(blockedModules as string[]).includes('crm');
+    const itd = !(blockedModules as string[]).includes('itdesk');
+    const z0 = (on: boolean, n: number) => (on ? n : 0);
     const answer = await naturalLanguageQuery(question, {
-      totalDeals, openDeals, wonDeals, lostDeals,
-      totalContacts, totalTickets, openTickets, resolvedTickets,
-      totalLeads, activeLeads, forecastRevenue,
+      totalDeals: z0(crm, totalDeals), openDeals: z0(crm, openDeals), wonDeals: z0(crm, wonDeals), lostDeals: z0(crm, lostDeals),
+      totalContacts: z0(crm, totalContacts), totalTickets: z0(itd, totalTickets), openTickets: z0(itd, openTickets), resolvedTickets: z0(itd, resolvedTickets),
+      totalLeads: z0(crm, totalLeads), activeLeads: z0(crm, activeLeads), forecastRevenue: z0(crm, forecastRevenue),
     });
 
     res.json({ answer, question });
@@ -555,7 +560,16 @@ export async function insightsHandler(req: AuthRequest, res: Response, next: Nex
     const staleDealValue = openDeals.filter(d => (now - new Date(d.createdAt).getTime()) / 86400000 > 14).reduce((s, d) => s + Number(d.value), 0);
     const avgTicketAgeHours = openTickets.length > 0 ? openTickets.reduce((s, t) => s + (now - new Date(t.createdAt).getTime()) / 3600000, 0) / openTickets.length : 0;
     const negativeTickets = await prisma.ticket.count({ where: { orgId, sentiment: { in: ['NEGATIVE','FRUSTRATED'] }, status: { not: 'RESOLVED' } } });
-    const result = await generateInsights({ staleDealCount, staleDealValue: Math.round(staleDealValue), openTickets: openTickets.length, avgTicketAgeHours: Math.round(avgTicketAgeHours), slaBreachedCount: slaBreached, weeklyTicketGrowth: recentTickets, weeklyLeadsGrowth: weeklyLeads, unfollowedLeads, topNegativeTickets: negativeTickets });
+    // Insights on an area switched off for the org are left out.
+    const { blockedModules } = await getEffectiveLicense(orgId);
+    const crm = !(blockedModules as string[]).includes('crm');
+    const itd = !(blockedModules as string[]).includes('itdesk');
+    const z0 = (on: boolean, n: number) => (on ? n : 0);
+    const result = await generateInsights({
+      staleDealCount: z0(crm, staleDealCount), staleDealValue: z0(crm, Math.round(staleDealValue)),
+      openTickets: z0(itd, openTickets.length), avgTicketAgeHours: z0(itd, Math.round(avgTicketAgeHours)), slaBreachedCount: z0(itd, slaBreached),
+      weeklyTicketGrowth: z0(itd, recentTickets), weeklyLeadsGrowth: z0(crm, weeklyLeads), unfollowedLeads: z0(crm, unfollowedLeads), topNegativeTickets: z0(itd, negativeTickets),
+    });
     res.json({ insights: result });
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
