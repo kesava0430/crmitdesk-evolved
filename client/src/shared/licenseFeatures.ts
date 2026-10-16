@@ -15,6 +15,11 @@ export const FEATURE_LABELS: Record<string, string> = {
   payroll: 'Payroll',
   attendance: 'Attendance',
   campaigns: 'Campaigns',
+  crm: 'CRM (contacts, leads, deals)',
+  itdesk: 'IT Desk (tickets)',
+  sales_docs: 'Quotes & invoices',
+  assets: 'Assets',
+  knowledge_base: 'Knowledge base',
   hosted_storage: 'Hosted storage',
 };
 
@@ -22,6 +27,7 @@ export const FEATURE_LABELS: Record<string, string> = {
 export const FEATURE_KEYS = [
   'ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding',
   'sso', 'directory_sync', 'api_access', 'custom_modules', 'hr_core', 'payroll', 'attendance', 'campaigns',
+  'crm', 'itdesk', 'sales_docs', 'assets', 'knowledge_base',
 ] as const;
 
 export const featureLabel = (key: string) => FEATURE_LABELS[key] ?? key.replace(/_/g, ' ');

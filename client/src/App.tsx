@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppLayout } from './shared/layouts/AppLayout';
 import { isRouteAllowed } from './shared/routeAccess';
 import { AccessDenied } from './shared/components/AccessDenied';
+import { ModuleNotEnabled } from './shared/components/ModuleNotEnabled';
+import { useModules } from './shared/modules';
 import { NativeBridge } from './native/NativeBridge';
 
 // Eagerly loaded — shown before auth or as portal (must be small/fast)
@@ -123,8 +125,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function RoleGate() {
   const { user } = useAuth();
   const location = useLocation();
+  const modules = useModules();
   if (!isRouteAllowed(location.pathname, user?.role)) return <AccessDenied />;
+  // First load only (the licence is cached afterwards): wait for it rather
+  // than render a page of a switched-off area that would fire failing requests.
+  if (modules.loading) return <PageSkeleton />;
+  // Area / module switched off for the org by the platform operator. The
+  // route → module map comes from the server with the licence; until it has
+  // loaded nothing is blocked (the APIs 402 regardless).
+  const off = modules.blockedModuleForPath(location.pathname);
+  if (off) return <ModuleNotEnabled name={off.label} area={modules.licence?.areas?.find(a => a.key === off.area)?.label} />;
   return <Outlet />;
+}
+
+/** Same module check for the chrome-less routes outside AppLayout (payslip print). */
+function ModuleGate({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const modules = useModules();
+  const off = modules.blockedModuleForPath(location.pathname);
+  if (off) return <ModuleNotEnabled name={off.label} />;
+  return <>{children}</>;
 }
 
 function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
@@ -170,7 +190,7 @@ export default function App() {
             browser's print dialog produces a clean payslip PDF (see
             PayslipPrintPage.tsx's comment). Access to the payslip itself is
             still enforced server-side (own payslip, or any if a manager). */}
-        <Route path="/hr/payroll/payslips/:id/print" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><PayslipPrintPage /></Suspense></ProtectedRoute>} />
+        <Route path="/hr/payroll/payslips/:id/print" element={<ProtectedRoute><ModuleGate><Suspense fallback={<PageSkeleton />}><PayslipPrintPage /></Suspense></ModuleGate></ProtectedRoute>} />
         <Route path="/" element={<ProtectedRoute><Suspense fallback={<PageSkeleton />}><AppLayout /></Suspense></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           {/* RoleGate wraps every page below — see its comment above. Access

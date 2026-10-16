@@ -24,6 +24,7 @@ import { ThemePicker } from "../components/ThemePicker";
 import { useLabels, type LabelEntityKey } from "../../hooks/useLabels";
 import { can } from "../permissions";
 import { useLicense } from "../../api/billing";
+import { useModules } from "../modules";
 import { useAttendanceHeartbeat } from "../../hooks/useAttendanceHeartbeat";
 import { useBackButtonClose } from "../../native/overlayStack";
 import { AlertTriangle, Lock } from "lucide-react";
@@ -290,6 +291,12 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   // Licence-gated items get a lock (LIC-13). While loading / on error nothing is locked.
   const { data: licence } = useLicense(!!userRole);
   const isLocked = (item: NavItem) => !!item.feature && !!licence && !licence.features.includes(item.feature);
+  // Areas / modules the platform operator switched off for this org are
+  // hidden outright (not locked — upgrading wouldn't bring them back). Web
+  // forms create leads or tickets, so they go when both CRM and IT Desk do.
+  const modules = useModules();
+  const isHiddenByModule = (item: NavItem) =>
+    modules.isRouteBlocked(item.to) || (item.to === "/web-forms" && !modules.isModuleOn("crm") && !modules.isModuleOn("itdesk"));
 
   function toggleSection(label: string) {
     setCollapsed(prev => {
@@ -358,7 +365,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
 
           // Filter items by role, then by the workspace skin's hidden routes
           const visibleItems = section.items.filter(
-            item => (!item.roles || !userRole || item.roles.includes(userRole)) && !workspace.isRouteHidden(item.to)
+            item => (!item.roles || !userRole || item.roles.includes(userRole)) && !workspace.isRouteHidden(item.to) && !isHiddenByModule(item)
           );
           if (visibleItems.length === 0) return null;
 

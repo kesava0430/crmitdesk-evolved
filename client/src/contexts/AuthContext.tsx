@@ -77,7 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     recordClockSkew(access);
     setAuthItems({ accessToken: access, refreshToken: refresh, user: JSON.stringify(normalized), pendingRefresh: null });
     setState({ user: normalized, accessToken: access });
-  }, []);
+    // Fresh entitlements on every sign-in: which areas the org has (Platform
+    // Admin → Areas) decides the sidebar and routes.
+    qc.invalidateQueries({ queryKey: ['license'] });
+  }, [qc]);
 
   const login = useCallback(async (email: string, password: string, totpToken?: string) => {
     // authPost retries on transient failures (e.g. a deploy restart) so a

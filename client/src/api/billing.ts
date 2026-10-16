@@ -65,7 +65,17 @@ export interface License {
   access: 'full' | 'grace' | 'lapsed';
   reason: string | null;
   gracePeriodDays?: number;
+  /** Keys the platform operator switched off for this org. */
+  disabledFeatures?: string[];
+  /** Area sub-modules that are off as a whole (hidden in the app, APIs 402). */
+  blockedModules?: string[];
+  /** Area / module catalogue (server utils/modules.ts). */
+  areas?: AreaInfo[];
+  modules?: ModuleInfo[];
 }
+
+export interface AreaInfo { key: 'hr' | 'crm' | 'itdesk'; root: string; label: string; description: string; roles: string[]; modules: string[] }
+export interface ModuleInfo { key: string; area: 'hr' | 'crm' | 'itdesk'; label: string; description: string; routes: string[] }
 
 export interface Subscription {
   id: string;
@@ -166,6 +176,12 @@ export function useLicense(enabled = true) {
     queryKey: ['license'],
     queryFn: () => api.get('/billing/entitlements').then(r => r.data),
     staleTime: 60 * 1000,
+    // Drives which areas the app shows (Platform Admin can switch HR / CRM /
+    // IT Desk per org), so refresh when the app comes back to the foreground
+    // and every few minutes while it stays open — the global default skips
+    // window-focus refetches.
+    refetchOnWindowFocus: true,
+    refetchInterval: 5 * 60 * 1000,
     enabled,
   });
 }
