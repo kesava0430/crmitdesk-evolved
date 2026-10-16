@@ -33,11 +33,20 @@ export function useModules() {
     const a = lic?.areas?.find(x => x.key === area);
     return !a || !blocked.has(a.root);
   };
-  const blockedModuleForPath = (path: string) => {
+  const enabledAreas = (lic?.areas ?? []).filter(a => !blocked.has(a.root)).map(a => a.key);
+  // Shared screens that only belong next to certain areas (server
+  // SHARED_SURFACES: Inbox, Import, Analytics, …) — off while none of them is on.
+  const surfaceForPath = (path: string) =>
+    (lic?.surfaces ?? []).find(sf => sf.routes.some(r => path === r || path.startsWith(r + '/')));
+  const blockedModuleForPath = (path: string): { key: string; label: string; area?: string } | undefined => {
     const m = moduleForPath(lic, path);
-    return m && blocked.has(m.key) ? m : undefined;
+    if (m && blocked.has(m.key)) return m;
+    const sf = surfaceForPath(path);
+    if (sf && lic?.areas?.length && !sf.areas.some(a => enabledAreas.includes(a))) return { key: sf.key, label: sf.label };
+    return undefined;
   };
   return {
+    enabledAreas,
     licence: lic,
     loading: isLoading,
     isModuleOn,
@@ -56,4 +65,10 @@ export function useModules() {
       return !area || !blocked.has(area.root);
     },
   };
+}
+
+/** "a", "a and b", "a, b and c" — for sentences that name only enabled areas. */
+export function joinWords(words: (string | false | null | undefined)[]): string {
+  const w = words.filter(Boolean) as string[];
+  return w.length <= 1 ? (w[0] ?? '') : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`;
 }

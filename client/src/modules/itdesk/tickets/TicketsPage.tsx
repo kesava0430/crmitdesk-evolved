@@ -1,3 +1,4 @@
+import { useModules } from '../../../shared/modules';
 import { useState, useEffect, useRef } from 'react';
 import { Ticket, Plus, Clock, CheckCircle, AlertCircle, Pencil, Sparkles, Copy, Check, SmilePlus, Route, Layers, AlertTriangle, BookOpen, ChevronDown, MessageCircleMore, Link2, X } from 'lucide-react';
 import { useTickets, useTicket, useCreateTicket, useUpdateTicket, useChangeTicketStatus, useAssignTicket, useTicketReports, useArticleSuggestions, useCreateArticle } from '../../../api/itdesk';
@@ -55,7 +56,8 @@ function TicketForm({ categories, users, contacts, canFileOnBehalf, canPickConta
   // Which department the request is raised to — the HR Org Structure list
   // (GET /hr/org/departments is ALL_USERS, so employees can pick too). Orgs
   // with no departments defined simply never see the field.
-  const { data: departmentsRes } = useDepartments();
+  // Departments are HR data — not asked for while HR is switched off (Platform Admin → Areas).
+  const { data: departmentsRes } = useDepartments(useModules().isModuleOn('hr_core'));
   const departmentOptions = (departmentsRes?.data ?? [])
     .filter((d: any) => d.isActive !== false)
     .map((d: any) => ({ value: d.id, label: d.name }));
@@ -337,7 +339,8 @@ function EditableTicketTitle({ id, fallback, canEdit }: { id: string; fallback: 
 
 function TicketEditForm({ ticket, categories, onSaved, onCancel }: any) {
   const updateTicket = useUpdateTicket();
-  const { data: departmentsRes } = useDepartments();
+  // Departments are HR data — not asked for while HR is switched off (Platform Admin → Areas).
+  const { data: departmentsRes } = useDepartments(useModules().isModuleOn('hr_core'));
   const departmentOptions = (departmentsRes?.data ?? [])
     .filter((d: any) => d.isActive !== false)
     .map((d: any) => ({ value: d.id, label: d.name }));
@@ -853,7 +856,8 @@ export function TicketsPage() {
     ...(priorityFilter && { priority: priorityFilter }),
     ...(departmentFilter && { departmentId: departmentFilter }),
   });
-  const { data: departmentsRes } = useDepartments();
+  // Departments are HR data — not asked for while HR is switched off (Platform Admin → Areas).
+  const { data: departmentsRes } = useDepartments(useModules().isModuleOn('hr_core'));
   const departments = (departmentsRes?.data ?? []).filter((d: any) => d.isActive !== false);
   const { data: categories } = useCategories();
   const { data: users } = useUsers();
@@ -863,12 +867,13 @@ export function TicketsPage() {
   // in tickets.controller.ts's create()) — same group as editTickets, read off
   // the shared capability table rather than a local copy of the role names.
   const canFileOnBehalf = can.editTickets(role);
+  const ticketModules = useModules();
   // Same group the server allows to PATCH a ticket (subject, description…).
   const canEditTickets = can.editTickets(role);
   /* Filing on behalf of a CRM contact needs the contact list, which is
      CRM_STAFF-only — IT_MANAGER/IT_AGENT can file on behalf but cannot read
      /crm/contacts, and EMPLOYEE can do neither. */
-  const canPickContact = canFileOnBehalf && can.readCrm(role);
+  const canPickContact = canFileOnBehalf && can.readCrm(role) && ticketModules.isModuleOn('crm');
   const { data: contacts } = useContacts(undefined, canPickContact);
   /* /itdesk/tickets/reports is IT_MANAGERS-only, but CRM_MANAGER, IT_AGENT,
      SALES_REP and EMPLOYEE all reach this page. */

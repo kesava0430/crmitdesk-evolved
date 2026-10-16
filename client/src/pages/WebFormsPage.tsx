@@ -8,7 +8,7 @@
  * as in-app records — pair a form with an AI Auto-Assign rule and inbound
  * requests route themselves.
  */
-import { useModules } from '../shared/modules';
+import { useModules, joinWords } from '../shared/modules';
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -156,7 +156,7 @@ function onFormSubmit(e) {
     <div>
       <PageHeader
         title="Web Forms"
-        subtitle="Public forms you can embed on your website — submissions become leads or tickets automatically"
+        subtitle={`Public forms you can embed on your website — submissions become ${joinWords(typeOptions.map(o => o.value === 'LEAD' ? 'leads' : 'tickets')).replace(' and ', ' or ')} automatically`}
         actions={
           <Button icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
             New form

@@ -1,3 +1,4 @@
+import { useModules } from '../modules';
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, ArrowRight, Loader2, ChevronRight, CheckCircle2, ShieldAlert, Zap, Info } from "lucide-react";
@@ -29,11 +30,15 @@ const ENTITY_LABELS: Record<string, string> = {
   article: "Article",
 };
 
+// Each tied to the module it works on — only areas the org has are suggested
+// (Platform Admin → Areas; see shared/modules.ts).
 const SUGGESTIONS = [
-  "Create a new ticket about VPN issues",
-  "Add a contact named Jane Smith from Acme Corp",
-  "Create a deal with Acme Corp worth $50,000",
-  "New lead from LinkedIn named John Doe",
+  { text: "Create a new ticket about VPN issues", module: "itdesk" },
+  { text: "Add a contact named Jane Smith from Acme Corp", module: "crm" },
+  { text: "Create a deal with Acme Corp worth $50,000", module: "crm" },
+  { text: "New lead from LinkedIn named John Doe", module: "crm" },
+  { text: "Request casual leave for next Friday", module: "hr_core" },
+  { text: "Approve the pending leave requests", module: "hr_core" },
 ];
 
 /* Confidence is a judgement about quality, so it stays on the reserved status
@@ -83,6 +88,8 @@ function ParamChip({ name, value }: { name: string; value: unknown }) {
 }
 
 export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
+  const modules = useModules();
+  const suggestions = SUGGESTIONS.filter(x => modules.isModuleOn(x.module)).map(x => x.text);
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -281,7 +288,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search or ask AI — what would you like to do? e.g. Move the Acme deal to Proposal..."
+              placeholder={`Search or ask AI — what would you like to do? e.g. ${suggestions[0] ?? "Summarise my day"}...`}
               aria-label="What would you like to do?"
               className="flex-1"
               disabled={isLoading}
@@ -302,7 +309,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
           <div className="px-4 sm:px-6 pb-4">
             <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Try asking</p>
             <div className="flex flex-col gap-1.5">
-              {SUGGESTIONS.map((s) => (
+              {suggestions.map((s) => (
                 <ExampleRow key={s} onClick={() => handleSuggestion(s)}>{s}</ExampleRow>
               ))}
             </div>

@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState, FormEvent, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { User, Mail, Briefcase, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, Camera, Link2, CalendarDays, Download, Trash2 } from 'lucide-react';
@@ -353,6 +354,7 @@ function PasswordForm() {
 
 /* ── Connections (Google SSO + Calendar sync) ── */
 function ConnectionsPanel() {
+  const modules = useModules();
   const [params] = useSearchParams();
   const [google, setGoogle] = useState<{ configured: boolean; linked: boolean } | null>(null);
   const [calendar, setCalendar] = useState<{ configured: boolean; connected: boolean; connectedEmail: string | null } | null>(null);
@@ -432,9 +434,12 @@ function ConnectionsPanel() {
         )}
       </div>
 
+      {/* Calendar sync covers CRM activities and assigned tickets — nothing to
+          sync for an org without either (Platform Admin → Areas). */}
+      {(modules.isModuleOn('crm') || modules.isModuleOn('itdesk')) && (
       <div className="border-t border-line-subtle pt-5">
         <p className="text-[13px] font-semibold text-fg flex items-center gap-2"><CalendarDays size={15} className="text-accent" /> Google Calendar</p>
-        <p className="text-[11.5px] text-fg-muted mt-1 mb-3">Sync your open activities and assigned tickets to your Google Calendar.</p>
+        <p className="text-[11.5px] text-fg-muted mt-1 mb-3">Sync your {[modules.isModuleOn('crm') && 'open activities', modules.isModuleOn('itdesk') && 'assigned tickets'].filter(Boolean).join(' and ')} to your Google Calendar.</p>
         {!calendar?.configured ? (
           <p className="text-[11.5px] text-fg-subtle italic">Not set up for this workspace yet — an admin needs to configure calendar sync.</p>
         ) : calendar.connected ? (
@@ -448,12 +453,16 @@ function ConnectionsPanel() {
           <Button size="sm" onClick={connectCalendar}>Connect Google Calendar</Button>
         )}
       </div>
+      )}
     </div>
   );
 }
 
 /* ── Privacy & Data (GDPR) ── */
 function PrivacyPanel() {
+  const modules = useModules();
+  // Name only record types the org has (Platform Admin → Areas).
+  const linked = [modules.isModuleOn('itdesk') && 'tickets', modules.isModuleOn('crm') && 'deals'].filter(Boolean) as string[];
   const { logout } = useAuth();
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -486,14 +495,14 @@ function PrivacyPanel() {
 
       <div>
         <p className="text-[13px] font-semibold text-fg flex items-center gap-2"><Download size={15} className="text-accent" /> Export your data</p>
-        <p className="text-[11.5px] text-fg-muted mt-1 mb-3">Download a JSON copy of your profile, activities, comments, and tickets/deals you're linked to.</p>
+        <p className="text-[11.5px] text-fg-muted mt-1 mb-3">Download a JSON copy of your profile, {linked.length ? `activities, comments, and ${linked.join('/')} you're linked to` : 'activity and comments'}.</p>
         <Button size="sm" variant="secondary" onClick={exportData}>Download my data</Button>
       </div>
 
       <div className="border-t border-line-subtle pt-5">
         <p className="text-[13px] font-semibold text-danger flex items-center gap-2"><Trash2 size={15} /> Delete my personal data</p>
         <p className="text-[11.5px] text-fg-muted mt-1 mb-3">
-          Removes your name, email and phone from your account and deactivates it. Records you're linked to (tickets, deals, comments) stay for your organization's continuity but no longer show your name. This can't be undone.
+          Removes your name, email and phone from your account and deactivates it. Records you're linked to ({[...linked, 'comments'].join(', ')}) stay for your organization's continuity but no longer show your name. This can't be undone.
         </p>
         {!confirmDelete ? (
           <Button size="sm" variant="danger" onClick={() => setConfirmDelete(true)}>Delete my data</Button>

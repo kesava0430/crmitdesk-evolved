@@ -295,8 +295,9 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   // hidden outright (not locked — upgrading wouldn't bring them back). Web
   // forms create leads or tickets, so they go when both CRM and IT Desk do.
   const modules = useModules();
-  const isHiddenByModule = (item: NavItem) =>
-    modules.isRouteBlocked(item.to) || (item.to === "/web-forms" && !modules.isModuleOn("crm") && !modules.isModuleOn("itdesk"));
+  // Shared screens tied to areas (Inbox, Import, Analytics, …) follow the
+  // server's surface list through isRouteBlocked too.
+  const isHiddenByModule = (item: NavItem) => modules.isRouteBlocked(item.to);
 
   function toggleSection(label: string) {
     setCollapsed(prev => {
@@ -328,14 +329,31 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   // and they cannot read module records anyway, so there is no link to build.
   const { data: customModules } = useCustomModules(can.readStaffRecords(userRole));
   const visibleModules = (customModules ?? []).filter((m: any) => m.isActive && (m._count?.fields ?? 0) > 0);
+  // A module placed in an area the org doesn't have (Platform Admin → Areas;
+  // CRM is the default placement) goes to its own "Modules" section instead —
+  // it's the org's own data, so it stays, just never under a CRM / IT Desk
+  // heading the org doesn't have.
+  const SECTION_AREA: Record<string, 'crm' | 'itdesk' | 'hr'> = { CRM: "crm", "IT Desk": "itdesk", HR: "hr" };
+  const placeOf = (m: any) => {
+    const label = NAV_SECTION_LABELS[m.navSection] ?? "CRM";
+    const area = SECTION_AREA[label];
+    return area && !modules.isAreaOn(area) ? "Modules" : label;
+  };
+  const moduleItem = (m: any): NavItem => ({ to: `/modules/${m.slug}`, label: m.name, icon: CUSTOM_MODULE_ICONS[m.icon] ?? Layers, tint: "text-indigo-400" });
+  const looseModules = visibleModules.filter((m: any) => placeOf(m) === "Modules").map(moduleItem);
   const sections: NavSection[] = visibleModules.length
-    ? NAV_SECTIONS.map(section => {
-        const items = visibleModules
-          .filter((m: any) => (NAV_SECTION_LABELS[m.navSection] ?? "CRM") === section.label)
-          .map((m: any): NavItem => ({ to: `/modules/${m.slug}`, label: m.name, icon: CUSTOM_MODULE_ICONS[m.icon] ?? Layers, tint: "text-indigo-400" }));
-        return items.length ? { ...section, items: [...section.items, ...items] } : section;
-      })
+    ? [
+        ...NAV_SECTIONS.map(section => {
+          const items = visibleModules.filter((m: any) => placeOf(m) === section.label).map(moduleItem);
+          return items.length ? { ...section, items: [...section.items, ...items] } : section;
+        }),
+      ]
     : NAV_SECTIONS;
+  if (looseModules.length) {
+    // Right after the area sections (before Admin).
+    const at = sections.findIndex(sec => sec.label === "Admin");
+    sections.splice(at < 0 ? sections.length : at, 0, { label: "Modules", items: looseModules });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -384,9 +402,12 @@ function SidebarContent({ user, onLogout, onNavClick }: {
                   className="group/sec w-full flex items-center gap-1 px-2.5 mb-1 text-[10.5px] font-semibold text-sidebar-heading uppercase tracking-[0.08em] hover:text-sidebar-muted transition-colors"
                 >
                   <span className="truncate">{workspace.sectionLabel(section.label)}</span>
+                  {isCollapsed && <span className="ml-auto text-[10px] font-medium normal-case tracking-normal text-sidebar-heading/80 tabular-nums">{visibleItems.length}</span>}
                   <ChevronRight
                     size={11}
-                    className={`shrink-0 opacity-0 group-hover/sec:opacity-100 transition-all duration-150 ${isCollapsed ? "" : "rotate-90"}`}
+                    // Always visible while collapsed, so a folded section never reads
+                    // as an empty heading (touch screens have no hover).
+                    className={`shrink-0 transition-all duration-150 ${isCollapsed ? "opacity-70" : "rotate-90 opacity-0 group-hover/sec:opacity-100"}`}
                   />
                 </button>
               )}
@@ -444,11 +465,17 @@ function SidebarContent({ user, onLogout, onNavClick }: {
 export function AppLayout() {
   const { user, logout } = useAuth();
   // Geofence auto check-out: location heartbeats while a session is open (no-op unless the org enabled it)
-  useAttendanceHeartbeat(!!user);
+  const appModules = useModules();
+  // Attendance tracking only while the org has Attendance (Platform Admin → Areas).
+  // (Waits for the licence, so a switched-off org never fires the first poll.)
+  const attendanceOn = !!appModules.licence && appModules.isModuleOn('attendance');
+  useAttendanceHeartbeat(!!user && attendanceOn);
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [aiBarOpen, setAiBarOpen] = useState(false);
+  // Search finds CRM / IT Desk / knowledge base / asset / invoice records only.
+  const searchable = ["crm", "itdesk", "knowledge_base", "assets", "sales_docs"].some(k => appModules.isModuleOn(k));
 
   // Close mobile drawer on route change
   useEffect(() => {
@@ -579,10 +606,14 @@ export function AppLayout() {
 
           <div className="flex-1" />
 
-          {/* Search — desktop */}
+          {/* Search — desktop. Global search covers CRM, IT Desk, knowledge
+              base, assets and invoices; an org with none of them (HR only)
+              has nothing it could find, so the box isn't shown. */}
+          {searchable && (
           <div className="hidden md:block w-72">
             <AISmartSearch className="w-full" />
           </div>
+          )}
 
           {/* AI Command Bar button */}
           <button
@@ -612,9 +643,11 @@ export function AppLayout() {
         </header>
 
         {/* Mobile search bar */}
+        {searchable && (
         <div className="md:hidden px-4 py-2 bg-surface border-b border-line-subtle">
           <AISmartSearch className="w-full" />
         </div>
+        )}
 
         <LicenceBanner role={user?.role} />
 

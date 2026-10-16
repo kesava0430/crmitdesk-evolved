@@ -129,10 +129,11 @@ interface Paged<T> {
 
 // ─── Employees ────────────────────────────────────────────────────────────────
 
-export const useEmployees = (params: Record<string, string | undefined> = {}) =>
+export const useEmployees = (params: Record<string, string | undefined> = {}, enabled = true) =>
   useQuery<Paged<Employee>>({
     queryKey: ['employees', params],
     queryFn: () => api.get('/hr/employees', { params }).then(r => r.data),
+    enabled,
   });
 
 export const useEmployee = (id?: string) =>
@@ -217,10 +218,12 @@ export const useDeleteEmployee = () => {
 
 // ─── Departments ──────────────────────────────────────────────────────────────
 
-export const useDepartments = () =>
+/** `enabled` = false where HR may be switched off (shared screens like Users). */
+export const useDepartments = (enabled = true) =>
   useQuery<{ data: Department[]; total: number }>({
     queryKey: ['departments'],
     queryFn: () => api.get('/hr/org/departments').then(r => r.data),
+    enabled,
   });
 
 export const useDepartmentTree = () =>
@@ -314,10 +317,11 @@ export const useRemoveTeamMember = () => {
 
 // ─── Locations ────────────────────────────────────────────────────────────────
 
-export const useLocations = () =>
+export const useLocations = (enabled = true) =>
   useQuery<{ data: LocationRecord[]; total: number }>({
     queryKey: ['locations'],
     queryFn: () => api.get('/hr/org/locations').then(r => r.data),
+    enabled,
   });
 
 export const useCreateLocation = () => {
@@ -399,10 +403,11 @@ export const usePeople = (params: Record<string, string | undefined> = {}) =>
     queryFn: () => api.get('/people', { params }).then(r => r.data),
   });
 
-export const usePeopleStats = () =>
+export const usePeopleStats = (enabled = true) =>
   useQuery<PeopleStats>({
     queryKey: ['people-stats'],
     queryFn: () => api.get('/people/stats').then(r => r.data),
+    enabled,
   });
 
 function invalidatePeopleViews(qc: ReturnType<typeof useQueryClient>) {

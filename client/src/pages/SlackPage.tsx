@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -46,6 +47,9 @@ const NOTIFY_OPTIONS = [
 ] as const;
 
 export default function SlackPage() {
+  // Only events of areas the org has (Platform Admin → Areas).
+  const modules = useModules();
+  const notifyOptions = NOTIFY_OPTIONS.filter(o => (o.key === 'notifyOnDealWon' || o.key === 'notifyOnNewLead') ? modules.isModuleOn('crm') : modules.isModuleOn('itdesk'));
   const qc = useQueryClient();
   const [form, setForm] = useState<SlackConfig>(DEFAULT);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -158,7 +162,7 @@ export default function SlackPage() {
       <Card>
         <CardHeader title="Notify me when…" className="mb-4" />
         <div className="space-y-3">
-          {NOTIFY_OPTIONS.map(({ key, label, desc }) => (
+          {notifyOptions.map(({ key, label, desc }) => (
             <Checkbox
               key={key}
               label={label}

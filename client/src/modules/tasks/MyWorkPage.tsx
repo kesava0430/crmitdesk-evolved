@@ -1,3 +1,4 @@
+import { useModules, joinWords } from '../../shared/modules';
 import { useState } from 'react';
 import {
   useMyWork,
@@ -361,6 +362,9 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 export default function MyWorkPage() {
+  // Name only the areas the org has (Platform Admin → Areas).
+  const modules = useModules();
+  const areaNames = joinWords([modules.isAreaOn('crm') && 'CRM', modules.isAreaOn('itdesk') && 'IT Desk', modules.isAreaOn('hr') && 'HR']);
   const { data, isLoading } = useMyWork();
   const [newOpen, setNewOpen] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
@@ -379,7 +383,7 @@ export default function MyWorkPage() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="My Work"
-        subtitle="Everything assigned to you across CRM, IT Desk and HR — plus anything waiting on your approval."
+        subtitle={`Everything assigned to you across ${areaNames} — plus anything waiting on your approval.`}
         actions={
           <Button size="sm" icon={<Plus size={14} />} onClick={() => setNewOpen(true)}>
             New task

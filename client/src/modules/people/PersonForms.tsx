@@ -180,10 +180,13 @@ export function AddPersonModal({
   context?: string;
 }) {
   const create = useCreatePerson();
-  const { data: stats } = usePeopleStats();
-  const { data: departments } = useDepartments();
-  const { data: locations } = useLocations();
-  const { data: managers } = useEmployees({ limit: '200' });
+  // HR lookups (departments, locations, managers) only while HR is on — this
+  // form is also how Logins & Invites adds people in a CRM / IT-only org.
+  const hrOn = useModules().isModuleOn('hr_core');
+  const { data: stats } = usePeopleStats(hrOn);
+  const { data: departments } = useDepartments(hrOn);
+  const { data: locations } = useLocations(hrOn);
+  const { data: managers } = useEmployees({ limit: '200' }, hrOn);
 
   /* Login options appear only for callers who may create logins — an HR
      Manager adds staff, a user admin hands out access. Until the answer
@@ -459,9 +462,10 @@ type EditTab = (typeof EDIT_TABS)[number]['key'];
 export function EditPersonModal({ personId, onClose }: { personId: string | null; onClose: () => void }) {
   const { data: profile, isLoading, error: loadError } = usePerson(personId);
   const update = useUpdatePerson();
-  const { data: departments } = useDepartments();
-  const { data: locations } = useLocations();
-  const { data: managers } = useEmployees({ limit: '200' });
+  const hrOn = useModules().isModuleOn('hr_core');
+  const { data: departments } = useDepartments(hrOn);
+  const { data: locations } = useLocations(hrOn);
+  const { data: managers } = useEmployees({ limit: '200' }, hrOn);
   const roles = useAssignableRoles(!!profile?.access.canEditRole);
 
   const [tab, setTab] = useState<EditTab>('job');

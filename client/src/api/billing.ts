@@ -72,6 +72,8 @@ export interface License {
   /** Area / module catalogue (server utils/modules.ts). */
   areas?: AreaInfo[];
   modules?: ModuleInfo[];
+  /** Shared screens and the areas they belong next to. */
+  surfaces?: { key: string; label: string; areas: ('hr' | 'crm' | 'itdesk')[]; routes: string[] }[];
 }
 
 export interface AreaInfo { key: 'hr' | 'crm' | 'itdesk'; root: string; label: string; description: string; roles: string[]; modules: string[] }

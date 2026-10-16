@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -29,6 +30,7 @@ export default function BrandingPage() {
   const qc = useQueryClient();
   const [form, setForm] = useState<Branding>(DEFAULT);
   const [saved, setSaved] = useState(false);
+  const portalOn = useModules().isModuleOn('customer_portal');
 
   const { data } = useQuery({
     queryKey: ['branding'],
@@ -52,7 +54,7 @@ export default function BrandingPage() {
     <div>
       <PageHeader
         title="Org Branding"
-        subtitle="Customize your organization's appearance and portal"
+        subtitle={portalOn ? "Customize your organization's appearance and portal" : "Customize your organization's appearance"}
       />
 
       <PageBody>
@@ -108,6 +110,10 @@ export default function BrandingPage() {
               </Field>
             </Card>
 
+            {/* Portal settings only while the org has the customer portal
+                (IT Desk area — Platform Admin → Areas); the brand identity
+                above still dresses emails and documents. */}
+            {portalOn && (
             <Card className="space-y-4">
               <h2 className="text-[14px] font-semibold text-fg tracking-tight">Customer portal</h2>
 
@@ -129,6 +135,7 @@ export default function BrandingPage() {
                 />
               </Field>
             </Card>
+            )}
 
             <Button
               size="lg"
@@ -141,6 +148,7 @@ export default function BrandingPage() {
           </div>
 
           {/* Live preview */}
+          {portalOn && (
           <div className="lg:col-span-2">
             <Card padding="none" className="overflow-hidden sticky top-6">
               <div className="px-4 py-3 border-b border-line-subtle">
@@ -181,6 +189,7 @@ export default function BrandingPage() {
               </div>
             </Card>
           </div>
+          )}
         </div>
       </PageBody>
     </div>

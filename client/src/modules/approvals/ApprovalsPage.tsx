@@ -1,3 +1,4 @@
+import { useModules } from '../../shared/modules';
 import { useState } from 'react';
 import {
   useApprovalRequests,
@@ -253,7 +254,11 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
   const { data: roles } = useRoles(can.readRoles(user?.role));
   const [error, setError] = useState('');
   const [name, setName] = useState('');
-  const [entityType, setEntityType] = useState('LEAVE_REQUEST');
+  // Approval types of areas the org doesn't have aren't offered (Platform Admin → Areas).
+  const modules = useModules();
+  const ENTITY_MODULE: Record<string, string> = { LEAVE_REQUEST: 'hr_core', ONBOARDING: 'hr_core', OFFBOARDING: 'hr_core', CHANGE_REQUEST: 'itdesk', SERVICE_REQUEST: 'itdesk', QUOTE: 'sales_docs' };
+  const entityTypes = ENTITY_TYPES.filter(t => !ENTITY_MODULE[t] || modules.isModuleOn(ENTITY_MODULE[t]));
+  const [entityType, setEntityType] = useState(() => entityTypes[0] ?? 'TASK');
   const [mode, setMode] = useState('SEQUENTIAL');
   const [expiryHours, setExpiryHours] = useState('168');
   const [steps, setSteps] = useState<ApprovalPolicyStep[]>([
@@ -321,7 +326,7 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
             <Select
               value={entityType}
               onChange={e => setEntityType(e.target.value)}
-              options={ENTITY_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ').toLowerCase() }))}
+              options={entityTypes.map(t => ({ value: t, label: t.replace(/_/g, ' ').toLowerCase() }))}
             />
           </Field>
           <Field label="Mode">

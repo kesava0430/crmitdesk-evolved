@@ -33,7 +33,7 @@ function SkeletonCard() {
   );
 }
 
-export function AiInsightsWidget() {
+export function AiInsightsWidget({ note }: { note?: string } = {}) {
   const insights = useAiInsights();
 
   return (
@@ -60,7 +60,7 @@ export function AiInsightsWidget() {
       </div>
 
       <div className="p-5 space-y-3">
-        <AiNote id="dashboard.insights" />
+        <AiNote id="dashboard.insights" does={note} />
 
         {/* Nothing runs on mount — this is a mutation, deliberately, so a
             dashboard visit never spends AI budget on its own. Say so, and make

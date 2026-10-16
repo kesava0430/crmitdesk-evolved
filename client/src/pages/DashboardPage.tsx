@@ -1,11 +1,14 @@
 import { useModules } from '../shared/modules';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../api/client';
+import { useEmployeeStats } from '../api/people';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Ticket, TrendingUp, Users, Target, AlertCircle,
   CheckCircle, DollarSign, Clock, Sparkles, Send,
-  ArrowUpRight, ArrowRight, Plus, BarChart2, FileText,
+  ArrowUpRight, ArrowRight, Plus, BarChart2, FileText, CalendarCheck, Wallet, Home,
 } from 'lucide-react';
 import { useDealReports } from '../api/crm';
 import { useContacts, useLeads } from '../api/crm';
@@ -140,6 +143,11 @@ const QUERIES = [
   { q: 'Summarise my pipeline.', area: 'crm' },
 ];
 
+/** What the dashboard AI can see, naming only the areas the org has. */
+function aiScope(areas: { crm: boolean; itdesk: boolean }) {
+  return areas.crm && areas.itdesk ? 'your pipeline and help desk' : areas.crm ? 'your pipeline' : 'your help desk';
+}
+
 function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
   const suggestions = QUERIES.filter(x => areas[x.area as 'crm' | 'itdesk']).map(x => x.q);
   const [question, setQuestion] = useState('');
@@ -161,7 +169,7 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
         />
       </div>
       <div className="p-5 space-y-4">
-        <AiNote id="dashboard.query" />
+        <AiNote id="dashboard.query" does={`Answers questions about ${aiScope(areas)} in two or three sentences.`} />
         <div className="flex gap-2">
           <Input
             value={question}
@@ -223,6 +231,37 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
   );
 }
 
+/* HR managers' snapshot: who's in today, working from home, leave waiting
+   for a decision, and headcount — from the same endpoints the Attendance,
+   Leave and People pages use. Each tile only asks when its module is on. */
+function HrOverview({ attendanceOn }: { attendanceOn: boolean }) {
+  const navigate = useNavigate();
+  const { data: today } = useQuery<any[]>({
+    queryKey: ['dashboard-attendance-today'],
+    queryFn: () => api.get('/hr/attendance/today').then(r => r.data),
+    enabled: attendanceOn, staleTime: 60_000,
+  });
+  const { data: pending } = useQuery<any[]>({
+    queryKey: ['dashboard-leave-pending'],
+    queryFn: () => api.get('/hr/leave/requests', { params: { scope: 'org', status: 'PENDING' } }).then(r => r.data),
+    staleTime: 60_000,
+  });
+  const { data: stats } = useEmployeeStats();
+  const checkedIn = today?.filter(r => r.isCheckedInNow).length;
+  const wfh = today?.filter(r => r.wfh).length;
+  return (
+    <section>
+      <SectionTitle color="bg-success" label="HR" action="People" onAction={() => navigate('/people')} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {attendanceOn && <StatCard label="Checked in now" value={today ? `${checkedIn} / ${today.length}` : '--'} icon={Clock} onClick={() => navigate('/hr/attendance')} />}
+        {attendanceOn && <StatCard label="Working from home" value={wfh ?? '--'} icon={Home} onClick={() => navigate('/hr/attendance')} />}
+        <StatCard label="Leave awaiting approval" value={pending?.length ?? '--'} icon={CalendarCheck} onClick={() => navigate('/hr/leave')} />
+        <StatCard label="Headcount" value={stats?.total ?? '--'} icon={Users} onClick={() => navigate('/people')} />
+      </div>
+    </section>
+  );
+}
+
 export function DashboardPage() {
   const { user } = useAuth();
   const { money, timezone } = useFormat();
@@ -252,8 +291,14 @@ export function DashboardPage() {
   const { data: leads } = useLeads(undefined, showCrm);
   const { data: ticketReports, isLoading: ticketsLoading } = useTicketReports(showItDesk);
 
-  /* POST /ai/query and POST /ai/insights are both MANAGERS-only. */
-  const showAiPanels = can.readAnalytics(role);
+  /* POST /ai/query and POST /ai/insights are both MANAGERS-only — and they
+     only know CRM and help-desk numbers, so an org without either (HR only)
+     doesn't get them at all. */
+  const showAiPanels = can.readAnalytics(role) && (crmOn || itdeskOn);
+  const hrOn = modules.isModuleOn('hr_core');
+  const attendanceOn = modules.isModuleOn('attendance');
+  const payrollOn = modules.isModuleOn('payroll');
+  const showHr = hrOn && can.readHrAdmin(role);
 
   /* Only offer shortcuts the user can actually follow. */
   const quickActions = [
@@ -261,8 +306,12 @@ export function DashboardPage() {
     { label: 'New Lead',    icon: Target,      color: 'indigo'  as IconColor, to: '/crm/leads',       show: showCrm },
     { label: 'New Deal',    icon: TrendingUp,  color: 'blue'    as IconColor, to: '/crm/deals',       show: showCrm },
     { label: 'New Ticket',  icon: Ticket,      color: 'orange'  as IconColor, to: '/itdesk/tickets',  show: itdeskOn },
+    { label: 'Attendance',  icon: Clock,       color: 'orange'  as IconColor, to: '/hr/attendance',   show: attendanceOn },
+    { label: 'Leave',       icon: CalendarCheck, color: 'emerald' as IconColor, to: '/hr/leave',      show: hrOn },
+    { label: 'People',      icon: Users,       color: 'violet'  as IconColor, to: '/people',          show: hrOn && !crmOn && !itdeskOn },
+    { label: 'Payroll',     icon: Wallet,      color: 'blue'    as IconColor, to: '/hr/payroll',      show: payrollOn && !crmOn && !itdeskOn },
     { label: 'My Work',     icon: CheckCircle, color: 'emerald' as IconColor, to: '/my-work',         show: true },
-    { label: 'Reports',     icon: BarChart2,   color: 'emerald' as IconColor, to: '/reports',         show: can.readAdmin(role) },
+    { label: 'Reports',     icon: BarChart2,   color: 'emerald' as IconColor, to: '/reports',         show: can.readAdmin(role) && (crmOn || itdeskOn) },
     { label: 'Import CSV',  icon: ArrowUpRight, color: 'gray'   as IconColor, to: '/import',          show: can.readCrmReports(role) && (crmOn || itdeskOn) },
   ].filter(a => a.show);
 
@@ -389,6 +438,9 @@ export function DashboardPage() {
         </section>
         )}
 
+        {/* HR at a glance — managers, when the org has HR. */}
+        {showHr && <HrOverview attendanceOn={attendanceOn} />}
+
         {/* AI query + Quick actions.
             Both AI panels post to MANAGERS-only endpoints, so for anyone else
             they were buttons whose only possible outcome was a refusal. Quick
@@ -412,7 +464,7 @@ export function DashboardPage() {
         {showAiPanels && (
           <section className="w-full">
             <SectionTitle color="bg-accent" label="AI Insights" infoId="dashboard.insights" />
-            <AiInsightsWidget />
+            <AiInsightsWidget note={`Looks across ${aiScope({ crm: crmOn, itdesk: itdeskOn })} numbers and flags three to five things worth attention.`} />
           </section>
         )}
       </PageBody>

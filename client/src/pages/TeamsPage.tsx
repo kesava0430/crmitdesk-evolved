@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -43,6 +44,9 @@ const NOTIFY_OPTIONS = [
 ] as const;
 
 export default function TeamsPage() {
+  // Only events of areas the org has (Platform Admin → Areas).
+  const modules = useModules();
+  const notifyOptions = NOTIFY_OPTIONS.filter(o => (o.key === 'notifyOnDealWon' || o.key === 'notifyOnNewLead') ? modules.isModuleOn('crm') : modules.isModuleOn('itdesk'));
   const qc = useQueryClient();
   const [form, setForm] = useState<TeamsConfig>(DEFAULT);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -126,7 +130,7 @@ export default function TeamsPage() {
         <div>
           <p className="text-[13px] font-medium text-fg mb-2">Send notifications for</p>
           <div className="space-y-2">
-            {NOTIFY_OPTIONS.map(({ key, label }) => (
+            {notifyOptions.map(({ key, label }) => (
               <Checkbox
                 key={key}
                 label={label}

@@ -1,4 +1,4 @@
-import { useModules } from '../../shared/modules';
+import { useModules, joinWords } from '../../shared/modules';
 import { useState } from 'react';
 import {
   Zap, Plus, Trash2, ToggleLeft, ToggleRight,
@@ -748,6 +748,7 @@ export function WorkflowsPage() {
      on this screen. For anyone else the page could only ever render an empty
      "no rules yet" state above buttons whose one possible outcome is a refusal. */
   const { user } = useAuth();
+  const pageModules = useModules();
   const canReadWorkflows = can.readWorkflows(user?.role);
   const { data: rules = [], isLoading } = useWorkflows(canReadWorkflows);
   const createRule = useCreateWorkflow();
@@ -774,7 +775,7 @@ export function WorkflowsPage() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="Workflow Automation"
-        subtitle="Automate repetitive tasks — assign tickets, send emails, update statuses, and more."
+        subtitle={`Automate repetitive tasks — ${joinWords([pageModules.isModuleOn('itdesk') && 'assign tickets', pageModules.isModuleOn('crm') && 'follow up leads', pageModules.isModuleOn('hr_core') && 'route leave requests', 'send emails', 'update statuses'])}, and more.`}
         actions={
           <Button icon={<Plus size={15} />} onClick={() => { setEditingRule(null); setShowEditor(true); }}>
             New Rule
@@ -839,6 +840,9 @@ export function WorkflowsPage() {
                               {TRIGGERS.find(t => t.value === rule.trigger)?.label || rule.trigger}
                             </span>
                           </Badge>
+                          {/* Saved rules of an area switched off for the org don't run (server workflow-engine). */}
+                          {(() => { const ent = TRIGGERS.find(t => t.value === rule.trigger)?.entity; const mod = ent && rule.trigger !== 'DATE_FIELD_REACHED' ? ENTITY_MODULE[ent] : undefined;
+                            return mod && !pageModules.isModuleOn(mod) ? <Badge variant="gray" size="sm">Paused — area off</Badge> : null; })()}
                         </div>
                         {rule.description && (
                           <p className="text-xs text-fg-subtle mt-0.5 truncate">{rule.description}</p>

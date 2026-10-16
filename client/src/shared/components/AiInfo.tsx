@@ -174,8 +174,11 @@ export function AiInfo({ id, className = '', align = 'right' }: AiInfoProps) {
  * popover would be too easy to miss. Shows the summary and the effect badge;
  * the ⓘ button beside it opens the full detail.
  */
-export function AiNote({ id, className = '' }: { id: string; className?: string }) {
-  const feature = AI_FEATURE[id];
+/** `does` overrides the catalogue sentence — e.g. the dashboard names only
+ *  the areas the org actually has (Platform Admin → Areas). */
+export function AiNote({ id, className = '', does }: { id: string; className?: string; does?: string }) {
+  const base = AI_FEATURE[id];
+  const feature = base && does ? { ...base, does } : base;
   if (!feature) return null;
 
   return (

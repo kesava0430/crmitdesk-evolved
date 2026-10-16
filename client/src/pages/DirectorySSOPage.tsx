@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -54,6 +55,8 @@ const DEFAULT: Form = { tenantId: '', clientId: '', clientSecret: '', loginSlug:
 const MAPPING_DEFAULT = { groupId: '', groupLabel: '', role: 'EMPLOYEE', priority: 0 };
 
 function RoleMappingsSection() {
+  // Roles of areas the org has (Platform Admin → Areas); a saved mapping keeps its role.
+  const modules = useModules();
   const qc = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(MAPPING_DEFAULT);
@@ -88,7 +91,7 @@ function RoleMappingsSection() {
     <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_140px_80px_auto] gap-2 items-start">
       <Input inputSize="sm" placeholder="Entra group object ID" value={form.groupId} onChange={e => setForm(f => ({ ...f, groupId: e.target.value }))} />
       <Input inputSize="sm" placeholder="Group name (for reference)" value={form.groupLabel} onChange={e => setForm(f => ({ ...f, groupLabel: e.target.value }))} />
-      <Select selectSize="sm" options={ROLE_OPTIONS} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} />
+      <Select selectSize="sm" options={ROLE_OPTIONS.filter(o => o.value === form.role || modules.isRoleOffered(o.value))} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} />
       <Input inputSize="sm" type="number" placeholder="Priority" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: Number(e.target.value) || 0 }))} />
       <div className="flex items-center gap-1">
         <Button
@@ -249,6 +252,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
 }
 
 export default function DirectorySSOPage() {
+  const modules = useModules();
   const qc = useQueryClient();
   const [form, setForm] = useState<Form>(DEFAULT);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -376,7 +380,7 @@ export default function DirectorySSOPage() {
             onChange={e => setForm(f => ({ ...f, autoProvisioningEnabled: e.target.checked }))}
           />
           <Field label="Default role" hint="Given to anyone not in a group mapped below.">
-            <Select options={ROLE_OPTIONS} value={form.defaultRole} onChange={e => setForm(f => ({ ...f, defaultRole: e.target.value }))} />
+            <Select options={ROLE_OPTIONS.filter(o => o.value === form.defaultRole || modules.isRoleOffered(o.value))} value={form.defaultRole} onChange={e => setForm(f => ({ ...f, defaultRole: e.target.value }))} />
           </Field>
         </div>
       </Card>

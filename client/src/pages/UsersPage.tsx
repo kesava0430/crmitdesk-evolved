@@ -66,7 +66,8 @@ function UserForm({ initial, onSubmit, loading }: any) {
   // Org Structure's department list, offered as a picker when defined. The
   // current (possibly legacy free-text) value is kept as an option so an
   // existing user's department never silently disappears from the select.
-  const { data: departmentsRes } = useDepartments();
+  // Departments live in HR — not asked for while HR is switched off for the org.
+  const { data: departmentsRes } = useDepartments(useModules().isModuleOn('hr_core'));
   const departmentNames = (departmentsRes?.data ?? []).filter((d: any) => d.isActive !== false).map((d: any) => d.name);
   const departmentOptions = [...new Set([...departmentNames, ...(form.department ? [form.department] : [])])]
     .map(n => ({ value: n, label: n }));

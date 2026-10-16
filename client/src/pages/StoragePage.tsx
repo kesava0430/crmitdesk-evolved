@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { CheckCircle, ExternalLink, Unplug, Cloud, ArrowRightLeft, Database } from 'lucide-react';
@@ -34,6 +35,7 @@ const PROVIDER_LABELS: Record<string, string> = {
  * typical files fit" projection based on this org's own average file size.
  */
 function StorageCalculator() {
+  const modules = useModules();
   const { data: usage } = useStorageUsage();
   if (!usage) return null;
 
@@ -96,7 +98,12 @@ function StorageCalculator() {
       )}
 
       <p className="text-xs text-fg-subtle border-t border-line-subtle pt-3">
-        Org data: {usage.records.contacts} contacts · {usage.records.tickets} tickets · {usage.records.deals} deals · {usage.records.leads} leads.
+        Org data: {[
+          modules.isModuleOn('crm') && `${usage.records.contacts} contacts`,
+          modules.isModuleOn('itdesk') && `${usage.records.tickets} tickets`,
+          modules.isModuleOn('crm') && `${usage.records.deals} deals`,
+          modules.isModuleOn('crm') && `${usage.records.leads} leads`,
+        ].filter(Boolean).join(' · ') || 'records'}.
         Record data itself lives in the database and does not count toward file storage.
       </p>
     </Card>

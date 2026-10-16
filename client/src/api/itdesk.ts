@@ -42,8 +42,8 @@ export const useDeleteTicket = () => {
 };
 
 // ─── Categories ──────────────────────────────────────────────────────────────
-export const useCategories = () =>
-  useQuery({ queryKey: ['categories'], queryFn: () => api.get('/itdesk/categories').then(r => r.data) });
+export const useCategories = (enabled = true) =>
+  useQuery({ queryKey: ['categories'], queryFn: () => api.get('/itdesk/categories').then(r => r.data), enabled });
 
 export const useCreateCategory = () => {
   const qc = useQueryClient();

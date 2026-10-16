@@ -1,5 +1,5 @@
-import { useModules } from '../shared/modules';
-import { useState } from 'react';
+import { useModules, joinWords } from '../shared/modules';
+import { useState, useEffect } from 'react';
 import { LayoutTemplate, Plus, Pencil, Trash2 } from 'lucide-react';
 import {
   SearchableSelect, RowActions, CustomFieldsFormFields,
@@ -48,8 +48,13 @@ function templateRowActions(onEdit: () => void, onDelete: () => void) {
 
 const RECORD_TEMPLATE_EMPTY_FORM = { name: '', description: '', entityType: 'TICKET' as string, fieldValues: {} as Record<string, any> };
 
+const RECORD_ENTITY_MODULE: Record<string, string> = { TICKET: 'itdesk', CONTACT: 'crm', DEAL: 'crm', LEAD: 'crm' };
+
 function RecordTemplatesTab() {
-  const [entityType, setEntityType] = useState<string>('TICKET');
+  // Record types of areas the org has (Platform Admin → Areas).
+  const modules = useModules();
+  const entityTypes = ENTITY_TYPES.filter(t => modules.isModuleOn(RECORD_ENTITY_MODULE[t]));
+  const [entityType, setEntityType] = useState<string>(() => entityTypes[0] ?? 'TICKET');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<RecordTemplate | null>(null);
   const [form, setForm] = useState(RECORD_TEMPLATE_EMPTY_FORM);
@@ -60,11 +65,11 @@ function RecordTemplatesTab() {
      ALL_STAFF guard on the templates themselves — an IT_MANAGER or IT_AGENT
      manages templates but cannot read accounts, so that one field goes away
      rather than firing a request that can only be refused. */
-  const canReadCrm = can.readCrm(user?.role);
+  const canReadCrm = can.readCrm(user?.role) && modules.isModuleOn('crm');
 
   const { data: templates = [], isLoading } = useRecordTemplates(entityType);
   const { data: accounts } = useAccounts(undefined, canReadCrm);
-  const { data: categories } = useCategories();
+  const { data: categories } = useCategories(modules.isModuleOn('itdesk'));
   const create = useCreateRecordTemplate();
   const update = useUpdateRecordTemplate();
   const remove = useDeleteRecordTemplate();
@@ -125,7 +130,7 @@ function RecordTemplatesTab() {
         <Tabs
           variant="pill"
           aria-label="Entity type"
-          items={ENTITY_TYPES.map(t => ({ key: t as string, label: entityLabel(t) }))}
+          items={entityTypes.map(t => ({ key: t as string, label: entityLabel(t) }))}
           value={entityType}
           onChange={setEntityType}
         />
@@ -178,7 +183,7 @@ function RecordTemplatesTab() {
               {!editing && (
                 <Field label="Entity">
                   <SearchableSelect ariaLabel="Entity" value={form.entityType} onChange={val => setForm(f => ({ ...f, entityType: val, fieldValues: {} }))}
-                    required options={ENTITY_TYPES.map(t => ({ value: t, label: entityLabel(t) }))} />
+                    required options={entityTypes.map(t => ({ value: t, label: entityLabel(t) }))} />
                 </Field>
               )}
             </div>
@@ -600,7 +605,12 @@ export default function TemplatesPage() {
   // Quote templates belong to Quotes & invoices — gone while that module is
   // switched off for the org (Platform Admin → Areas).
   const modules = useModules();
-  const topTabs = TOP_TABS.filter(t => t !== 'Quotes' || modules.isModuleOn('sales_docs'));
+  // Replies are ticket replies (IT Desk); Emails are campaign emails (CRM).
+  const topTabs = TOP_TABS.filter(t =>
+    (t !== 'Quotes' || modules.isModuleOn('sales_docs')) &&
+    (t !== 'Replies' || modules.isModuleOn('itdesk')) &&
+    (t !== 'Emails' || modules.isModuleOn('campaigns') || modules.isModuleOn('crm')));
+  useEffect(() => { if (topTabs.length && !topTabs.includes(tab)) setTab(topTabs[0]); }, [topTabs.join(), tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Every one of /templates/records|replies|emails|quotes is ALL_STAFF-only,
      so for an EMPLOYEE — who can reach this page by URL — there is no tab
@@ -612,7 +622,7 @@ export default function TemplatesPage() {
     <div className="animate-slide-up">
       <PageHeader
         title="Templates"
-        subtitle="Speed up record creation, ticket replies, campaigns, and quotes"
+        subtitle={`Speed up ${joinWords(topTabs.map(t => ({ Records: 'record creation', Replies: 'ticket replies', Emails: 'campaigns', Quotes: 'quotes' })[t]))}`}
         below={(
           <Tabs
             variant="pill"
@@ -626,8 +636,8 @@ export default function TemplatesPage() {
 
       <PageBody width="wide">
         {tab === 'Records' && <RecordTemplatesTab />}
-        {tab === 'Replies' && <ReplyTemplatesTab />}
-        {tab === 'Emails' && <EmailTemplatesTab />}
+        {tab === 'Replies' && topTabs.includes('Replies') && <ReplyTemplatesTab />}
+        {tab === 'Emails' && topTabs.includes('Emails') && <EmailTemplatesTab />}
         {tab === 'Quotes' && topTabs.includes('Quotes') && <QuoteTemplatesTab />}
       </PageBody>
     </div>

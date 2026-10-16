@@ -1,3 +1,4 @@
+import { useModules, joinWords } from '../shared/modules';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -53,7 +54,11 @@ function sanitizeFieldKey(raw: string): string {
 
 export default function CustomFieldsPage() {
   const qc = useQueryClient();
-  const [entityType, setEntityType] = useState('TICKET');
+  // Only record types of areas the org has (Platform Admin → Areas).
+  const modules = useModules();
+  const ENTITY_MODULE: Record<string, string> = { TICKET: 'itdesk', CONTACT: 'crm', DEAL: 'crm', LEAD: 'crm' };
+  const entityTypes = ENTITY_TYPES.filter(t => modules.isModuleOn(ENTITY_MODULE[t]));
+  const [entityType, setEntityType] = useState(() => entityTypes[0] ?? 'TICKET');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<CustomField | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -206,13 +211,13 @@ export default function CustomFieldsPage() {
     <div className="animate-slide-up">
       <PageHeader
         title="Custom Fields"
-        subtitle="Add extra fields to tickets, contacts, deals, and leads"
+        subtitle={`Add extra fields to ${joinWords(entityTypes.map(t => t.toLowerCase() + 's'))}`}
         actions={<Button icon={<Plus size={16} />} onClick={openCreate}>Add Field</Button>}
         below={(
           <Tabs
             variant="pill"
             aria-label="Entity type"
-            items={ENTITY_TYPES.map(t => ({ key: t, label: t[0] + t.slice(1).toLowerCase() + 's' }))}
+            items={entityTypes.map(t => ({ key: t, label: t[0] + t.slice(1).toLowerCase() + 's' }))}
             value={entityType}
             onChange={setEntityType}
           />
@@ -300,7 +305,7 @@ export default function CustomFieldsPage() {
                   {/* Switching entity clears any visibility rule — a parent
                       from the old entity could never be satisfied on the new
                       one, and the server would reject it anyway. */}
-                  <SearchableSelect ariaLabel="Entity" value={form.entityType} onChange={val => setForm(f => ({ ...f, entityType: val, dependsOnFieldId: '', dependsOnValues: [] }))} required options={ENTITY_TYPES.map(t => ({ value: t, label: t[0] + t.slice(1).toLowerCase() + 's' }))} />
+                  <SearchableSelect ariaLabel="Entity" value={form.entityType} onChange={val => setForm(f => ({ ...f, entityType: val, dependsOnFieldId: '', dependsOnValues: [] }))} required options={entityTypes.map(t => ({ value: t, label: t[0] + t.slice(1).toLowerCase() + 's' }))} />
                 </Field>
               </FormGrid>
               {form.fieldType === 'SELECT' && (

@@ -7,6 +7,7 @@
  * "DealerTrack Pro" with a Service section, and never see HR or Campaigns.
  * Purely presentational: hiding a link never blocks the route or API.
  */
+import { useModules } from '../shared/modules';
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle, Eye, EyeOff, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import {
@@ -46,12 +47,15 @@ export default function WorkspaceSettingsPage() {
 
   useEffect(() => { setDraft(fromConfig(config ?? null)); }, [config]);
 
+  // Only screens the org actually has — areas switched off by the platform
+  // operator (and the screens tied to them) aren't offered for renaming.
+  const modules = useModules();
   const sections = useMemo(
     () => NAV_SECTIONS.map(s => ({
       label: s.label,
-      items: s.items.filter(i => !PROTECTED_ROUTES.has(i.to)),
+      items: s.items.filter(i => !PROTECTED_ROUTES.has(i.to) && !modules.isRouteBlocked(i.to)),
     })).filter(s => s.items.length > 0),
-    [],
+    [modules.licence], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   function setRename(route: string, value: string) {

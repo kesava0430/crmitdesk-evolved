@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import { Sparkles, Plus, Play, Trash2, ToggleLeft, ToggleRight, Zap, Bell, Mail, Tag, Route, BarChart3, ChevronDown, ChevronUp, Edit2, Ticket, Target, Handshake, User, CheckCircle2 } from 'lucide-react';
 import { useAIRules, useCreateAIRule, useUpdateAIRule, useDeleteAIRule, useRunAIRule, useBulkScoreLeads } from '../api/ai';
@@ -169,12 +170,16 @@ function RuleCard({ rule, onEdit, onDelete, onToggle }: any) {
 }
 
 function RuleForm({ initial, onClose }: { initial?: any; onClose: () => void }) {
+  // Triggers of areas the org has (Platform Admin → Areas); a saved rule's own trigger stays listed.
+  const modules = useModules();
+  const TRIGGER_MODULE: Record<string, string> = { TICKET_CREATED: 'itdesk', TICKET_RESOLVED: 'itdesk', LEAD_SCORED: 'crm', DEAL_STAGE_CHANGED: 'crm', CONTACT_UPDATED: 'crm' };
+  const triggers = TRIGGERS.filter(t => t.value === initial?.trigger || !TRIGGER_MODULE[t.value] || modules.isModuleOn(TRIGGER_MODULE[t.value]));
   const createRule = useCreateAIRule();
   const updateRule = useUpdateAIRule();
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
-    trigger: initial?.trigger ?? 'TICKET_CREATED',
+    trigger: initial?.trigger ?? (modules.isModuleOn('itdesk') ? 'TICKET_CREATED' : 'LEAD_SCORED'),
     action: initial?.action ?? 'SUMMARIZE',
     customPrompt: initial?.customPrompt ?? '',
     isActive: initial?.isActive ?? true,
@@ -208,7 +213,7 @@ function RuleForm({ initial, onClose }: { initial?: any; onClose: () => void }) 
 
       <Field label="When this happens (Trigger)">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {TRIGGERS.map(t => (
+          {triggers.map(t => (
             <ChoiceCard
               key={t.value}
               selected={form.trigger === t.value}
