@@ -5,7 +5,7 @@ import { AuthRequest } from '../middleware/authenticate';
 import jwt from 'jsonwebtoken';
 import { PLANS, FeatureKey, PlanKey, isPlanKey, isFeatureKey } from './stripe';
 import { normaliseModules, getPricingConfig, DEFAULT_PRICING, PricingConfig } from './pricing';
-import { MODULE_CATALOGUE, AREA_MODULE_KEYS, areaOf } from './modules';
+import { MODULE_CATALOGUE, AREA_MODULE_KEYS, areaOf, enabledAreasFrom, isSurfaceOn, AREAS, type SharedSurface } from './modules';
 
 // Every internal role counts against a plan's seat limit EXCEPT plain
 // EMPLOYEE — those are staff who just submit requests internally (not
@@ -445,6 +445,24 @@ export function requireModuleAtMount(key: FeatureKey) {
     const orgId = req.user?.orgId ?? orgIdFromBearer(req);
     if (!orgId) return next();
     return gate(orgId, next);
+  };
+}
+
+/**
+ * Mount gate for a shared screen that only belongs next to certain areas
+ * (utils/modules.ts SHARED_SURFACES, e.g. Inbox needs CRM or IT Desk). 402s
+ * while none of its areas is on; same org identification and public-route
+ * pass-through as requireModuleAtMount.
+ */
+export function requireSurfaceAtMount(surface: SharedSurface) {
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
+    const orgId = req.user?.orgId ?? orgIdFromBearer(req);
+    if (!orgId) return next();
+    getEffectiveLicense(orgId).then(lic => {
+      if (isSurfaceOn(surface, enabledAreasFrom(lic.blockedModules))) return next();
+      const names = surface.areas.map(a => AREAS.find(x => x.key === a)!.label).join(' or ');
+      next(new AppError(402, `${surface.label} needs ${names}, which isn't enabled for your organisation. Contact your administrator if you need it.`));
+    }).catch(next);
   };
 }
 

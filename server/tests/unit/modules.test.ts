@@ -182,3 +182,20 @@ test('AI actions on a switched-off area are not offered or runnable', () => {
   const names = AI_ACTIONS.map(a => a.name);
   assert.ok(names.includes('CREATE_TICKET') && names.includes('MANUAL_ATTENDANCE_ENTRY'));
 });
+
+// ─── Shared screens tied to areas ────────────────────────────────────────────
+
+test('shared screens follow the areas they belong next to', async () => {
+  const { SHARED_SURFACES, enabledAreasFrom, isSurfaceOn } = await import('../../src/utils/modules');
+  const on = (key: string, blocked: string[]) => isSurfaceOn(SHARED_SURFACES.find(s => s.key === key)!, enabledAreasFrom(blocked));
+  const hrOnly = evaluateLicense(sub({ disabledFeatures: ['crm', 'itdesk'] }), NOW).blockedModules;
+  assert.deepEqual(enabledAreasFrom(hrOnly), ['hr']);
+  for (const k of ['inbox', 'ai_builder', 'solution_builder', 'templates', 'import', 'custom_fields', 'web_forms', 'analytics', 'chat_integrations']) {
+    assert.ok(!on(k, hrOnly), `${k} hidden for HR-only`);
+  }
+  const itOnly = evaluateLicense(sub({ disabledFeatures: ['crm', 'hr_core'] }), NOW).blockedModules;
+  assert.ok(on('inbox', itOnly) && on('analytics', itOnly));
+  assert.ok(!on('import', itOnly), 'import is contacts / leads only');
+  const all = evaluateLicense(sub(), NOW).blockedModules;
+  for (const s of SHARED_SURFACES) assert.ok(on(s.key, all), `${s.key} shown with every area on`);
+});

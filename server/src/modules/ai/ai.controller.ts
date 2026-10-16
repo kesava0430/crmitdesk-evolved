@@ -767,11 +767,15 @@ const LEGACY_COMMAND_EXAMPLES = [
   { entity: 'article', label: 'KB Article', example: 'Write a KB article about resetting a forgotten password' },
 ];
 
+const LEGACY_ENTITY_MODULE: Record<string, string> = { ticket: 'itdesk', contact: 'crm', lead: 'crm', deal: 'crm', article: 'knowledge_base' };
+
 export async function listActionsHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const { blockedModules } = await getEffectiveLicense(req.user!.orgId);
     res.json({
-      actions: listActionsForRole(req.user!.role, (await getEffectiveLicense(req.user!.orgId)).blockedModules),
-      legacy: LEGACY_COMMAND_EXAMPLES,
+      actions: listActionsForRole(req.user!.role, blockedModules),
+      // Only record types of areas the org has (Platform Admin → Areas).
+      legacy: LEGACY_COMMAND_EXAMPLES.filter(l => !(blockedModules as string[]).includes(LEGACY_ENTITY_MODULE[l.entity])),
     });
   } catch (err) { next(err); }
 }

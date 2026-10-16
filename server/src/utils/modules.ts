@@ -208,11 +208,58 @@ export function applyAreaChanges(
   return [...out];
 }
 
+/**
+ * Shared screens that only make sense next to certain areas. Not licence
+ * features (nothing to switch per org) — each is shown while at least ONE of
+ * its `areas` is on, and hidden (page + API mount) otherwise, so an HR-only
+ * org looks like an HR product. Decided per screen:
+ *  - Inbox: customer email / WhatsApp conversations that become tickets or leads.
+ *  - AI Builder: AI rules on ticket / lead / deal / contact events only.
+ *  - Solution Builder: generates a CRM / help-desk style workspace.
+ *  - Templates: record templates (ticket/contact/deal/lead), ticket replies,
+ *    campaign emails, quotes.
+ *  - Import: contacts and leads only.
+ *  - Custom fields: on tickets, contacts, deals, leads only.
+ *  - Web forms: create leads or tickets.
+ *  - Analytics / Reports: ticket and CRM reports only (HR has its own
+ *    registers inside Attendance / Payroll).
+ *  - Slack / Microsoft Teams: ticket, SLA, deal and lead notifications.
+ * Deliberately NOT listed (shown for every area): dashboard, My Work,
+ * approvals, chat, workflows (HR has Leave-requested / Approval-decided /
+ * custom-record triggers), AI Studio (business context + custom AI functions
+ * and scripts work on any data), custom modules, users, roles, audit log,
+ * API keys, branding, SSO, storage, billing, org settings.
+ */
+export interface SharedSurface { key: string; label: string; areas: AreaKey[]; routes: string[]; apiPrefixes: string[] }
+
+export const SHARED_SURFACES: SharedSurface[] = [
+  { key: 'inbox', label: 'Inbox', areas: ['crm', 'itdesk'], routes: ['/inbox'], apiPrefixes: ['/api/inbox'] },
+  { key: 'ai_builder', label: 'AI Builder', areas: ['crm', 'itdesk'], routes: ['/ai-builder'], apiPrefixes: [] },
+  { key: 'solution_builder', label: 'Solution Builder', areas: ['crm', 'itdesk'], routes: ['/solution-builder'], apiPrefixes: [] },
+  { key: 'templates', label: 'Templates', areas: ['crm', 'itdesk'], routes: ['/templates'], apiPrefixes: ['/api/templates/records', '/api/templates/replies', '/api/templates/emails'] },
+  { key: 'import', label: 'Import CSV', areas: ['crm'], routes: ['/import'], apiPrefixes: ['/api/import'] },
+  { key: 'custom_fields', label: 'Custom fields', areas: ['crm', 'itdesk'], routes: ['/custom-fields'], apiPrefixes: [] },
+  { key: 'web_forms', label: 'Web forms', areas: ['crm', 'itdesk'], routes: ['/web-forms'], apiPrefixes: ['/api/web-forms'] },
+  { key: 'analytics', label: 'Analytics & reports', areas: ['crm', 'itdesk'], routes: ['/analytics', '/reports'], apiPrefixes: ['/api/analytics', '/api/reports'] },
+  { key: 'chat_integrations', label: 'Slack & Microsoft Teams', areas: ['crm', 'itdesk'], routes: ['/slack', '/teams'], apiPrefixes: ['/api/slack', '/api/teams'] },
+];
+
+/** Pure: areas whose root module is not blocked. */
+export function enabledAreasFrom(blockedModules: readonly string[]): AreaKey[] {
+  return AREAS.filter(a => !blockedModules.includes(a.root)).map(a => a.key);
+}
+
+/** Pure: is a shared surface relevant while only `enabled` areas are on? */
+export function isSurfaceOn(surface: SharedSurface, enabled: readonly AreaKey[]): boolean {
+  return surface.areas.some(a => enabled.includes(a));
+}
+
 /** Client-safe catalogue (what GET /billing/entitlements and the platform console send). */
 export function publicCatalogue() {
   return {
     areas: AREAS.map(({ key, root, label, description, roles }) => ({ key, root, label, description, roles, modules: areaModuleKeys(key) })),
     modules: MODULE_CATALOGUE.map(({ key, area, label, description, routes }) => ({ key, area, label, description, routes })),
+    surfaces: SHARED_SURFACES.map(({ key, label, areas, routes }) => ({ key, label, areas, routes })),
   };
 }
 

@@ -35,8 +35,8 @@ import { webFormsRouter, publicFormsRouter } from './modules/webforms/webforms.r
 import { portalRouter } from './modules/portal/portal.routes';
 import { portalUsersRouter } from './modules/portal/portalUsers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
-import { requireFeatureAtMount, requireModuleAtMount } from './utils/licensing';
-import { MODULE_CATALOGUE } from './utils/modules';
+import { requireFeatureAtMount, requireModuleAtMount, requireSurfaceAtMount } from './utils/licensing';
+import { MODULE_CATALOGUE, SHARED_SURFACES } from './utils/modules';
 import { sweepAutoCheckouts, purgeOldLocationPings, purgeOldSelfies, closeForgottenSessions } from './utils/attendanceAutoCheckout';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { eventsRouter } from './modules/events/events.routes';
@@ -276,6 +276,11 @@ app.get('/api/docs', (_req, res) => {
 // still reach the router's own handling.
 for (const m of MODULE_CATALOGUE) {
   for (const prefix of m.apiPrefixes) app.use(prefix, requireModuleAtMount(m.key));
+}
+// Shared screens that only belong next to certain areas (Inbox, Import,
+// Analytics, …) answer 402 while none of their areas is on.
+for (const s of SHARED_SURFACES) {
+  for (const prefix of s.apiPrefixes) app.use(prefix, requireSurfaceAtMount(s));
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
