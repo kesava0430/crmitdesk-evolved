@@ -62,8 +62,28 @@ const render = () => ReactDOM.createRoot(document.getElementById('root')!).rende
 // remove any worker an older build registered so it can't serve a stale bundle.
 if ('serviceWorker' in navigator) {
   if (!isNative && import.meta.env.PROD) {
+    // After a deploy the new worker activates at once (skipWaiting +
+    // clients.claim in sw.ts), but the page already running is the OLD
+    // bundle. Reload once when a worker takes over from a previous one — an
+    // update, not the very first install — so nobody keeps using the old app
+    // (e.g. areas a platform admin has since switched off). Guarded so it can
+    // never loop.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).catch(() => {});
+      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).then(reg => {
+        // Long-lived tabs (and installed PWAs) look for a new deploy when they
+        // come back to the foreground and every 30 minutes.
+        const check = () => { reg.update().catch(() => {}); };
+        window.addEventListener('focus', check);
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+        setInterval(check, 30 * 60 * 1000);
+      }).catch(() => {});
     });
   } else if (isNative) {
     navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});

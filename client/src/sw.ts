@@ -12,11 +12,29 @@
 
 import { asset } from './shared/asset';
 import { APP_NAME } from './shared/brand';
-import { precacheAndRoute } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
-import { NetworkOnly, CacheFirst } from 'workbox-strategies';
+import { precacheAndRoute, matchPrecache } from 'workbox-precaching';
+import { registerRoute, NavigationRoute } from 'workbox-routing';
+import { NetworkOnly, NetworkFirst, CacheFirst } from 'workbox-strategies';
 
 declare const self: ServiceWorkerGlobalScope;
+
+// Page loads (HTML navigations) go to the network first, so a deploy shows up
+// on the very next load — previously the precached index.html answered the
+// app's root URL, pointing at the PREVIOUS build's scripts until the worker
+// itself had updated and the page was reloaded again. The precached shell is
+// only the offline fallback. Registered BEFORE precacheAndRoute because
+// workbox uses the first matching route.
+const pages = new NetworkFirst({ cacheName: 'pages-v1', networkTimeoutSeconds: 5 });
+registerRoute(new NavigationRoute(async (options) => {
+  try {
+    const res = await pages.handle(options);
+    if (res) return res;
+  } catch { /* offline — fall through to the precached shell */ }
+  return (await matchPrecache(asset('index.html'))) ?? Response.error();
+}, {
+  // API / portal routes are never app pages.
+  denylist: [new RegExp(`^${asset('api/')}`), new RegExp(`^${asset('portal/')}`)],
+}));
 
 // The precache manifest is injected here at build time by vite-plugin-pwa.
 precacheAndRoute(self.__WB_MANIFEST);
