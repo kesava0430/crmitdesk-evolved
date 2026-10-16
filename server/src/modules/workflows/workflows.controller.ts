@@ -1,3 +1,4 @@
+import { WORKFLOW_TRIGGER_MODULE, WORKFLOW_ACTION_MODULE } from '../../utils/modules';
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
@@ -79,11 +80,21 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
   } catch (err) { next(err); }
 }
 
+/** Refuse a trigger / action that belongs to an area switched off for the org (utils/modules.ts). */
+async function assertModulesOn(orgId: string, trigger: string | undefined, actions: { type: string }[] | undefined) {
+  const { blockedModules } = await getEffectiveLicense(orgId);
+  const blocked = (k: string | undefined) => !!k && (blockedModules as string[]).includes(k);
+  if (trigger && blocked(WORKFLOW_TRIGGER_MODULE[trigger])) throw new AppError(402, 'That trigger belongs to an area that isn\u2019t enabled for your organisation.');
+  const bad = (actions ?? []).find(a => blocked(WORKFLOW_ACTION_MODULE[a.type]));
+  if (bad) throw new AppError(402, `The "${bad.type}" action belongs to an area that isn\u2019t enabled for your organisation.`);
+}
+
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
     const data = RuleSchema.parse(req.body);
     assertDateConfigPresent(data);
+    await assertModulesOn(orgId, data.trigger, data.actions);
     const rule = await prisma.workflowRule.create({ data: { ...data, orgId } });
     res.status(201).json(rule);
   } catch (err) { next(err); }
@@ -100,6 +111,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       trigger: data.trigger ?? rule.trigger,
       dateConfig: 'dateConfig' in data ? data.dateConfig : rule.dateConfig,
     });
+    await assertModulesOn(orgId, data.trigger, data.actions);
     const updated = await prisma.workflowRule.update({ where: { id }, data });
     res.json(updated);
   } catch (err) { next(err); }

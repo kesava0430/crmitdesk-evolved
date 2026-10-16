@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { interpretSearchQuery, isAiConfigured, searchNeedsAi } from '../../../utils/ai';
-import { hasFeature } from '../../../utils/licensing';
+import { hasFeature, getEffectiveLicense } from '../../../utils/licensing';
 
 /**
  * Normalizes an AI-extracted status/priority word (e.g. "open", "critical",
@@ -50,7 +50,11 @@ export async function search(req: AuthRequest, res: Response, next: NextFunction
       : { keywords: q, entityTypes: [] as string[], status: null as string | null, priority: null as string | null };
     const term = interpretation.keywords || q;
     const wantAll = interpretation.entityTypes.length === 0;
-    const wants = (type: string) => wantAll || interpretation.entityTypes.includes(type);
+    // Entities of an area / module switched off for the org (Platform Admin →
+    // Areas) are never searched — their pages and APIs are off too.
+    const { blockedModules } = await getEffectiveLicense(orgId);
+    const ENTITY_MODULE: Record<string, string> = { contact: 'crm', deal: 'crm', lead: 'crm', ticket: 'itdesk', article: 'knowledge_base', asset: 'assets', invoice: 'sales_docs' };
+    const wants = (type: string) => !(blockedModules as string[]).includes(ENTITY_MODULE[type]) && (wantAll || interpretation.entityTypes.includes(type));
 
     const ticketStatus = matchEnum(interpretation.status, TICKET_STATUSES);
     const ticketPriority = matchEnum(interpretation.priority, TICKET_PRIORITIES);

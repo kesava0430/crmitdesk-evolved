@@ -29,9 +29,9 @@ import { AppError } from '../../middleware/errorHandler';
 import { sanitizeRichText } from '../../utils/sanitizeHtml';
 import { sseManager, SSEEvent } from '../../utils/sse';
 import { routeChatTurn } from '../../utils/ai';
-import { getAiAction } from '../../utils/ai-actions';
+import { getAiAction, actionBlockedReason } from '../../utils/ai-actions';
 import { buildActionPlanForOrg } from '../ai/ai.controller';
-import { hasFeature } from '../../utils/licensing';
+import { hasFeature, getEffectiveLicense } from '../../utils/licensing';
 
 const RECORD_TYPES = ['TICKET', 'DEAL', 'LEAD', 'CONTACT', 'ACCOUNT', 'CUSTOM_MODULE_RECORD'] as const;
 
@@ -236,6 +236,8 @@ async function handleAiMention(
     }
     try {
       const parsed = def.schema.parse(plan.params);
+      const blockedWhy = actionBlockedReason(def.name, parsed, (await getEffectiveLicense(orgId)).blockedModules);
+      if (blockedWhy) return postAssistantMessage(orgId, thread, blockedWhy);
       const result = await def.handler(parsed, { orgId, userId: user.id });
       await prisma.chatThread.update({ where: { id: thread.id }, data: { pendingPlan: null as any, pendingPlanBy: null } });
       return postAssistantMessage(orgId, thread, `✅ ${result.summary}`);

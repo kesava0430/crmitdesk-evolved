@@ -1,4 +1,5 @@
 import { prisma } from './prisma';
+import { orgsWithModuleBlocked } from './licensing';
 import { runWorkflows } from './workflow-engine';
 import { slackSlaBreached } from './slack';
 import { teamsSlaBreached } from './teams';
@@ -37,7 +38,12 @@ export async function checkSlaBreaches(): Promise<void> {
     include: { category: { include: { slaPolicy: { select: { notifyUserId: true } } } } },
   });
 
+  // Orgs with IT Desk switched off (Platform Admin → Areas) are skipped —
+  // nothing is recorded, so their breaches are handled if the area comes back.
+  const itdeskOff = await orgsWithModuleBlocked(breached.map(t => t.orgId), 'itdesk');
+
   for (const ticket of breached) {
+    if (itdeskOff.has(ticket.orgId)) continue;
     try {
       // Record the breach first — if a notification channel below throws,
       // we still don't want to re-fire on the next poll for this ticket.

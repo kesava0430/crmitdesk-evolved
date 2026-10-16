@@ -27,6 +27,7 @@
 // never start the outside clock, so AUTO_GEOFENCE can't close them. The
 // heartbeat timeout and the daily close-out still apply as for any session.
 
+import { orgsWithModuleBlocked } from './licensing';
 import { prisma } from './prisma';
 import { verifyAgainstOffices } from './attendanceVerification';
 import { sseManager, SSEEvent } from './sse';
@@ -256,7 +257,12 @@ export async function sweepAutoCheckouts(now = new Date()): Promise<{ geofence: 
     where: { OR: [{ autoCheckoutOnLeave: true }, { heartbeatTimeoutMinutes: { gt: 0 } }, { shareLiveLocation: true }] },
   });
   let geofence = 0, timeout = 0, nudged = 0;
+  // Orgs with Attendance switched off (Platform Admin → Areas) get no nudges
+  // or live tracking; forgotten sessions are still closed by
+  // closeForgottenSessions so nothing stays open forever.
+  const attendanceOff = await orgsWithModuleBlocked(policies.map(p => p.orgId), 'attendance');
   for (const p of policies) {
+    if (attendanceOff.has(p.orgId)) continue;
     // Browsers can't read GPS while the app is closed — the best a PWA can do is
     // a push notification that brings the person back into the app. Sent when a
     // session's last fix is older than nudgeAfterMinutes, repeated at most every

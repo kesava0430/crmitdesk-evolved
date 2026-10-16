@@ -901,19 +901,52 @@ export const AI_ACTIONS: AiActionDefinition[] = [
   },
 ];
 
+// ─── Area / module availability ──────────────────────────────────────────────
+// Which licence module (utils/modules.ts) each action works on. An action is
+// left out of the planner menu and the help list, and refused at execution,
+// while its module is off for the org (Platform Admin → Areas). Actions on
+// several record types (notes, WhatsApp on a ticket OR a deal) stay offered
+// while ANY of their modules is on, and the record type picked is checked at
+// execution. Actions not listed (workflow rules, custom modules) aren't area
+// switched.
+const ACTION_MODULES: Record<string, string[]> = {
+  CREATE_TICKET: ['itdesk'], UPDATE_TICKET_STATUS: ['itdesk'], ASSIGN_TICKET: ['itdesk'], CREATE_TICKET_CATEGORY: ['itdesk'],
+  CREATE_LEAD: ['crm'], MOVE_DEAL_STAGE: ['crm'], SCORE_LEAD: ['crm'], UPDATE_LEAD_STATUS: ['crm'], CREATE_ACCOUNT: ['crm'], LOG_ACTIVITY: ['crm'],
+  CHANGE_QUOTE_STATUS: ['sales_docs'], CHANGE_INVOICE_STATUS: ['sales_docs'], SEND_CAMPAIGN: ['campaigns'],
+  CREATE_ASSET: ['assets'], UPDATE_ASSET_STATUS: ['assets'],
+  REQUEST_LEAVE: ['hr_core'], APPROVE_LEAVE: ['hr_core'], REJECT_LEAVE: ['hr_core'], MANUAL_ATTENDANCE_ENTRY: ['attendance'],
+  SCHEDULE_WHATSAPP_REMINDER: ['itdesk', 'crm'], SEND_WHATSAPP_NOW: ['itdesk', 'crm'], ADD_NOTE: ['itdesk', 'crm'],
+};
+const ENTITY_TYPE_MODULE: Record<string, string> = { TICKET: 'itdesk', DEAL: 'crm', CONTACT: 'crm', LEAD: 'crm' };
+
+/** Pure: may `name` be offered while `blockedModules` are off? */
+export function isActionAvailable(name: string, blockedModules: readonly string[] = []): boolean {
+  const mods = ACTION_MODULES[name];
+  return !mods || mods.some(m => !blockedModules.includes(m));
+}
+
+/** Pure: why this specific call can't run (null = fine). Checks the action's
+ *  module and, for multi-type actions, the record type in params. */
+export function actionBlockedReason(name: string, params: any, blockedModules: readonly string[] = []): string | null {
+  if (!isActionAvailable(name, blockedModules)) return 'That action works on an area that isn\u2019t enabled for your organisation.';
+  const t = params && typeof params.entityType === 'string' ? ENTITY_TYPE_MODULE[params.entityType] : undefined;
+  if (t && blockedModules.includes(t)) return 'That record type belongs to an area that isn\u2019t enabled for your organisation.';
+  return null;
+}
+
 export function getAiAction(name: string): AiActionDefinition | undefined {
   return AI_ACTIONS.find(a => a.name === name);
 }
 
 /** Menu shape handed to the LLM planner — name/description/params only, no handler/roles leaked into the prompt. */
-export function actionMenuForPrompt(role?: string) {
+export function actionMenuForPrompt(role?: string, blockedModules: readonly string[] = []) {
   /* With a role, only the actions that role may run. Every action costs the
      planner ~80 prompt tokens on every request, and offering an action the
      execute step would reject only produces a "you're not allowed" card. The
      list is the same for everyone with that role, so the provider's prompt
      cache still applies. */
   return AI_ACTIONS
-    .filter(a => !role || a.allowedRoles.includes(role as any))
+    .filter(a => (!role || a.allowedRoles.includes(role as any)) && isActionAvailable(a.name, blockedModules))
     .map(a => ({ name: a.name, description: a.description, params: a.paramsHint }));
 }
 
@@ -925,8 +958,8 @@ export function actionMenuForPrompt(role?: string) {
  * own role can't trigger would just be confusing. No schema/handler leaked,
  * same as actionMenuForPrompt above.
  */
-export function listActionsForRole(role: string) {
+export function listActionsForRole(role: string, blockedModules: readonly string[] = []) {
   return AI_ACTIONS
-    .filter(a => a.allowedRoles.includes(role as any))
+    .filter(a => a.allowedRoles.includes(role as any) && isActionAvailable(a.name, blockedModules))
     .map(a => ({ name: a.name, label: a.label, description: a.description, example: a.example }));
 }

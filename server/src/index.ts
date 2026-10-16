@@ -35,7 +35,8 @@ import { webFormsRouter, publicFormsRouter } from './modules/webforms/webforms.r
 import { portalRouter } from './modules/portal/portal.routes';
 import { portalUsersRouter } from './modules/portal/portalUsers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
-import { requireFeatureAtMount } from './utils/licensing';
+import { requireFeatureAtMount, requireModuleAtMount } from './utils/licensing';
+import { MODULE_CATALOGUE } from './utils/modules';
 import { sweepAutoCheckouts, purgeOldLocationPings, purgeOldSelfies, closeForgottenSessions } from './utils/attendanceAutoCheckout';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { eventsRouter } from './modules/events/events.routes';
@@ -264,6 +265,18 @@ app.get('/api/docs', (_req, res) => {
     example: `curl -H "X-API-Key: crm_..." ${(process.env.APP_URL || 'https://your-app.example.com')}/api/crm/contacts`,
   });
 });
+
+// ─── Product area gates ──────────────────────────────────────────────────────
+// Every router that belongs to an HR / CRM / IT Desk sub-module answers 402
+// while the platform operator has that area or module switched off for the
+// org (utils/modules.ts is the one list of which mount points belong to
+// which module). Registered before the routers so it runs first; it passes
+// requests without a bearer token straight through, so public routes in
+// those routers (shared quote / invoice links, CSAT survey, portal sign-in)
+// still reach the router's own handling.
+for (const m of MODULE_CATALOGUE) {
+  for (const prefix of m.apiPrefixes) app.use(prefix, requireModuleAtMount(m.key));
+}
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRouter);

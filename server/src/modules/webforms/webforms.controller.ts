@@ -18,6 +18,7 @@
  * limiting (in-memory, best-effort), a honeypot field bots fill and humans
  * never see, hard length caps, and rich text stripped to plain text.
  */
+import { isModuleBlocked } from '../../utils/licensing';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
@@ -73,6 +74,9 @@ export async function listForms(req: AuthRequest, res: Response, next: NextFunct
 export async function createForm(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = FormSchema.parse(req.body);
+    if (await formAreaOff(req.user!.orgId, data.type)) {
+      throw new AppError(402, `${data.type === 'LEAD' ? 'CRM' : 'IT Desk'} isn\u2019t enabled for your organisation, so ${data.type === 'LEAD' ? 'lead' : 'ticket'} forms can't be created. Contact your administrator if you need it.`);
+    }
     const count = await prisma.webForm.count({ where: { orgId: req.user!.orgId } });
     if (count >= 20) throw new AppError(400, 'Form limit reached (20 per organization)');
     const form = await prisma.webForm.create({
@@ -131,6 +135,13 @@ function limited(map: Map<string, number[]>, key: string, max: number, windowMs:
   return false;
 }
 
+/** Lead forms need CRM and ticket forms need IT Desk (Platform Admin → Areas).
+ *  A form whose area is off reads as unavailable to the public, like an
+ *  inactive one, and can't be created. */
+async function formAreaOff(orgId: string, type: string): Promise<boolean> {
+  return isModuleBlocked(orgId, type === 'LEAD' ? 'crm' : 'itdesk').catch(() => false);
+}
+
 // ─── Public: metadata for the hosted page ────────────────────────────────────
 
 export async function publicFormMeta(req: Request, res: Response, next: NextFunction) {
@@ -139,7 +150,7 @@ export async function publicFormMeta(req: Request, res: Response, next: NextFunc
       where: { id: req.params.id },
       select: { id: true, name: true, type: true, title: true, intro: true, isActive: true, orgId: true, org: { select: { name: true } } },
     });
-    if (!form || !form.isActive) throw new AppError(404, 'This form is not available');
+    if (!form || !form.isActive || await formAreaOff(form.orgId, form.type)) throw new AppError(404, 'This form is not available');
     res.json({
       id: form.id, type: form.type,
       title: form.title || (form.type === 'LEAD' ? 'Contact our sales team' : 'Submit a support request'),
@@ -157,7 +168,7 @@ const strip = (v: unknown, max: number) => String(v ?? '').replace(/<[^>]*>/g, '
 export async function publicFormSubmit(req: Request, res: Response, next: NextFunction) {
   try {
     const form = await prisma.webForm.findUnique({ where: { id: req.params.id } });
-    if (!form || !form.isActive) throw new AppError(404, 'This form is not available');
+    if (!form || !form.isActive || await formAreaOff(form.orgId, form.type)) throw new AppError(404, 'This form is not available');
 
     // A valid x-intake-token marks a trusted server-to-server integration
     // (Zoho webhook, Google Apps Script, Zapier). Those all send from one

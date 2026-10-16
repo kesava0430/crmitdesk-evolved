@@ -1,3 +1,5 @@
+import { isModuleBlocked } from './licensing';
+import { WORKFLOW_TRIGGER_MODULE } from './modules';
 import { prisma } from './prisma';
 import crypto from 'crypto';
 import { sendWhatsApp } from './whatsapp';
@@ -392,6 +394,7 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
     }
 
     case 'CREATE_TICKET': {
+      if (await isModuleBlocked(orgId, 'itdesk').catch(() => false)) return 'CREATE_TICKET skipped — IT Desk isn\u2019t enabled for this organisation';
       const requester = await prisma.user.findFirst({ where: { orgId, role: 'SUPER_ADMIN' } });
       if (!requester) return 'CREATE_TICKET skipped — no admin user to file it as';
       const resolve = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => String(entity[k] ?? k));
@@ -602,6 +605,10 @@ export async function runWorkflows(ctx: WorkflowContext): Promise<void> {
   // ungoverned (LIC-19).
   if (!getAiContext()) return runWithAiContext({ orgId: ctx.orgId, userId: null }, () => runWorkflows(ctx));
   try {
+    // A rule on an area switched off for the org (Platform Admin → Areas)
+    // stays saved but doesn't fire until the area is back (utils/modules.ts).
+    const triggerModule = WORKFLOW_TRIGGER_MODULE[ctx.trigger];
+    if (triggerModule && await isModuleBlocked(ctx.orgId, triggerModule).catch(() => false)) return;
     const rules = await prisma.workflowRule.findMany({
       where: {
         orgId: ctx.orgId,

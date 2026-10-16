@@ -32,7 +32,8 @@ import {
   pickRelevant,
   routeChatTurn,
 } from '../../utils/ai';
-import { getAiAction, actionMenuForPrompt, listActionsForRole } from '../../utils/ai-actions';
+import { getAiAction, actionMenuForPrompt, listActionsForRole, actionBlockedReason } from '../../utils/ai-actions';
+import { getEffectiveLicense } from '../../utils/licensing';
 import { logAction } from '../../utils/auditLog';
 
 // getClient() (utils/ai.ts) prefers GROQ_API_KEY over OPENAI_API_KEY whenever
@@ -755,7 +756,7 @@ const LEGACY_COMMAND_EXAMPLES = [
 export async function listActionsHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     res.json({
-      actions: listActionsForRole(req.user!.role),
+      actions: listActionsForRole(req.user!.role, (await getEffectiveLicense(req.user!.orgId)).blockedModules),
       legacy: LEGACY_COMMAND_EXAMPLES,
     });
   } catch (err) { next(err); }
@@ -775,16 +776,21 @@ export async function listActionsHandler(req: AuthRequest, res: Response, next: 
  */
 export async function buildActionPlanForOrg(orgId: string, role: string, command: string) {
   {
+    // Actions on areas switched off for the org are never offered, and their
+    // records are left out of the planner's context (utils/modules.ts).
+    const { blockedModules } = await getEffectiveLicense(orgId);
+    const on = (m: string) => !(blockedModules as string[]).includes(m);
+    const none = Promise.resolve([] as any[]);
 
     const [
       deals, tickets, leads, rules, contacts, modules, assignableUsers,
       quotes, invoices, campaigns, assets, leaveTypes, pendingLeaveRequests, orgUsers,
     ] = await Promise.all([
-      prisma.deal.findMany({ where: { orgId }, select: { id: true, title: true, stage: true }, take: 25, orderBy: { updatedAt: 'desc' } }),
-      prisma.ticket.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { updatedAt: 'desc' } }),
-      prisma.lead.findMany({ where: { orgId }, select: { id: true, contact: { select: { name: true } } }, take: 25, orderBy: { createdAt: 'desc' } }),
+      on('crm') ? prisma.deal.findMany({ where: { orgId }, select: { id: true, title: true, stage: true }, take: 25, orderBy: { updatedAt: 'desc' } }) : none,
+      on('itdesk') ? prisma.ticket.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { updatedAt: 'desc' } }) : none,
+      on('crm') ? prisma.lead.findMany({ where: { orgId }, select: { id: true, contact: { select: { name: true } } }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
       prisma.workflowRule.findMany({ where: { orgId }, select: { id: true, name: true, isActive: true }, take: 25 }),
-      prisma.contact.findMany({ where: { orgId }, select: { id: true, name: true }, take: 25, orderBy: { createdAt: 'desc' } }),
+      on('crm') ? prisma.contact.findMany({ where: { orgId }, select: { id: true, name: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
       // Active modules only, but deliberately NOT filtered to "has fields" —
       // unlike the sidebar's nav injection (AppLayout.tsx), a fieldless
       // module is still a valid target here: it's exactly what
@@ -800,19 +806,19 @@ export async function buildActionPlanForOrg(orgId: string, role: string, command
       // For ASSIGN_TICKET's name -> id resolution — same role set tickets
       // are normally assigned to (IT_STAFF), not every org member.
       prisma.user.findMany({ where: { orgId, isActive: true, role: { in: [...IT_STAFF] } }, select: { id: true, name: true }, take: 50 }),
-      prisma.quote.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }),
-      prisma.invoice.findMany({ where: { orgId }, select: { id: true, invoiceNumber: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }),
-      prisma.campaign.findMany({ where: { orgId }, select: { id: true, name: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }),
-      prisma.asset.findMany({ where: { orgId }, select: { id: true, name: true, type: true }, take: 25, orderBy: { createdAt: 'desc' } }),
-      prisma.leaveType.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true }, take: 25 }),
+      on('sales_docs') ? prisma.quote.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
+      on('sales_docs') ? prisma.invoice.findMany({ where: { orgId }, select: { id: true, invoiceNumber: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
+      on('campaigns') ? prisma.campaign.findMany({ where: { orgId }, select: { id: true, name: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
+      on('assets') ? prisma.asset.findMany({ where: { orgId }, select: { id: true, name: true, type: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
+      on('hr_core') ? prisma.leaveType.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true }, take: 25 }) : none,
       // Only PENDING ones — APPROVE_LEAVE/REJECT_LEAVE can't act on anything
       // else, so a decided request cluttering this list would just be a
       // wrong-match trap for the model.
-      prisma.leaveRequest.findMany({
+      on('hr_core') ? prisma.leaveRequest.findMany({
         where: { orgId, status: 'PENDING' },
         select: { id: true, startDate: true, endDate: true, user: { select: { name: true } }, leaveType: { select: { name: true } } },
         take: 25, orderBy: { createdAt: 'desc' },
-      }),
+      }) : none,
       // Broader than assignableUsers (IT_STAFF-only, for ticket assignment) —
       // MANUAL_ATTENDANCE_ENTRY can target any active org member, including
       // Employee-role staff who never appear in assignableUsers.
@@ -855,7 +861,7 @@ export async function buildActionPlanForOrg(orgId: string, role: string, command
        to create records even when the command names none of them. */
     const rel = <T,>(items: T[], label: (i: T) => string, recent = 5) => pickRelevant(items, label, command, recent);
     const plan = await planAiAction(command, {
-      actions: actionMenuForPrompt(role),
+      actions: actionMenuForPrompt(role, blockedModules),
       deals: rel(deals, d => d.title),
       tickets: rel(tickets, t => t.title),
       leads: rel(leads.map(l => ({ id: l.id, name: (l as any).contact?.name || 'Unknown' })), l => l.name),
@@ -878,7 +884,7 @@ export async function buildActionPlanForOrg(orgId: string, role: string, command
     // Filter to what this user's role is actually allowed to run, so the
     // confirm card never shows an action the execute step will just reject.
     const actionDef = plan.action ? getAiAction(plan.action) : undefined;
-    const allowed = actionDef ? actionDef.allowedRoles.includes(role as any) : true;
+    const allowed = actionDef ? actionDef.allowedRoles.includes(role as any) && !actionBlockedReason(actionDef.name, plan.params, blockedModules) : true;
 
     return {
       ...plan,
@@ -1033,6 +1039,8 @@ export async function executeActionHandler(req: AuthRequest, res: Response, next
     }
 
     const parsedParams = actionDef.schema.parse(stripNulls(params));
+    const blockedWhy = actionBlockedReason(action, parsedParams, (await getEffectiveLicense(req.user!.orgId)).blockedModules);
+    if (blockedWhy) return res.status(402).json({ error: blockedWhy });
     const result = await actionDef.handler(parsedParams, { orgId: req.user!.orgId, userId: req.user!.id });
 
     logAction(req.user!.id, 'UPDATE', `AI:${action}`, (parsedParams as any).dealId || (parsedParams as any).ticketId || (parsedParams as any).leadId || (parsedParams as any).ruleId || (parsedParams as any).moduleId || (parsedParams as any).entityId || 'n/a', {
