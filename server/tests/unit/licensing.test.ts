@@ -130,7 +130,10 @@ test('evaluateLicense: unknown plan fails safe to FREE', () => {
 
 test('evaluateLicense: operator plan→feature mapping is honoured (LIC-8)', () => {
   const cfg = mergePricing({ planFeatures: { FREE: ['hr_core'], PRO: ['ai_advanced', 'sso'] } });
-  assert.deepEqual(evaluateLicense(sub({ plan: 'FREE', stripeSubscriptionId: null }), NOW, cfg).features, ['hr_core']);
+  // Only the pre-catalogue keys are governed by this (old-style) override; the
+  // area keys added later follow their default (see modules.test.ts).
+  const legacy = ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding', 'sso', 'directory_sync', 'api_access', 'custom_modules', 'hr_core', 'payroll', 'attendance', 'campaigns'];
+  assert.deepEqual(evaluateLicense(sub({ plan: 'FREE', stripeSubscriptionId: null }), NOW, cfg).features.filter(f => legacy.includes(f)), ['hr_core']);
   const pro = evaluateLicense(sub(), NOW, cfg);
   assert.ok(pro.features.includes('sso'));
   assert.ok(!pro.features.includes('attendance'));
@@ -216,7 +219,7 @@ test('mergePricing: sanitises overrides and keeps defaults for blanks', () => {
   assert.equal(cfg.platformEmailMonthly.FREE, null, 'null = unlimited is preserved');
   assert.equal(cfg.platformEmailMonthly.PRO, 13);
   assert.equal(cfg.platformEmailMonthly.ENTERPRISE, DEFAULT_PRICING.platformEmailMonthly.ENTERPRISE);
-  assert.deepEqual(cfg.planFeatures.FREE, ['hr_core']);
+  assert.deepEqual(cfg.planFeatures.FREE, ['hr_core', 'crm', 'sales_docs', 'itdesk', 'assets', 'knowledge_base'], 'deduped, unknown dropped; keys newer than the override follow their default');
   assert.deepEqual(cfg.planFeatures.PRO, DEFAULT_PRICING.planFeatures.PRO);
   assert.equal(mergePricing({ currency: 'dollars' }).currency, DEFAULT_PRICING.currency);
 });

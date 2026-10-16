@@ -231,12 +231,29 @@ export function verifyStripeWebhook(payload: Buffer, signature: string, nowMs = 
 export const FEATURE_KEYS = [
   'ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding',
   'sso', 'directory_sync', 'api_access', 'custom_modules', 'hr_core', 'payroll', 'attendance', 'campaigns',
+  // Product areas added with the module catalogue (utils/modules.ts) so the
+  // platform operator can switch CRM / IT Desk / … off per org. Every plan
+  // includes them by default (CORE_AREA_FEATURES), and a saved plan mapping
+  // that predates them treats them as included (utils/pricing.ts
+  // mergePlanFeatures), so adding them changed nothing for existing orgs.
+  'crm', 'itdesk', 'sales_docs', 'assets', 'knowledge_base',
 ] as const;
 export type FeatureKey = typeof FEATURE_KEYS[number];
 export function isFeatureKey(v: unknown): v is FeatureKey { return typeof v === 'string' && (FEATURE_KEYS as readonly string[]).includes(v); }
 
 /** Areas every plan includes by default (no behaviour change when they were introduced). */
-export const CORE_AREA_FEATURES: FeatureKey[] = ['hr_core', 'attendance', 'payroll', 'campaigns', 'custom_modules', 'api_access'];
+export const CORE_AREA_FEATURES: FeatureKey[] = [
+  'crm', 'sales_docs', 'itdesk', 'assets', 'knowledge_base',
+  'hr_core', 'attendance', 'payroll', 'campaigns', 'custom_modules', 'api_access',
+];
+
+/** The keys that existed before the module catalogue. A saved operator plan
+ *  mapping without a `planFeaturesKeys` list was written knowing only these;
+ *  any other key in it follows the code default (see pricing.ts). Never edit. */
+export const LEGACY_FEATURE_KEYS: readonly FeatureKey[] = [
+  'ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding',
+  'sso', 'directory_sync', 'api_access', 'custom_modules', 'hr_core', 'payroll', 'attendance', 'campaigns',
+];
 const PRO_FEATURES: FeatureKey[] = ['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics'];
 
 /** Code defaults for plan → features. CUSTOM here is the BASE every custom

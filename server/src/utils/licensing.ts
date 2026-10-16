@@ -5,6 +5,7 @@ import { AuthRequest } from '../middleware/authenticate';
 import jwt from 'jsonwebtoken';
 import { PLANS, FeatureKey, PlanKey, isPlanKey, isFeatureKey } from './stripe';
 import { normaliseModules, getPricingConfig, DEFAULT_PRICING, PricingConfig } from './pricing';
+import { MODULE_CATALOGUE, AREA_MODULE_KEYS, areaOf } from './modules';
 
 // Every internal role counts against a plan's seat limit EXCEPT plain
 // EMPLOYEE — those are staff who just submit requests internally (not
@@ -47,6 +48,13 @@ async function getOrCreateSubscription(orgId: string) {
 //
 // Operator overrides (seatsOverride, extraFeatures, storage / AI / send-quota
 // overrides) are applied on top in every state — they are deliberate comps.
+// disabledFeatures (modules the operator switched OFF for this org) is applied
+// last, also in every state:
+//
+//   features = (plan features for the effective plan ∪ extraFeatures) − disabledFeatures
+//
+// then any catalogue module whose prerequisite is missing (utils/modules.ts
+// `requires`, e.g. Campaigns needs CRM) is dropped too.
 
 export type LicenseAccess = 'full' | 'grace' | 'lapsed';
 
@@ -76,6 +84,15 @@ export interface EffectiveLicense {
   access: LicenseAccess;
   /** Human-readable explanation when access !== 'full' */
   reason: string | null;
+  /** Keys the platform operator switched off for this org (valid keys only). */
+  disabledFeatures: FeatureKey[];
+  /** Catalogue modules that are OFF as a whole right now: switched off by the
+   *  operator, an area module (crm, itdesk, …) the licence lacks, or a module
+   *  whose prerequisite is off. Their routers answer 402 and the app hides
+   *  them (see requireModuleAtMount and GET /billing/entitlements). Older
+   *  feature keys missing only from the PLAN are not listed — their existing
+   *  data stays readable, as before. */
+  blockedModules: FeatureKey[];
 }
 
 const ACTIVE_STATUSES = new Set(['active', 'trialing']);
@@ -95,6 +112,7 @@ export type SubRow = {
   updatedAt?: Date | null;
   seatsOverride?: number | null;
   extraFeatures?: string[] | null;
+  disabledFeatures?: string[] | null;
   manualExpiresAt?: Date | null;
   trialEndsAt?: Date | null;
   aiTokenLimitMonthly?: number | null;
@@ -119,12 +137,37 @@ export function resolveSendQuota(override: number | null | undefined, defaults: 
   return defaults?.[plan] ?? null;
 }
 
+/**
+ * Pure: apply the operator's area / module switch-offs to a granted feature
+ * set (utils/modules.ts). Returns the effective features and the catalogue
+ * modules that are off as a whole (EffectiveLicense.blockedModules):
+ *  - any key in `disabled` is off (an area root there = the whole area off);
+ *  - an area whose root is blocked takes every sub-module down with it;
+ *  - the catalogue's new area keys (crm, itdesk, …) are blocked whenever the
+ *    licence lacks them. Older keys merely missing from the plan (hr_core,
+ *    payroll, campaigns, …) are NOT blocked — that keeps today's behaviour,
+ *    where existing data stays readable and only creating is upgrade-locked.
+ */
+export function applyModuleRules(granted: FeatureKey[], disabled: FeatureKey[]): { features: FeatureKey[]; blockedModules: FeatureKey[] } {
+  const grantedSet = new Set(granted);
+  const blocked = new Set<FeatureKey>(disabled);
+  for (const k of AREA_MODULE_KEYS) if (!grantedSet.has(k)) blocked.add(k);
+  for (const m of MODULE_CATALOGUE) {
+    const area = areaOf(m.key)!;
+    if (blocked.has(area.root)) blocked.add(m.key);
+  }
+  const features = granted.filter(k => !blocked.has(k));
+  const blockedModules = MODULE_CATALOGUE.map(m => m.key).filter(k => blocked.has(k));
+  return { features, blockedModules };
+}
+
 /** Pure evaluation — exported so it can be unit-tested without a database. */
 export function evaluateLicense(sub: SubRow, now = new Date(), cfg: PricingConfig = DEFAULT_PRICING): EffectiveLicense {
   const plan: PlanKey = isPlanKey(sub.plan) ? sub.plan : 'FREE';
   const stripeManaged = !!sub.stripeSubscriptionId;
   const extra = (sub.extraFeatures ?? []).filter(isFeatureKey);
-  const withExtras = (features: FeatureKey[]) => [...new Set([...features, ...extra])];
+  const disabled = [...new Set((sub.disabledFeatures ?? []).filter(isFeatureKey))];
+  const withExtras = (features: FeatureKey[]) => applyModuleRules([...new Set([...features, ...extra])], disabled);
   const seatsWithOverride = (seats: number) => (sub.seatsOverride && sub.seatsOverride > 0 ? sub.seatsOverride : seats);
 
   const limitsFor = (p: PlanKey) => ({
@@ -134,6 +177,7 @@ export function evaluateLicense(sub: SubRow, now = new Date(), cfg: PricingConfi
   });
 
   const base = {
+    disabledFeatures: disabled,
     orgId: sub.orgId, plan, status: sub.status, interval: sub.interval,
     currentPeriodEnd: sub.currentPeriodEnd, graceUntil: sub.graceUntil, cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
     trialEndsAt: sub.trialEndsAt ?? null, stripeManaged,
@@ -152,11 +196,11 @@ export function evaluateLicense(sub: SubRow, now = new Date(), cfg: PricingConfi
 
   const full: EffectiveLicense = {
     ...base, ...limitsFor(plan), effectivePlan: plan, seats: seatsWithOverride(paidSeats),
-    features: withExtras(paidFeatures), storageQuotaGB: paidStorage, access: 'full', reason: null,
+    ...withExtras(paidFeatures), storageQuotaGB: paidStorage, access: 'full', reason: null,
   };
   const lapsed = (reason: string): EffectiveLicense => ({
     ...base, ...limitsFor('FREE'), effectivePlan: 'FREE', seats: seatsWithOverride(PLANS.FREE.seats),
-    features: withExtras(planFeaturesFor('FREE', cfg)),
+    ...withExtras(planFeaturesFor('FREE', cfg)),
     // An explicit operator override still wins on a lapsed org (it is a deliberate comp)
     storageQuotaGB: sub.storageQuotaOverrideGb ?? PLANS.FREE.storageQuotaGB, access: 'lapsed', reason,
   });
@@ -304,13 +348,24 @@ const FEATURE_NAMES: Record<FeatureKey, string> = {
   advanced_analytics: 'Advanced analytics', custom_branding: 'Custom branding', sso: 'Single sign-on configuration',
   directory_sync: 'Directory sync', api_access: 'API access', custom_modules: 'Custom modules', hr_core: 'HR',
   payroll: 'Payroll', attendance: 'Attendance', campaigns: 'Campaigns',
+  crm: 'CRM', itdesk: 'IT Desk', sales_docs: 'Quotes & Invoices', assets: 'Assets', knowledge_base: 'The knowledge base',
 };
 
 export function featureNotIncludedMessage(lic: EffectiveLicense, feature: FeatureKey): string {
+  const name = FEATURE_NAMES[feature] ?? 'This feature';
+  // Switched off by the platform operator — upgrading won't help, so don't
+  // send the customer to Billing; their provider has to turn it back on.
+  if (lic.disabledFeatures.includes(feature)) {
+    return `${name} isn't enabled for your organisation — it has been switched off by your service provider. Contact your administrator if you need it.`;
+  }
+  const area = areaOf(feature);
+  if (area && lic.disabledFeatures.includes(area.root)) {
+    return `${name} is part of the ${area.label} area, which isn't enabled for your organisation. Contact your administrator if you need it.`;
+  }
   const why = lic.access === 'lapsed'
     ? `${lic.reason} Restore payment under Billing to regain access.`
     : `Upgrade your plan or add it to a custom licence under Billing to unlock it.`;
-  return `${FEATURE_NAMES[feature] ?? 'This feature'} isn't included in your ${PLANS[lic.effectivePlan].name} plan. ${why}`;
+  return `${name} isn't included in your ${PLANS[lic.effectivePlan].name} plan. ${why}`;
 }
 
 /** Express middleware factory — 402s with an upgrade message if the org's
@@ -351,6 +406,54 @@ export function requireFeatureAtMount(feature: FeatureKey) {
     if (!orgId) return next();
     return gate({ ...req, user: { orgId } } as unknown as AuthRequest, res, next);
   };
+}
+
+/** True while a catalogue module is off as a whole for the org (EffectiveLicense.blockedModules). */
+export async function isModuleBlocked(orgId: string, key: FeatureKey): Promise<boolean> {
+  const lic = await getEffectiveLicense(orgId);
+  return lic.blockedModules.includes(key);
+}
+
+/** Org ids among `orgIds` for which `key` is off — for background jobs that
+ *  sweep many orgs (SLA monitor, attendance auto-checkout, payroll crons). */
+export async function orgsWithModuleBlocked(orgIds: string[], key: FeatureKey): Promise<Set<string>> {
+  const out = new Set<string>();
+  await Promise.all([...new Set(orgIds)].map(async id => {
+    try { if (await isModuleBlocked(id, key)) out.add(id); } catch { /* fail open: never stop a job on a licence read */ }
+  }));
+  return out;
+}
+
+/**
+ * Whole-router gate for a catalogue module (index.ts mounts each module's
+ * routers behind it — see utils/modules.ts apiPrefixes). 402s while the
+ * module is in blockedModules. Same org identification as
+ * requireFeatureAtMount: req.user (API key) or the bearer token (staff or
+ * portal JWT); with neither it passes through, so the router's own auth still
+ * answers 401 and its public routes (shared quote links, CSAT survey, web
+ * forms) keep working.
+ */
+export function requireModuleAtMount(key: FeatureKey) {
+  const gate = async (orgId: string, next: NextFunction) => {
+    try {
+      const lic = await getEffectiveLicense(orgId);
+      if (lic.blockedModules.includes(key)) throw new AppError(402, featureNotIncludedMessage(lic, key));
+      next();
+    } catch (err) { next(err); }
+  };
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
+    const orgId = req.user?.orgId ?? orgIdFromBearer(req);
+    if (!orgId) return next();
+    return gate(orgId, next);
+  };
+}
+
+function orgIdFromBearer(req: AuthRequest): string | undefined {
+  const token = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null;
+  if (!token || !process.env.JWT_SECRET) return undefined;
+  try {
+    return (jwt.verify(token, process.env.JWT_SECRET) as { orgId?: string }).orgId || undefined;
+  } catch { return undefined; }
 }
 
 // ─── Hosted storage quota ─────────────────────────────────────────────────

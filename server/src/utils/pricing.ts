@@ -15,7 +15,7 @@
 // (cents / paise) of `currency` unless the field name says otherwise.
 
 import { prisma } from './prisma';
-import { FeatureKey, DEFAULT_PLAN_FEATURES, isFeatureKey } from './stripe';
+import { FeatureKey, DEFAULT_PLAN_FEATURES, LEGACY_FEATURE_KEYS, isFeatureKey } from './stripe';
 
 export type BillingInterval = 'month' | 'year';
 export type ModuleKey = FeatureKey | 'hosted_storage';
@@ -137,6 +137,11 @@ export type PricingOverride = Partial<Omit<PricingConfig, 'modules' | 'planPrice
   planPrices?: Partial<PricingConfig['planPrices']>;
   modules?: ModuleOverride[];
   planFeatures?: Partial<Record<LimitPlan, string[]>>;
+  /** The feature keys the console knew about when planFeatures was saved.
+   *  Keys outside it (added to the product later) follow the code default
+   *  instead of reading as "excluded". Absent on overrides saved before the
+   *  module catalogue — those knew LEGACY_FEATURE_KEYS. */
+  planFeaturesKeys?: string[];
   platformEmailMonthly?: Partial<PlanLimits>;
   platformWhatsAppMonthly?: Partial<PlanLimits>;
   aiTokensMonthly?: Partial<PlanLimits>;
@@ -158,12 +163,27 @@ function mergeLimits(o: Partial<PlanLimits> | undefined, d: PlanLimits): PlanLim
   return out;
 }
 
-function mergePlanFeatures(o: PricingOverride['planFeatures'], d: PricingConfig['planFeatures']): PricingConfig['planFeatures'] {
+/**
+ * Layer the operator's saved plan → features mapping over the code defaults.
+ *
+ * A saved list only speaks for the keys it was saved with: a key added to the
+ * product afterwards (e.g. 'crm' / 'itdesk' from the module catalogue) is
+ * simply absent from an older list, and reading that as "excluded" would
+ * switch CRM and IT Desk off for every customer on deploy. So keys outside
+ * `knownKeys` keep their code-default membership (every plan, for the area
+ * keys); keys inside it follow the saved list exactly, as before.
+ */
+export function mergePlanFeatures(o: PricingOverride['planFeatures'], d: PricingConfig['planFeatures'], knownKeys?: unknown): PricingConfig['planFeatures'] {
   const out = { FREE: [...d.FREE], PRO: [...d.PRO], ENTERPRISE: [...d.ENTERPRISE], CUSTOM: [...d.CUSTOM] };
   if (!o || typeof o !== 'object') return out;
+  const known = new Set<string>(Array.isArray(knownKeys) ? knownKeys.filter(isFeatureKey) : LEGACY_FEATURE_KEYS);
   for (const p of LIMIT_PLANS) {
     const v = (o as any)[p];
-    if (Array.isArray(v)) out[p] = [...new Set(v.filter(isFeatureKey))];
+    if (Array.isArray(v)) {
+      const saved = v.filter(isFeatureKey).filter(k => known.has(k));
+      const unknownDefaults = d[p].filter(k => !known.has(k));
+      out[p] = [...new Set([...saved, ...unknownDefaults])];
+    }
   }
   return out;
 }
@@ -198,7 +218,7 @@ export function mergePricing(override: PricingOverride | null | undefined): Pric
     currency,
     trialDays: Math.round(num(o.trialDays, d.trialDays, 0, 365)),
     contactEmail: typeof o.contactEmail === 'string' ? o.contactEmail.trim().slice(0, 200) : d.contactEmail,
-    planFeatures: mergePlanFeatures(o.planFeatures, d.planFeatures),
+    planFeatures: mergePlanFeatures(o.planFeatures, d.planFeatures, o.planFeaturesKeys),
     platformEmailMonthly: mergeLimits(o.platformEmailMonthly, d.platformEmailMonthly),
     platformWhatsAppMonthly: mergeLimits(o.platformWhatsAppMonthly, d.platformWhatsAppMonthly),
     aiTokensMonthly: mergeLimits(o.aiTokensMonthly, d.aiTokensMonthly),

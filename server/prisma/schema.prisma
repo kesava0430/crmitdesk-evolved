@@ -1168,6 +1168,10 @@ model Subscription {
   seatsOverride        Int?         @map("seats_override")
   /// Feature keys granted on top of the plan (a comped module).
   extraFeatures        String[]     @default([]) @map("extra_features")
+  /// Feature keys the operator switched OFF for this org (Platform Admin →
+  /// Modules). Removed from the effective licence in every payment state,
+  /// after the plan and extraFeatures are applied. Empty = follow the plan.
+  disabledFeatures     String[]     @default([]) @map("disabled_features")
   /// Free-text operator note (deal reference, why it was comped, …).
   manualNote           String?      @map("manual_note")
   /// Expiry of a MANUAL licence (no stripeSubscriptionId). Null = no expiry.
