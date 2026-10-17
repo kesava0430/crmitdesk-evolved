@@ -118,7 +118,7 @@ function DepartmentsPanel() {
     <>
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 mb-3">
         <p className="text-[12.5px] text-fg-muted min-w-0">
-          Departments nest, so you can model Sales → Inside Sales → SDR.
+          Departments nest, so you can model Operations → Finance → Payroll.
         </p>
         <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
           Department
@@ -426,7 +426,7 @@ function LocationsPanel() {
     <>
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 mb-3">
         <p className="text-[12.5px] text-fg-muted min-w-0">
-          A location is the HR/asset concept. Attendance geo-fences stay where they are and can roll up to one.
+          A location is where people are based. Attendance geo-fences stay where they are and can roll up to one.
         </p>
         <Button size="xs" icon={<Plus size={12} />} onClick={() => setOpen(true)}>
           Location

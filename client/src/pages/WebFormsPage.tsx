@@ -168,7 +168,7 @@ function onFormSubmit(e) {
           <Alert tone="info">
             Each form has a public link that works <strong>without login</strong> — share it directly
             or embed it on your site with the iframe snippet. Pair it with an{' '}
-            <strong>AI Auto-Assign</strong> workflow rule (Workflows → On lead/ticket created) and
+            <strong>AI Auto-Assign</strong> workflow rule (Workflows → On {typeOptions.map(o => o.value === 'LEAD' ? 'lead' : 'ticket').join('/')} created) and
             every submission is routed to the right department and person automatically.
           </Alert>
 
@@ -179,7 +179,7 @@ function onFormSubmit(e) {
               <EmptyState
                 icon={<MousePointerClick size={22} />}
                 title="No web forms yet"
-                description="Create a lead form for your website's contact page, or a ticket form for a customer support portal."
+                description={joinWords([modules.isModuleOn('crm') && "Create a lead form for your website's contact page", modules.isModuleOn('itdesk') && 'a ticket form for a customer support portal']).replace(' and a ticket', ', or a ticket').replace(/^a ticket/, 'Create a ticket') + '.'}
                 action={{ label: 'Create your first form', onClick: () => setShowCreate(true) }}
               />
             </Card>

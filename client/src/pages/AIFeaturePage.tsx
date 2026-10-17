@@ -21,9 +21,12 @@ const TRIGGERS = [
   { value: 'MANUAL',               label: 'Manual / On Demand',    icon: <Play size={16} />,         desc: 'Run this rule manually whenever needed' },
 ];
 
+/** AI rule trigger → licence module (MANUAL is shared). */
+const AI_TRIGGER_MODULE: Record<string, string> = { TICKET_CREATED: 'itdesk', TICKET_RESOLVED: 'itdesk', LEAD_SCORED: 'crm', DEAL_STAGE_CHANGED: 'crm', CONTACT_UPDATED: 'crm' };
+
 const ACTIONS = [
   { value: 'TAG',           label: 'Auto-Tag',          icon: <Tag size={16} />,       desc: 'Automatically add tags to the entity' },
-  { value: 'ROUTE',         label: 'Smart Route',       icon: <Route size={16} />,     desc: 'Route to the right team or agent' },
+  { value: 'ROUTE',         label: 'Smart Route',       icon: <Route size={16} />,     desc: 'Route to the right team or person' },
   { value: 'EMAIL',         label: 'Generate Email',    icon: <Mail size={16} />,      desc: 'Draft a follow-up or notification email' },
   { value: 'NOTIFY',        label: 'Send Notification', icon: <Bell size={16} />,      desc: 'Alert the team with an AI insight' },
   { value: 'SCORE',         label: 'AI Score',          icon: <BarChart3 size={16} />, desc: 'Calculate a custom AI score' },
@@ -204,7 +207,7 @@ function RuleForm({ initial, onClose }: { initial?: any; onClose: () => void }) 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <Field label="Rule Name" required>
-        <Input required value={form.name} onChange={f('name')} placeholder="e.g. Auto-tag billing tickets" />
+        <Input required value={form.name} onChange={f('name')} placeholder={modules.isModuleOn('itdesk') ? 'e.g. Auto-tag billing tickets' : 'e.g. Draft follow-ups for won deals'} />
       </Field>
 
       <Field label="Description">
@@ -273,6 +276,11 @@ export function AIFeaturePage() {
   const { user } = useAuth();
   const canReadAiConfig = can.readAiConfig(user?.role);
   const { data: rules, isLoading } = useAIRules(canReadAiConfig);
+  // Rules and templates on an area switched off for the org (Platform Admin →
+  // Areas) are left out — they can't fire there.
+  const pageModules = useModules();
+  const triggerOn = (t: string) => !AI_TRIGGER_MODULE[t] || pageModules.isModuleOn(AI_TRIGGER_MODULE[t]);
+  const liveRules = (rules ?? []).filter((r: any) => triggerOn(r.trigger));
   const deleteRule = useDeleteAIRule();
   const updateRule = useUpdateAIRule();
   const bulkScore = useBulkScoreLeads();
@@ -293,6 +301,7 @@ export function AIFeaturePage() {
         subtitle="Create custom AI automations that run on your data — no code required."
         actions={
           <>
+            {pageModules.isModuleOn('crm') && (<>
             <Button
               variant="secondary"
               icon={<BarChart3 size={15} />}
@@ -302,6 +311,7 @@ export function AIFeaturePage() {
               Score All Leads
             </Button>
             <AiInfo id="lead.bulkScore" align="left" className="-ml-1" />
+            </>)}
             <Button icon={<Plus size={15} />} onClick={() => setModal('create')}>
               New Rule
             </Button>
@@ -320,11 +330,11 @@ export function AIFeaturePage() {
 
         {/* Quick actions */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
+          {([
             { icon: <Tag size={16} />, title: 'Auto-Tag Tickets', desc: 'AI extracts tags from ticket content automatically', trigger: 'TICKET_CREATED', action: 'TAG' },
             { icon: <Mail size={16} />, title: 'Smart Follow-ups', desc: 'Generate follow-up emails when deals change stages', trigger: 'DEAL_STAGE_CHANGED', action: 'EMAIL' },
             { icon: <Bell size={16} />, title: 'SLA Alerts', desc: 'Get AI-generated alerts when tickets age too long', trigger: 'TICKET_CREATED', action: 'NOTIFY' },
-          ].map(t => (
+          ]).filter(t => triggerOn(t.trigger)).map(t => (
             <Card
               key={t.title}
               padding="sm"
@@ -347,7 +357,7 @@ export function AIFeaturePage() {
         {/* Rules list */}
         <div>
           <SectionHeader
-            title={<>Your Rules {rules?.length ? <span className="text-fg-subtle font-normal">({rules.length})</span> : null}</>}
+            title={<>Your Rules {liveRules.length ? <span className="text-fg-subtle font-normal">({liveRules.length})</span> : null}</>}
             className="mb-3"
           />
 
@@ -361,12 +371,12 @@ export function AIFeaturePage() {
             <EmptyState
               icon={<Sparkles size={24} />}
               title="No AI rules yet"
-              description="Create your first rule to automate AI actions on your CRM data."
+              description="Create your first rule to automate AI actions on your records."
               action={{ label: 'Create First Rule', onClick: () => setModal('create') }}
             />
           ) : (
             <div className="space-y-3">
-              {rules.map((rule: any) => (
+              {liveRules.map((rule: any) => (
                 <RuleCard
                   key={rule.id}
                   rule={rule}

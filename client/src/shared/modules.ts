@@ -72,3 +72,35 @@ export function joinWords(words: (string | false | null | undefined)[]): string 
   const w = words.filter(Boolean) as string[];
   return w.length <= 1 ? (w[0] ?? '') : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`;
 }
+
+/**
+ * Area-aware wording for screens that describe the product (Billing, the
+ * custom licence builder, AI texts): names only the areas the org has, and
+ * says whether a licence feature means anything to it.
+ */
+export function useAreaCopy() {
+  const m = useModules();
+  const crm = m.isAreaOn('crm'), it = m.isAreaOn('itdesk'), hr = m.isAreaOn('hr');
+  const areas = [crm && 'CRM', it && 'IT Desk', hr && 'HR'].filter(Boolean) as string[];
+  const ai = joinWords([crm && 'lead scoring', it && 'ticket sentiment', it && 'auto-routing', (crm || it) && 'auto-tagging']);
+  const coreParts = [
+    crm && 'contacts, leads, deals', it && 'tickets, SLAs', m.isModuleOn('knowledge_base') && 'knowledge base',
+    hr && 'people, leave', m.isModuleOn('attendance') && 'attendance', m.isModuleOn('payroll') && 'payroll',
+  ].filter(Boolean) as string[];
+  return {
+    /** "CRM + IT Desk" */
+    areaPlus: areas.join(' + '),
+    /** "CRM, IT Desk and HR" */
+    areaNames: joinWords(areas),
+    /** "core AI (lead scoring, …)" or "the AI assistant" when no CRM / IT Desk. */
+    coreAi: ai ? `core AI (${ai})` : 'the AI assistant',
+    /** One line of what the base licence covers here. */
+    coreSummary: `${coreParts.join(', ')}${coreParts.length ? ', ' : ''}core AI, email notifications`.replace(/^./, c => c.toUpperCase()),
+    /** Does a licence feature key mean anything to this org? */
+    isFeatureRelevant: (key: string) => {
+      if (!m.isModuleOn(key)) return false;
+      if (key === 'advanced_analytics') return crm || it;
+      return true;
+    },
+  };
+}

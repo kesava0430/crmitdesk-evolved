@@ -1,4 +1,5 @@
 import { OrgAreasCard } from '../shared/components/OrgAreasCard';
+import { useModules, joinWords } from '../shared/modules';
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle } from 'lucide-react';
 import { useOrgSettings, useUpdateOrgSettings } from '../api/org';
@@ -72,6 +73,8 @@ function timezoneLabel(tz: string): string {
 }
 
 export default function OrgSettingsPage() {
+  // Name only the areas the org has (Platform Admin → Areas).
+  const om = useModules();
   const { data: org, isLoading } = useOrgSettings();
   const update = useUpdateOrgSettings();
   const [currency, setCurrency] = useState('USD');
@@ -113,7 +116,7 @@ export default function OrgSettingsPage() {
           <Card className="space-y-5">
             <Field
               label="Currency"
-              hint={<>Applies to deal values, quotes, invoices, and payroll amounts across the app — e.g. {new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(1234.5)}.</>}
+              hint={<>Applies to {joinWords([om.isModuleOn('crm') && 'deal values', om.isModuleOn('sales_docs') && 'quotes, invoices', om.isModuleOn('payroll') && 'payroll amounts']) || 'amounts'} across the app — e.g. {new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(1234.5)}.</>}
             >
               <SearchableSelect
                 ariaLabel="Currency"
@@ -126,7 +129,7 @@ export default function OrgSettingsPage() {
 
             <Field
               label="Time zone"
-              hint={<>Applies to ticket/deal/activity timestamps app-wide — right now that's <strong>{preview}</strong>. Dates are still stored the same way either way; this only changes how they're displayed.</>}
+              hint={<>Applies to {[om.isModuleOn('itdesk') && 'ticket', om.isModuleOn('crm') && 'deal', 'activity'].filter(Boolean).join('/')} timestamps app-wide — right now that's <strong>{preview}</strong>. Dates are still stored the same way either way; this only changes how they're displayed.</>}
             >
               <SearchableSelect
                 ariaLabel="Time zone"

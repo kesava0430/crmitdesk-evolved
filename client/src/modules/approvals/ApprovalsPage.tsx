@@ -1,4 +1,4 @@
-import { useModules } from '../../shared/modules';
+import { useModules, joinWords } from '../../shared/modules';
 import { useState } from 'react';
 import {
   useApprovalRequests,
@@ -387,7 +387,7 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
                       onChange={e => updateStep(i, { approverRoleKey: e.target.value })}
                     >
                       <option value="">Choose a role…</option>
-                      {(roles?.data ?? []).map(r => (
+                      {(roles?.data ?? []).filter(r => !r.areaOff).map(r => (
                         <option key={r.id} value={r.key}>
                           {r.name}
                         </option>
@@ -407,6 +407,7 @@ function NewPolicyModal({ open, onClose }: { open: boolean; onClose: () => void 
 }
 
 function PoliciesPanel() {
+  const pm = useModules();
   const { user } = useAuth();
   const { data, isLoading } = useApprovalPolicies(can.readApprovalPolicies(user?.role));
   const del = useDeleteApprovalPolicy();
@@ -434,7 +435,7 @@ function PoliciesPanel() {
         <EmptyState
           icon={<GitBranch />}
           title="No approval policies"
-          description="Create one to route leave, changes, quotes or expenses through the right people."
+          description={`Create one to route ${joinWords([pm.isModuleOn('hr_core') && 'leave', pm.isModuleOn('itdesk') && 'changes', pm.isModuleOn('sales_docs') && 'quotes', 'expenses']).replace(/ and ([^ ]+)$/, ' or $1')} through the right people.`}
           action={{ label: 'Create policy', onClick: () => setOpen(true) }}
         />
       ) : (
@@ -596,6 +597,7 @@ const TABS: TabItem<TabKey>[] = [
 ];
 
 export default function ApprovalsPage() {
+  const ap = useModules();
   const [tab, setTab] = useState<TabKey>('inbox');
   const { data: pending } = useMyPendingApprovals();
   /* Inbox, requests and delegations are everybody's — an employee raising leave
@@ -610,7 +612,7 @@ export default function ApprovalsPage() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="Approvals"
-        subtitle="One approval engine shared by leave, change requests, quotes and anything else you wire up."
+        subtitle={`One approval engine shared by ${[ap.isModuleOn('hr_core') && 'leave', ap.isModuleOn('itdesk') && 'change requests', ap.isModuleOn('sales_docs') && 'quotes'].filter(Boolean).join(', ')}${ap.isModuleOn('hr_core') || ap.isModuleOn('itdesk') || ap.isModuleOn('sales_docs') ? ' and ' : ''}anything else you wire up.`}
         below={
           <Tabs
             variant="segmented"

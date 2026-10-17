@@ -1,3 +1,4 @@
+import { useAreaCopy } from '../shared/modules';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Check, Lock, Minus, Plus, Users, CalendarClock, ShieldCheck, CheckCircle } from 'lucide-react';
@@ -14,6 +15,8 @@ import { featureLabel } from '../shared/licenseFeatures';
 const SEAT_PRESETS = [5, 10, 25, 50, 100, 250];
 
 export function CustomLicensePage() {
+  // Names only the areas the org has (Platform Admin → Areas).
+  const areaCopy = useAreaCopy();
   const [searchParams] = useSearchParams();
   const canceled = searchParams.get('canceled') === '1';
   const { user } = useAuth();
@@ -35,9 +38,10 @@ export function CustomLicensePage() {
     // Includes modules the org already licenses that are no longer sold à la
     // carte (e.g. Custom Branding) — the server keeps pricing them for this
     // org, so an update must not silently drop them.
-    const current = sub.plan === 'CUSTOM' ? [...sub.planConfig.features] : sub.planConfig.features.filter(k => pricing.modules.some(m => m.key === k));
+    // Switching from a fixed plan pre-fills only modules this org can use (Platform Admin → Areas).
+    const current = sub.plan === 'CUSTOM' ? [...sub.planConfig.features] : sub.planConfig.features.filter(k => pricing.modules.some(m => m.key === k) && areaCopy.isFeatureRelevant(k));
     if (sub.plan === 'CUSTOM' && sub.planConfig.storageQuotaGB > 0) current.push('hosted_storage');
-    setSelected(new Set(current.length ? current : ['workflow_automation', 'advanced_analytics']));
+    setSelected(new Set(current.length ? current : ['workflow_automation', 'advanced_analytics'].filter(k => areaCopy.isFeatureRelevant(k))));
     setSeats(Math.min(pricing.maxSeats, Math.max(pricing.minSeats, sub.seatsUsed, sub.plan === 'CUSTOM' ? sub.seats : Math.max(sub.seatsUsed, 5))));
     if (sub.interval === 'year') setInterval('year');
     setSeeded(true);
@@ -160,7 +164,7 @@ export function CustomLicensePage() {
                 </div>
               </div>
               <p className="text-[12px] text-fg-muted mb-4">
-                CRM, IT Desk, core AI (lead scoring, ticket sentiment, auto-routing, auto-tagging) and attachments via your own Google Drive are always included. Each module below adds a per-seat price.
+                {areaCopy.areaNames}, {areaCopy.coreAi} and attachments via your own Google Drive are always included. Each module below adds a per-seat price.
               </p>
               {grandfathered.length > 0 && (
                 <p className="text-[12px] text-fg-muted mb-3">
@@ -168,9 +172,9 @@ export function CustomLicensePage() {
                 </p>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <ModuleCard module={{ key: 'core', name: 'CRM + IT Desk core', description: 'Contacts, leads, deals, tickets, SLAs, knowledge base, core AI, email notifications', pricePerSeatCents: 0 }} checked locked fmt={fmtUsd} />
-                {pricing.modules.map(m => (
-                  <ModuleCard key={m.key} module={m} checked={selected.has(m.key)} onToggle={() => toggle(m.key)} fmt={fmtUsd} />
+                <ModuleCard module={{ key: 'core', name: `${areaCopy.areaPlus} core`, description: areaCopy.coreSummary, pricePerSeatCents: 0 }} checked locked fmt={fmtUsd} />
+                {pricing.modules.filter(m => m.key === 'hosted_storage' || areaCopy.isFeatureRelevant(m.key) || selected.has(m.key)).map(m => (
+                  <ModuleCard key={m.key} module={m.key === 'advanced_analytics' ? { ...m, description: `Analytics dashboards and ${[areaCopy.areaPlus.includes('IT Desk') && 'ticket', areaCopy.areaPlus.includes('CRM') && 'CRM'].filter(Boolean).join(' / ')} reports` } : m} checked={selected.has(m.key)} onToggle={() => toggle(m.key)} fmt={fmtUsd} />
                 ))}
               </div>
             </Card>

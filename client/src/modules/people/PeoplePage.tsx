@@ -104,7 +104,7 @@ function GrantLoginModal({ person, onClose }: { person: Person | null; onClose: 
           <Field label="Role">
             <Select value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
               <option value="">Employee (self-service only)</option>
-              {(roles?.data ?? []).filter(r => r.isActive).map(r => (
+              {(roles?.data ?? []).filter(r => r.isActive && !r.areaOff).map(r => (
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
             </Select>
@@ -309,7 +309,7 @@ export default function PeoplePage() {
                     <p className="text-[13.5px] font-medium text-fg truncate" title={p.displayName}>{p.displayName}</p>
                     <div className="flex items-center gap-2 text-[11px] text-fg-subtle flex-wrap">
                       {p.employeeCode && <span>{p.employeeCode}</span>}
-                      {p.designation && <span>· {p.designation}</span>}
+                      {p.designation && <span data-user-content="designation">· {p.designation}</span>}
                       {p.department && (
                         <span className="inline-flex items-center gap-1">· <Building2 size={10} /> {p.department.name}</span>
                       )}
@@ -341,13 +341,13 @@ export default function PeoplePage() {
                           );
                         }}
                       >
-                        {!p.roleId && <option value="">{p.role?.replace(/_/g, ' ') ?? 'No role'}</option>}
-                        {(roles?.data ?? []).filter(r => r.isActive).map(r => (
+                        {!p.roleId && <option value="" data-user-content="role">{p.role?.replace(/_/g, ' ') ?? 'No role'}</option>}
+                        {(roles?.data ?? []).filter(r => r.isActive && !r.areaOff).map(r => (
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </Select>
                     ) : (
-                      <Badge variant="blue">{p.roleName ?? 'Login'}</Badge>
+                      <span data-user-content="role"><Badge variant="blue">{p.roleName ?? 'Login'}</Badge></span>
                     )}
 
                     {p.employmentStatus && (

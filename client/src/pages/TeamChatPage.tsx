@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 /**
  * Team Chat — DMs between org members plus the record threads you're part of.
  * Left pane: conversations with unread badges + a people picker to start a DM.
@@ -23,6 +24,7 @@ function threadTitle(t: ChatThreadRow, myId: string | undefined) {
 }
 
 export default function TeamChatPage() {
+  const chatModules = useModules();
   const { user } = useAuth();
   const { data: threads } = useChatThreads();
   const { data: people } = useChatPeople();
@@ -65,7 +67,7 @@ export default function TeamChatPage() {
                   <EmptyState
                     icon={<MessageSquare size={22} />}
                     title="No conversations yet"
-                    description="Start a direct message with a teammate, or open a ticket's chat panel."
+                    description={chatModules.isModuleOn('itdesk') ? "Start a direct message with a teammate, or open a ticket's chat panel." : 'Start a direct message with a teammate.'}
                   />
                 </div>
               ) : (

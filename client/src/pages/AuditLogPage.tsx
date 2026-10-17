@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -27,9 +28,16 @@ const ACTION_VARIANT: Record<string, 'green' | 'blue' | 'red' | 'purple'> = {
   LOGIN: 'purple',
 };
 
-const ENTITY_TYPES = ['Ticket', 'Contact', 'Deal', 'Lead', 'User', 'ApiKey', 'Campaign'];
+// Each filter option tied to the module it belongs to — only areas the org
+// has are offered (Platform Admin → Areas). History itself is never hidden.
+const ENTITY_TYPES: Array<[string, string | null]> = [
+  ['Ticket', 'itdesk'], ['Contact', 'crm'], ['Deal', 'crm'], ['Lead', 'crm'], ['Campaign', 'campaigns'],
+  ['Employee', 'hr_core'], ['LeaveRequest', 'hr_core'], ['AttendanceRecord', 'attendance'], ['PayrollRun', 'payroll'], ['Payslip', 'payroll'],
+  ['User', null], ['ApiKey', null], ['Subscription', null],
+];
 
 export default function AuditLogPage() {
+  const auditModules = useModules();
   const { dateTime } = useFormat();
   const { user } = useAuth();
   /* /audit-logs is MANAGERS-only on the server. */
@@ -134,7 +142,7 @@ export default function AuditLogPage() {
             value={entityType}
             onChange={e => { setEntityType(e.target.value); setPage(1); }}
             placeholder="All types"
-            options={ENTITY_TYPES.map(t => ({ value: t, label: t }))}
+            options={ENTITY_TYPES.filter(([, m]) => !m || auditModules.isModuleOn(m)).map(([t]) => ({ value: t, label: t.replace(/([a-z])([A-Z])/g, '$1 $2') }))}
           />
         </Toolbar>
 

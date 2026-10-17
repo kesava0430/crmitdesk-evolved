@@ -1,3 +1,4 @@
+import { useModules } from '../../../shared/modules';
 import { useEffect, useState } from 'react';
 import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
@@ -22,7 +23,8 @@ import { can } from '../../../shared/permissions';
 function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading, aiPrefill }: any) {
   const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', departmentId: '', closeDate: '', ...aiPrefill });
   // Org Structure departments — the field only renders when some exist.
-  const { data: departmentsRes } = useDepartments();
+  // Departments are HR data — not asked for while HR is switched off (Platform Admin → Areas).
+  const { data: departmentsRes } = useDepartments(useModules().isModuleOn('hr_core'));
   const departmentOptions = (departmentsRes?.data ?? [])
     .filter((d: any) => d.isActive !== false)
     .map((d: any) => ({ value: d.id, label: d.name }));

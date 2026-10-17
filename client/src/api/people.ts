@@ -577,10 +577,12 @@ export interface MyDetails {
   emergencyContact: EmergencyContact | null;
 }
 
-export const useMyDetails = () =>
+/** `enabled` = false while HR is switched off for the org (/people is an HR route). */
+export const useMyDetails = (enabled = true) =>
   useQuery<{ data: MyDetails | null }>({
     queryKey: ['person', 'me'],
     queryFn: () => api.get('/people/me').then(r => r.data),
+    enabled,
   });
 
 export const useUpdateMyDetails = () => {

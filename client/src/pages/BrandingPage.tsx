@@ -72,7 +72,7 @@ export default function BrandingPage() {
                 />
               </Field>
 
-              <Field label="Primary color" hint="Used across your customer portal's header and buttons.">
+              <Field label="Primary color" hint={portalOn ? "Used across your customer portal's header and buttons." : "Used on your emails and documents."}>
                 <div className="flex items-center gap-3">
                   {/* A native colour swatch, not a text control — it keeps its own
                       sizing rather than the shared input's. */}

@@ -362,6 +362,8 @@ export interface Role {
   permissions: Array<{ permissionKey: string; scope: PermScope }>;
   fieldPermissions: Array<{ id: string; resource: string; field: string; access: FieldAccess }>;
   _count?: { users: number };
+  /** For an area switched off for the org — listed only while someone holds it, never assignable. */
+  areaOff?: boolean;
 }
 
 export interface PermissionCatalogEntry {

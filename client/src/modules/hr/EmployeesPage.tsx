@@ -45,7 +45,7 @@ function ChartNode({ node, depth = 0, onOpen }: { node: OrgChartNode; depth?: nu
         <button type="button" onClick={() => onOpen(node.id)} className="min-w-0 text-left hover:underline decoration-line">
           <p className="text-[13px] font-medium text-fg truncate">{node.displayName}</p>
           <p className="text-[11px] text-fg-subtle truncate">
-            {node.designation || node.employeeCode}
+            <span data-user-content="designation">{node.designation || node.employeeCode}</span>
             {node.department ? ` · ${node.department.name}` : ''}
             {node.reports.length ? ` · ${node.reports.length} report${node.reports.length > 1 ? 's' : ''}` : ''}
           </p>
@@ -208,7 +208,7 @@ export default function EmployeesPage() {
                     <p className="text-[13.5px] font-medium text-fg truncate" title={e.displayName}>{e.displayName}</p>
                     <div className="flex items-center gap-2 text-[11px] text-fg-subtle flex-wrap">
                       <span>{e.employeeCode}</span>
-                      {e.designation && <span>· {e.designation}</span>}
+                      {e.designation && <span data-user-content="designation">· {e.designation}</span>}
                       {e.department && (
                         <span className="inline-flex items-center gap-1">
                           · <Building2 size={10} /> {e.department.name}

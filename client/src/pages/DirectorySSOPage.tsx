@@ -1,3 +1,4 @@
+import { APP_NAME } from '../shared/brand';
 import { useModules } from '../shared/modules';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -327,7 +328,7 @@ export default function DirectorySSOPage() {
         </div>
         <div className="min-w-0">
           <h1 className="text-[18px] font-semibold text-fg leading-tight tracking-tight">Single Sign-On (Microsoft Entra ID)</h1>
-          <p className="text-[13px] text-fg-muted mt-0.5">Let employees sign in with their Microsoft work account</p>
+          <p className="text-[13px] text-fg-muted mt-0.5">Let your team sign in with their Microsoft work account</p>
         </div>
         {connected && form.isEnabled && <Badge variant="green" dot className="ml-auto shrink-0">Connected</Badge>}
       </div>
@@ -335,7 +336,7 @@ export default function DirectorySSOPage() {
       <Card>
         <CardHeader
           title="Entra app registration"
-          subtitle="Register CRMITdesk as an app in your organization's Microsoft Entra admin center, then paste its details here. Existing CRMITdesk accounts can always sign in this way; turn on automatic provisioning below to also create accounts for new employees on first sign-in."
+          subtitle={`Register ${APP_NAME} as an app in your organization's Microsoft Entra admin center, then paste its details here. Existing ${APP_NAME} accounts can always sign in this way; turn on automatic provisioning below to also create accounts for new people on first sign-in.`}
           className="mb-4"
         />
         <div className="space-y-4">
@@ -353,7 +354,7 @@ export default function DirectorySSOPage() {
               placeholder={config?.hasClientSecret ? '•••••••••••••• (saved — leave blank to keep it)' : 'Paste the secret value'}
             />
           </Field>
-          <Field label="Sign-in link" hint="Share this link with your employees to sign in with Microsoft.">
+          <Field label="Sign-in link" hint="Share this link with your team to sign in with Microsoft.">
             <div className="flex items-center gap-2">
               <span className="text-sm text-fg-subtle shrink-0">/login/</span>
               <Input value={form.loginSlug} onChange={e => setForm(f => ({ ...f, loginSlug: e.target.value.toLowerCase() }))} placeholder="acme" />
@@ -370,7 +371,7 @@ export default function DirectorySSOPage() {
       <Card>
         <CardHeader
           title="Automatic provisioning"
-          subtitle="When enabled, people signing in with Microsoft for the first time get a CRMITdesk account automatically instead of needing an Invite."
+          subtitle={`When enabled, people signing in with Microsoft for the first time get a ${APP_NAME} account automatically instead of needing an Invite.`}
           className="mb-4"
         />
         <div className="space-y-4">

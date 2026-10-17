@@ -52,7 +52,7 @@ function ProfileForm() {
   const { user, updateProfile } = useAuth();
   // With an employee record, department is HR's to set (People → Edit) —
   // shown here for reference rather than as a second, disconnected copy.
-  const { data: mine } = useMyDetails();
+  const { data: mine } = useMyDetails(useModules().isModuleOn('hr_core'));
   const hrDepartment = mine?.data ? mine.data.department?.name ?? '' : null;
   const [form, setForm] = useState({
     name:       user?.name       ?? '',
@@ -108,7 +108,7 @@ function ProfileForm() {
           value={hrDepartment ?? form.department}
           disabled={hrDepartment !== null}
           onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
-          placeholder="e.g. Engineering, Sales"
+          placeholder="e.g. Engineering, Finance"
         />
       </Field>
 
@@ -542,6 +542,9 @@ type TabKey = typeof TABS[number]['key'];
 export default function ProfilePage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>('profile');
+  // "Work & contact" is the person's HR record — no tab while HR is off (Platform Admin → Areas).
+  const hrOn = useModules().isModuleOn('hr_core');
+  const tabs = TABS.filter(t => t.key !== 'work' || hrOn);
 
   if (!user) return null;
 
@@ -573,7 +576,7 @@ export default function ProfilePage() {
           aria-label="Profile sections"
           value={tab}
           onChange={setTab}
-          items={TABS.map(t => ({ key: t.key, label: t.label }))}
+          items={tabs.map(t => ({ key: t.key, label: t.label }))}
         />
 
         {/* Tab content */}
@@ -584,7 +587,7 @@ export default function ProfilePage() {
               <ProfileForm />
             </>
           )}
-          {tab === 'work' && (
+          {tab === 'work' && hrOn && (
             <>
               <h2 className="text-[14px] font-semibold text-fg tracking-tight mb-1">Work &amp; contact details</h2>
               <p className="text-[13px] text-fg-muted mb-5">

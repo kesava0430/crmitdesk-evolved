@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Layers, Plus, Trash2, Pencil, RefreshCw, CheckCircle2, XCircle, Clock, Zap, Sparkles, FileEdit } from 'lucide-react';
@@ -40,6 +41,13 @@ const NAV_SECTION_OPTIONS = [
 ];
 
 const CREATE_DEFAULT = { name: '', icon: 'Layers', description: '', navSection: 'CRM', templateId: undefined as string | undefined };
+const SECTION_AREA: Record<string, 'crm' | 'itdesk' | 'hr'> = { CRM: 'crm', IT_DESK: 'itdesk', HR: 'hr' };
+
+/** Sidebar sections the org has (Platform Admin → Areas); the module's current one stays listed. */
+function useSectionOptions(current?: string) {
+  const modules = useModules();
+  return NAV_SECTION_OPTIONS.filter(o => o.value === current || !SECTION_AREA[o.value] || modules.isAreaOn(SECTION_AREA[o.value]));
+}
 
 /** One selectable starting-point tile in the create-module dialog. */
 function TemplateChoice({ selected, icon, title, hint, onClick }: {
@@ -69,22 +77,24 @@ function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClos
   // dialog simply offers "start from scratch".
   const { user } = useAuth();
   const { data: templates } = useModuleTemplates(can.readCrmReports(user?.role));
-  const [form, setForm] = useState(CREATE_DEFAULT);
+  const sectionOptions = useSectionOptions();
+  const createDefault = { ...CREATE_DEFAULT, navSection: sectionOptions[0]?.value ?? 'ADMIN' };
+  const [form, setForm] = useState(createDefault);
 
   function pickTemplate(t: any | null) {
-    if (!t) { setForm(CREATE_DEFAULT); return; }
+    if (!t) { setForm(createDefault); return; }
     setForm({ name: t.name, icon: t.icon, description: t.description, navSection: t.navSection, templateId: t.id });
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const created = await create.mutateAsync(form);
-    setForm(CREATE_DEFAULT);
+    setForm(createDefault);
     onCreated(created.id);
   }
 
   return (
-    <Modal open={open} onClose={() => { setForm(CREATE_DEFAULT); onClose(); }} title="New Custom Module">
+    <Modal open={open} onClose={() => { setForm(createDefault); onClose(); }} title="New Custom Module">
       <form className="space-y-4" onSubmit={submit}>
         <Field label="Start from a template">
           <div className="grid grid-cols-2 gap-2">
@@ -118,7 +128,7 @@ function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClos
           hint="Which part of the sidebar this module's link appears under, once it has at least one field."
         >
           <Select aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}
-            options={NAV_SECTION_OPTIONS} />
+            options={sectionOptions} />
         </Field>
         {!form.templateId && (
           <p className="form-hint">You'll add fields to it on the next screen — nothing shows up for other users until you add at least one field.</p>
@@ -132,6 +142,7 @@ function CreateModuleModal({ open, onClose, onCreated }: { open: boolean; onClos
 function EditModuleModal({ module_, onClose }: { module_: any; onClose: () => void }) {
   const update = useUpdateCustomModule();
   const [form, setForm] = useState({ name: module_.name, description: module_.description ?? '', navSection: module_.navSection ?? 'CRM' });
+  const editSectionOptions = useSectionOptions(module_.navSection ?? 'CRM');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -150,7 +161,7 @@ function EditModuleModal({ module_, onClose }: { module_: any; onClose: () => vo
         </Field>
         <Field label="Sidebar section">
           <Select aria-label="Sidebar section" value={form.navSection} onChange={e => setForm(p => ({ ...p, navSection: e.target.value }))}
-            options={NAV_SECTION_OPTIONS} />
+            options={editSectionOptions} />
         </Field>
         <FormActions><Button type="submit" loading={update.isPending}>Save Changes</Button></FormActions>
       </form>
@@ -347,7 +358,7 @@ function PipelineTab({ module_ }: { module_: any }) {
       </Alert>
 
       <div className="form-section">
-        <p className="form-section-title">Pipeline stages</p>
+        <p className="form-section-title">Board stages</p>
         <div className="space-y-2">
           {stages.map((s, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -404,7 +415,7 @@ function PipelineTab({ module_ }: { module_: any }) {
 
       <FormActions>
         {saved && <span className="flex items-center gap-1 text-[12.5px] font-medium text-success"><CheckCircle2 size={14} /> Saved</span>}
-        <Button onClick={save} loading={update.isPending}>Save pipeline</Button>
+        <Button onClick={save} loading={update.isPending}>Save stages</Button>
       </FormActions>
     </div>
   );
@@ -668,7 +679,7 @@ export default function CustomModulesPage() {
                     // External sync is CRM_MANAGERS-only — no tab for the roles
                     // whose only possible answer from it is a refusal.
                     .filter(t => t !== 'sync' || canManageSync)
-                    .map(t => ({ key: t, label: <span className="capitalize">{t}</span> }))}
+                    .map(t => ({ key: t, label: <span className="capitalize">{t === 'pipeline' ? 'Stages' : t}</span> }))}
                   value={tab}
                   onChange={setTab}
                 />

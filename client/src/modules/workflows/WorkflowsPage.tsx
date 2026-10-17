@@ -54,8 +54,15 @@ const TRIGGERS = [
 
 // Trigger entity / action → licence module (server utils/modules.ts
 // WORKFLOW_TRIGGER_MODULE / WORKFLOW_ACTION_MODULE).
-const ENTITY_MODULE: Record<string, string> = { TICKET: 'itdesk', LEAD: 'crm', DEAL: 'crm', INVOICE: 'sales_docs', QUOTE: 'sales_docs', LEAVE: 'hr_core' };
+const ENTITY_MODULE: Record<string, string> = { TICKET: 'itdesk', LEAD: 'crm', DEAL: 'crm', CONTACT: 'crm', INVOICE: 'sales_docs', QUOTE: 'sales_docs', LEAVE: 'hr_core' };
+
+/** Licence module a saved rule works on (date rules: their entity), if any. */
+function ruleModule(rule: { trigger: string; dateConfig?: DateConfig | null }): string | undefined {
+  return ENTITY_MODULE[getEntityForTrigger(rule.trigger, rule.dateConfig)];
+}
 const ACTION_MODULE: Record<string, string> = { CREATE_TICKET: 'itdesk', SEND_CSAT_SURVEY: 'itdesk', SCORE_LEAD: 'crm' };
+// Actions that only do something on tickets or leads (the engine skips them elsewhere).
+const ACTION_ANY_OF: Record<string, string[]> = { AI_AUTO_ASSIGN: ['itdesk', 'crm'] };
 
 const CONDITION_FIELDS: Record<string, { value: string; label: string }[]> = {
   TICKET: [
@@ -118,7 +125,7 @@ const ACTION_TYPES = [
   { value: 'SET_PRIORITY',  label: 'Set Priority' },
   { value: 'SET_STATUS',    label: 'Set Status' },
   { value: 'SEND_EMAIL',    label: 'Send Email' },
-  { value: 'SEND_WHATSAPP', label: 'Send WhatsApp (not for Leads)' },
+  { value: 'SEND_WHATSAPP', label: 'Send WhatsApp' },
   { value: 'ADD_NOTE',      label: 'Add Note' },
   { value: 'SEND_WEBHOOK',  label: 'Send Webhook' },
   { value: 'CREATE_NOTIFICATION', label: 'Create In-App Notification' },
@@ -127,7 +134,7 @@ const ACTION_TYPES = [
   // The AI dispatcher: reads the new ticket/lead and fills in department +
   // owner, balancing topical fit against each teammate's live workload.
   // Fill-only — it never overwrites a human's choice. No params needed.
-  { value: 'AI_AUTO_ASSIGN', label: 'AI Auto-Assign owner + department (Ticket/Lead)' },
+  { value: 'AI_AUTO_ASSIGN', label: 'AI Auto-Assign owner + department' },
   { value: 'SEND_CSAT_SURVEY', label: 'Send Feedback Survey (Ticket only)' },
 ];
 
@@ -370,6 +377,7 @@ const STANDARD_ENTITY_LABELS: Record<string, string> = {
 
 function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: (c: DateConfig) => void }) {
   const { data: modules = [] } = useCustomModules();
+  const dateModules = useModules();
   const { data: selectedModule } = useCustomModule(config.entityType === 'CUSTOM_MODULE' ? config.moduleId : undefined);
   const moduleDateFields = (selectedModule?.fields || []).filter((f: any) => f.fieldType === 'DATE');
 
@@ -395,10 +403,11 @@ function DateConfigEditor({ config, onChange }: { config: DateConfig; onChange: 
             onChange({ ...config, entityType, dateField: defaultField, moduleId: undefined });
           }}
         >
-          <option value="CONTACT">Contacts</option>
-          <option value="DEAL">Deals</option>
-          <option value="TICKET">Tickets</option>
-          <option value="LEAD">Leads</option>
+          {/* Record types of areas the org has (Platform Admin → Areas). */}
+          {dateModules.isModuleOn('crm') && <option value="CONTACT">Contacts</option>}
+          {dateModules.isModuleOn('crm') && <option value="DEAL">Deals</option>}
+          {dateModules.isModuleOn('itdesk') && <option value="TICKET">Tickets</option>}
+          {dateModules.isModuleOn('crm') && <option value="LEAD">Leads</option>}
           <option value="CUSTOM_MODULE">A Custom Module's date field</option>
         </Select>
       </Field>
@@ -522,7 +531,7 @@ function RuleEditor({
   // Triggers / actions of areas switched off for the org aren't offered (the
   // server refuses them too); a rule's current choice always stays listed.
   const triggerOptions = TRIGGERS.filter(t => (t.value === initial.trigger && !!initial.name) || t.value === form.trigger || !ENTITY_MODULE[t.entity] || t.value === 'DATE_FIELD_REACHED' || modules.isModuleOn(ENTITY_MODULE[t.entity]));
-  const actionOptions = (current: string) => ACTION_TYPES.filter(a => a.value === current || !ACTION_MODULE[a.value] || modules.isModuleOn(ACTION_MODULE[a.value]));
+  const actionOptions = (current: string) => ACTION_TYPES.filter(a => a.value === current || ((!ACTION_MODULE[a.value] || modules.isModuleOn(ACTION_MODULE[a.value])) && (!ACTION_ANY_OF[a.value] || ACTION_ANY_OF[a.value].some(m => modules.isModuleOn(m)))));
 
   const entity = getEntityForTrigger(form.trigger, form.dateConfig);
   const condFields = CONDITION_FIELDS[entity] || [];
@@ -584,7 +593,7 @@ function RuleEditor({
           <div className="space-y-4">
             <Field label="Rule Name" required>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                aria-label="Rule Name" placeholder="e.g. Auto-assign CRITICAL tickets" />
+                aria-label="Rule Name" placeholder={modules.isModuleOn('itdesk') ? 'e.g. Auto-assign CRITICAL tickets' : modules.isModuleOn('crm') ? 'e.g. Follow up new leads' : 'e.g. Notify HR when leave is requested'} />
             </Field>
             <Field label="Description">
               <Input value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -749,8 +758,14 @@ export function WorkflowsPage() {
      "no rules yet" state above buttons whose one possible outcome is a refusal. */
   const { user } = useAuth();
   const pageModules = useModules();
+  // Saved rules on an area switched off for the org (Platform Admin → Areas)
+  // don't run; they're kept out of sight unless asked for.
+  const [showPaused, setShowPaused] = useState(false);
   const canReadWorkflows = can.readWorkflows(user?.role);
   const { data: rules = [], isLoading } = useWorkflows(canReadWorkflows);
+  const isPaused = (r: WorkflowRule) => { const m = ruleModule(r as any); return !!m && !pageModules.isModuleOn(m); };
+  const liveRules = rules.filter(r => !isPaused(r));
+  const pausedRules = rules.filter(isPaused);
   const createRule = useCreateWorkflow();
   const updateRule = useUpdateWorkflow();
   const deleteRule = useDeleteWorkflow();
@@ -790,9 +805,9 @@ export function WorkflowsPage() {
           {rules.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
               {[
-                { label: 'Total Rules', value: rules.length, tone: 'text-fg' },
-                { label: 'Active', value: rules.filter(r => r.isActive).length, tone: 'text-success' },
-                { label: 'Total Runs', value: rules.reduce((s, r) => s + r.runCount, 0), tone: 'text-accent' },
+                { label: 'Total Rules', value: liveRules.length, tone: 'text-fg' },
+                { label: 'Active', value: liveRules.filter(r => r.isActive).length, tone: 'text-success' },
+                { label: 'Total Runs', value: liveRules.reduce((s, r) => s + r.runCount, 0), tone: 'text-accent' },
               ].map(stat => (
                 <StatTile key={stat.label} label={stat.label} value={<span className={`tabular-nums ${stat.tone}`}>{stat.value}</span>} />
               ))}
@@ -808,12 +823,17 @@ export function WorkflowsPage() {
             <EmptyState
               icon={<Zap />}
               title="No automation rules yet"
-              description="Create your first rule to automatically assign tickets, send follow-up emails, or update record statuses."
+              description="Create your first rule to automatically route work, send follow-up emails, or update record statuses."
               action={{ label: 'Create first rule', onClick: () => { setEditingRule(null); setShowEditor(true); } }}
             />
           ) : (
             <div className="space-y-3">
-              {rules.map(rule => (
+              {pausedRules.length > 0 && (
+                <button type="button" onClick={() => setShowPaused(v => !v)} className="text-xs font-medium text-fg-muted hover:text-fg">
+                  {showPaused ? 'Hide' : 'Show'} {pausedRules.length} paused rule{pausedRules.length === 1 ? '' : 's'} for areas that aren’t enabled
+                </button>
+              )}
+              {(showPaused ? rules : liveRules).map(rule => (
                 <Card key={rule.id} data-testid="workflow-rule" padding="sm" className="hover:border-accent/40 transition-colors overflow-hidden">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -841,11 +861,10 @@ export function WorkflowsPage() {
                             </span>
                           </Badge>
                           {/* Saved rules of an area switched off for the org don't run (server workflow-engine). */}
-                          {(() => { const ent = TRIGGERS.find(t => t.value === rule.trigger)?.entity; const mod = ent && rule.trigger !== 'DATE_FIELD_REACHED' ? ENTITY_MODULE[ent] : undefined;
-                            return mod && !pageModules.isModuleOn(mod) ? <Badge variant="gray" size="sm">Paused — area off</Badge> : null; })()}
+                          {isPaused(rule) && <Badge variant="gray" size="sm">Paused — area off</Badge>}
                         </div>
                         {rule.description && (
-                          <p className="text-xs text-fg-subtle mt-0.5 truncate">{rule.description}</p>
+                          <p className="text-xs text-fg-subtle mt-0.5 truncate" data-user-content="rule-description">{rule.description}</p>
                         )}
                         <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                           <span className="text-xs text-fg-subtle tabular-nums">{rule.conditions.length} condition{rule.conditions.length !== 1 ? 's' : ''}</span>

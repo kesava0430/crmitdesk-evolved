@@ -1,3 +1,4 @@
+import { APP_NAME } from '../../shared/brand';
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle, AlertCircle, Database } from 'lucide-react';
 import { Alert, Button, Input, Select, Field, FormError } from '../../shared/components';
@@ -187,7 +188,7 @@ export function CustomS3Form({ switching, onConnected }: Props) {
             <p className="mt-1.5 leading-relaxed">
               <code>s3:PutObject</code>, <code>s3:GetObject</code> and <code>s3:DeleteObject</code> on
               this bucket. Nothing else — no listing, no bucket administration. Delete is required so
-              removing an attachment in CRMITdesk actually removes the file rather than leaving it to
+              removing an attachment in {APP_NAME} actually removes the file rather than leaving it to
               accrue storage cost.
             </p>
           </details>

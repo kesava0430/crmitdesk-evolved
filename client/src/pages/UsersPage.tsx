@@ -35,7 +35,7 @@ function useRoleOptions() {
   // Roles of an area switched off for the org (Platform Admin → Areas) aren't offered.
   const modules = useModules();
   const options = (data?.data ?? [])
-    .filter(r => r.isActive && modules.isRoleOffered(r.legacyRole))
+    .filter(r => r.isActive && modules.isRoleOffered(r.legacyRole) && !r.areaOff)
     .map(r => ({
       value: r.id,
       label: r.description ? `${r.name} — ${r.description}` : r.name,
@@ -52,6 +52,7 @@ const roleVariant: Record<string, any> = {
 };
 
 function UserForm({ initial, onSubmit, loading }: any) {
+  const formModules = useModules();
   const { options: roleOptions, isLoading: rolesLoading, roles } = useRoleOptions();
   // An existing user may still be on the legacy enum with no Role row linked,
   // so fall back to matching by legacyRole rather than showing an empty picker.
@@ -112,7 +113,7 @@ function UserForm({ initial, onSubmit, loading }: any) {
               <Input aria-label="Password" required type="password" minLength={8} value={form.password} onChange={f('password')} placeholder="Min 8 characters" />
             </Field>
           )}
-          <Field label="Department" hint={departmentOptions.length ? undefined : 'Define departments in HR → Org Structure to pick from a list.'}>
+          <Field label="Department" hint={departmentOptions.length || !formModules.isModuleOn('hr_core') ? undefined : 'Define departments in HR → Org Structure to pick from a list.'}>
             {departmentOptions.length > 0 ? (
               // Departments are managed in HR → Org Structure; the user record
               // stores the department NAME (matching the legacy free-text
@@ -125,7 +126,7 @@ function UserForm({ initial, onSubmit, loading }: any) {
                 placeholder="— none —"
               />
             ) : (
-              <Input value={form.department} onChange={f('department')} placeholder="e.g. Engineering, Sales" />
+              <Input value={form.department} onChange={f('department')} placeholder="e.g. Engineering, Finance" />
             )}
           </Field>
           <Field label="Phone (WhatsApp)">
@@ -162,6 +163,26 @@ function UserForm({ initial, onSubmit, loading }: any) {
 
 type ModalState = null | 'create' | 'invite' | { type: 'edit'; user: any };
 
+/** Email + role invite (POST /admin/users/invite) — used when the org has no HR area. */
+function InviteForm({ onSubmit, loading }: { onSubmit: (f: { email: string; roleId?: string }) => void; loading: boolean }) {
+  const { options: roleOptions, isLoading } = useRoleOptions();
+  const [email, setEmail] = useState('');
+  const [roleId, setRoleId] = useState('');
+  return (
+    <form className="space-y-4" onSubmit={e => { e.preventDefault(); onSubmit({ email, roleId: roleId || undefined }); }}>
+      <Field label="Email" required>
+        <Input aria-label="Email" required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@company.com" />
+      </Field>
+      <Field label="Role" required>
+        <SearchableSelect ariaLabel="Role" value={roleId} onChange={setRoleId} required options={isLoading ? [{ value: '', label: 'Loading roles…' }] : roleOptions} />
+      </Field>
+      <FormActions>
+        <Button type="submit" loading={loading}>Send invite</Button>
+      </FormActions>
+    </form>
+  );
+}
+
 /* Create User and Invite User open the shared Add-person form (People's)
    with the access mode pre-selected — one form, one endpoint (POST /people),
    one result (a person record plus a login) wherever an admin starts. Edit
@@ -169,6 +190,7 @@ type ModalState = null | 'create' | 'invite' | { type: 'edit'; user: any };
    small login-only form below remains for service accounts that have none. */
 
 export function UsersPage() {
+  const pageModules = useModules();
   const { user: currentUser } = useAuth();
   const { date } = useFormat();
   const [search, setSearch] = useState('');
@@ -201,6 +223,22 @@ export function UsersPage() {
     queryKey: ['admin-invites'],
     queryFn: () => api.get('/org/invites').then(r => r.data),
     enabled: !blocked,
+  });
+
+  // Without HR (Platform Admin → Areas) there is no People / employee record
+  // to add, so Create / Invite go straight to the login endpoints instead of
+  // the shared Add-person form (POST /people is an HR route).
+  const hrOn = pageModules.isModuleOn('hr_core');
+  const [formError, setFormError] = useState('');
+  const createUser = useMutation({
+    mutationFn: (data: any) => api.post('/admin/users', data).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); setModal(null); },
+    onError: (err: any) => setFormError(err?.response?.data?.error || 'Could not create that user.'),
+  });
+  const inviteUser = useMutation({
+    mutationFn: (data: any) => api.post('/admin/users/invite', data).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-invites'] }); setModal(null); },
+    onError: (err: any) => setFormError(err?.response?.data?.error || 'Could not send that invite.'),
   });
 
   const update = useMutation({
@@ -253,9 +291,11 @@ export function UsersPage() {
       // "Regional Sales Head" is far more useful here than the base access
       // level it maps to. Users still on the legacy enum fall back to it.
       cell: u => (
-        <Badge variant={roleVariant[u.role] || 'gray'}>
-          {u.roleRef?.name ?? u.role.replace(/_/g, ' ')}
-        </Badge>
+        <span data-user-content="role">
+          <Badge variant={roleVariant[u.role] || 'gray'}>
+            {u.roleRef?.name ?? u.role.replace(/_/g, ' ')}
+          </Badge>
+        </span>
       ),
     },
     { key: 'department', header: 'Department', muted: true, cell: u => u.department || '—' },
@@ -291,7 +331,7 @@ export function UsersPage() {
       header: 'Actions',
       cell: u => (
         <RowActions items={[
-          { label: 'Edit', icon: <Pencil size={14} />, onClick: () => (u.employee ? setEditPersonId(u.employee.id) : setModal({ type: 'edit', user: u })) },
+          { label: 'Edit', icon: <Pencil size={14} />, onClick: () => (u.employee && hrOn ? setEditPersonId(u.employee.id) : setModal({ type: 'edit', user: u })) },
           { label: 'Reset Password', icon: <KeyRound size={14} />, onClick: () => resetPassword.mutate(u.id), hidden: !u.isActive },
           { label: 'Deactivate', icon: <UserX size={14} />, onClick: () => deactivate.mutate(u.id), variant: 'danger', hidden: !u.isActive },
           { label: 'Reactivate', icon: <Shield size={14} />, onClick: () => update.mutate({ id: u.id, isActive: true }), hidden: u.isActive },
@@ -319,13 +359,14 @@ export function UsersPage() {
       <PageBody>
         {/* Role summary */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-          {ROLES.map(role => (
-            <StatTile key={role} label={role.replace(/_/g, ' ')} value={roleGroups[role]} />
+          {/* Roles of switched-off areas only while someone still holds one. */}
+          {ROLES.filter(role => pageModules.isRoleOffered(role) || (roleGroups[role] ?? 0) > 0).map(role => (
+            <div key={role} data-user-content="role-count"><StatTile label={role.replace(/_/g, ' ')} value={roleGroups[role]} /></div>
           ))}
         </div>
 
         {/* Users with no employee record — one click to repair, never re-entry. */}
-        {unlinked.length > 0 && (
+        {hrOn && unlinked.length > 0 && (
           <Alert
             tone="warning"
             title={`${unlinked.length} user${unlinked.length === 1 ? '' : 's'} without an employee record`}
@@ -352,7 +393,7 @@ export function UsersPage() {
                 <div key={inv.id} className="flex items-center justify-between gap-2">
                   <span>{inv.email}</span>
                   <div className="flex items-center gap-2">
-                    <Badge variant="yellow">{inv.role.replace(/_/g, ' ')}</Badge>
+                    <span data-user-content="role"><Badge variant="yellow">{inv.role.replace(/_/g, ' ')}</Badge></span>
                     <span className="text-[11.5px] opacity-80">Expires {date(inv.expiresAt)}</span>
                   </div>
                 </div>
@@ -393,9 +434,21 @@ export function UsersPage() {
         />
       </Modal>
 
+      {/* Create / Invite without HR — logins only. */}
+      {!hrOn && (
+        <Modal open={modal === 'create' || modal === 'invite'} onClose={() => { setFormError(''); closeModal(); }} title={modal === 'invite' ? 'Invite User' : 'Create User'}>
+          {formError && <Alert tone="danger" className="mb-3">{formError}</Alert>}
+          {modal === 'invite' ? (
+            <InviteForm loading={inviteUser.isPending} onSubmit={(form: any) => { setFormError(''); inviteUser.mutate(form); }} />
+          ) : (
+            <UserForm initial={null} loading={createUser.isPending} onSubmit={(form: any) => { setFormError(''); createUser.mutate({ ...form, department: form.department || undefined, phone: form.phone || undefined }); }} />
+          )}
+        </Modal>
+      )}
+
       {/* Create / Invite — the shared Add-person form, access mode pre-selected. */}
       <AddPersonModal
-        open={modal === 'create' || modal === 'invite'}
+        open={hrOn && (modal === 'create' || modal === 'invite')}
         onClose={() => {
           closeModal();
           qc.invalidateQueries({ queryKey: ['admin-invites'] });

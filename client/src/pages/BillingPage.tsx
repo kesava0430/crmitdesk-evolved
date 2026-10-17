@@ -1,3 +1,4 @@
+import { useAreaCopy } from '../shared/modules';
 import { OrgAreasCard } from '../shared/components/OrgAreasCard';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -31,13 +32,14 @@ const CORE_AREAS = new Set(['hr_core', 'attendance', 'payroll', 'campaigns', 'cu
 
 /** Plan card bullets, built from GET /billing/pricing so the copy can never
  *  promise something the server doesn't enforce (LIC-27). */
-function planBullets(card: PlanCard | undefined, prev: PlanCard | undefined): string[] {
+/** `copy` names only the areas this org has (Platform Admin → Areas) and drops features of the others. */
+function planBullets(card: PlanCard | undefined, prev: PlanCard | undefined, copy: ReturnType<typeof useAreaCopy>): string[] {
   if (!card) return [];
   const out: string[] = [];
-  out.push(`${card.seats >= 999 ? 'Up to ' : ''}${card.seats} billable seats (Employees are unlimited)`);
-  out.push(prev ? `Everything in ${prev.name}` : 'CRM + IT Desk, core AI (lead scoring, sentiment, routing, tagging)');
+  out.push(`${card.seats >= 999 ? 'Up to ' : ''}${card.seats} billable seats (Employee-role logins are unlimited)`);
+  out.push(prev ? `Everything in ${prev.name}` : `${copy.areaPlus}, ${copy.coreAi}`);
   const prevSet = new Set(prev?.features ?? []);
-  const fresh = card.features.filter(f => !prevSet.has(f));
+  const fresh = card.features.filter(f => !prevSet.has(f) && copy.isFeatureRelevant(f));
   const core = fresh.filter(f => CORE_AREAS.has(f));
   if (core.length) out.push(core.map(featureLabel).join(', '));
   for (const f of fresh.filter(f => !CORE_AREAS.has(f))) out.push(featureLabel(f));
@@ -70,6 +72,7 @@ function UsageMeter({ label, used, limit, hint }: { label: string; used: number;
 }
 
 export function BillingPage() {
+  const areaCopy = useAreaCopy();
   const { date, timezone } = useFormat();
   const monthDay = (v: string) => new Intl.DateTimeFormat(undefined, { timeZone: timezone, month: 'short', day: 'numeric' }).format(new Date(v));
   const [searchParams] = useSearchParams();
@@ -116,7 +119,7 @@ export function BillingPage() {
   const lic = sub?.license;
   const monthsCharged = pricing?.yearlyMonthsCharged ?? 10;
   const yearlySavePct = Math.round((12 - monthsCharged) / 12 * 100);
-  const licensedFeatures = lic?.features ?? sub?.planConfig.features ?? [];
+  const licensedFeatures = (lic?.features ?? sub?.planConfig.features ?? []).filter(f => areaCopy.isFeatureRelevant(f));
   const storageGb = lic?.storageQuotaGB ?? sub?.planConfig.storageQuotaGB ?? 0;
   const statusVariant = sub?.status === 'active' || sub?.status === 'trialing' ? 'green' : sub?.status === 'past_due' ? 'yellow' : 'red';
   // Enforcement reads the EFFECTIVE seats (lapse → 5, operator comps …), never the raw row (LIC-15).
@@ -326,7 +329,7 @@ export function BillingPage() {
                   'Monthly or yearly billing',
                   ...(pricing?.modules?.some(m => m.key === 'hosted_storage') ? ['Optional hosted attachment storage'] : []),
                 ]
-              : planBullets(card, plan === 'PRO' ? cardFor('FREE') : plan === 'ENTERPRISE' ? cardFor('PRO') : undefined);
+              : planBullets(card, plan === 'PRO' ? cardFor('FREE') : plan === 'ENTERPRISE' ? cardFor('PRO') : undefined, areaCopy);
 
             return (
               <Card

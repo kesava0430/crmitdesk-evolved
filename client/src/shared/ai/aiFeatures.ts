@@ -334,7 +334,7 @@ export const AI_FEATURES: AiFeature[] = [
   // ── Knowledge base (RAG) ──────────────────────────────────────────────
   {
     id: 'knowledge.ask',
-    name: 'Ask the knowledge base',
+    name: 'Ask your AI knowledge',
     does: 'Answers from your own indexed documents, and cites the passages it used.',
     sends: 'Your question, plus the passages retrieved from your knowledge base.',
     effect: 'advisory',

@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import {
   Building2, Zap, Code2, Plus, Trash2, Play, Save,
@@ -30,6 +31,7 @@ const INDUSTRIES = [
 ];
 
 const ENTITY_TYPES = ['ticket', 'contact', 'deal', 'lead', 'asset', 'global'];
+const SCRIPT_ENTITY_MODULE: Record<string, string> = { ticket: 'itdesk', contact: 'crm', deal: 'crm', lead: 'crm', asset: 'assets' };
 const TRIGGERS     = ['onLoad', 'onChange', 'onSubmit', 'onValidate', 'onFieldChange'];
 const FIELD_TYPES  = ['text', 'number', 'boolean', 'select'] as const;
 const OUTPUT_TYPES = ['text', 'json', 'number'] as const;
@@ -68,6 +70,7 @@ const CODE_SURFACE = 'font-mono !bg-surface-sunken text-fg';
 // ─── Tab: Business Context ────────────────────────────────────────────────────
 
 function BusinessContextTab() {
+  const ctxModules = useModules();
   // /ai/studio/context is MANAGERS-only. (/ai/studio/labels, which every staff
   // role needs for relabeled terminology, is a separate ALL_STAFF route and is
   // not gated here.)
@@ -209,14 +212,16 @@ function BusinessContextTab() {
 
       {/* The old "Generate Setup" section lived here — the Solution Builder
           replaced it with a far bigger version of the same idea. */}
+      {ctxModules.isRouteBlocked('/solution-builder') ? null : (
       <div className="pt-5 mt-5 border-t border-line-subtle">
         <Alert tone="info">
-          Want AI to design terminology, custom modules, pipelines and automations from your business
+          Want AI to design terminology, custom modules, stages and automations from your business
           description? That moved to the{' '}
           <Link to="/solution-builder" className="font-medium text-accent hover:underline">AI Solution Builder</Link>
           {' '}— it reads the context you save here.
         </Alert>
       </div>
+      )}
     </div>
   );
 }
@@ -507,7 +512,8 @@ const EMPTY_SCRIPT: Partial<CustomScript> = {
 };
 
 function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onClose: () => void }) {
-  const [form, setForm] = useState({ ...EMPTY_SCRIPT, ...script });
+  const editorModules = useModules();
+  const [form, setForm] = useState({ ...EMPTY_SCRIPT, ...script, ...(script.id ? {} : { entityType: editorModules.isModuleOn('itdesk') ? 'ticket' : 'contact' }) });
   const [validation, setValidation] = useState<{ valid: boolean; error?: string } | null>(null);
 
   const createScript = useCreateScript();
@@ -556,7 +562,7 @@ function ScriptEditor({ script, onClose }: { script: Partial<CustomScript>; onCl
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Entity Type">
             <Select value={form.entityType ?? 'ticket'} onChange={e => set('entityType', e.target.value)} className="capitalize">
-              {ENTITY_TYPES.map(t => <option key={t}>{t}</option>)}
+              {ENTITY_TYPES.filter(t => t === form.entityType || !SCRIPT_ENTITY_MODULE[t] || editorModules.isModuleOn(SCRIPT_ENTITY_MODULE[t])).map(t => <option key={t}>{t}</option>)}
             </Select>
           </Field>
           <Field label="Trigger">
@@ -634,6 +640,8 @@ await context.ai(prompt)         // call AI, returns string`}</pre>
 }
 
 function ScriptsTab() {
+  const sm = useModules();
+  const scriptsAreas = [sm.isModuleOn('crm') && 'CRM', sm.isModuleOn('itdesk') && 'IT Desk'].filter(Boolean).join(' & ');
   const { user } = useAuth();
   const { data: scripts = [], isLoading } = useCustomScripts(undefined, undefined, can.readAiConfig(user?.role));
   const deleteScript = useDeleteScript();
@@ -669,7 +677,7 @@ function ScriptsTab() {
         <EmptyState
           icon={<Code2 />}
           title="No custom scripts yet"
-          description="Create scripts to automate form behaviour across your CRM & IT Desk forms."
+          description={`Create scripts to automate form behaviour across your ${scriptsAreas} forms.`}
           action={{ label: 'New Script', onClick: () => setEditing(EMPTY_SCRIPT) }}
         />
       ) : (
@@ -729,6 +737,11 @@ type TabId = typeof TABS[number]['key'];
 
 export default function AIStudioPage() {
   const [tab, setTab] = useState<TabId>('context');
+  // Custom scripts run on CRM / IT Desk record forms — no tab for an org with
+  // neither (Platform Admin → Areas).
+  const studioModules = useModules();
+  const formsOn = studioModules.isModuleOn('crm') || studioModules.isModuleOn('itdesk');
+  const tabs = TABS.filter(t => t.key !== 'scripts' || formsOn);
   /* Context, functions and scripts are all MANAGERS-only reads, and so is every
      write behind the editors here — the whole page is unusable for anyone else. */
   const { user } = useAuth();
@@ -738,15 +751,15 @@ export default function AIStudioPage() {
     <div className="animate-slide-up">
       <PageHeader
         title="AI Studio"
-        subtitle="Configure your AI to match your domain, build custom functions, and automate forms"
-        below={<Tabs items={TABS} value={tab} onChange={setTab} variant="segmented" fill aria-label="AI Studio section" />}
+        subtitle={formsOn ? 'Configure your AI to match your domain, build custom functions, and automate forms' : 'Configure your AI to match your domain and build custom functions'}
+        below={<Tabs items={tabs} value={tab} onChange={setTab} variant="segmented" fill aria-label="AI Studio section" />}
       />
 
       <PageBody width="narrow">
         <PlanFeatureNotice feature="ai_advanced" />
         {tab === 'context'   && <BusinessContextTab />}
         {tab === 'functions' && <FunctionsTab />}
-        {tab === 'scripts'   && <ScriptsTab />}
+        {tab === 'scripts'   && formsOn && <ScriptsTab />}
       </PageBody>
     </div>
   );

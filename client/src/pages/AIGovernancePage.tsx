@@ -1,3 +1,4 @@
+import { useModules } from '../shared/modules';
 import { useState } from 'react';
 import {
   useAiObservability,
@@ -37,6 +38,18 @@ const STATUS_VARIANT: Record<string, any> = {
   BLOCKED: 'orange',
   BUDGET_EXCEEDED: 'red',
 };
+
+/** AI feature keys ("ticket.reply", "lead.score" …) → licence module, so usage
+ *  of areas switched off for the org isn't listed (Platform Admin → Areas). */
+const AI_FEATURE_MODULE: Array<[RegExp, string]> = [
+  [/^(ticket|sla|csat|change)/i, 'itdesk'], [/^(lead|deal|contact|account|crm|activity|meeting)/i, 'crm'],
+  [/^(article|kb)/i, 'knowledge_base'], [/^(quote|invoice)/i, 'sales_docs'], [/^campaign/i, 'campaigns'], [/^asset/i, 'assets'],
+  [/^(leave|employee|hr)/i, 'hr_core'], [/^attendance/i, 'attendance'], [/^(payroll|payslip)/i, 'payroll'],
+];
+function useAiFeatureOn() {
+  const modules = useModules();
+  return (feature: string) => { const hit = AI_FEATURE_MODULE.find(([re]) => re.test(feature)); return !hit || modules.isModuleOn(hit[1]); };
+}
 
 /** A titled list panel — "By feature" and "By model" are the same shape. */
 function ListPanel({ title, rows, empty }: {
@@ -114,6 +127,7 @@ function AiConnectionCard() {
 }
 
 function ObservabilityPanel() {
+  const featureOn = useAiFeatureOn();
   const [days, setDays] = useState(30);
   const { user } = useAuth();
   const { data, isLoading } = useAiObservability(days, can.readAiConfig(user?.role));
@@ -209,7 +223,7 @@ function ObservabilityPanel() {
         <ListPanel
           title="By feature"
           empty="No AI calls in this period"
-          rows={data.byFeature.slice(0, 12).map(f => ({ key: f.feature, label: f.feature, calls: f.calls, costUsd: f.costUsd }))}
+          rows={data.byFeature.filter(f => featureOn(f.feature)).slice(0, 12).map(f => ({ key: f.feature, label: f.feature, calls: f.calls, costUsd: f.costUsd }))}
         />
         <ListPanel
           title="By model"
@@ -255,6 +269,7 @@ function ObservabilityPanel() {
 }
 
 function LogsPanel() {
+  const featureOn = useAiFeatureOn();
   const [status, setStatus] = useState('');
   const { user } = useAuth();
   const { data, isLoading } = useAiLogs({ status: status || undefined }, can.readAiConfig(user?.role));
@@ -283,7 +298,7 @@ function LogsPanel() {
         />
       ) : (
         <Card padding="none" className="overflow-hidden">
-          {data.data.map(l => (
+          {data.data.filter(l => featureOn(l.feature)).map(l => (
             <div key={l.id} className="px-4 py-2.5 border-b border-line-subtle last:border-0 hover:bg-surface-hover transition-colors">
               <div className="flex items-center gap-2 flex-wrap">
                 <StatusBadge value={l.status} map={STATUS_VARIANT} size="sm" dot />
@@ -348,7 +363,7 @@ function KnowledgePanel() {
             loading={reindex.isPending}
             onClick={() => reindex.mutate()}
           >
-            Re-index knowledge base
+            Re-index AI knowledge
           </Button>
           <AiInfo id="knowledge.index" align="left" />
         </span>
@@ -380,16 +395,16 @@ function KnowledgePanel() {
       <Card>
         <div className="flex items-center gap-1.5 mb-2">
           <Search size={14} className="text-fg-subtle" />
-          <p className="text-[13px] font-semibold text-fg">Ask the knowledge base</p>
+          <p className="text-[13px] font-semibold text-fg">Ask your AI knowledge</p>
         </div>
         <AiNote id="knowledge.ask" className="mb-3" />
         <div className="flex items-center gap-2">
           <Input
             className="flex-1"
-            aria-label="Ask the knowledge base"
+            aria-label="Ask your AI knowledge"
             value={question}
             onChange={e => setQuestion(e.target.value)}
-            placeholder="e.g. How many days of annual leave do employees get?"
+            placeholder="e.g. What does our travel policy say about hotels?"
             onKeyDown={e => {
               if (e.key === 'Enter' && question.trim()) runAsk();
             }}
@@ -460,7 +475,7 @@ function KnowledgePanel() {
 
 const TABS = [
   { key: 'observability' as const, label: 'Observability', icon: <Brain size={12} /> },
-  { key: 'knowledge'     as const, label: 'Knowledge base', icon: <Database size={12} /> },
+  { key: 'knowledge'     as const, label: 'AI knowledge', icon: <Database size={12} /> },
   { key: 'logs'          as const, label: 'Interaction log', icon: <Search size={12} /> },
 ];
 

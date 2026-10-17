@@ -1,3 +1,4 @@
+import { useModules } from '../../../shared/modules';
 import { useState, useEffect } from 'react';
 import { Target, Plus, ArrowRight, Trash2, CheckCircle2, Sparkles, Mail, Copy, Check, Zap, Calendar, Pencil, ListTodo, Circle, Phone, Users as UsersIcon, ClipboardList } from 'lucide-react';
 import { useLeads, useCreateLead, useUpdateLead, useConvertLead, useDeleteLead, useLead, useCreateActivity, useUpdateActivity, useDeleteActivity, usePipeline } from '../../../api/crm';
@@ -34,7 +35,8 @@ const LEAD_ASSIGNEE_ROLES = new Set(['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP'])
 
 function LeadForm({ initial, entityId, onSubmit, loading, aiPrefill }: any) {
   const [form, setForm] = useState(initial || { name: '', email: '', source: '', notes: '', status: 'NEW', assignedTo: '', departmentId: '', ...aiPrefill });
-  const { data: departmentsRes } = useDepartments();
+  // Departments are HR data — not asked for while HR is switched off (Platform Admin → Areas).
+  const { data: departmentsRes } = useDepartments(useModules().isModuleOn('hr_core'));
   const departmentOptions = (departmentsRes?.data ?? [])
     .filter((d: any) => d.isActive !== false)
     .map((d: any) => ({ value: d.id, label: d.name }));

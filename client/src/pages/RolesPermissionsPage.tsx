@@ -18,6 +18,10 @@ import {
 import { Shield, Plus, Trash2, Lock, Eye, EyeOff, Pencil } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
+import { useModules } from '../shared/modules';
+
+/** Display names for permission groups (server PERMISSION_CATALOG modules). */
+const MODULE_LABELS: Record<string, string> = { crm: 'CRM', itdesk: 'IT Desk', hr: 'HR', core: 'General', ai: 'AI' };
 
 /**
  * Roles & permissions (§61, §66, §119).
@@ -71,7 +75,10 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
   const delFieldPerm = useDeleteFieldPermission();
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<Record<string, PermScope>>({});
-  const [newField, setNewField] = useState({ resource: 'employee', field: '', access: 'MASKED' as FieldAccess });
+  // Default field-rule resource from an area the org has (Platform Admin → Areas).
+  const modules = useModules();
+  const defaultResource = modules.isModuleOn('hr_core') ? 'employee' : modules.isModuleOn('crm') ? 'deal' : modules.isModuleOn('itdesk') ? 'ticket' : 'task';
+  const [newField, setNewField] = useState({ resource: defaultResource, field: '', access: 'MASKED' as FieldAccess });
 
   const current = useMemo(() => {
     const map: Record<string, PermScope> = {};
@@ -132,7 +139,7 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
         {Object.entries(catalog?.data ?? {}).map(([module, perms]) => (
           <div key={module}>
             <p className="text-[12px] font-semibold text-fg-muted uppercase tracking-wide mb-2">
-              {module}
+              {MODULE_LABELS[module] ?? module}
             </p>
             <div className="space-y-1">
               {perms.map(p => (
@@ -257,10 +264,10 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
  */
 const RANK_TIERS = [
   { value: 10, label: 'Executive', hint: 'Cross-company visibility, usually read-only' },
-  { value: 20, label: 'Department head', hint: 'Runs a function — sales, IT, HR, finance' },
+  { value: 20, label: 'Department head', hint: 'Runs a function or department' },
   { value: 30, label: 'Team lead', hint: 'Owns a team and approves for it' },
   { value: 50, label: 'Individual contributor', hint: 'Works their own records' },
-  { value: 90, label: 'Self-service only', hint: 'Own payslips, leave and requests' },
+  { value: 90, label: 'Self-service only', hint: 'Own records and requests' },
 ];
 
 function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -274,6 +281,9 @@ function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void })
   // working starting point is not a reasonable ask — so copying is the
   // default path and "blank" is the deliberate exception.
   const [copyFromId, setCopyFromId] = useState('');
+  // Example names from an area the org has (Platform Admin → Areas).
+  const modules = useModules();
+  const exampleName = modules.isAreaOn('crm') ? 'Regional Sales Head' : modules.isAreaOn('itdesk') ? 'Service Desk Supervisor' : 'HR Business Partner';
 
   const copyFrom = roles?.data.find(r => r.id === copyFromId);
   const copiedCount = copyFrom?.permissions.filter(p => p.scope !== 'NONE').length ?? 0;
@@ -333,7 +343,7 @@ function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void })
                 key: form.key || e.target.value.toUpperCase().replace(/[^A-Z0-9]+/g, '_'),
               })
             }
-            placeholder="e.g. Regional Sales Head"
+            placeholder={`e.g. ${exampleName}`}
           />
         </Field>
 
@@ -346,7 +356,7 @@ function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void })
             className="font-mono"
             value={form.key}
             onChange={e => setForm({ ...form, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })}
-            placeholder="REGIONAL_SALES_HEAD"
+            placeholder={exampleName.toUpperCase().replace(/ /g, '_')}
           />
         </Field>
 
@@ -382,7 +392,7 @@ function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void })
         >
           <Select value={copyFromId} onChange={e => setCopyFromId(e.target.value)}>
             <option value="">Blank — no permissions at all</option>
-            {(roles?.data ?? []).map(r => (
+            {(roles?.data ?? []).filter(r => !r.areaOff).map(r => (
               <option key={r.id} value={r.id}>
                 Copy of {r.name} ({r.permissions.filter(p => p.scope !== 'NONE').length} permissions)
               </option>
@@ -458,6 +468,7 @@ export default function RolesPermissionsPage() {
                    scope badge + Edit drop to a second row under the text. */
                 <div
                   key={r.id}
+                  data-area-off={r.areaOff ? 'true' : undefined}
                   className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2 px-4 py-3 border-b border-line-subtle last:border-0 group"
                 >
                   <Shield size={15} className="text-fg-subtle shrink-0" />
@@ -466,6 +477,9 @@ export default function RolesPermissionsPage() {
                       <p className="text-[13.5px] font-medium text-fg truncate min-w-0">{r.name}</p>
                       {r.isSystem && <Badge variant="gray">Built-in</Badge>}
                       {r.orgId === null && <Badge variant="blue">Template</Badge>}
+                      {/* A role for an area switched off by the platform operator:
+                          still held by someone, so listed — but not assignable or editable. */}
+                      {r.areaOff && <Badge variant="yellow">Area off — {r._count?.users ?? 0} user{(r._count?.users ?? 0) === 1 ? '' : 's'}</Badge>}
                     </div>
                     <p className="text-[11px] text-fg-subtle break-words sm:truncate">
                       <span className="font-mono break-all">{r.key}</span> · rank {r.rank} · {granted.length} permission
@@ -478,9 +492,11 @@ export default function RolesPermissionsPage() {
                     {widest === 'ALL' ? <Eye size={10} className="inline mr-1" /> : <EyeOff size={10} className="inline mr-1" />}
                     {widest}
                   </Badge>
-                  <Button size="xs" variant="secondary" icon={<Pencil size={11} />} onClick={() => setEditing(r)}>
-                    Edit
-                  </Button>
+                  {!r.areaOff && (
+                    <Button size="xs" variant="secondary" icon={<Pencil size={11} />} onClick={() => setEditing(r)}>
+                      Edit
+                    </Button>
+                  )}
                   {!r.isSystem && (
                     <IconButton
                       size="xs"

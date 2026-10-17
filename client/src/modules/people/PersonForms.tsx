@@ -125,7 +125,7 @@ function useAssignableRoles(enabled: boolean) {
   // Roles of an area switched off for the org aren't offered (an edit form
   // still lists the person's current role — see the Role field below).
   const modules = useModules();
-  return (data?.data ?? []).filter(r => r.isActive && rankOf(r.legacyRole) <= rankOf(user?.role) && modules.isRoleOffered(r.legacyRole));
+  return (data?.data ?? []).filter(r => r.isActive && rankOf(r.legacyRole) <= rankOf(user?.role) && modules.isRoleOffered(r.legacyRole) && !r.areaOff);
 }
 
 // ─── Add ──────────────────────────────────────────────────────────────────────
