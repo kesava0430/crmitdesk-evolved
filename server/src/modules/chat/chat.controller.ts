@@ -32,6 +32,7 @@ import { routeChatTurn } from '../../utils/ai';
 import { getAiAction, actionBlockedReason } from '../../utils/ai-actions';
 import { buildActionPlanForOrg } from '../ai/ai.controller';
 import { hasFeature, getEffectiveLicense } from '../../utils/licensing';
+import { entityTypeModule } from '../../utils/modules';
 
 const RECORD_TYPES = ['TICKET', 'DEAL', 'LEAD', 'CONTACT', 'ACCOUNT', 'CUSTOM_MODULE_RECORD'] as const;
 
@@ -94,7 +95,11 @@ export async function listThreads(req: AuthRequest, res: Response, next: NextFun
       };
     }));
     rows.sort((a, b) => (b.lastMessageAt?.getTime?.() ?? 0) - (a.lastMessageAt?.getTime?.() ?? 0));
-    res.json(rows);
+    // Record threads about an area switched off for the org (Platform Admin →
+    // Areas) aren't listed — the record itself is out of reach. Kept, and
+    // back with the area.
+    const { blockedModules } = await getEffectiveLicense(orgId);
+    res.json(rows.filter(r => { const m = entityTypeModule(r.entityType); return !m || !(blockedModules as string[]).includes(m); }));
   } catch (err) { next(err); }
 }
 

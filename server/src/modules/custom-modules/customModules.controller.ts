@@ -1,3 +1,4 @@
+import { getEffectiveLicense } from '../../utils/licensing';
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -110,9 +111,19 @@ export async function listModules(req: AuthRequest, res: Response, next: NextFun
 }
 
 /** GET /custom-modules/templates — starter templates for the "New Module" picker. */
-export async function listModuleTemplates(_req: AuthRequest, res: Response, next: NextFunction) {
+/** Sidebar sections tied to an area (Platform Admin → Areas); ADMIN is shared. */
+const SECTION_AREA_ROOT: Record<string, string> = { CRM: 'crm', IT_DESK: 'itdesk', HR: 'hr_core' };
+async function sectionOff(orgId: string, navSection?: string | null): Promise<boolean> {
+  const root = navSection ? SECTION_AREA_ROOT[navSection] : undefined;
+  if (!root) return false;
+  return ((await getEffectiveLicense(orgId)).blockedModules as string[]).includes(root);
+}
+
+export async function listModuleTemplates(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    res.json(MODULE_TEMPLATES.map(t => ({
+    // Only templates for areas the org has.
+    const blocked = (await getEffectiveLicense(req.user!.orgId)).blockedModules as string[];
+    res.json(MODULE_TEMPLATES.filter(t => !blocked.includes(SECTION_AREA_ROOT[t.navSection] ?? '')).map(t => ({
       id: t.id, name: t.name, description: t.description, icon: t.icon,
       navSection: t.navSection, fieldCount: t.fields.length,
     })));
@@ -123,6 +134,7 @@ export async function createModule(req: AuthRequest, res: Response, next: NextFu
   try {
     const orgId = req.user!.orgId;
     const data = CreateModuleSchema.parse(req.body);
+    if (await sectionOff(orgId, (data as any).navSection)) throw new AppError(400, 'That sidebar section belongs to an area that isn\u2019t enabled for your organisation.');
     let slug = slugify(data.name);
     let suffix = 0;
     // slug must be unique per org — append -2, -3, ... on collision rather
@@ -197,6 +209,9 @@ export async function updateModule(req: AuthRequest, res: Response, next: NextFu
     }).parse(req.body);
     const existing = await prisma.customModule.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!existing) throw new AppError(404, 'Custom module not found');
+    if ((data as any).navSection && (data as any).navSection !== existing.navSection && await sectionOff(req.user!.orgId, (data as any).navSection)) {
+      throw new AppError(400, 'That sidebar section belongs to an area that isn\u2019t enabled for your organisation.');
+    }
     const { stages, listColumns, ...rest } = data;
     const module_ = await prisma.customModule.update({
       where: { id: req.params.id },

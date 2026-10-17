@@ -304,7 +304,7 @@ export function computeQuote(input: QuoteInput, cfg: PricingConfig): Quote {
   const modules = normaliseModules(input.modules);
 
   const lines: QuoteLine[] = [
-    { key: 'base', name: 'Platform base (CRM + IT Desk)', pricePerSeatCents: cfg.baseSeatPriceCents, monthlyCents: cfg.baseSeatPriceCents * seats },
+    { key: 'base', name: 'Platform base', pricePerSeatCents: cfg.baseSeatPriceCents, monthlyCents: cfg.baseSeatPriceCents * seats },
     ...modules.map(k => cfg.modules.find(m => m.key === k)!).map(m => ({ key: m.key, name: m.name, pricePerSeatCents: m.pricePerSeatCents, monthlyCents: m.pricePerSeatCents * seats })),
   ];
 

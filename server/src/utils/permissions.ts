@@ -116,7 +116,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   ...crud('core', 'role', 'roles and permissions'),
   ...crud('core', 'workflow', 'workflows'),
   ...crud('core', 'report', 'reports'),
-  ...crud('ai', 'knowledge', 'AI knowledge base'),
+  ...crud('ai', 'knowledge', 'AI knowledge sources'),
   { key: 'ai.assistant.use', module: 'ai', resource: 'assistant', action: 'use', label: 'Use the AI assistant' },
   { key: 'ai.action.execute', module: 'ai', resource: 'action', action: 'execute', label: 'Execute AI actions' },
   { key: 'ai.governance.manage', module: 'ai', resource: 'governance', action: 'manage', label: 'Manage AI governance', isSensitive: true },

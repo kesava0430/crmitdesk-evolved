@@ -62,7 +62,7 @@ export interface AreaDef {
 }
 
 export const AREAS: AreaDef[] = [
-  { key: 'hr', root: 'hr_core', label: 'HR', roles: [],
+  { key: 'hr', root: 'hr_core', label: 'HR', roles: ['HR_MANAGER'],
     description: 'People, org structure, leave, attendance (WFH, face check-in) and payroll' },
   { key: 'crm', root: 'crm', label: 'CRM', roles: ['CRM_MANAGER', 'SALES_REP'],
     description: 'Contacts, companies, leads, deals, quotes & invoices, campaigns' },
@@ -277,3 +277,77 @@ export const WORKFLOW_TRIGGER_MODULE: Record<string, FeatureKey> = {
 export const WORKFLOW_ACTION_MODULE: Record<string, FeatureKey> = {
   CREATE_TICKET: 'itdesk', SEND_CSAT_SURVEY: 'itdesk', SCORE_LEAD: 'crm',
 };
+
+// ─── Roles & permissions per area ────────────────────────────────────────────
+//
+// Roles & Permissions only shows what the org has: permissions of switched-off
+// modules aren't listed or grantable, and built-in roles of a switched-off
+// area aren't offered (users who already hold one keep it — the console shows
+// it as "area off").
+
+/** Permission `module.resource` → licence module. Unlisted (core.*, ai.*) are shared. */
+export const PERMISSION_RESOURCE_MODULE: Record<string, FeatureKey> = {
+  'crm.lead': 'crm', 'crm.contact': 'crm', 'crm.account': 'crm', 'crm.deal': 'crm', 'crm.activity': 'crm',
+  'crm.quote': 'sales_docs', 'crm.invoice': 'sales_docs', 'crm.campaign': 'campaigns',
+  'itdesk.ticket': 'itdesk', 'itdesk.change': 'itdesk', 'itdesk.category': 'itdesk', 'itdesk.sla': 'itdesk',
+  'itdesk.asset': 'assets', 'itdesk.article': 'knowledge_base',
+  'hr.employee': 'hr_core', 'hr.department': 'hr_core', 'hr.team': 'hr_core', 'hr.location': 'hr_core',
+  'hr.leave': 'hr_core', 'hr.document': 'hr_core',
+  'hr.attendance': 'attendance', 'hr.payslip': 'payroll', 'hr.salary': 'payroll',
+};
+
+/** Licence module of a permission key ("crm.deal.read" → 'crm'), or undefined when shared. */
+export function permissionModule(key: string): FeatureKey | undefined {
+  const [m, r] = key.split('.');
+  return PERMISSION_RESOURCE_MODULE[`${m}.${r}`];
+}
+
+/** Field-rule resources ("employee", "payslip", "deal" …) → licence module. */
+export function fieldResourceModule(resource: string): FeatureKey | undefined {
+  const hit = Object.entries(PERMISSION_RESOURCE_MODULE).find(([k]) => k.split('.')[1] === resource);
+  return hit?.[1];
+}
+
+/** Modules a built-in role is FOR — off when none of them is on. Unlisted roles are shared. */
+export const ROLE_MODULES: Record<string, FeatureKey[]> = {
+  CRM_MANAGER: ['crm'], SALES_REP: ['crm'],
+  IT_MANAGER: ['itdesk'], IT_AGENT: ['itdesk'],
+  HR_MANAGER: ['hr_core'],
+  FINANCE: ['sales_docs', 'payroll'],
+};
+
+/** Pure: is a role (by key or legacy role) for an area that's off? */
+export function isRoleAreaOff(role: { key?: string | null; legacyRole?: string | null }, blockedModules: readonly string[]): boolean {
+  const mods = ROLE_MODULES[role.key ?? ''] ?? ROLE_MODULES[role.legacyRole ?? ''];
+  return !!mods && mods.every(m => blockedModules.includes(m));
+}
+
+/** Built-in role descriptions that name areas, rewritten to the areas the org has. */
+export function roleDescriptionFor(role: { key?: string | null; isSystem?: boolean | null; description?: string | null }, blockedModules: readonly string[]): string | null {
+  if (!role.isSystem) return role.description ?? null;
+  const on = (m: string) => !blockedModules.includes(m);
+  if (role.key === 'FINANCE') {
+    const parts = [on('sales_docs') && 'quotes, invoices', on('payroll') && 'payroll cost', 'expense approvals'].filter(Boolean);
+    return `${String(parts.join(', ')).replace(/^./, c => c.toUpperCase())}.`;
+  }
+  if (role.key === 'EMPLOYEE') {
+    const parts = [on('attendance') && 'attendance', on('hr_core') && 'leave', on('payroll') && 'payslips', 'requests'].filter(Boolean);
+    return `Self-service only: own ${parts.join(', ')}.`;
+  }
+  return role.description ?? null;
+}
+
+/** Record entity types (as stored on notifications, tasks, custom fields,
+ *  comments …) → licence module. Unlisted types are shared. */
+export const ENTITY_TYPE_MODULE: Record<string, FeatureKey> = {
+  TICKET: 'itdesk', CHANGE_REQUEST: 'itdesk', SLA: 'itdesk', ASSET: 'assets', ARTICLE: 'knowledge_base',
+  CONTACT: 'crm', LEAD: 'crm', DEAL: 'crm', ACCOUNT: 'crm', ACTIVITY: 'crm', QUOTE: 'sales_docs', INVOICE: 'sales_docs', CAMPAIGN: 'campaigns',
+  EMPLOYEE: 'hr_core', LEAVE_REQUEST: 'hr_core', LEAVE: 'hr_core', ATTENDANCE: 'attendance', PAYSLIP: 'payroll', PAYROLL_RUN: 'payroll',
+};
+
+/** Licence module of an entity type ("Ticket", "TICKET", "LeaveRequest" → …), if any. */
+export function entityTypeModule(type: string | null | undefined): FeatureKey | undefined {
+  if (!type) return undefined;
+  const norm = type.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
+  return ENTITY_TYPE_MODULE[norm];
+}

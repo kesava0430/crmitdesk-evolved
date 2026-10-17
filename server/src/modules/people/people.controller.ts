@@ -1,3 +1,4 @@
+import { assertRoleAssignable } from '../../utils/licensing';
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { emailField } from '../../utils/zodHelpers';
@@ -338,10 +339,11 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
       const role = data.roleId
         ? await prisma.role.findFirst({
             where: { id: data.roleId, OR: [{ orgId }, { orgId: null }] },
-            select: { id: true, legacyRole: true },
+            select: { id: true, key: true, legacyRole: true },
           })
         : null;
       if (data.roleId && !role) throw new AppError(404, 'That role was not found in this organization');
+      if (role) await assertRoleAssignable(orgId, role);
       const legacyRole = toLegacyRole(role?.legacyRole) as any;
       // Same rank rule as Administration → Users: nobody hands out a role
       // above their own (an IT Manager cannot add a Super Admin here either).
@@ -484,10 +486,11 @@ export async function grantLogin(req: AuthRequest, res: Response, next: NextFunc
     const role = data.roleId
       ? await prisma.role.findFirst({
           where: { id: data.roleId, OR: [{ orgId }, { orgId: null }] },
-          select: { id: true, legacyRole: true },
+          select: { id: true, key: true, legacyRole: true },
         })
       : null;
     if (data.roleId && !role) throw new AppError(404, 'That role was not found in this organization');
+    if (role) await assertRoleAssignable(orgId, role);
     const legacyRole = toLegacyRole(role?.legacyRole) as any;
     assertCanAssign(req.user!.role, legacyRole);
     await assertSeatAvailable(orgId, legacyRole);
@@ -653,10 +656,11 @@ async function changeRole(
   const orgId = req.user!.orgId;
   const role = await prisma.role.findFirst({
     where: { id: roleId, OR: [{ orgId }, { orgId: null }] },
-    select: { id: true, legacyRole: true, isActive: true },
+    select: { id: true, key: true, legacyRole: true, isActive: true },
   });
   if (!role) throw new AppError(404, 'Role not found');
   if (!role.isActive) throw new AppError(400, 'That role is deactivated');
+  await assertRoleAssignable(orgId, role);
 
   const legacyRole = toLegacyRole(role.legacyRole);
   checkRoleChange({

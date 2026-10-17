@@ -1,3 +1,5 @@
+import { getEffectiveLicense } from '../../utils/licensing';
+import { entityTypeModule } from '../../utils/modules';
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -172,6 +174,11 @@ export async function createField(req: AuthRequest, res: Response, next: NextFun
   try {
     const orgId = req.user!.orgId;
     const data = FieldSchema.parse(req.body);
+    // Custom fields only on record types of areas the org has (Platform Admin → Areas).
+    const m = entityTypeModule(data.entityType);
+    if (m && ((await getEffectiveLicense(req.user!.orgId)).blockedModules as string[]).includes(m)) {
+      throw new AppError(400, `${data.entityType.toLowerCase()} records belong to an area that isn\u2019t enabled for your organisation.`);
+    }
     assertValidDefault(data.fieldType, data.options, data.defaultValue);
     await assertValidDependency(orgId, data.entityType, null, data.dependsOnFieldId, data.dependsOnValues);
     const field = await prisma.customField.create({

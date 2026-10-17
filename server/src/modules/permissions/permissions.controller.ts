@@ -4,7 +4,8 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { logAction } from '../../utils/auditLog';
-import { assertSeatForTransition, withSeatLock } from '../../utils/licensing';
+import { assertSeatForTransition, withSeatLock, getEffectiveLicense } from '../../utils/licensing';
+import { permissionModule, fieldResourceModule, isRoleAreaOff, roleDescriptionFor } from '../../utils/modules';
 import {
   getPermCtx,
   assertCan,
@@ -40,15 +41,47 @@ function roleWhere(orgId: string) {
   return { OR: [{ orgId }, { orgId: null }] };
 }
 
+/** Modules switched off for the org (Platform Admin → Areas). */
+async function blockedFor(orgId: string): Promise<string[]> {
+  return (await getEffectiveLicense(orgId)).blockedModules as string[];
+}
+
 export async function listRoles(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const ctx = await getPermCtx(req.user!);
     assertCan(ctx, 'core.role.read');
-    const rows = await prisma.role.findMany({
-      where: roleWhere(req.user!.orgId),
-      include: roleInclude,
-      orderBy: [{ rank: 'asc' }, { name: 'asc' }],
-    });
+    const [all, blocked] = await Promise.all([
+      prisma.role.findMany({
+        where: roleWhere(req.user!.orgId),
+        include: roleInclude,
+        orderBy: [{ rank: 'asc' }, { name: 'asc' }],
+      }),
+      blockedFor(req.user!.orgId),
+    ]);
+    // Only what the org has (Platform Admin → Areas): permissions and field
+    // rules of switched-off modules aren't shown (they're kept, and come back
+    // with the area), and a role FOR a switched-off area is flagged `areaOff`
+    // — listed only while someone still holds it, never offered for assigning.
+    // People still on the legacy enum (no Role row linked) hold a role too —
+    // count them on the matching built-in role, so an area-off role someone
+    // still has is listed (as "area off — N users") rather than vanishing.
+    const legacyCounts = new Map<string, number>();
+    for (const g of await prisma.user.groupBy({ by: ['role'], where: { orgId: req.user!.orgId, roleId: null, isActive: true }, _count: { _all: true } })) {
+      legacyCounts.set(g.role, g._count._all);
+    }
+    const cloned = new Set(all.filter(r => r.orgId).map(r => r.key));
+    const holders = (r: (typeof all)[number]) => (r._count?.users ?? 0)
+      + (r.isSystem && r.legacyRole && (r.orgId || !cloned.has(r.key)) ? legacyCounts.get(r.legacyRole) ?? 0 : 0);
+    const rows = all
+      .map(r => ({
+        ...r,
+        _count: { ...r._count, users: holders(r) },
+        description: roleDescriptionFor(r, blocked),
+        permissions: r.permissions.filter(p => !blocked.includes(permissionModule(p.permissionKey) ?? '')),
+        fieldPermissions: r.fieldPermissions.filter(f => !blocked.includes(fieldResourceModule(f.resource) ?? '')),
+        areaOff: isRoleAreaOff(r, blocked),
+      }))
+      .filter(r => !r.areaOff || (r._count?.users ?? 0) > 0);
     res.json({ data: rows, total: rows.length });
   } catch (err) {
     next(err);
@@ -62,7 +95,10 @@ export async function listPermissions(req: AuthRequest, res: Response, next: Nex
     assertCan(ctx, 'core.role.read');
 
     const grouped: Record<string, Array<{ key: string; resource: string; action: string; label: string; isSensitive: boolean; scopable: boolean }>> = {};
+    const blocked = await blockedFor(req.user!.orgId);
     for (const p of PERMISSION_CATALOG) {
+      // Only modules the org has (Platform Admin → Areas).
+      if (blocked.includes(permissionModule(p.key) ?? '')) continue;
       (grouped[p.module] ??= []).push({
         key: p.key,
         resource: p.resource,
@@ -133,6 +169,14 @@ async function assertNoEscalation(
   }
 }
 
+/** Refuses permissions and route-access roles of areas switched off for the org. */
+async function assertAreasOn(orgId: string, permissions?: Array<{ permissionKey: string; scope: string }>, legacyRole?: string) {
+  const blocked = await blockedFor(orgId);
+  const bad = (permissions ?? []).find(p => p.scope !== 'NONE' && blocked.includes(permissionModule(p.permissionKey) ?? ''));
+  if (bad) throw new AppError(400, `"${bad.permissionKey}" belongs to an area that isn\u2019t enabled for your organisation.`);
+  if (legacyRole && isRoleAreaOff({ legacyRole }, blocked)) throw new AppError(400, 'That access level belongs to an area that isn\u2019t enabled for your organisation.');
+}
+
 export async function createRole(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const ctx = await getPermCtx(req.user!);
@@ -141,6 +185,7 @@ export async function createRole(req: AuthRequest, res: Response, next: NextFunc
     const orgId = req.user!.orgId;
     const data = RoleSchema.parse(req.body);
     await assertNoEscalation(req, data.rank ?? 100, data.permissions);
+    await assertAreasOn(orgId, data.permissions, data.legacyRole);
 
     const clash = await prisma.role.findFirst({ where: { orgId, key: data.key } });
     if (clash) throw new AppError(409, 'A role with that key already exists');
@@ -185,6 +230,9 @@ export async function updateRole(req: AuthRequest, res: Response, next: NextFunc
 
     const data = RoleSchema.partial().parse(req.body);
     await assertNoEscalation(req, data.rank ?? existing.rank, data.permissions);
+    const blocked = await blockedFor(orgId);
+    if (isRoleAreaOff(existing, blocked)) throw new AppError(400, 'This role belongs to an area that isn\u2019t enabled for your organisation, so it can\u2019t be edited.');
+    await assertAreasOn(orgId, data.permissions, data.legacyRole);
 
     if (data.key && data.key !== existing.key && existing.isSystem) {
       throw new AppError(400, 'A built-in role cannot be re-keyed');
@@ -216,8 +264,15 @@ export async function updateRole(req: AuthRequest, res: Response, next: NextFunc
     }
 
     if (data.permissions) {
+      // Grants of switched-off modules aren't shown in the editor, so they're
+      // not in this list either — keep them, so they come back with the area.
+      const kept = (await prisma.rolePermission.findMany({ where: { roleId: targetId } }))
+        .filter(p => blocked.includes(permissionModule(p.permissionKey) ?? ''));
       await prisma.rolePermission.deleteMany({ where: { roleId: targetId } });
-      const rows = data.permissions.filter(p => p.scope !== 'NONE');
+      const rows = [
+        ...data.permissions.filter(p => p.scope !== 'NONE'),
+        ...kept.map(p => ({ permissionKey: p.permissionKey, scope: p.scope as any })),
+      ];
       if (rows.length) {
         await prisma.rolePermission.createMany({
           data: rows.map(p => ({ roleId: targetId, permissionKey: p.permissionKey, scope: p.scope })),
@@ -291,6 +346,9 @@ export async function setFieldPermission(req: AuthRequest, res: Response, next: 
     }
 
     const data = FieldPermSchema.parse(req.body);
+    if ((await blockedFor(req.user!.orgId)).includes(fieldResourceModule(data.resource) ?? '')) {
+      throw new AppError(400, `"${data.resource}" belongs to an area that isn\u2019t enabled for your organisation.`);
+    }
     const row = await prisma.fieldPermission.upsert({
       where: { roleId_resource_field: { roleId: role.id, resource: data.resource, field: data.field } },
       update: { access: data.access },
@@ -349,6 +407,10 @@ export async function assignRole(req: AuthRequest, res: Response, next: NextFunc
       const role = await prisma.role.findFirst({ where: { id: roleId, ...roleWhere(orgId) } });
       if (!role) throw new AppError(404, 'Role not found');
       await assertNoEscalation(req, role.rank);
+      // A role for a switched-off area can't be newly given to anyone.
+      if (role.id !== user.roleId && isRoleAreaOff(role, await blockedFor(orgId))) {
+        throw new AppError(400, `${role.name} belongs to an area that isn\u2019t enabled for your organisation.`);
+      }
       const LEGACY_ENUM = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER', 'IT_AGENT', 'SALES_REP', 'EMPLOYEE'];
       if (role.legacyRole && LEGACY_ENUM.includes(role.legacyRole)) legacy = role.legacyRole;
     }

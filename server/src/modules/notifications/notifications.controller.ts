@@ -1,3 +1,5 @@
+import { getEffectiveLicense } from '../../utils/licensing';
+import { entityTypeModule } from '../../utils/modules';
 import { Response, NextFunction } from 'express';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
@@ -20,8 +22,15 @@ export async function listNotifications(req: AuthRequest, res: Response, next: N
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+    // Notifications about records of an area switched off for the org
+    // (Platform Admin → Areas) aren't shown — their links lead nowhere.
+    const { blockedModules } = await getEffectiveLicense(req.user!.orgId);
+    const visible = notifications.filter(n => {
+      const m = entityTypeModule(n.entityType) ?? entityTypeModule(String(n.type ?? '').split('_')[0]);
+      return !m || !(blockedModules as string[]).includes(m);
+    });
 
-    res.json({ data: notifications, total: notifications.length });
+    res.json({ data: visible, total: visible.length });
   } catch (err) { next(err); }
 }
 

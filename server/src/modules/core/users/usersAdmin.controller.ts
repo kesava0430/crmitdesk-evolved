@@ -1,3 +1,4 @@
+import { assertRoleAssignable } from '../../../utils/licensing';
 import { Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -77,15 +78,17 @@ const UpdateSchema = z.object({
  */
 async function resolveRole(
   orgId: string,
-  input: { roleId?: string | null; role?: LegacyRole }
+  input: { roleId?: string | null; role?: LegacyRole },
+  currentRoleId?: string | null,
 ): Promise<{ roleId: string | null; role: LegacyRole }> {
   if (input.roleId) {
     const role = await prisma.role.findFirst({
       where: { id: input.roleId, OR: [{ orgId }, { orgId: null }] },
-      select: { id: true, legacyRole: true, isActive: true },
+      select: { id: true, key: true, legacyRole: true, isActive: true },
     });
     if (!role) throw new AppError(404, 'That role was not found in this organization');
     if (!role.isActive) throw new AppError(400, 'That role is deactivated');
+    await assertRoleAssignable(orgId, role, currentRoleId);
 
     const legacy = LEGACY_ROLES.includes(role.legacyRole as LegacyRole)
       ? (role.legacyRole as LegacyRole)
@@ -94,6 +97,7 @@ async function resolveRole(
   }
 
   const legacy = input.role ?? 'EMPLOYEE';
+  await assertRoleAssignable(orgId, { legacyRole: legacy });
   // Keep the two columns consistent even when only the enum was sent, so a
   // user created through the API still shows the right role on screen.
   const match = await prisma.role.findFirst({
@@ -228,7 +232,8 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     if (changingRole && req.params.id === req.user!.id) {
       throw new AppError(403, 'You cannot change your own role');
     }
-    const resolved = changingRole ? await resolveRole(req.user!.orgId, data) : null;
+    const currentRoleId = changingRole ? (await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, select: { roleId: true } }))?.roleId ?? null : null;
+    const resolved = changingRole ? await resolveRole(req.user!.orgId, data, currentRoleId) : null;
     if (resolved) assertCanAssign(req.user!.role, resolved.role);
 
     const { roleId: _rid, role: _r, ...rest } = data;

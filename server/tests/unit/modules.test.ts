@@ -199,3 +199,35 @@ test('shared screens follow the areas they belong next to', async () => {
   const all = evaluateLicense(sub(), NOW).blockedModules;
   for (const s of SHARED_SURFACES) assert.ok(on(s.key, all), `${s.key} shown with every area on`);
 });
+
+// ─── Roles & permissions per area ────────────────────────────────────────────
+
+test('permissions and roles follow the areas', async () => {
+  const { permissionModule, fieldResourceModule, isRoleAreaOff, roleDescriptionFor, entityTypeModule } = await import('../../src/utils/modules');
+  assert.equal(permissionModule('crm.deal.read'), 'crm');
+  assert.equal(permissionModule('crm.invoice.update'), 'sales_docs');
+  assert.equal(permissionModule('itdesk.asset.read'), 'assets');
+  assert.equal(permissionModule('hr.payslip.read'), 'payroll');
+  assert.equal(permissionModule('core.user.read'), undefined, 'core permissions are shared');
+  assert.equal(permissionModule('ai.knowledge.read'), undefined);
+  assert.equal(fieldResourceModule('employee'), 'hr_core');
+  assert.equal(fieldResourceModule('salary'), 'payroll');
+
+  const hrOnly = evaluateLicense(sub({ disabledFeatures: ['crm', 'itdesk'] }), NOW).blockedModules;
+  assert.ok(isRoleAreaOff({ key: 'SALES_REP', legacyRole: 'SALES_REP' }, hrOnly));
+  assert.ok(isRoleAreaOff({ key: 'IT_AGENT' }, hrOnly));
+  assert.ok(isRoleAreaOff({ key: 'CUSTOM_X', legacyRole: 'IT_MANAGER' }, hrOnly), 'custom role mirroring an IT role');
+  assert.ok(!isRoleAreaOff({ key: 'HR_MANAGER' }, hrOnly));
+  assert.ok(!isRoleAreaOff({ key: 'FINANCE' }, hrOnly), 'Finance still has payroll');
+  assert.ok(!isRoleAreaOff({ key: 'SUPER_ADMIN' }, hrOnly) && !isRoleAreaOff({ key: 'EMPLOYEE' }, hrOnly));
+  const crmOnly = evaluateLicense(sub({ disabledFeatures: ['hr_core', 'itdesk'] }), NOW).blockedModules;
+  assert.ok(isRoleAreaOff({ key: 'HR_MANAGER' }, crmOnly));
+  assert.ok(!/quotes|invoices/i.test(roleDescriptionFor({ key: 'FINANCE', isSystem: true }, hrOnly)!));
+  assert.ok(!/payroll/i.test(roleDescriptionFor({ key: 'FINANCE', isSystem: true }, crmOnly)!));
+  assert.ok(!/attendance|leave|payslip/i.test(roleDescriptionFor({ key: 'EMPLOYEE', isSystem: true }, crmOnly)!));
+
+  assert.equal(entityTypeModule('TICKET'), 'itdesk');
+  assert.equal(entityTypeModule('LeaveRequest'), 'hr_core');
+  assert.equal(entityTypeModule('Deal'), 'crm');
+  assert.equal(entityTypeModule('TASK'), undefined);
+});

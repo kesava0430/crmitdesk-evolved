@@ -5,7 +5,7 @@ import { AuthRequest } from '../middleware/authenticate';
 import jwt from 'jsonwebtoken';
 import { PLANS, FeatureKey, PlanKey, isPlanKey, isFeatureKey } from './stripe';
 import { normaliseModules, getPricingConfig, DEFAULT_PRICING, PricingConfig } from './pricing';
-import { MODULE_CATALOGUE, AREA_MODULE_KEYS, areaOf, enabledAreasFrom, isSurfaceOn, AREAS, type SharedSurface } from './modules';
+import { MODULE_CATALOGUE, AREA_MODULE_KEYS, areaOf, enabledAreasFrom, isSurfaceOn, AREAS, isRoleAreaOff, type SharedSurface } from './modules';
 
 // Every internal role counts against a plan's seat limit EXCEPT plain
 // EMPLOYEE — those are staff who just submit requests internally (not
@@ -464,6 +464,19 @@ export function requireSurfaceAtMount(surface: SharedSurface) {
       next(new AppError(402, `${surface.label} needs ${names}, which isn't enabled for your organisation. Contact your administrator if you need it.`));
     }).catch(next);
   };
+}
+
+/**
+ * Refuses giving someone a role FOR an area switched off for the org (IT
+ * Agent with IT Desk off, Sales Rep with CRM off …). Someone who already holds
+ * it keeps it — pass their current role id.
+ */
+export async function assertRoleAssignable(orgId: string, role: { id?: string; key?: string | null; legacyRole?: string | null }, currentRoleId?: string | null): Promise<void> {
+  if (role.id && currentRoleId && role.id === currentRoleId) return;
+  const lic = await getEffectiveLicense(orgId);
+  if (isRoleAreaOff(role, lic.blockedModules)) {
+    throw new AppError(400, 'That role belongs to an area that isn\u2019t enabled for your organisation. Pick another role.');
+  }
 }
 
 function orgIdFromBearer(req: AuthRequest): string | undefined {
