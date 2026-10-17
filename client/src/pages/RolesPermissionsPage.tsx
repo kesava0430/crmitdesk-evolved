@@ -407,6 +407,7 @@ function NewRoleModal({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 export default function RolesPermissionsPage() {
+  const [showAreaOff, setShowAreaOff] = useState(false);
   /* Everything on this page comes from /permissions/roles and
      /permissions/catalog, both MANAGERS-only. Anyone else who reaches the URL
      gets the refusal instead of an empty list they can't populate. */
@@ -420,39 +421,7 @@ export default function RolesPermissionsPage() {
 
   if (!canReadRoles) return <AccessDenied />;
 
-  return (
-    <div className="animate-slide-up">
-      <PageHeader
-        title="Roles & Permissions"
-        subtitle="Who can do what, whose records they can do it to, and which fields they can see."
-        actions={
-          <Button size="sm" icon={<Plus size={14} />} onClick={() => setNewOpen(true)}>
-            New role
-          </Button>
-        }
-      />
-
-      <PageBody>
-        <Alert tone="info">
-          Built-in roles start with exactly the access they had before permissions became configurable, so nothing
-          changed when this shipped. Narrowing a scope from <strong>ALL</strong> to <strong>TEAM</strong> takes effect
-          within a minute — no deploy needed.
-        </Alert>
-
-        <FormError>{error}</FormError>
-
-        {isLoading ? (
-          <SkeletonTable rows={6} />
-        ) : !data?.data.length ? (
-          <EmptyState
-            icon={<Shield />}
-            title="No roles found"
-            description="Run the permission seed to create the built-in roles, or create your first role from scratch."
-            action={{ label: 'New role', onClick: () => setNewOpen(true) }}
-          />
-        ) : (
-          <Card padding="none" className="overflow-hidden">
-            {data.data.map(r => {
+  const renderRole = (r: NonNullable<typeof data>['data'][number]) => {
               const granted = r.permissions.filter(p => p.scope !== 'NONE');
               const widest = granted.some(p => p.scope === 'ALL')
                 ? 'ALL'
@@ -514,8 +483,65 @@ export default function RolesPermissionsPage() {
                   )}
                 </div>
               );
-            })}
+  };
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="Roles & Permissions"
+        subtitle="Who can do what, whose records they can do it to, and which fields they can see."
+        actions={
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => setNewOpen(true)}>
+            New role
+          </Button>
+        }
+      />
+
+      <PageBody>
+        <Alert tone="info">
+          Built-in roles start with exactly the access they had before permissions became configurable, so nothing
+          changed when this shipped. Narrowing a scope from <strong>ALL</strong> to <strong>TEAM</strong> takes effect
+          within a minute — no deploy needed.
+        </Alert>
+
+        <FormError>{error}</FormError>
+
+        {isLoading ? (
+          <SkeletonTable rows={6} />
+        ) : !data?.data.length ? (
+          <EmptyState
+            icon={<Shield />}
+            title="No roles found"
+            description="Run the permission seed to create the built-in roles, or create your first role from scratch."
+            action={{ label: 'New role', onClick: () => setNewOpen(true) }}
+          />
+        ) : (
+          <>
+          <Card padding="none" className="overflow-hidden">
+            {data.data.filter(r => !r.areaOff).map(renderRole)}
           </Card>
+          {/* Built-in roles of areas the platform switched off are not part of
+              this org's product. They're only listed at all because someone
+              still holds one — tucked away, collapsed, so an HR-only org's role
+              list reads as HR-only. Reassign those people to clear them. */}
+          {data.data.some(r => r.areaOff) && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setShowAreaOff(v => !v)}
+                className="text-[12px] text-fg-muted hover:text-fg"
+                aria-expanded={showAreaOff}
+              >
+                {showAreaOff ? '▾' : '▸'} Roles from switched-off areas ({data.data.filter(r => r.areaOff).length}) — still held by existing users
+              </button>
+              {showAreaOff && (
+                <Card padding="none" className="overflow-hidden mt-2">
+                  {data.data.filter(r => r.areaOff).map(renderRole)}
+                </Card>
+              )}
+            </div>
+          )}
+          </>
         )}
       </PageBody>
 
