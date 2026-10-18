@@ -376,7 +376,11 @@ export function DashboardPage() {
     { label: 'Import CSV',  icon: ArrowUpRight, color: 'gray'   as IconColor, to: '/import',          show: can.readCrmReports(role) && (crmOn || itdeskOn) },
   ].filter(a => a.show);
 
-  const { data: homeData } = useHomeDashboard();
+  const { data: homeData, isFetched: homeFetched } = useHomeDashboard();
+  /* For a deep link, wait until we know where the card goes (above a home
+     dashboard that replaces the built-in one, or in its usual place): it
+     strips ?ask= and asks on mount, so mounting it twice would lose it. */
+  const askReady = !askLink || homeFetched;
   const home = homeData?.home ?? null;
   const builtIn = !home?.replaceBuiltIn;
 
@@ -418,7 +422,7 @@ export function DashboardPage() {
       />
 
       <PageBody>
-        {home && !builtIn && askLink && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn, hr: hrOn }} />}
+        {home && !builtIn && askLink && askReady && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn, hr: hrOn }} />}
         {home && !builtIn && <HomeDashboard id={home.dashboardId} replaceBuiltIn />}
         {builtIn && <>
         {/* Needs attention */}
@@ -514,7 +518,7 @@ export function DashboardPage() {
             posts to a MANAGERS-only endpoint. Quick actions are filtered too:
             a shortcut to a page the user cannot open is not a shortcut. */}
         <div className={`grid grid-cols-1 gap-6 ${showAsk ? 'lg:grid-cols-2' : ''}`}>
-          {showAsk && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn, hr: hrOn }} />}
+          {showAsk && askReady && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn, hr: hrOn }} />}
           {quickActions.length > 0 && (
             <div className="space-y-3">
               <SectionTitle color="bg-line-strong" label="Quick Actions" />
