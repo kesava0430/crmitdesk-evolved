@@ -29,8 +29,9 @@ import { AppError } from '../../middleware/errorHandler';
 import { sanitizeRichText } from '../../utils/sanitizeHtml';
 import { sseManager, SSEEvent } from '../../utils/sse';
 import { routeChatTurn } from '../../utils/ai';
-import { getAiAction, actionBlockedReason } from '../../utils/ai-actions';
 import { buildActionPlanForOrg } from '../ai/ai.controller';
+import { executePlan } from '../../utils/aiActions/executor';
+import { planAsText } from '../../utils/aiActions/text';
 import { hasFeature, getEffectiveLicense } from '../../utils/licensing';
 import { entityTypeModule } from '../../utils/modules';
 
@@ -218,7 +219,7 @@ async function postAssistantMessage(orgId: string, thread: { id: string; kind: s
 
 async function handleAiMention(
   orgId: string,
-  user: { id: string; role: string },
+  user: { id: string; role: string; email: string; orgId: string },
   thread: { id: string; kind: string; participants: Array<{ userId: string }>; pendingPlan?: any },
   command: string,
 ) {
@@ -230,24 +231,24 @@ async function handleAiMention(
 
   const current = await prisma.chatThread.findUnique({ where: { id: thread.id }, select: { pendingPlan: true } });
 
-  // "@ai confirm" — run the thread's pending plan with the confirmer's role.
+  // "@ai confirm" — run the thread's pending plan as the person confirming:
+  // the executor re-checks their role, permissions, the org's areas and every
+  // record, and audits each step (utils/aiActions/executor.ts).
   if (/^(confirm|yes|run( it)?|go ahead|do it)\b/i.test(command)) {
     const plan = current?.pendingPlan as any;
-    if (!plan?.action) return postAssistantMessage(orgId, thread, 'There’s nothing pending to confirm. Ask me to do something first — e.g. "@ai create a ticket for the printer jam".');
-    const def = getAiAction(plan.action);
-    if (!def) return postAssistantMessage(orgId, thread, 'That pending action no longer exists.');
-    if (!def.allowedRoles.includes(user.role as any)) {
-      return postAssistantMessage(orgId, thread, `Your role can’t run "${def.label}" — someone with the right permissions can reply "@ai confirm".`);
-    }
+    const steps = Array.isArray(plan?.steps) && plan.steps.length
+      ? plan.steps.map((s: any) => ({ action: s.action, params: s.params }))
+      : plan?.action ? [{ action: plan.action, params: plan.params }] : [];
+    if (!steps.length) return postAssistantMessage(orgId, thread, 'There’s nothing pending to confirm. Ask me to do something first — e.g. "@ai create a ticket for the printer jam".');
+    const highRiskOk = /high[\s-]?risk/i.test(command);
     try {
-      const parsed = def.schema.parse(plan.params);
-      const blockedWhy = actionBlockedReason(def.name, parsed, (await getEffectiveLicense(orgId)).blockedModules);
-      if (blockedWhy) return postAssistantMessage(orgId, thread, blockedWhy);
-      const result = await def.handler(parsed, { orgId, userId: user.id });
+      const report = await executePlan({ user: { ...user, orgId }, steps, planId: plan.planId, interactionLogId: plan.interactionLogId, confirmHighRisk: highRiskOk, command: 'team chat @ai' });
       await prisma.chatThread.update({ where: { id: thread.id }, data: { pendingPlan: null as any, pendingPlanBy: null } });
-      return postAssistantMessage(orgId, thread, `✅ ${result.summary}`);
+      const lines = report.steps.map(s => `${s.status === 'done' ? '✅' : s.status === 'failed' ? '❌' : '⏭️'} ${s.index}. ${s.summary ?? s.error ?? `${s.label} — not started`}`);
+      return postAssistantMessage(orgId, thread, `${report.summary}\n${report.steps.length > 1 ? lines.join('\n') : ''}`.trim());
     } catch (err: any) {
-      return postAssistantMessage(orgId, thread, `That didn’t work: ${err?.message || 'unknown error'}`);
+      if (err?.statusCode === 428) return postAssistantMessage(orgId, thread, 'This includes a high-risk step. Reply "@ai confirm high risk" to run it.');
+      return postAssistantMessage(orgId, thread, `That didn’t run: ${err?.message || 'unknown error'}`);
     }
   }
 
@@ -259,14 +260,17 @@ async function handleAiMention(
   // Fresh request: route it like a copilot turn.
   const route = await routeChatTurn([{ role: 'user', content: command }]);
   if (route.mode === 'action' && route.command) {
-    const plan = await buildActionPlanForOrg(orgId, user.role, route.command.slice(0, 500));
-    if (!plan.action) {
+    const plan = await buildActionPlanForOrg({ ...user, orgId }, route.command.slice(0, 500));
+    if (!plan.steps.length) {
       return postAssistantMessage(orgId, thread, plan.explanation ? `I couldn’t set that up: ${plan.explanation}` : 'I couldn’t match that to an action I can run.');
     }
+    if (!plan.ready) {
+      // Pickers live on the in-app card; here, ask for the specifics instead.
+      return postAssistantMessage(orgId, thread, `${planAsText(plan)}\n\nI can’t run this yet — rephrase with the exact names, or use the assistant card in the app to pick.`);
+    }
     await prisma.chatThread.update({ where: { id: thread.id }, data: { pendingPlan: plan as any, pendingPlanBy: user.id } });
-    const params = Object.entries(plan.params || {}).map(([k, v]) => `${k}: ${String(typeof v === 'object' ? JSON.stringify(v) : v).slice(0, 120)}`).join('\n');
     return postAssistantMessage(orgId, thread,
-      `**${plan.label || plan.action}**\n${params}\n\n${plan.explanation || ''}\n\nReply "@ai confirm" to run it, or "@ai cancel".`);
+      `${planAsText(plan)}\n\nReply "@ai confirm${plan.requiresSecondConfirmation ? ' high risk' : ''}" to run it, or "@ai cancel".`);
   }
   if (route.mode === 'query' && route.command) {
     /* Keep in-thread queries lightweight: reuse the copilot's snapshot answer. */

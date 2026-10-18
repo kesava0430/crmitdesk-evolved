@@ -83,9 +83,13 @@ aiRouter.post('/command',        requireRole(...ALL_STAFF),  aiAdvanced, trackAi
 // comment). Registered before the two below just to keep all three
 // /actions/* routes grouped; there's no path-matching ambiguity since the
 // method+suffix differ from both.
-aiRouter.get('/actions',          requireRole(...ALL_STAFF), ai.listActionsHandler);
-aiRouter.post('/actions/plan',    requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.planActionHandler);
-aiRouter.post('/actions/execute', requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.executeActionHandler);
+// ALL_USERS: employees can run their own self-service actions (leave, WFH,
+// tasks, tickets) by typing. What each role may actually do is decided per
+// action inside the planner/executor (role, permission engine, areas), and
+// the menu an employee's planner sees only contains those actions.
+aiRouter.get('/actions',          requireRole(...ALL_USERS), ai.listActionsHandler);
+aiRouter.post('/actions/plan',    requireRole(...ALL_USERS), aiAdvanced, trackAiCall, ai.planActionHandler);
+aiRouter.post('/actions/execute', requireRole(...ALL_USERS), aiAdvanced, trackAiCall, ai.executeActionHandler);
 
 // ── Chat Copilot (multi-turn chat that answers or proposes actions) ─────────
 aiRouter.post('/chat',                     requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.chatCopilotHandler);

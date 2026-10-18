@@ -32,7 +32,10 @@ import {
   pickRelevant,
   routeChatTurn,
 } from '../../utils/ai';
-import { getAiAction, actionMenuForPrompt, listActionsForRole, actionBlockedReason } from '../../utils/ai-actions';
+import { getAiAction, listActionsForRole } from '../../utils/ai-actions';
+import { planCommand, type PlanUser } from '../../utils/aiActions/planner';
+import { executePlan } from '../../utils/aiActions/executor';
+import { getPermCtx } from '../../utils/permissions';
 import { getEffectiveLicense } from '../../utils/licensing';
 import { logAction } from '../../utils/auditLog';
 
@@ -771,9 +774,9 @@ const LEGACY_ENTITY_MODULE: Record<string, string> = { ticket: 'itdesk', contact
 
 export async function listActionsHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { blockedModules } = await getEffectiveLicense(req.user!.orgId);
+    const [{ blockedModules }, perm] = await Promise.all([getEffectiveLicense(req.user!.orgId), getPermCtx(req.user!)]);
     res.json({
-      actions: listActionsForRole(req.user!.role, blockedModules),
+      actions: listActionsForRole(req.user!.role, blockedModules, perm),
       // Only record types of areas the org has (Platform Admin → Areas).
       legacy: LEGACY_COMMAND_EXAMPLES.filter(l => !(blockedModules as string[]).includes(LEGACY_ENTITY_MODULE[l.entity])),
     });
@@ -787,136 +790,19 @@ export async function listActionsHandler(req: AuthRequest, res: Response, next: 
 // — it only asks the model to pick an action + params, which the client then
 // shows to the user to confirm before calling executeActionHandler below.
 /**
- * Shared plan builder — gathers the org context menu (deals, tickets, users,
- * leave requests, …) and asks the model to pick one whitelisted action.
- * Called by planActionHandler (command bar), chatCopilotHandler (chat), and
- * conversationPlanHandler (file-a-conversation) so all three surfaces agree.
+ * Shared plan builder — one command in, an ordered, validated, previewed plan
+ * out (utils/aiActions/planner.ts). Called by planActionHandler (command bar),
+ * chatCopilotHandler (chat) and conversationPlanHandler (file-a-conversation)
+ * so all three surfaces agree. Never writes anything.
  */
-export async function buildActionPlanForOrg(orgId: string, role: string, command: string) {
-  {
-    // Actions on areas switched off for the org are never offered, and their
-    // records are left out of the planner's context (utils/modules.ts).
-    const { blockedModules } = await getEffectiveLicense(orgId);
-    const on = (m: string) => !(blockedModules as string[]).includes(m);
-    const none = Promise.resolve([] as any[]);
-
-    const [
-      deals, tickets, leads, rules, contacts, modules, assignableUsers,
-      quotes, invoices, campaigns, assets, leaveTypes, pendingLeaveRequests, orgUsers,
-    ] = await Promise.all([
-      on('crm') ? prisma.deal.findMany({ where: { orgId }, select: { id: true, title: true, stage: true }, take: 25, orderBy: { updatedAt: 'desc' } }) : none,
-      on('itdesk') ? prisma.ticket.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { updatedAt: 'desc' } }) : none,
-      on('crm') ? prisma.lead.findMany({ where: { orgId }, select: { id: true, contact: { select: { name: true } } }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
-      prisma.workflowRule.findMany({ where: { orgId }, select: { id: true, name: true, isActive: true }, take: 25 }),
-      on('crm') ? prisma.contact.findMany({ where: { orgId }, select: { id: true, name: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
-      // Active modules only, but deliberately NOT filtered to "has fields" —
-      // unlike the sidebar's nav injection (AppLayout.tsx), a fieldless
-      // module is still a valid target here: it's exactly what
-      // ADD_CUSTOM_MODULE_FIELD needs to add someone's first field to a
-      // module they just created via CREATE_CUSTOM_MODULE.
-      prisma.customModule.findMany({
-        where: { orgId, isActive: true },
-        // stages so the planner can name a stage key for CREATE/MOVE actions
-        // (Phase 5); isPrimary so record titles can be computed below.
-        select: { id: true, name: true, stages: true, fields: { select: { fieldKey: true, label: true, fieldType: true, isPrimary: true }, orderBy: { position: 'asc' } } },
-        take: 25,
-      }),
-      // For ASSIGN_TICKET's name -> id resolution — same role set tickets
-      // are normally assigned to (IT_STAFF), not every org member.
-      prisma.user.findMany({ where: { orgId, isActive: true, role: { in: [...IT_STAFF] } }, select: { id: true, name: true }, take: 50 }),
-      on('sales_docs') ? prisma.quote.findMany({ where: { orgId }, select: { id: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
-      on('sales_docs') ? prisma.invoice.findMany({ where: { orgId }, select: { id: true, invoiceNumber: true, title: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
-      on('campaigns') ? prisma.campaign.findMany({ where: { orgId }, select: { id: true, name: true, status: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
-      on('assets') ? prisma.asset.findMany({ where: { orgId }, select: { id: true, name: true, type: true }, take: 25, orderBy: { createdAt: 'desc' } }) : none,
-      on('hr_core') ? prisma.leaveType.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true }, take: 25 }) : none,
-      // Only PENDING ones — APPROVE_LEAVE/REJECT_LEAVE can't act on anything
-      // else, so a decided request cluttering this list would just be a
-      // wrong-match trap for the model.
-      on('hr_core') ? prisma.leaveRequest.findMany({
-        where: { orgId, status: 'PENDING' },
-        select: { id: true, startDate: true, endDate: true, user: { select: { name: true } }, leaveType: { select: { name: true } } },
-        take: 25, orderBy: { createdAt: 'desc' },
-      }) : none,
-      // Broader than assignableUsers (IT_STAFF-only, for ticket assignment) —
-      // MANUAL_ATTENDANCE_ENTRY can target any active org member, including
-      // Employee-role staff who never appear in assignableUsers.
-      prisma.user.findMany({ where: { orgId, isActive: true }, select: { id: true, name: true }, take: 50 }),
-    ]);
-
-    /* Phase 5 — each module carries its recent records (id/title/stage) so
-       MOVE_CUSTOM_RECORD_STAGE can resolve "the Kia EV6" to a real id, and
-       its stage keys so both custom-record actions can name a stage. One
-       bounded query for all modules, then 8 records per module. */
-    const moduleIds = modules.map((m: any) => m.id);
-    const recentRecords = moduleIds.length
-      ? await prisma.customModuleRecord.findMany({
-          where: { moduleId: { in: moduleIds } },
-          select: { id: true, moduleId: true, stage: true, data: true },
-          orderBy: { updatedAt: 'desc' }, take: 120,
-        })
-      : [];
-    const modulesForPlan = modules.map((m: any) => {
-      const primary = m.fields.find((f: any) => f.isPrimary) ?? m.fields[0];
-      const records = recentRecords
-        .filter(r => r.moduleId === m.id).slice(0, 8)
-        .map(r => ({
-          id: r.id, stage: r.stage,
-          title: primary ? String((r.data as any)?.[primary.fieldKey] ?? r.id) : r.id,
-        }));
-      return {
-        id: m.id, name: m.name,
-        fields: m.fields.map((f: any) => ({ fieldKey: f.fieldKey, label: f.label, fieldType: f.fieldType })),
-        ...(Array.isArray(m.stages) && m.stages.length
-          ? { stages: (m.stages as any[]).map(s => ({ key: s.key, label: s.label })) } : {}),
-        ...(records.length ? { records } : {}),
-      };
-    });
-
-    /* Each list is cut down to the records the command names plus a few of
-       the newest (pickRelevant), and the action menu to what this role may
-       run — the full context used to be several thousand prompt tokens per
-       command. Module definitions stay whole: their field keys are needed
-       to create records even when the command names none of them. */
-    const rel = <T,>(items: T[], label: (i: T) => string, recent = 5) => pickRelevant(items, label, command, recent);
-    const plan = await planAiAction(command, {
-      actions: actionMenuForPrompt(role, blockedModules),
-      deals: rel(deals, d => d.title),
-      tickets: rel(tickets, t => t.title),
-      leads: rel(leads.map(l => ({ id: l.id, name: (l as any).contact?.name || 'Unknown' })), l => l.name),
-      rules: rel(rules, r => r.name),
-      contacts: rel(contacts, c => c.name),
-      modules: modulesForPlan.map(m => (m.records ? { ...m, records: rel(m.records, r => r.title, 3) } : m)),
-      assignableUsers: rel(assignableUsers, u => u.name),
-      quotes: rel(quotes, q => q.title),
-      invoices: rel(invoices, i => `${i.invoiceNumber} ${i.title}`),
-      campaigns: rel(campaigns, c => c.name),
-      assets: rel(assets, a => a.name),
-      leaveTypes,
-      pendingLeaveRequests: rel(pendingLeaveRequests.map(r => ({
-        id: r.id, userName: r.user.name, leaveTypeName: r.leaveType.name,
-        startDate: r.startDate.toISOString().slice(0, 10), endDate: r.endDate.toISOString().slice(0, 10),
-      })), r => r.userName),
-      orgUsers: rel(orgUsers, u => u.name),
-    });
-
-    // Filter to what this user's role is actually allowed to run, so the
-    // confirm card never shows an action the execute step will just reject.
-    const actionDef = plan.action ? getAiAction(plan.action) : undefined;
-    const allowed = actionDef ? actionDef.allowedRoles.includes(role as any) && !actionBlockedReason(actionDef.name, plan.params, blockedModules) : true;
-
-    return {
-      ...plan,
-      allowed,
-      label: actionDef?.label,
-      requiresConfirmation: actionDef?.requiresConfirmation ?? true,
-    };
-  }
+export async function buildActionPlanForOrg(user: { id: string; orgId: string; role: string; email: string }, command: string) {
+  return planCommand(user as PlanUser, command);
 }
 
 export async function planActionHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { command } = z.object({ command: z.string().min(3).max(500) }).parse(req.body);
-    const plan = await buildActionPlanForOrg(req.user!.orgId, req.user!.role, command);
+    const plan = await buildActionPlanForOrg(req.user!, command);
     res.json(plan);
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
@@ -943,7 +829,7 @@ export async function chatCopilotHandler(req: AuthRequest, res: Response, next: 
     const route = await routeChatTurn(messages, context);
 
     if (route.mode === 'action' && route.command) {
-      const plan = await buildActionPlanForOrg(orgId, req.user!.role, route.command.slice(0, 500));
+      const plan = await buildActionPlanForOrg(req.user!, route.command.slice(0, 500));
       /* No matched action must NOT say "confirm to run it" — there is
          nothing to confirm, and that phrasing strands the user (they type
          "yes" at a card that never appeared). Surface the planner's own
@@ -1005,69 +891,44 @@ export async function conversationPlanHandler(req: AuthRequest, res: Response, n
       `(subject: ${conversation.subject || 'none'}), decide the single most useful action to take in the CRM ` +
       `and fill its params from the conversation content:\n\n${transcript}`;
 
-    const plan = await buildActionPlanForOrg(orgId, req.user!.role, command.slice(0, 500 * 20));
+    const plan = await buildActionPlanForOrg(req.user!, command.slice(0, 500 * 20));
     res.json({ plan, transcriptPreview: transcript.slice(0, 400) });
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
 
 // ─── AI Actions: Execute (re-validates everything, then runs) ───────────────
-// Recursively drops `null` values from an object/array (in place shape,
-// returns a new value) before it's handed to a Zod schema. Same failure
-// mode as sanitizeNlCommandFields in utils/ai.ts fixed for the legacy
-// create/update flow: the model sometimes emits e.g. "stage": null for a
-// param it has no data for instead of omitting the key, and almost every
-// optional param across the 24 registered actions uses `.optional()`
-// (absent key only) rather than `.nullable()` (also accepts an explicit
-// null) — so an unlucky plan would 400 at execute time on a perfectly
-// legitimate command. Recursive because CREATE_CUSTOM_MODULE_RECORD's
-// `data` param is itself a nested object of field values that needs the
-// same treatment. Never strips nulls out of arrays' primitive entries,
-// only object values — no current action param shape needs that, and
-// silently dropping array elements would be a much stranger failure mode
-// than dropping an unset field.
-function stripNulls(value: any): any {
-  if (Array.isArray(value)) return value.map(stripNulls);
-  if (value !== null && typeof value === 'object') {
-    const out: Record<string, any> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (v === null) continue;
-      out[k] = stripNulls(v);
-    }
-    return out;
-  }
-  return value;
-}
-
+// Two request shapes:
+//  - { steps: [{action, params}], planId?, interactionLogId?, confirmHighRisk?, idempotencyKey?, command? }
+//    → a multi-step plan; answers 200 with a step-by-step report even when a
+//      step fails (the report says exactly what completed), 4xx only when the
+//      plan is refused before anything ran.
+//  - { action, params, command? } → the original single action (older app
+//    builds); answers { summary, data } or an error status, as before.
+// Either way every step is re-validated server-side (utils/aiActions/executor.ts):
+// the client's plan is a request, never an authority.
 export async function executeActionHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { action, params, command } = z.object({
-      action: z.string().min(1),
+    const body = z.object({
+      action: z.string().min(1).optional(),
       params: z.record(z.any()).default({}),
-      command: z.string().optional(),
-    }).parse(req.body);
+      steps: z.array(z.object({ action: z.string().min(1), params: z.record(z.any()).default({}) })).min(1).max(6).optional(),
+      command: z.string().max(2000).optional(),
+      planId: z.string().max(64).optional(),
+      interactionLogId: z.string().max(64).nullable().optional(),
+      confirmHighRisk: z.boolean().optional(),
+      idempotencyKey: z.string().max(80).optional(),
+    }).refine(b => b.steps || b.action, { message: 'Send steps, or an action' }).parse(req.body);
 
-    const actionDef = getAiAction(action);
-    if (!actionDef) return res.status(404).json({ error: `Unknown action: ${action}` });
-
-    // The model's own opinion of what's allowed is never trusted — the role
-    // check happens here, server-side, against the actual logged-in user,
-    // exactly like every other mutating endpoint in the app.
-    if (!actionDef.allowedRoles.includes(req.user!.role as any)) {
-      return res.status(403).json({ error: `Your role isn't permitted to run "${actionDef.label}"` });
+    const user = req.user! as PlanUser;
+    if (body.steps) {
+      const report = await executePlan({ user, steps: body.steps, command: body.command, planId: body.planId, interactionLogId: body.interactionLogId, confirmHighRisk: body.confirmHighRisk, idempotencyKey: body.idempotencyKey });
+      return res.json(report);
     }
 
-    const parsedParams = actionDef.schema.parse(stripNulls(params));
-    const blockedWhy = actionBlockedReason(action, parsedParams, (await getEffectiveLicense(req.user!.orgId)).blockedModules);
-    if (blockedWhy) return res.status(402).json({ error: blockedWhy });
-    const result = await actionDef.handler(parsedParams, { orgId: req.user!.orgId, userId: req.user!.id });
-
-    logAction(req.user!.id, 'UPDATE', `AI:${action}`, (parsedParams as any).dealId || (parsedParams as any).ticketId || (parsedParams as any).leadId || (parsedParams as any).ruleId || (parsedParams as any).moduleId || (parsedParams as any).entityId || 'n/a', {
-      viaAI: true,
-      command,
-      params: parsedParams,
-    });
-
-    res.json(result);
+    if (!getAiAction(body.action!)) return res.status(404).json({ error: `Unknown action: ${body.action}` });
+    const report = await executePlan({ user, steps: [{ action: body.action!, params: body.params }], command: body.command, confirmHighRisk: body.confirmHighRisk });
+    if (!report.ok) return res.status(400).json({ error: report.steps[0]?.error ?? report.summary });
+    res.json({ summary: report.steps[0].summary, data: report.steps[0].output });
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
 
