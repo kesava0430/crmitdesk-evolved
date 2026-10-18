@@ -71,7 +71,9 @@ aiRouter.post('/ticket/:id/auto-tag',      requireRole(...IT_STAFF),     trackAi
 // Ask anything: answers come from the query layer with the asker's own record
 // scope and field rules, so it's open to all staff (an agent gets answers
 // about the tickets they can see), not only managers.
-aiRouter.post('/query',          requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.nlQueryHandler);   // dashboard Ask AI
+// ALL_USERS: employees already ask the same questions over WhatsApp/Slack
+// and in the chat bubble — their catalog holds only their own records.
+aiRouter.post('/query',          requireRole(...ALL_USERS),  aiAdvanced, trackAiCall, ai.nlQueryHandler);   // dashboard Ask AI
 aiRouter.post('/insights',       requireRole(...MANAGERS),   aiAdvanced, trackAiCall, ai.insightsHandler);  // proactive insights
 aiRouter.post('/meeting-notes',  requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.meetingNotesHandler);
 aiRouter.post('/tone-check',     requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.toneCheckHandler);
@@ -97,7 +99,10 @@ aiRouter.post('/actions/execute', requireRole(...ALL_USERS), aiAdvanced, trackAi
 aiRouter.post('/actions/review',  requireRole(...ALL_USERS), aiAdvanced, ai.reviewPlanHandler);
 
 // ── Chat Copilot (multi-turn chat that answers or proposes actions) ─────────
-aiRouter.post('/chat',                     requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.chatCopilotHandler);
+// ALL_USERS like /actions/plan: the bubble is on every screen, employees use it
+// for self-service (leave, WFH, tickets, tasks) exactly as over WhatsApp; the
+// planner/executor and the query layer decide per action / dataset.
+aiRouter.post('/chat',                     requireRole(...ALL_USERS), aiAdvanced, trackAiCall, ai.chatCopilotHandler);
 aiRouter.post('/conversation/:id/plan',    requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.conversationPlanHandler);
 
 // ── AI Feature Builder (custom rules) ────────────────────────────────────────

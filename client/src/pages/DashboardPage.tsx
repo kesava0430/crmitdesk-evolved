@@ -352,8 +352,14 @@ export function DashboardPage() {
   const payrollOn = modules.isModuleOn('payroll');
   const showHr = hrOn && can.readHrAdmin(role);
   /* Ask AI answers from the query layer with the asker's own permissions
-     (POST /ai/query is ALL_STAFF), in every area — HR-only orgs included. */
-  const showAsk = can.readStaffRecords(role);
+     (POST /ai/query), in every area — HR-only orgs included. A "Full answer
+     and chart" link from the WhatsApp/Slack assistant (/dashboard?ask=…) must
+     open the answer for anyone who can message the assistant — employees
+     included — and even when a home dashboard replaces the built-in one, so
+     remember it was a deep link (the card strips the parameter on mount). */
+  const [searchParams] = useSearchParams();
+  const [askLink] = useState(() => searchParams.has('ask'));
+  const showAsk = can.readStaffRecords(role) || askLink;
 
   /* Only offer shortcuts the user can actually follow. */
   const quickActions = [
@@ -412,6 +418,7 @@ export function DashboardPage() {
       />
 
       <PageBody>
+        {home && !builtIn && askLink && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn, hr: hrOn }} />}
         {home && !builtIn && <HomeDashboard id={home.dashboardId} replaceBuiltIn />}
         {builtIn && <>
         {/* Needs attention */}
