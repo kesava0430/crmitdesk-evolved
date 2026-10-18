@@ -1,8 +1,11 @@
-import { useModules } from '../modules';
+import { useModules, useAreaCopy } from '../modules';
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, ArrowRight, Loader2, ChevronRight, ShieldAlert, Info } from "lucide-react";
-import { useNlCommand, usePlanAiAction, useAiActionsMenu, type AiActionMenuItem } from "../../api/ai";
+import { useNlCommand, usePlanAiAction, useAiActionsMenu, useNLQuery, type AiActionMenuItem } from "../../api/ai";
+import { AnalyticsAnswer, answerViewFromAsk } from "./AnalyticsAnswer";
+import { PinToDashboardDialog } from "./dashboards/DashboardDialogs";
+import type { AnalyticsWidgetSpec } from "../../api/analytics";
 import { useAuth } from "../../contexts/AuthContext";
 import { can } from "../permissions";
 import { AiNote } from "./AiInfo";
@@ -73,7 +76,12 @@ interface AiCommandBarProps {
 //  - "action": a whitelisted registry action (move a deal's stage, schedule a
 //    reminder, add a note, toggle a rule, etc.) with no dedicated create form
 //    — this is the new propose -> confirm -> execute flow.
-type ResultMode = "legacy" | "action" | "none";
+type ResultMode = "answer" | "legacy" | "action" | "none";
+
+/* Questions ("how many…", "top 5…", "…?") go to Ask AI — the same query layer
+   as the dashboard card and the chat bubble — instead of the action planner. */
+const QUESTION_RE = /\?\s*$|^(how|what|who|whom|which|when|where|why|is|are|do|does|did|show|list|top|total|compare|project|count)\b/i;
+const looksLikeQuestion = (t: string) => QUESTION_RE.test(t.trim()) && !/^(show|list) (me )?(how to|the form)/i.test(t.trim());
 
 /** A clickable example command. Was five copies of the same hover-tinted row. */
 function ExampleRow({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
@@ -101,6 +109,8 @@ function ParamChip({ name, value }: { name: string; value: unknown }) {
 
 export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
   const modules = useModules();
+  // Names only the free AI features of the org's own areas (Platform Admin → Areas).
+  const areaCopy = useAreaCopy();
   const suggestions = SUGGESTIONS.filter(x => modules.isModuleOn(x.module)).map(x => x.text);
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -111,6 +121,8 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
   const nlCommand = useNlCommand();
   const planAction = usePlanAiAction();
+  const nlQuery = useNLQuery();
+  const [pin, setPin] = useState<AnalyticsWidgetSpec | null>(null);
   // Only fetched once help is actually opened — it's role-filtered server
   // data (not static), so there's no point loading it on every command-bar
   // open when most uses never touch the help panel. GET /ai/actions is also
@@ -125,8 +137,8 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
   const result = nlCommand.data;
   const plan = planAction.data;
-  const isLoading = searching || nlCommand.isPending || planAction.isPending;
-  const isError = mode === "none" && (nlCommand.isError || planAction.isError);
+  const isLoading = searching || nlCommand.isPending || planAction.isPending || nlQuery.isPending;
+  const isError = mode === "none" && (nlCommand.isError || planAction.isError || nlQuery.isError);
 
   useEffect(() => {
     if (open) {
@@ -138,6 +150,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
       setShowHelp(false);
       nlCommand.reset();
       planAction.reset();
+      nlQuery.reset();
     }
   }, [open]);
 
@@ -150,7 +163,12 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
   async function runCommand(text: string) {
     setMode("none");
     setSearching(true);
+    nlQuery.reset();
     try {
+      if (looksLikeQuestion(text)) {
+        const answer = await nlQuery.mutateAsync(text).catch(() => null);
+        if (answer) { setMode("answer"); return; }
+      }
       // The action planner first: it covers creates as well as changes, and
       // can chain several steps ("create the lead, schedule a call, remind me").
       const proposed = await planAction.mutateAsync(text).catch(() => null);
@@ -252,7 +270,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
                   <p className="text-sm text-fg-muted">No actions are available for your role in this organisation.</p>
                 )}
                 <p className="text-[11px] text-fg-subtle leading-relaxed">
-                  Actions beyond the four free ones (lead scoring, ticket sentiment, auto-routing, auto-tagging) need a Pro or Enterprise plan.
+                  {areaCopy.coreAi === 'the AI assistant' ? 'These actions need a Pro or Enterprise plan.' : `Actions beyond ${areaCopy.coreAi.replace(/^core AI/, 'the free core AI')} need a Pro or Enterprise plan.`}
                 </p>
               </div>
             )}
@@ -320,7 +338,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
         {/* Error state */}
         {isError && (
           <div className="mx-6 mb-5">
-            <Alert tone="danger">{((planAction.error || nlCommand.error) as any)?.response?.data?.error || "Something went wrong. Please try again."}</Alert>
+            <Alert tone="danger">{((planAction.error || nlCommand.error || nlQuery.error) as any)?.response?.data?.error || "Something went wrong. Please try again."}</Alert>
           </div>
         )}
 
@@ -365,6 +383,13 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
           </div>
         )}
 
+        {/* A question: answered from the data, with the chart and "Pin to dashboard". */}
+        {mode === "answer" && nlQuery.data && (
+          <div className="px-4 sm:px-6 pb-5 border-t border-line-subtle pt-4 min-w-0" data-testid="command-bar-answer">
+            <AnalyticsAnswer view={answerViewFromAsk(nlQuery.data)} onPin={setPin} />
+          </div>
+        )}
+
         {/* Registry plan: propose -> confirm (one card, every step) -> execute */}
         {mode === "action" && plan && (
           <div className="px-4 sm:px-6 pb-5 border-t border-line-subtle pt-4">
@@ -376,6 +401,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
           </div>
         )}
       </div>
+      <PinToDashboardDialog spec={pin} open={!!pin} onClose={() => setPin(null)} />
     </Modal>
   );
 }
