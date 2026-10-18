@@ -68,7 +68,10 @@ aiRouter.post('/ticket/:id/sla-risk',      requireRole(...IT_STAFF),     aiAdvan
 aiRouter.post('/ticket/:id/auto-tag',      requireRole(...IT_STAFF),     trackAiCall, ai.autoTagHandler); // Free
 
 // ── Cross-functional AI ───────────────────────────────────────────────────────
-aiRouter.post('/query',          requireRole(...MANAGERS),   aiAdvanced, trackAiCall, ai.nlQueryHandler);   // dashboard NL query
+// Ask anything: answers come from the query layer with the asker's own record
+// scope and field rules, so it's open to all staff (an agent gets answers
+// about the tickets they can see), not only managers.
+aiRouter.post('/query',          requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.nlQueryHandler);   // dashboard Ask AI
 aiRouter.post('/insights',       requireRole(...MANAGERS),   aiAdvanced, trackAiCall, ai.insightsHandler);  // proactive insights
 aiRouter.post('/meeting-notes',  requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.meetingNotesHandler);
 aiRouter.post('/tone-check',     requireRole(...ALL_STAFF),  aiAdvanced, trackAiCall, ai.toneCheckHandler);

@@ -458,33 +458,27 @@ Use null if no clear match. Pick from the provided lists only.`,
   }
 }
 
-// ─── Natural Language Dashboard Query ────────────────────────────────────────
+// ─── Analytics questions ("Ask anything") ─────────────────────────────────────
+//
+// The old naturalLanguageQuery sent ~10 fixed counts and let the model write
+// whatever it liked about them. Questions now go through the semantic query
+// layer (utils/analytics/ask.ts): the model only translates the question into
+// validated query specs, and the numbers come from permission-checked queries.
+// These two wrappers are its only model calls — kept here so they share the
+// gateway (budget, governance log, cost) like every other feature.
 
-export async function naturalLanguageQuery(
-  question: string,
-  context: {
-    totalDeals: number;
-    openDeals: number;
-    wonDeals: number;
-    lostDeals: number;
-    totalContacts: number;
-    totalTickets: number;
-    openTickets: number;
-    resolvedTickets: number;
-    totalLeads: number;
-    activeLeads: number;
-    forecastRevenue: number;
-  }
-): Promise<string> {
+/** Question + catalog summary → JSON plan of query specs. null when no provider is configured. */
+export async function interpretAnalyticsQuestion(system: string, user: string): Promise<string | null> {
   const client = getClient();
-  if (!client) return 'AI queries not configured — add OPENAI_API_KEY to .env';
+  if (!client) return null;
+  return chat(client, system, user, { feature: 'dashboard.query', json: true, temperature: 0, maxTokens: 900 });
+}
 
-  return chat(
-    client,
-    'You are a CRM analytics assistant. Answer questions about the user\'s business data concisely (2–3 sentences max). Be specific and actionable. If the data doesn\'t support the question, say so briefly.',
-    `CRM snapshot: ${JSON.stringify(context)}\n\nUser question: ${question}`,
-    { feature: 'dashboard.query', maxTokens: 300 }
-  );
+/** Multi-query answers only: 1–2 sentences from aggregated results (numbers re-checked by the caller). */
+export async function narrateAnalyticsAnswer(system: string, user: string): Promise<string | null> {
+  const client = getClient();
+  if (!client) return null;
+  return chat(client, system, user, { feature: 'dashboard.queryAnswer', temperature: 0, maxTokens: 250 });
 }
 
 // ─── KB Article Generator ─────────────────────────────────────────────────────

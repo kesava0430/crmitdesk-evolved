@@ -273,17 +273,14 @@ async function handleAiMention(
       `${planAsText(plan)}\n\nReply "@ai confirm${plan.requiresSecondConfirmation ? ' high risk' : ''}" to run it, or "@ai cancel".`);
   }
   if (route.mode === 'query' && route.command) {
-    /* Keep in-thread queries lightweight: reuse the copilot's snapshot answer. */
-    const [openDeals, openTickets] = await Promise.all([
-      prisma.deal.count({ where: { orgId, status: 'OPEN' } }),
-      prisma.ticket.count({ where: { orgId, status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
-    ]);
-    const { naturalLanguageQuery } = await import('../../utils/ai');
-    const answer = await naturalLanguageQuery(route.command, {
-      totalDeals: openDeals, openDeals, wonDeals: 0, lostDeals: 0, totalContacts: 0,
-      totalTickets: openTickets, openTickets, resolvedTickets: 0, totalLeads: 0, activeLeads: 0, forecastRevenue: 0,
-    });
-    return postAssistantMessage(orgId, thread, answer);
+    /* Answered from the query layer with the ASKER's permissions. Everyone in
+       the thread reads the reply, so pay data (payslips, payroll runs, loans)
+       is never used here — the private assistant answers those. */
+    const { answerQuestion } = await import('../../utils/analytics/ask');
+    const result = await answerQuestion({ id: user.id, orgId, role: user.role }, route.command.slice(0, 500), { exclude: ['payslips', 'payroll_runs', 'loans'] });
+    return postAssistantMessage(orgId, thread, result.status === 'answered' && result.howCalculated[0]
+      ? `${result.answer}\n\n_${result.howCalculated[0]}_`
+      : result.answer);
   }
   return postAssistantMessage(orgId, thread, route.reply || 'I’m here — ask me a question or tell me what to do, e.g. "@ai create a ticket for the broken scanner".');
 }

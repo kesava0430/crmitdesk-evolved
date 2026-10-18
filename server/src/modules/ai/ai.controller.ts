@@ -12,7 +12,6 @@ import {
   generateFollowUp,
   analyzeTicketSentiment,
   suggestTicketReply,
-  naturalLanguageQuery,
   autoRouteTicket,
   generateKbArticle,
   generateInvoiceReminder,
@@ -37,6 +36,8 @@ import { planCommand, reviewPlan, type PlanUser } from '../../utils/aiActions/pl
 import { executePlan } from '../../utils/aiActions/executor';
 import { getPermCtx } from '../../utils/permissions';
 import { getEffectiveLicense } from '../../utils/licensing';
+import { answerQuestion, type AskResult } from '../../utils/analytics/ask';
+import { QueryError } from '../../utils/analytics/compiler';
 import { logAction } from '../../utils/auditLog';
 
 // getClient() (utils/ai.ts) prefers GROQ_API_KEY over OPENAI_API_KEY whenever
@@ -287,47 +288,26 @@ export async function autoRouteHandler(req: AuthRequest, res: Response, next: Ne
 export async function nlQueryHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { question } = z.object({ question: z.string().min(1).max(500) }).parse(req.body);
-    const orgId = req.user!.orgId;
+    const u = req.user!;
+    // Question → validated query specs → permission-checked results → answer
+    // from the returned numbers (utils/analytics/ask.ts). Area switches and
+    // the asker's record scope / field rules apply through the query layer.
+    const result = await answerQuestion({ id: u.id, orgId: u.orgId, role: u.role }, question);
+    res.json(result);
+  } catch (err: any) {
+    if (err instanceof QueryError) return res.status(400).json({ error: err.message, details: err.hints });
+    if (!handleAIError(err, res)) next(err);
+  }
+}
 
-    const [
-      totalDeals, openDeals, wonDeals, lostDeals,
-      totalContacts, totalTickets, openTickets, resolvedTickets,
-      totalLeads, activeLeads,
-    ] = await Promise.all([
-      prisma.deal.count({ where: { orgId } }),
-      prisma.deal.count({ where: { orgId, status: 'OPEN' } }),
-      prisma.deal.count({ where: { orgId, status: 'WON' } }),
-      prisma.deal.count({ where: { orgId, status: 'LOST' } }),
-      prisma.contact.count({ where: { orgId } }),
-      prisma.ticket.count({ where: { orgId } }),
-      prisma.ticket.count({ where: { orgId, status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
-      prisma.ticket.count({ where: { orgId, status: 'RESOLVED' } }),
-      prisma.lead.count({ where: { orgId } }),
-      prisma.lead.count({ where: { orgId, status: { notIn: ['CONVERTED', 'UNQUALIFIED'] } } }),
-    ]);
-
-    // Calculate forecast from open deals
-    const openDealData = await prisma.deal.findMany({
-      where: { orgId, status: 'OPEN' },
-      select: { value: true, probability: true },
-    });
-    const forecastRevenue = Math.round(
-      openDealData.reduce((sum, d) => sum + (Number(d.value) * d.probability / 100), 0)
-    );
-
-    // Figures of an area switched off for the org are not shared with the model.
-    const { blockedModules } = await getEffectiveLicense(orgId);
-    const crm = !(blockedModules as string[]).includes('crm');
-    const itd = !(blockedModules as string[]).includes('itdesk');
-    const z0 = (on: boolean, n: number) => (on ? n : 0);
-    const answer = await naturalLanguageQuery(question, {
-      totalDeals: z0(crm, totalDeals), openDeals: z0(crm, openDeals), wonDeals: z0(crm, wonDeals), lostDeals: z0(crm, lostDeals),
-      totalContacts: z0(crm, totalContacts), totalTickets: z0(itd, totalTickets), openTickets: z0(itd, openTickets), resolvedTickets: z0(itd, resolvedTickets),
-      totalLeads: z0(crm, totalLeads), activeLeads: z0(crm, activeLeads), forecastRevenue: z0(crm, forecastRevenue),
-    });
-
-    res.json({ answer, question });
-  } catch (err: any) { if (!handleAIError(err, res)) next(err); }
+/** Compact analytics payload for the chat bubble: the answer's data without the full results. */
+export function chatAnalyticsPayload(r: AskResult) {
+  const first = r.results[0];
+  return {
+    status: r.status, title: r.title, chart: r.chart, howCalculated: r.howCalculated, warnings: r.warnings, widgetSpec: r.widgetSpec,
+    ...(first ? { columns: first.columns, rows: first.rows.slice(0, 50), description: first.meta.description, currency: first.meta.currency, truncated: first.rows.length > 50 || first.meta.truncated } : {}),
+    ...(r.forecast ? { forecast: { history: r.forecast.history, projection: r.forecast.projection, totals: r.forecast.totals, measure: r.forecast.measure, method: r.forecast.method, description: r.forecast.description, currency: r.forecast.currency } } : {}),
+  };
 }
 
 // ─── KB Article Generator ─────────────────────────────────────────────────────
@@ -863,23 +843,11 @@ export async function chatCopilotHandler(req: AuthRequest, res: Response, next: 
     }
 
     if (route.mode === 'query' && route.command) {
-      // Same org snapshot the dashboard's Ask-AI uses.
-      const [totalDeals, openDeals, wonDeals, lostDeals, totalContacts, totalTickets, openTickets, resolvedTickets, totalLeads, activeLeads] = await Promise.all([
-        prisma.deal.count({ where: { orgId } }),
-        prisma.deal.count({ where: { orgId, status: 'OPEN' } }),
-        prisma.deal.count({ where: { orgId, status: 'WON' } }),
-        prisma.deal.count({ where: { orgId, status: 'LOST' } }),
-        prisma.contact.count({ where: { orgId } }),
-        prisma.ticket.count({ where: { orgId } }),
-        prisma.ticket.count({ where: { orgId, status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
-        prisma.ticket.count({ where: { orgId, status: 'RESOLVED' } }),
-        prisma.lead.count({ where: { orgId } }),
-        prisma.lead.count({ where: { orgId, status: { notIn: ['CONVERTED', 'UNQUALIFIED'] } } }),
-      ]);
-      const openDealData = await prisma.deal.findMany({ where: { orgId, status: 'OPEN' }, select: { value: true, probability: true } });
-      const forecastRevenue = Math.round(openDealData.reduce((sum, d) => sum + (Number(d.value) * d.probability / 100), 0));
-      const answer = await naturalLanguageQuery(route.command, { totalDeals, openDeals, wonDeals, lostDeals, totalContacts, totalTickets, openTickets, resolvedTickets, totalLeads, activeLeads, forecastRevenue });
-      return res.json({ type: 'reply', text: answer });
+      // Answered by the query layer with the asker's own permissions and the
+      // org's areas (utils/analytics/ask.ts) — real, scoped numbers.
+      const u = req.user!;
+      const answer = await answerQuestion({ id: u.id, orgId: u.orgId, role: u.role }, route.command.slice(0, 500));
+      return res.json({ type: 'reply', text: answer.answer, analytics: chatAnalyticsPayload(answer) });
     }
 
     res.json({ type: 'reply', text: route.reply || 'How can I help? I can create tickets and leads, add notes, assign work, file or approve leave, and answer questions about your data.' });

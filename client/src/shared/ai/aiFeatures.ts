@@ -82,11 +82,20 @@ export const AI_FEATURES: AiFeature[] = [
   {
     id: 'dashboard.query',
     name: 'Ask AI about your data',
-    does: 'Answers questions about your pipeline and help desk in two or three sentences.',
-    sends: 'Only summary totals — counts of open deals, tickets, leads and forecast revenue. No names, emails or individual records.',
+    does: 'Turns your question into a query over your own data (leads, deals, tickets, attendance, payroll — whatever your areas and role allow), runs it, and answers with the numbers, a chart and how it was calculated. Projections use a real trend calculation with an uncertainty band.',
+    sends: 'Your question and the names of the reports and fields you can use (no records, no values). The numbers in the answer come from the database, not from the AI.',
     effect: 'advisory',
     tier: 'paid',
-    fallback: 'Tells you AI is not configured.',
+    fallback: "Says it can't answer and lists what you can ask about.",
+  },
+  {
+    id: 'dashboard.queryAnswer',
+    name: 'Ask AI — written summary',
+    does: 'When one question needs several queries, writes a one- or two-sentence summary of the results. Every number it uses is checked against the data; otherwise a plain template is shown.',
+    sends: 'Your question and the aggregated results (totals and up to 20 grouped rows per query). No individual records.',
+    effect: 'advisory',
+    tier: 'paid',
+    fallback: 'Shows the plain, template-written answer.',
   },
   {
     id: 'dashboard.insights',
