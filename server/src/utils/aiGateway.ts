@@ -29,6 +29,7 @@ import { prisma } from './prisma';
 import { decryptSecretOrPlain } from './crypto';
 import type { PermCtx } from './permissions';
 import { getEffectiveLicense } from './licensing';
+import { getAiContext } from './aiContext';
 
 // ─── Task types ───────────────────────────────────────────────────────────────
 
@@ -567,6 +568,8 @@ async function logInteraction(input: LogInput): Promise<string | null> {
         promptPreview: input.user ? String(input.user).slice(0, PREVIEW_LIMIT) : null,
         responsePreview: input.responsePreview,
         redactedFields: input.redactedFields ?? [],
+        // Messaging channel of the request (assistant over WhatsApp/Slack), if any.
+        channel: getAiContext()?.channel ?? null,
       },
       select: { id: true },
     });

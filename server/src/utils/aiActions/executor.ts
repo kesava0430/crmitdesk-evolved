@@ -110,6 +110,8 @@ export interface ExecuteInput {
   interactionLogId?: string | null;
   confirmHighRisk?: boolean;
   idempotencyKey?: string;
+  /** "whatsapp" | "slack" when confirmed by a reply over messaging (assistantChannels); recorded on every audit row. */
+  channel?: string;
 }
 
 const RISK_ORDER: Risk[] = ['low', 'medium', 'high'];
@@ -173,6 +175,7 @@ async function doExecute(input: ExecuteInput): Promise<ExecutionReport> {
       logAction(user.id, def.name.startsWith('CREATE') || def.name.startsWith('ADD') ? 'CREATE' : 'UPDATE', `AI:${def.name}`, String(output.id ?? (def.record ? (parsed as any)[def.record.param] : 'n/a')), {
         viaAI: true, aiInitiated: true, interactionLogId: logId, planId, step: index, of: norm.length,
         command: input.command?.slice(0, 500), params: parsed, risk: source.risk, summary: result.summary,
+        ...(input.channel ? { channel: input.channel } : {}),
       });
       return { summary: result.summary, output };
     },
@@ -182,7 +185,7 @@ async function doExecute(input: ExecuteInput): Promise<ExecutionReport> {
     markActionExecuted(logId, norm.slice(0, report.completed).map(s => s.action).join('+').slice(0, 190), user.id).catch(() => {});
   }
   if (!report.ok) {
-    logAction(user.id, 'UPDATE', 'AI:PLAN_FAILED', planId, { viaAI: true, interactionLogId: logId, failedAt: report.failedAt, completed: report.completed, error: report.steps[(report.failedAt ?? 1) - 1]?.error });
+    logAction(user.id, 'UPDATE', 'AI:PLAN_FAILED', planId, { viaAI: true, interactionLogId: logId, ...(input.channel ? { channel: input.channel } : {}), failedAt: report.failedAt, completed: report.completed, error: report.steps[(report.failedAt ?? 1) - 1]?.error });
   }
   return { planId, ...report };
 }

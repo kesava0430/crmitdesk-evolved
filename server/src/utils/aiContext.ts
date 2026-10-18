@@ -25,6 +25,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface AiRequestContext {
   orgId: string;
   userId?: string | null;
+  /** "whatsapp" | "slack" when the staff assistant was reached by messaging
+      (utils/assistantChannels) — written to AiInteractionLog.channel. */
+  channel?: string | null;
 }
 
 const storage = new AsyncLocalStorage<AiRequestContext>();

@@ -126,6 +126,12 @@ model Organization {
   attendanceDays          AttendanceDay[]
   wfhSchedules            WfhSchedule[]
   attendanceAudits        AttendanceAudit[]
+  // Staff assistant over WhatsApp/Slack (utils/assistantChannels)
+  assistantChannelConfig  AssistantChannelConfig?
+  assistantWhatsAppLinks  AssistantWhatsAppLink[]
+  slackUserLinks          SlackUserLink[]
+  assistantLinkCodes      AssistantLinkCode[]
+  assistantSessions       AssistantSession[]
 }
 
 // Lightweight per-event usage log — currently AI_CALL, WHATSAPP_SEND, and
@@ -374,6 +380,10 @@ model User {
   wfhSchedules            WfhSchedule[]      @relation("WfhScheduleUser")
   attendanceAuditsAbout   AttendanceAudit[] @relation("AttendanceAuditSubject")
   attendanceAuditsMade    AttendanceAudit[] @relation("AttendanceAuditChanger")
+  // Staff assistant over WhatsApp/Slack (utils/assistantChannels)
+  assistantWhatsAppLink   AssistantWhatsAppLink?
+  slackUserLink           SlackUserLink?
+  assistantSessions       AssistantSession[]
 }
 
 // Staff forgot-password flow. tokenHash is SHA-256 of the raw token emailed
@@ -3991,6 +4001,9 @@ model AiInteractionLog {
   responsePreview String? @map("response_preview")
   /// Fields the permission layer stripped before the model saw the data.
   redactedFields  String[] @default([]) @map("redacted_fields")
+  /// Where the request came from when it wasn't the web/Android app:
+  /// "whatsapp" | "slack" (staff assistant over messaging). Null = in-app.
+  channel         String?
 
   feedback       String?   @map("feedback")
   feedbackReason String?   @map("feedback_reason")
@@ -4183,4 +4196,106 @@ model WebForm {
 
   @@index([orgId])
   @@map("web_forms")
+}
+
+// ─── Staff assistant over WhatsApp / Slack ───────────────────────────────────
+// The same assistant as the in-app chat (routeChatTurn → planner/executor or
+// answerQuestion), reachable by messaging. See server/src/utils/assistantChannels/.
+
+/// Per-org switches and Slack app credentials. No row = both channels off.
+model AssistantChannelConfig {
+  id                 String   @id @default(cuid())
+  orgId              String   @unique @map("org_id")
+  /// "Allow staff to use the assistant over WhatsApp" (the org's own Twilio
+  /// number from Inbox → Settings).
+  whatsappEnabled    Boolean  @default(false) @map("whatsapp_enabled")
+  /// "Allow staff to use the assistant over Slack".
+  slackEnabled       Boolean  @default(false) @map("slack_enabled")
+  /// xoxb- bot token and the app's signing secret, encrypted (utils/crypto).
+  slackBotToken      String?  @map("slack_bot_token")
+  slackSigningSecret String?  @map("slack_signing_secret")
+  /// The workspace this org's Slack app belongs to — pinned on the first
+  /// signed request (or set by the owner); any other team is refused.
+  slackTeamId        String?  @map("slack_team_id")
+  /// Let a Slack user whose Slack email equals their staff email use the
+  /// assistant without the link-code step. Off by default.
+  slackEmailMatch    Boolean  @default(false) @map("slack_email_match")
+  /// Random path segment of this org's Slack request URLs.
+  slackKey           String   @unique @map("slack_key")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("assistant_channel_configs")
+}
+
+/// A staff user's WhatsApp number, proven by sending a one-time code FROM it.
+/// Valid only while the profile phone still matches (checked on every message).
+model AssistantWhatsAppLink {
+  id         String   @id @default(cuid())
+  orgId      String   @map("org_id")
+  userId     String   @unique @map("user_id")
+  /// The exact E.164 sender Twilio reported when the code arrived.
+  phoneE164  String   @map("phone_e164")
+  verifiedAt DateTime @default(now()) @map("verified_at")
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, phoneE164])
+  @@map("assistant_whatsapp_links")
+}
+
+/// A Slack identity linked to exactly one staff user (code shown in Slack,
+/// confirmed in the app's Profile).
+model SlackUserLink {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  userId      String   @unique @map("user_id")
+  slackTeamId String   @map("slack_team_id")
+  slackUserId String   @map("slack_user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([slackTeamId, slackUserId])
+  @@index([orgId])
+  @@map("slack_user_links")
+}
+
+/// One-time link codes (SHA-256 only), 15 minutes. WhatsApp: issued in the app
+/// to userId, sent from the phone. Slack: issued in Slack to a Slack user,
+/// typed into the app.
+model AssistantLinkCode {
+  id          String    @id @default(cuid())
+  orgId       String    @map("org_id")
+  channel     String
+  codeHash    String    @map("code_hash")
+  userId      String?   @map("user_id")
+  slackTeamId String?   @map("slack_team_id")
+  slackUserId String?   @map("slack_user_id")
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, channel, codeHash])
+  @@map("assistant_link_codes")
+}
+
+/// Conversation state per (channel, user): the last few turns and a plan
+/// waiting for "yes" (expires — see assistantChannels/state.ts).
+model AssistantSession {
+  id               String    @id @default(cuid())
+  orgId            String    @map("org_id")
+  userId           String    @map("user_id")
+  channel          String
+  turns            Json      @default("[]")
+  pending          Json?
+  pendingExpiresAt DateTime? @map("pending_expires_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channel, userId])
+  @@map("assistant_sessions")
 }
