@@ -24,7 +24,7 @@ import { MeetingNotesModal } from '../shared/components/MeetingNotesModal';
 import { useFormat } from '../hooks/useFormat';
 import { can } from '../shared/permissions';
 import { useHomeDashboard, useDashboard, useSetHome } from '../api/dashboards';
-import type { AnalyticsWidgetSpec } from '../api/analytics';
+import { useAnalyticsCatalog, type AnalyticsWidgetSpec } from '../api/analytics';
 import { PinToDashboardDialog } from '../shared/components/dashboards/DashboardDialogs';
 import { DashboardCanvas } from './DashboardViewPage';
 
@@ -141,13 +141,14 @@ const PRIORITY_CFG: Record<string, { label: string; bar: string }> = {
   LOW:      { label: 'Low',      bar: 'bg-line-strong' },
 };
 
+/* Offered only when the org has the area and the asker's catalog has the data. */
 const QUERIES = [
-  { q: 'How many leads did we get each week for the last 12 weeks?', area: 'crm' },
-  { q: 'Project our leads for the next 30 days if things continue the same way', area: 'crm' },
-  { q: 'Top 5 agents by tickets resolved this month', area: 'itdesk' },
-  { q: 'Open tickets by priority', area: 'itdesk' },
-  { q: 'Who was absent yesterday?', area: 'hr' },
-  { q: 'Total payroll cost last 3 months by department', area: 'hr' },
+  { q: 'How many leads did we get each week for the last 12 weeks?', area: 'crm', dataset: 'leads' },
+  { q: 'Project our leads for the next 30 days if things continue the same way', area: 'crm', dataset: 'leads' },
+  { q: 'Top 5 agents by tickets resolved this month', area: 'itdesk', dataset: 'tickets' },
+  { q: 'Open tickets by priority', area: 'itdesk', dataset: 'tickets' },
+  { q: 'Who was absent yesterday?', area: 'hr', dataset: 'attendance' },
+  { q: 'Total payroll cost last 3 months by department', area: 'hr', dataset: 'payslips' },
 ];
 
 /** What the dashboard AI can see, naming only the areas the org has. */
@@ -162,7 +163,8 @@ function askScope(areas: { crm: boolean; itdesk: boolean; hr: boolean }) {
 }
 
 function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boolean } }) {
-  const suggestions = QUERIES.filter(x => areas[x.area as 'crm' | 'itdesk' | 'hr']).map(x => x.q).slice(0, 4);
+  const { data: catalog } = useAnalyticsCatalog();
+  const suggestions = QUERIES.filter(x => areas[x.area as 'crm' | 'itdesk' | 'hr'] && (!catalog || catalog.datasets.some(d => d.key === x.dataset))).map(x => x.q).slice(0, 4);
   const [question, setQuestion] = useState('');
   const nlQuery = useNLQuery();
   const [pin, setPin] = useState<AnalyticsWidgetSpec | null>(null);

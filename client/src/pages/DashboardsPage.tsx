@@ -6,6 +6,7 @@ import {
   type DashboardSummary, type Proposal, type RenderResponse,
 } from '../api/dashboards';
 import { useLicense } from '../api/billing';
+import { useAnalyticsCatalog } from '../api/analytics';
 import { useAuth } from '../contexts/AuthContext';
 import { useModules } from '../shared/modules';
 import { Alert, Badge, Button, Card, EmptyState, Input, PageBody, PageHeader, Tabs, Textarea, AiNote } from '../shared/components';
@@ -16,10 +17,14 @@ import { DashboardGrid } from '../shared/components/dashboards/DashboardGrid';
 import { NewDashboardDialog } from '../shared/components/dashboards/DashboardDialogs';
 import { visibilityBadge } from './DashboardViewPage';
 
-const SUGGESTIONS: Array<{ q: string; area: 'crm' | 'itdesk' | 'hr' }> = [
-  { q: 'Create a dashboard projecting our leads for the upcoming days — if the business continues the same way, where will we be?', area: 'crm' },
-  { q: 'HR dashboard: headcount, attendance trends, leave and payroll cost by department', area: 'hr' },
-  { q: 'Help desk dashboard: open tickets, weekly volume and top agents', area: 'itdesk' },
+/* Each suggestion names the dataset it is built on: it is only offered when
+   the org has the area AND the viewer's catalog has that data (an IT agent
+   isn't offered a leads projection the server would refuse). */
+const SUGGESTIONS: Array<{ q: string; area: 'crm' | 'itdesk' | 'hr'; dataset: string }> = [
+  { q: 'Create a dashboard projecting our leads for the upcoming days — if the business continues the same way, where will we be?', area: 'crm', dataset: 'leads' },
+  { q: 'HR dashboard: headcount, attendance trends, leave and payroll cost by department', area: 'hr', dataset: 'payslips' },
+  { q: 'HR dashboard: headcount, attendance trends and leave', area: 'hr', dataset: 'employees' },
+  { q: 'Help desk dashboard: open tickets, weekly volume and top agents', area: 'itdesk', dataset: 'tickets' },
 ];
 
 function AiBuilder({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boolean } }) {
@@ -32,7 +37,12 @@ function AiBuilder({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: bool
   const [title, setTitle] = useState('');
   const create = useCreateDashboard();
   const navigate = useNavigate();
-  const suggestions = SUGGESTIONS.filter(s => areas[s.area]).map(s => s.q);
+  const { data: catalog } = useAnalyticsCatalog();
+  const has = (k: string) => !catalog || catalog.datasets.some(d => d.key === k);
+  const suggestions = SUGGESTIONS.filter(s => areas[s.area] && has(s.dataset))
+    // The payroll variant replaces the plain HR one for people who may see pay.
+    .filter((s, _i, all) => !(s.dataset === 'employees' && all.some(x => x.dataset === 'payslips')))
+    .map(s => s.q);
 
   const build = async (q: string) => {
     if (!q.trim()) return;
