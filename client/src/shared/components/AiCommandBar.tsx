@@ -1,8 +1,8 @@
 import { useModules } from '../modules';
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, ArrowRight, Loader2, ChevronRight, CheckCircle2, ShieldAlert, Zap, Info } from "lucide-react";
-import { useNlCommand, usePlanAiAction, useExecuteAiAction, useAiActionsMenu } from "../../api/ai";
+import { Sparkles, ArrowRight, Loader2, ChevronRight, ShieldAlert, Info } from "lucide-react";
+import { useNlCommand, usePlanAiAction, useAiActionsMenu, type AiActionMenuItem } from "../../api/ai";
 import { useAuth } from "../../contexts/AuthContext";
 import { can } from "../permissions";
 import { AiNote } from "./AiInfo";
@@ -12,6 +12,17 @@ import { Button } from "./Button";
 import { IconButton } from "./IconButton";
 import { Input } from "./Field";
 import { Modal } from "./Modal";
+import { AiPlanCard } from "./AiPlanCard";
+
+const CATEGORY_ORDER = ["HR", "CRM", "IT Desk", "Shared", "Admin"];
+function byCategory(items: AiActionMenuItem[]) {
+  const groups = new Map<string, AiActionMenuItem[]>();
+  for (const a of items) {
+    const c = a.category ?? "Shared";
+    groups.set(c, [...(groups.get(c) ?? []), a]);
+  }
+  return [...groups.entries()].sort((a, b) => CATEGORY_ORDER.indexOf(a[0]) - CATEGORY_ORDER.indexOf(b[0]));
+}
 
 // Route mapping
 const ENTITY_ROUTES: Record<string, string> = {
@@ -33,12 +44,13 @@ const ENTITY_LABELS: Record<string, string> = {
 // Each tied to the module it works on — only areas the org has are suggested
 // (Platform Admin → Areas; see shared/modules.ts).
 const SUGGESTIONS = [
+  { text: "Create a lead for Ravi from Acme, schedule a follow-up call Friday 11am and remind me on WhatsApp", module: "crm" },
   { text: "Create a new ticket about VPN issues", module: "itdesk" },
   { text: "Add a contact named Jane Smith from Acme Corp", module: "crm" },
   { text: "Create a deal with Acme Corp worth $50,000", module: "crm" },
   { text: "New lead from LinkedIn named John Doe", module: "crm" },
-  { text: "Request casual leave for next Friday", module: "hr_core" },
-  { text: "Approve the pending leave requests", module: "hr_core" },
+  { text: "Request work from home tomorrow", module: "hr_core" },
+  { text: "Start the payroll run for October 2026", module: "payroll" },
 ];
 
 /* Confidence is a judgement about quality, so it stays on the reserved status
@@ -99,7 +111,6 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
   const nlCommand = useNlCommand();
   const planAction = usePlanAiAction();
-  const execAction = useExecuteAiAction();
   // Only fetched once help is actually opened — it's role-filtered server
   // data (not static), so there's no point loading it on every command-bar
   // open when most uses never touch the help panel. GET /ai/actions is also
@@ -107,7 +118,10 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
   // rather than opening a panel whose contents are a refusal.
   const { user } = useAuth();
   const canReadActions = can.readStaffRecords(user?.role);
-  const actionsMenu = useAiActionsMenu(showHelp && canReadActions);
+  // Every role gets the help panel: GET /ai/actions is filtered server-side
+  // by role, permissions and areas, so an employee sees their self-service
+  // actions only. (The older create-form fallback below stays staff-only.)
+  const actionsMenu = useAiActionsMenu(showHelp);
 
   const result = nlCommand.data;
   const plan = planAction.data;
@@ -124,7 +138,6 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
       setShowHelp(false);
       nlCommand.reset();
       planAction.reset();
-      execAction.reset();
     }
   }, [open]);
 
@@ -136,29 +149,24 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
 
   async function runCommand(text: string) {
     setMode("none");
-    execAction.reset();
     setSearching(true);
     try {
-      const legacy = await nlCommand.mutateAsync(text).catch(() => null);
-      // A confident, recognized create/update intent keeps today's behavior
-      // exactly as-is — never overridden by the new action flow.
+      // The action planner first: it covers creates as well as changes, and
+      // can chain several steps ("create the lead, schedule a call, remind me").
+      const proposed = await planAction.mutateAsync(text).catch(() => null);
+      if (proposed && (proposed.steps?.length || proposed.action) && proposed.confidence >= 40) {
+        setMode("action");
+        return;
+      }
+      // Nothing to run: fall back to the older "prefill a create form" flow
+      // (staff only — the endpoint is staff-gated).
+      const legacy = canReadActions ? await nlCommand.mutateAsync(text).catch(() => null) : null;
       if (legacy && legacy.entity !== "unknown" && legacy.confidence >= 30) {
         setMode("legacy");
         return;
       }
-      // Otherwise, see if this matches something in the whitelisted action
-      // registry instead — covers requests with no dedicated create form
-      // (move a stage, schedule a reminder, add a note, toggle a rule...).
-      const proposed = await planAction.mutateAsync(text).catch(() => null);
-      if (proposed && proposed.action && proposed.confidence >= 40) {
-        setMode("action");
-        return;
-      }
-      // Fall back to the existing "couldn't understand" branch only if we
-      // actually have a (low-confidence) legacy result to show — otherwise
-      // leave mode as "none" so the generic network-error banner renders
-      // instead of a blank panel.
-      if (legacy) setMode("legacy");
+      if (proposed) setMode("action");
+      else if (legacy) setMode("legacy");
     } finally {
       setSearching(false);
     }
@@ -192,19 +200,8 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
     });
   }
 
-  function handleConfirmAction() {
-    if (!plan?.action) return;
-    execAction.mutate({ action: plan.action, params: plan.params, command: query.trim() });
-  }
-
-  function handleCancelAction() {
-    setMode("none");
-    execAction.reset();
-  }
-
   const confidencePct = result ? Math.round(result.confidence * 100) : 0;
   const lowConfidence = result && confidencePct < 30;
-  const planConfidencePct = plan ? Math.round(plan.confidence) : 0;
 
   return (
     <Modal
@@ -227,7 +224,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
             server's action registry (ai-actions.ts) plus the fixed 5-entity
             create/update list — so this can never list something that isn't
             actually wired up. Click any example to run it immediately. */}
-        {showHelp && canReadActions && (
+        {showHelp && (
           <div className="px-4 sm:px-6 py-4 border-b border-line-subtle max-h-80 overflow-y-auto">
             {actionsMenu.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-fg-muted">
@@ -235,28 +232,24 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
               </div>
             ) : (
               <div className="space-y-4">
-                <div>
-                  <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Create or update a record</p>
-                  <div className="flex flex-col gap-1">
-                    {(actionsMenu.data?.legacy ?? []).map(l => (
-                      <ExampleRow key={l.entity} onClick={() => handleSuggestion(l.example)}>
-                        "{l.example}"
-                      </ExampleRow>
-                    ))}
-                  </div>
-                </div>
-                {(actionsMenu.data?.actions?.length ?? 0) > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">Actions</p>
+                {byCategory(actionsMenu.data?.actions ?? []).map(([category, items]) => (
+                  <div key={category}>
+                    <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">{category}</p>
                     <div className="flex flex-col gap-1">
-                      {(actionsMenu.data?.actions ?? []).map(a => (
+                      {items.map(a => (
                         <ExampleRow key={a.name} onClick={() => handleSuggestion(a.example)}>
                           <span className="block">"{a.example}"</span>
-                          <span className="block text-[11px] text-fg-subtle">{a.label}</span>
+                          <span className="flex items-center gap-1.5 text-[11px] text-fg-subtle">
+                            {a.label}
+                            {a.risk === "high" && <Badge variant="red" size="sm"><ShieldAlert size={10} /> asks twice</Badge>}
+                          </span>
                         </ExampleRow>
                       ))}
                     </div>
                   </div>
+                ))}
+                {(actionsMenu.data?.actions?.length ?? 0) === 0 && (
+                  <p className="text-sm text-fg-muted">No actions are available for your role in this organisation.</p>
                 )}
                 <p className="text-[11px] text-fg-subtle leading-relaxed">
                   Actions beyond the four free ones (lead scoring, ticket sentiment, auto-routing, auto-tagging) need a Pro or Enterprise plan.
@@ -270,7 +263,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
         <div className="px-4 sm:px-6 pt-4 pb-3">
           <div className="flex items-center justify-between gap-2 mb-2">
             <p className="text-xs font-medium text-fg-muted">What would you like to do?</p>
-            {canReadActions && (
+            {(
               <IconButton
                 label="What can I say?"
                 icon={<Info size={16} />}
@@ -327,7 +320,7 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
         {/* Error state */}
         {isError && (
           <div className="mx-6 mb-5">
-            <Alert tone="danger">Something went wrong. Please try again.</Alert>
+            <Alert tone="danger">{((planAction.error || nlCommand.error) as any)?.response?.data?.error || "Something went wrong. Please try again."}</Alert>
           </div>
         )}
 
@@ -372,55 +365,13 @@ export function AiCommandBar({ open, onClose }: AiCommandBarProps) {
           </div>
         )}
 
-        {/* Registry action: propose -> confirm -> execute */}
+        {/* Registry plan: propose -> confirm (one card, every step) -> execute */}
         {mode === "action" && plan && (
-          <div className="px-4 sm:px-6 pb-5 space-y-4 border-t border-line-subtle pt-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="indigo"><Zap size={11} /> {plan.label ?? plan.action}</Badge>
-              <Badge variant={confidenceVariant(planConfidencePct)}>{planConfidencePct}% confidence</Badge>
-            </div>
-
-            <p className="text-sm text-fg-muted leading-relaxed">{plan.explanation}</p>
-
-            {Object.keys(plan.params).length > 0 && (
-              <div>
-                <p className="text-[11px] font-semibold text-fg-subtle uppercase tracking-wider mb-2">This will run with</p>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(plan.params).map(([k, v]) => (
-                    <ParamChip key={k} name={k} value={v} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!plan.allowed ? (
-              <Alert tone="warning" icon={<ShieldAlert size={15} />}>
-                Your role isn&apos;t permitted to run this action.
-              </Alert>
-            ) : execAction.isSuccess ? (
-              <Alert tone="success">
-                {execAction.data?.summary || "Done."}
-              </Alert>
+          <div className="px-4 sm:px-6 pb-5 border-t border-line-subtle pt-4">
+            {(plan.steps?.length || plan.action) ? (
+              <AiPlanCard key={plan.planId ?? query} plan={plan} command={query.trim()} onNavigate={onClose} />
             ) : (
-              <>
-                {execAction.isError && (
-                  <Alert tone="danger">
-                    {(execAction.error as any)?.response?.data?.error || "Couldn't run that action."}
-                  </Alert>
-                )}
-                <div className="flex items-center gap-2 pt-1">
-                  <Button
-                    onClick={handleConfirmAction}
-                    loading={execAction.isPending}
-                    icon={<CheckCircle2 size={14} />}
-                  >
-                    Confirm &amp; Run
-                  </Button>
-                  <Button variant="secondary" onClick={handleCancelAction} disabled={execAction.isPending}>
-                    Cancel
-                  </Button>
-                </div>
-              </>
+              <Alert tone="info">{plan.explanation || "I couldn't match that to something I can do. Open “What can I say?” for examples."}</Alert>
             )}
           </div>
         )}

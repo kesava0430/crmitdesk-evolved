@@ -10,24 +10,28 @@
  * conversation.
  */
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircle, Send, Sparkles, X, Check, Loader2, Play } from 'lucide-react';
+import { MessageCircle, Send, Sparkles, X, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import { useExecuteAiAction, type AiActionPlan } from '../../api/ai';
+import { type AiActionPlan } from '../../api/ai';
 import { Button } from './Button';
 import { RichText } from './RichText';
+import { AiPlanCard } from './AiPlanCard';
 
 interface ChatMsg {
   role: 'user' | 'assistant';
   content: string;
-  /** A proposed action awaiting confirm — rendered as a card under the text. */
+  /** A proposed plan awaiting confirm — rendered as a card under the text. */
   plan?: AiActionPlan;
-  /** Set once the plan ran (or was dismissed) so the card locks. */
-  planState?: 'done' | 'dismissed' | 'error';
-  resultSummary?: string;
+  /** Set once the plan ran (or was dismissed) so typed "yes" no longer targets it. */
+  planState?: 'done' | 'dismissed';
+  /** Bumped by a typed "yes" / "no" — the card treats them as button presses. */
+  confirmToken?: number;
+  dismissToken?: number;
 }
 
 const SUGGESTIONS = [
+  'Create a lead for Ravi from Acme, schedule a follow-up call Friday 11am and remind me on WhatsApp',
   'Create a high priority ticket: boardroom projector flickering',
   'How many tickets are open right now?',
   'Add a lead for Maria Gomez from Initech — met at the expo',
@@ -39,7 +43,6 @@ export function ChatCopilot() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
-  const execute = useExecuteAiAction();
 
   const chat = useMutation({
     mutationFn: (msgs: Array<{ role: string; content: string }>) =>
@@ -66,13 +69,12 @@ export function ChatCopilot() {
 
     const pendingIdx = messages.reduce((acc, m, i) => (m.plan && !m.planState ? i : acc), -1);
     if (pendingIdx >= 0 && AFFIRM.test(content)) {
-      setMessages(m => [...m, { role: 'user', content }]);
-      await runPlan(pendingIdx);
+      setMessages(m => [...m.map((x, i) => (i === pendingIdx ? { ...x, confirmToken: Date.now() } : x)), { role: 'user', content }]);
       return;
     }
     if (pendingIdx >= 0 && NEGATE.test(content)) {
       setMessages(m => [
-        ...m.map((x, i) => (i === pendingIdx ? { ...x, planState: 'dismissed' as const } : x)),
+        ...m.map((x, i) => (i === pendingIdx ? { ...x, dismissToken: Date.now() } : x)),
         { role: 'user', content },
         { role: 'assistant', content: 'Okay, dismissed — nothing was run.' },
       ]);
@@ -88,23 +90,15 @@ export function ChatCopilot() {
       setMessages(m => [...m, {
         role: 'assistant',
         content: res.text,
-        plan: res.type === 'plan' && res.plan?.action ? res.plan : undefined,
+        plan: res.type === 'plan' && (res.plan?.steps?.length || res.plan?.action) ? res.plan : undefined,
       }]);
     } catch (e: any) {
       setMessages(m => [...m, { role: 'assistant', content: e?.response?.data?.error || 'Something went wrong — try rephrasing.' }]);
     }
   }
 
-  async function runPlan(idx: number) {
-    const msg = messages[idx];
-    if (!msg.plan?.action) return;
-    try {
-      const result = await execute.mutateAsync({ action: msg.plan.action, params: msg.plan.params });
-      setMessages(m => m.map((x, i) => (i === idx ? { ...x, planState: 'done', resultSummary: result.summary } : x)));
-    } catch (e: any) {
-      setMessages(m => m.map((x, i) => (i === idx ? { ...x, planState: 'error', resultSummary: e?.response?.data?.error || 'Action failed.' } : x)));
-    }
-  }
+  const setPlanState = (idx: number, planState: 'done' | 'dismissed') =>
+    setMessages(ms => ms.map((x, j) => (j === idx ? { ...x, planState } : x)));
 
   return (
     <>
@@ -124,7 +118,7 @@ export function ChatCopilot() {
 
       {/* Panel */}
       {open && (
-        <div className="fixed fab-safe z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[520px] max-h-[calc(100dvh-6rem)]
+        <div className="fixed fab-safe z-40 w-[400px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100dvh-6rem)]
                         flex flex-col rounded-modal border border-line bg-surface shadow-2xl overflow-hidden">
           <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-line-subtle bg-surface-sunken">
             <Sparkles size={14} className="text-accent shrink-0" />
@@ -161,47 +155,23 @@ export function ChatCopilot() {
 
             {messages.map((m, i) => (
               <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                <div className={`max-w-[85%] rounded-card px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap ${
+                <div className={`${m.plan ? 'w-full max-w-full' : 'max-w-[85%]'} rounded-card px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap ${
                   m.role === 'user'
                     ? 'bg-accent text-accent-fg'
                     : 'bg-surface-sunken border border-line-subtle text-fg'
                 }`}>
                   {m.role === 'assistant' ? <RichText content={m.content} className="text-[12.5px]" /> : m.content}
                   {m.plan && (
-                    <div className="mt-2 rounded-btn border border-accent/30 bg-surface overflow-hidden">
-                      <div className="px-2.5 py-1.5 border-b border-line-subtle bg-accent-soft/50">
-                        <p className="text-[12px] font-semibold text-accent-soft-fg">{m.plan.label || m.plan.action}</p>
-                      </div>
-                      <div className="px-2.5 py-1.5 space-y-0.5">
-                        {Object.entries(m.plan.params).map(([k, v]) => (
-                          <p key={k} className="text-[11.5px] text-fg-muted">
-                            <span className="font-medium text-fg">{k}:</span> {(typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 180) + ((typeof v === 'object' ? JSON.stringify(v) : String(v)).length > 180 ? '…' : '')}
-                          </p>
-                        ))}
-                        {m.plan.explanation && <p className="text-[11px] text-fg-subtle pt-0.5">{m.plan.explanation}</p>}
-                      </div>
-                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-t border-line-subtle">
-                        {m.planState === 'done' ? (
-                          <p className="flex items-center gap-1 text-[11.5px] font-medium text-success"><Check size={12} /> {m.resultSummary}</p>
-                        ) : m.planState === 'error' ? (
-                          <p className="text-[11.5px] font-medium text-danger">{m.resultSummary}</p>
-                        ) : m.planState === 'dismissed' ? (
-                          <p className="text-[11.5px] text-fg-subtle">Dismissed.</p>
-                        ) : !m.plan.allowed ? (
-                          <p className="text-[11.5px] text-fg-subtle">Your role can't run this action.</p>
-                        ) : (
-                          <>
-                            <Button size="xs" icon={execute.isPending ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
-                              disabled={execute.isPending} onClick={() => runPlan(i)}>
-                              Run it
-                            </Button>
-                            <Button size="xs" variant="ghost"
-                              onClick={() => setMessages(ms => ms.map((x, j) => (j === i ? { ...x, planState: 'dismissed' } : x)))}>
-                              Dismiss
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                    <div className="mt-2 rounded-btn border border-accent/30 bg-surface p-2.5 whitespace-normal">
+                      <AiPlanCard
+                        plan={m.plan}
+                        compact
+                        confirmToken={m.confirmToken}
+                        dismissToken={m.dismissToken}
+                        onDone={() => setPlanState(i, 'done')}
+                        onDismiss={() => setPlanState(i, 'dismissed')}
+                        onNavigate={() => setOpen(false)}
+                      />
                     </div>
                   )}
                 </div>

@@ -77,8 +77,40 @@ export const useNlCommand = () =>
   useMutation({ mutationFn: (command: string) => api.post('/ai/command', { command }).then(r => r.data as { intent: string; entity: string; fields: Record<string, any>; confidence: number; explanation: string }) });
 
 // ─── AI Actions (whitelisted "do it for me" commands) ─────────────────────────
+// A command becomes an ordered plan (one or more steps) that the user confirms
+// on one card; the server re-validates everything on execute. Shapes mirror
+// server/src/utils/aiActions/planner.ts and executor.ts.
+
+export type AiRisk = 'low' | 'medium' | 'high';
+
+export interface AiPlanCandidate { id: string; label: string; hint?: string }
+export interface AiPlanAmbiguity { param: string; query: string; entity: string; noun: string; candidates: AiPlanCandidate[] }
+export interface AiPlanChange { field: string; before?: string | null; after: string | null }
+export interface AiPlanStep {
+  index: number;
+  action: string;
+  label: string;
+  category: string;
+  params: Record<string, any>;
+  risk: AiRisk;
+  allowed: boolean;
+  blockedReason?: string;
+  errors: string[];
+  needs: AiPlanAmbiguity[];
+  warnings: string[];
+  preview: { title: string; changes: AiPlanChange[]; notes?: string[]; target?: { type: string; id: string; label: string; link?: string } };
+  dependsOn: number[];
+}
 
 export interface AiActionPlan {
+  planId?: string;
+  interactionLogId?: string | null;
+  steps?: AiPlanStep[];
+  risk?: AiRisk;
+  requiresSecondConfirmation?: boolean;
+  ready?: boolean;
+  repaired?: boolean;
+  // First step, as older single-action responses had it.
   action: string | null;
   label?: string;
   params: Record<string, any>;
@@ -88,14 +120,34 @@ export interface AiActionPlan {
   requiresConfirmation: boolean;
 }
 
+export interface AiStepReport {
+  index: number;
+  action: string;
+  label: string;
+  status: 'done' | 'failed' | 'skipped';
+  summary?: string;
+  error?: string;
+  output?: { id?: string; type?: string; label?: string; link?: string };
+}
+export interface AiExecutionReport {
+  ok: boolean;
+  planId: string;
+  summary: string;
+  completed: number;
+  failedAt: number | null;
+  steps: AiStepReport[];
+}
+
 // "What can I say" help panel data — no LLM call, safe to cache for the
-// whole session (staleTime: Infinity). Role-filtered server-side, so this
-// only ever shows actions the logged-in user could actually run.
+// whole session (staleTime: Infinity). Filtered server-side by role,
+// permissions and the org's areas, so it only lists what this user can run.
 export interface AiActionMenuItem {
   name: string;
   label: string;
   description: string;
   example: string;
+  category?: string;
+  risk?: AiRisk | 'varies';
 }
 export interface AiActionMenu {
   actions: AiActionMenuItem[];
@@ -109,6 +161,21 @@ export const usePlanAiAction = () =>
     mutationFn: (command: string) => api.post('/ai/actions/plan', { command }).then(r => r.data as AiActionPlan),
   });
 
+/** Re-validates a plan after the user picked a candidate (no AI call). */
+export const useReviewAiPlan = () =>
+  useMutation({
+    mutationFn: (data: { steps: Array<{ action: string; params: Record<string, any> }>; planId?: string; interactionLogId?: string | null; explanation?: string; confidence?: number }) =>
+      api.post('/ai/actions/review', data).then(r => r.data as AiActionPlan),
+  });
+
+/** Runs a confirmed plan; answers with a per-step report (also when a step fails). */
+export const useExecuteAiPlan = () =>
+  useMutation({
+    mutationFn: (data: { steps: Array<{ action: string; params: Record<string, any> }>; planId?: string; interactionLogId?: string | null; confirmHighRisk?: boolean; idempotencyKey: string; command?: string }) =>
+      api.post('/ai/actions/execute', data).then(r => r.data as AiExecutionReport),
+  });
+
+/** Single action (older flow) — kept for callers that still send { action, params }. */
 export const useExecuteAiAction = () =>
   useMutation({
     mutationFn: (data: { action: string; params: Record<string, any>; command?: string }) =>
