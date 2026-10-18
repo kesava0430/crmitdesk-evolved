@@ -57,6 +57,7 @@ const AIFeaturePage    = lazy(() => import('./pages/AIFeaturePage').then(m => ({
 
 // Default exports — direct import()
 const SlackPage          = lazy(() => import('./pages/SlackPage'));
+const AssistantChannelsPage = lazy(() => import('./pages/AssistantChannelsPage'));
 const DirectorySSOPage   = lazy(() => import('./pages/DirectorySSOPage'));
 const AssetsPage         = lazy(() => import('./modules/itdesk/assets/AssetsPage'));
 const CampaignsPage      = lazy(() => import('./pages/CampaignsPage'));
@@ -212,6 +213,7 @@ export default function App() {
             <Route path="billing" element={<BillingPage />} />
             <Route path="billing/custom" element={<CustomLicensePage />} />
             <Route path="slack" element={<SlackPage />} />
+            <Route path="assistant-channels" element={<AssistantChannelsPage />} />
             <Route path="directory-sso" element={<DirectorySSOPage />} />
             <Route path="itdesk/assets" element={<AssetsPage />} />
             <Route path="campaigns" element={<CampaignsPage />} />

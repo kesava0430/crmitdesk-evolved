@@ -12,6 +12,7 @@ import { useMyDetails, useUpdateMyDetails, type MyDetails } from '../api/people'
 import { useFormat } from '../hooks/useFormat';
 import { GoogleSignInButton } from '../shared/components/GoogleSignInButton';
 import { saveOrShareBlob } from '../native/download';
+import { MessagingConnections } from './MessagingConnections';
 
 /* ── tiny helpers ── */
 function Toast({ type, msg, onDismiss }: { type: 'ok' | 'err'; msg: string; onDismiss: () => void }) {
@@ -454,6 +455,9 @@ function ConnectionsPanel() {
         )}
       </div>
       )}
+
+      {/* Messaging assistant (WhatsApp / Slack) — only when the org switched a channel on. */}
+      <MessagingConnections />
     </div>
   );
 }

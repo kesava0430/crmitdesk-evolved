@@ -1,9 +1,9 @@
 import { useModules } from '../shared/modules';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useEmployeeStats } from '../api/people';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Ticket, TrendingUp, Users, Target, AlertCircle,
@@ -167,6 +167,19 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boo
     setQuestion(q);
     try { await nlQuery.mutateAsync(q); } catch { /* handled via nlQuery.error */ }
   }
+
+  /* "Full answer and chart" links from the WhatsApp/Slack assistant open
+     /dashboard?ask=<question>: re-asked here as the viewer (cached plan). */
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const q = params.get('ask');
+    if (!q) return;
+    const next = new URLSearchParams(params);
+    next.delete('ask');
+    setParams(next, { replace: true });
+    ask(q.slice(0, 500));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Card padding="none" className="overflow-hidden min-w-0">

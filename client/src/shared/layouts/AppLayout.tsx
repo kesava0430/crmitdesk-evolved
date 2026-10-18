@@ -159,6 +159,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: "/slack",        label: "Slack",        icon: Slack,        roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
       { to: "/teams",        label: "Teams",        icon: MessageSquare, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
+      { to: "/assistant-channels", label: "Messaging assistant", icon: Sparkles, roles: ['SUPER_ADMIN', 'IT_MANAGER'] },
       { to: "/directory-sso", label: "Single Sign-On", icon: KeyRound,   roles: ['SUPER_ADMIN', 'IT_MANAGER'], feature: 'sso' },
       { to: "/storage",      label: "Storage",      icon: HardDrive,    roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'] },
       { to: "/billing",      label: "Billing",      icon: CreditCard,   roles: ['SUPER_ADMIN'] },
@@ -220,6 +221,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/api-keys":          "API Keys",
   "/jobs":              "Background Jobs",
   "/slack":             "Slack Integration",
+  "/assistant-channels": "Messaging assistant",
   "/teams":             "Microsoft Teams",
   "/directory-sso":     "Single Sign-On",
   "/storage":           "Storage",
