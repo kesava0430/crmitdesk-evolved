@@ -196,10 +196,12 @@ test('availability: an IT agent sees tickets but not leads or payroll cost', () 
   assert.match((r as any).reason, /can't see/);
 });
 
-test('availability: an HR-only org gets "not part of your product areas" for CRM widgets', () => {
+test('availability: an HR-only org gets "switched-off product area" for CRM widgets, without naming the dataset', () => {
   const r = widgetAvailability(hrOnlyAdminCat(), parseWidgetSpec(leadsKpi).spec!, STATIC_DATASETS, HR_ONLY_BLOCKED);
   assert.equal(r.ok, false);
-  assert.match((r as any).reason, /product areas/);
+  assert.match((r as any).reason, /product area that is switched off/);
+  assert.doesNotMatch((r as any).reason, /lead/i);
+  assert.ok(isAccessError((r as any).reason));
   // …including a forecast whose derived revenue uses deals.
   const f = parseWidgetSpec({ title: 'p', viz: { type: 'kpi' }, query: LEAD_SERIES, forecast: LEAD_FORECAST, options: { kpi: { value: 'projected' } } }).spec!;
   assert.equal(widgetAvailability(hrOnlyAdminCat(), f, STATIC_DATASETS, HR_ONLY_BLOCKED).ok, false);

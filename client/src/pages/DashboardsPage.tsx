@@ -114,7 +114,7 @@ function DashboardCard({ d, isHome }: { d: DashboardSummary; isHome: boolean }) 
     <Card interactive padding="sm" onClick={() => navigate(`/dashboards/${d.id}`)} className="flex flex-col gap-2 min-w-0" data-testid="dashboard-card">
       <div className="flex items-start gap-2 min-w-0">
         <div className="w-8 h-8 rounded-btn bg-accent-soft text-accent flex items-center justify-center shrink-0"><LayoutDashboard size={15} /></div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1" data-user-content>
           <p className="text-[13.5px] font-semibold text-fg truncate">{d.title}</p>
           <p className="text-[11.5px] text-fg-muted truncate">{d.description || `${d.widgetCount} widget${d.widgetCount === 1 ? '' : 's'}`}</p>
         </div>

@@ -145,13 +145,28 @@ export function formatReport(report: ExecutionReport, channel: Channel, linkFor:
   return clip(lines.join('\n'), MAX_REPLY_CHARS[channel]);
 }
 
-export const HELP_TEXT = (channel: Channel) => [
+/**
+ * Example requests for the org's enabled areas only — an HR-only org's staff
+ * shouldn't be told to ask about tickets (Platform Admin → Areas). Tasks are
+ * shared, so there is always at least one example.
+ */
+export function exampleRequests(blockedModules: readonly string[] = []): string[] {
+  const on = (k: string) => !blockedModules.includes(k);
+  const out: string[] = [];
+  if (on('itdesk')) out.push('How many tickets are open?', 'Create a high priority ticket: VPN down for sales');
+  if (on('crm')) out.push('How many leads came in this week?', 'Add a note on the Acme deal: send the proposal Friday');
+  if (on('hr_core')) out.push('I need leave tomorrow, I’m unwell');
+  if (out.length < 2) out.push('Create a task for me to call the bank tomorrow at 10am');
+  // At most three, keeping one of each area first.
+  const firstPerArea = [out.find(x => /ticket/i.test(x)), out.find(x => /lead|deal/i.test(x)), out.find(x => /leave/i.test(x))].filter(Boolean) as string[];
+  return [...new Set([...firstPerArea, ...out])].slice(0, 3);
+}
+
+export const HELP_TEXT = (channel: Channel, blockedModules: readonly string[] = []) => [
   '*Zenkara 360 assistant*',
   channel === 'whatsapp'
     ? 'Start a message with *zen* to talk to me, e.g.:'
     : 'Message me here or use */zen*, e.g.:',
-  `• ${channel === 'whatsapp' ? 'zen ' : ''}How many tickets are open?`,
-  `• ${channel === 'whatsapp' ? 'zen ' : ''}Create a high priority ticket: VPN down for sales`,
-  `• ${channel === 'whatsapp' ? 'zen ' : ''}I need leave tomorrow, I’m unwell`,
+  ...exampleRequests(blockedModules).map(x => `• ${channel === 'whatsapp' ? 'zen ' : ''}${x}`),
   'I always show you what I’ll do and wait for YES before changing anything.',
 ].join('\n');

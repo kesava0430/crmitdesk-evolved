@@ -18,7 +18,7 @@ import { pickWhatsAppSender, pickSlackSender, parseLinkCommand, hashCode, newLin
 import {
   decide, classifyReply, matchesPhrase, setParam, highRiskPhrase, parseAddressed, type PendingConfirm, type PendingChoose,
 } from '../../src/utils/assistantChannels/state';
-import { formatAnswer, formatChoices, formatPlanPrompt, formatReport, formatBlocked, clip } from '../../src/utils/assistantChannels/format';
+import { formatAnswer, formatChoices, formatPlanPrompt, formatReport, formatBlocked, clip, exampleRequests, HELP_TEXT } from '../../src/utils/assistantChannels/format';
 import { SlidingWindowLimiter, SeenIds } from '../../src/utils/assistantChannels/limits';
 import { present } from '../../src/utils/assistantChannels/core';
 import { isSlackResponseUrl } from '../../src/utils/assistantChannels/transport';
@@ -365,4 +365,27 @@ test('isSlackResponseUrl only allows https://hooks.slack.com', () => {
   assert.ok(!isSlackResponseUrl('https://hooks.slack.com.evil.test/x'));
   assert.ok(!isSlackResponseUrl('https://169.254.169.254/latest'));
   assert.ok(!isSlackResponseUrl('not a url'));
+});
+
+// ─── Help / examples follow the org's areas ─────────────────────────────────
+
+test('examples: every area on → one example per area', () => {
+  const ex = exampleRequests([]);
+  assert.equal(ex.length, 3);
+  assert.ok(ex.some(x => /ticket/i.test(x)) && ex.some(x => /lead|deal/i.test(x)) && ex.some(x => /leave/i.test(x)));
+});
+
+test('examples: an HR-only org is never told about tickets, leads or deals', () => {
+  const hrOnly = ['crm', 'sales_docs', 'campaigns', 'itdesk', 'assets', 'knowledge_base', 'customer_portal'];
+  const ex = exampleRequests(hrOnly);
+  assert.ok(ex.length >= 2);
+  for (const x of ex) assert.doesNotMatch(x, /ticket|lead|deal/i);
+  assert.doesNotMatch(HELP_TEXT('whatsapp', hrOnly), /ticket|lead|deal/i);
+  assert.match(HELP_TEXT('whatsapp', hrOnly), /zen I need leave/);
+});
+
+test('examples: a CRM-only org gets no HR or IT Desk wording', () => {
+  const ex = exampleRequests(['hr_core', 'attendance', 'payroll', 'itdesk', 'assets', 'knowledge_base', 'customer_portal']);
+  for (const x of ex) assert.doesNotMatch(x, /ticket|leave|payroll/i);
+  assert.ok(ex.some(x => /lead/i.test(x)));
 });

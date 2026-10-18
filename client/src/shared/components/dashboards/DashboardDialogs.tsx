@@ -142,7 +142,7 @@ export function AiChangeWidgetDialog({ spec, open, onClose, onApply, applying }:
       <div className="space-y-3 min-w-0">
         <p className="text-[12.5px] text-fg-muted">Changing <span className="font-medium text-fg">{spec?.title}</span>. Describe the change; you'll see it with real data before anything is saved.</p>
         <div className="flex flex-col sm:flex-row gap-2">
-          <Textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="e.g. make it weekly and show only website leads" className="flex-1" maxLength={500}
+          <Textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="e.g. make it weekly and show only the last 3 months" className="flex-1" maxLength={500}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); } }} />
           <Button onClick={ask} loading={busy} disabled={!text.trim()} icon={<Sparkles size={13} />} className="sm:self-start">Preview</Button>
         </div>

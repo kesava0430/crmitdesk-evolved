@@ -27,7 +27,6 @@ import {
   generateInsights,
   checkEmailTone,
   parseNaturalLanguageCommand,
-  planAiAction,
   pickRelevant,
   routeChatTurn,
 } from '../../utils/ai';
@@ -39,6 +38,7 @@ import { getEffectiveLicense } from '../../utils/licensing';
 import { answerQuestion, type AskResult } from '../../utils/analytics/ask';
 import { QueryError } from '../../utils/analytics/compiler';
 import { logAction } from '../../utils/auditLog';
+import { exampleRequests } from '../../utils/assistantChannels/format';
 
 // getClient() (utils/ai.ts) prefers GROQ_API_KEY over OPENAI_API_KEY whenever
 // both are set, so whichever one is actually configured is whichever error
@@ -832,11 +832,12 @@ export async function chatCopilotHandler(req: AuthRequest, res: Response, next: 
          "yes" at a card that never appeared). Surface the planner's own
          explanation of what it needs instead. */
       if (!plan.action) {
+        const { blockedModules } = await getEffectiveLicense(orgId);
         return res.json({
           type: 'reply',
           text: plan.explanation
             ? `I couldn't set that up: ${plan.explanation}`
-            : 'I couldn\u2019t match that to an action I can run. Try including the specifics — e.g. "Request 2 days of Annual Leave starting next Monday" or "Create a high priority ticket: VPN down".',
+            : `I couldn\u2019t match that to an action I can run. Try including the specifics — e.g. ${exampleRequests(blockedModules).slice(0, 2).map(x => `"${x}"`).join(' or ')}.`,
         });
       }
       return res.json({ type: 'plan', plan, text: route.reply || 'Here\u2019s what I\u2019ll do — confirm to run it.' });
@@ -850,7 +851,8 @@ export async function chatCopilotHandler(req: AuthRequest, res: Response, next: 
       return res.json({ type: 'reply', text: answer.answer, analytics: chatAnalyticsPayload(answer) });
     }
 
-    res.json({ type: 'reply', text: route.reply || 'How can I help? I can create tickets and leads, add notes, assign work, file or approve leave, and answer questions about your data.' });
+    const { blockedModules } = await getEffectiveLicense(orgId);
+    res.json({ type: 'reply', text: route.reply || `How can I help? Ask about your data or tell me what to do — e.g. ${exampleRequests(blockedModules).slice(0, 2).map(x => `"${x}"`).join(' or ')}.` });
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
 

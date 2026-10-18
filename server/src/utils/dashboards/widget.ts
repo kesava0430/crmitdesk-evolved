@@ -255,7 +255,9 @@ export function widgetAvailability(catalog: ResolvedDataset[], spec: DashboardWi
           : `This widget uses data that no longer exists here (${dep.dataset}).` };
       }
       if (def.module && blockedModules.includes(def.module)) {
-        return { ok: false, reason: `${def.label} aren't part of your organisation's product areas, so this widget isn't available.` };
+        // Worded without the dataset's name: the area is switched off for the
+        // org, so its vocabulary shouldn't appear anywhere (Platform Admin → Areas).
+        return { ok: false, reason: 'This widget\'s data comes from a product area that is switched off for your organisation, so it isn\'t shown.' };
       }
       return { ok: false, reason: `This widget uses ${def.label.toLowerCase()}, which your role doesn't have access to.` };
     }

@@ -295,7 +295,7 @@ export function AiPlanCard({ plan: initial, command, compact = false, onDone, on
           <ul className={`${small} text-fg space-y-0.5 list-disc pl-4`}>
             {highRisk.map(s => <li key={s.index} className="break-words">{s.preview.title || s.label}</li>)}
           </ul>
-          <p className={`${small} text-fg-muted`}>This moves money, changes payroll or access, or sends messages that can’t be recalled.</p>
+          <p className={`${small} text-fg-muted`}>This moves money, changes someone’s pay or access, or sends messages that can’t be recalled.</p>
           <div className="flex flex-wrap items-center gap-2">
             <Button size={compact ? 'xs' : 'sm'} variant="danger" loading={execute.isPending} onClick={() => run(true)} icon={<Play size={12} />}>
               Yes, run {steps.length > 1 ? `all ${steps.length} steps` : 'it'}

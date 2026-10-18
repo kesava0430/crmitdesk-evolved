@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageCircle, Slack, ShieldCheck, Copy, Check } from 'lucide-react';
 import { api } from '../api/client';
+import { useModules, joinWords } from '../shared/modules';
 import {
   PageBody, Card, CardHeader, Field, Input, Toggle, Button, Badge, Alert, SkeletonCard,
 } from '../shared/components';
@@ -51,7 +52,7 @@ function UrlRow({ label, url }: { label: string; url: string }) {
   );
 }
 
-function slackManifest(s: Settings): string {
+function slackManifest(s: Settings, example: string): string {
   return [
     'display_information:',
     '  name: Zenkara 360',
@@ -67,7 +68,7 @@ function slackManifest(s: Settings): string {
     '    - command: /zen',
     `      url: ${s.urls.slackCommands}`,
     '      description: Ask Zenkara 360 or get work done',
-    '      usage_hint: how many tickets are open?',
+    `      usage_hint: ${example}`,
     '      should_escape: false',
     'oauth_config:',
     '  scopes:',
@@ -102,6 +103,13 @@ export default function AssistantChannelsPage() {
     queryKey: ['assistant-channel-settings'],
     queryFn: () => api.get('/channels/settings').then(r => r.data),
   });
+  // Examples and high-risk wording name only the org's areas (Platform Admin → Areas).
+  const modules = useModules();
+  const example = modules.isAreaOn('itdesk') ? 'how many tickets are open?'
+    : modules.isAreaOn('crm') ? 'how many leads came in this week?'
+    : modules.isAreaOn('hr') ? 'who is on leave today?' : 'what tasks are due this week?';
+  const payrollOn = modules.isModuleOn('payroll');
+  const highRisk = joinWords([payrollOn && 'payroll, loans', 'user access', modules.isModuleOn('sales_docs') && 'invoices', 'sending messages']);
   const [botToken, setBotToken] = useState('');
   const [secret, setSecret] = useState('');
   const [msg, setMsg] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
@@ -146,7 +154,7 @@ export default function AssistantChannelsPage() {
         <ul className="space-y-1.5 text-[13px] text-fg-muted list-disc pl-5">
           <li>Only staff who proved their identity can use it: a WhatsApp number verified with a one-time code sent from that phone, or a Slack account linked from My Profile. Anyone else gets a polite refusal and no data.</li>
           <li>Answers and actions use the person’s own role, record access and your enabled areas — exactly as in the app.</li>
-          <li>Every change is shown first and runs only after YES. High-risk changes (payroll, loans, user access, sending messages) also need a typed phrase like “CONFIRM PAYROLL”. Unanswered plans expire after 15 minutes.</li>
+          <li>Every change is shown first and runs only after YES. High-risk changes ({highRisk}) also need a typed phrase like “{payrollOn ? 'CONFIRM PAYROLL' : 'CONFIRM ACCESS'}”. Unanswered plans expire after 15 minutes.</li>
           <li>Everything is in the Audit Log and AI Governance, marked with the channel it came from.</li>
         </ul>
       </Card>
@@ -173,7 +181,7 @@ export default function AssistantChannelsPage() {
           />
           <div className="rounded-input bg-surface-sunken border border-line-subtle p-3 text-[12.5px] text-fg-muted space-y-1">
             <p className="font-medium text-fg">Which messages go to the assistant</p>
-            <p>Only messages from a verified staff number that start with <b>zen</b> (e.g. “zen how many tickets are open?”), and that person’s replies to a plan waiting for their YES. Every other message — all customers, and staff writing without “zen” — lands in the Inbox exactly as before. Assistant conversations are never shown in the shared Inbox.</p>
+            <p>Only messages from a verified staff number that start with <b>zen</b> (e.g. “zen {example}”), and that person’s replies to a plan waiting for their YES. Every other message — all customers, and staff writing without “zen” — lands in the Inbox exactly as before. Assistant conversations are never shown in the shared Inbox.</p>
           </div>
           <div>
             <p className="text-[13px] font-semibold text-fg mb-2">Set up</p>
@@ -210,9 +218,9 @@ export default function AssistantChannelsPage() {
             <div className="mt-3">
               <div className="flex items-center justify-between gap-2 mb-1">
                 <p className="text-[12px] font-medium text-fg-muted">App manifest</p>
-                <CopyButton text={slackManifest(s)} label="Copy manifest" />
+                <CopyButton text={slackManifest(s, example)} label="Copy manifest" />
               </div>
-              <pre className="text-[11.5px] leading-snug bg-surface-sunken border border-line-subtle rounded-input p-3 overflow-x-auto max-h-64 text-fg">{slackManifest(s)}</pre>
+              <pre className="text-[11.5px] leading-snug bg-surface-sunken border border-line-subtle rounded-input p-3 overflow-x-auto max-h-64 text-fg">{slackManifest(s, example)}</pre>
             </div>
             <div className="mt-3 space-y-3">
               <UrlRow label="Event Subscriptions → Request URL" url={s.urls.slackEvents} />

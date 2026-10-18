@@ -51,8 +51,8 @@ export const AI_FEATURES: AiFeature[] = [
   {
     id: 'command.bar',
     name: 'AI Command',
-    does: 'Turns a plain-English instruction into a plan of one or more actions (for example "create the lead, schedule a call, remind me") shown on one card with exactly what will change, which you confirm before anything runs. Falls back to a prefilled create form when nothing matches.',
-    sends: 'Your typed command, plus a short list of matching record names and IDs from what you can see (deals, tickets, contacts, people…) so the AI can refer to the right record. Names it gives back are looked up again on the server, never trusted.',
+    does: 'Turns a plain-English instruction into a plan of one or more actions (for example "create a task for Friday and remind me the day before") shown on one card with exactly what will change, which you confirm before anything runs. Falls back to a prefilled create form when nothing matches.',
+    sends: 'Your typed command, plus a short list of matching record names and IDs from what you can see so the AI can refer to the right record. Names it gives back are looked up again on the server, never trusted.',
     effect: 'advisory',
     tier: 'paid',
     fallback: 'Says it could not understand the command; nothing runs.',
@@ -62,7 +62,7 @@ export const AI_FEATURES: AiFeature[] = [
     id: 'command.plan',
     name: 'AI action planner',
     does: 'Works out which actions your instruction means — one or several in order — from a fixed list of things you are allowed to do, and shows them for you to confirm.',
-    sends: 'Your instruction, today\u2019s date and timezone, and up to a few matching names and IDs per record type you can see (deals, tickets, leads, contacts, people, leave types, pending requests…). Never whole tables.',
+    sends: 'Your instruction, today\u2019s date and timezone, and up to a few matching names and IDs per record type you can see. Never whole tables.',
     effect: 'advisory',
     tier: 'paid',
     fallback: 'Proposes nothing rather than guessing.',
@@ -82,7 +82,7 @@ export const AI_FEATURES: AiFeature[] = [
   {
     id: 'dashboard.query',
     name: 'Ask AI about your data',
-    does: 'Turns your question into a query over your own data (leads, deals, tickets, attendance, payroll — whatever your areas and role allow), runs it, and answers with the numbers, a chart and how it was calculated. Projections use a real trend calculation with an uncertainty band.',
+    does: 'Turns your question into a query over your own data (whatever your organisation’s areas and your role allow), runs it, and answers with the numbers, a chart and how it was calculated. Projections use a real trend calculation with an uncertainty band.',
     sends: 'Your question and the names of the reports and fields you can use (no records, no values). The numbers in the answer come from the database, not from the AI.',
     effect: 'advisory',
     tier: 'paid',
@@ -100,7 +100,7 @@ export const AI_FEATURES: AiFeature[] = [
   {
     id: 'dashboard.build',
     name: 'Ask AI to build a dashboard',
-    does: 'Turns a request ("project our leads for the next month") into a full dashboard: charts, KPI tiles and projections over your own data. You preview it with real numbers and decide whether to save it. A projection gets a note explaining its method and caveats, written from the calculation itself.',
+    does: 'Turns a request ("project where we\u2019ll be next month if things continue") into a full dashboard: charts, KPI tiles and projections over your own data. You preview it with real numbers and decide whether to save it. A projection gets a note explaining its method and caveats, written from the calculation itself.',
     sends: 'Your request and the names of the reports and fields you can use (no records, no values). Every number on the dashboard comes from the database, not from the AI.',
     effect: 'advisory',
     tier: 'paid',
@@ -109,7 +109,7 @@ export const AI_FEATURES: AiFeature[] = [
   {
     id: 'dashboard.widgetEdit',
     name: 'Ask AI to change a widget',
-    does: 'Changes one dashboard widget as you describe ("make it weekly and show only website leads"). You see the result with real data before applying it.',
+    does: 'Changes one dashboard widget as you describe ("make it weekly and show only the last 3 months"). You see the result with real data before applying it.',
     sends: "The widget's settings (which report, fields and filters — no data) and your instruction.",
     effect: 'advisory',
     tier: 'paid',

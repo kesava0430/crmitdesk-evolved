@@ -30,7 +30,7 @@ import { frontendLink } from '../frontendUrl';
 import { decide, highRiskPhrase, setParam, type Pending, type PendingChoose, type PendingConfirm } from './state';
 import { loadSession, saveSession, claimPending, type Session } from './session';
 import {
-  formatAnswer, formatPlanPrompt, formatSecondConfirm, formatChoices, formatBlocked, formatReport, HELP_TEXT, clip, MAX_REPLY_CHARS,
+  formatAnswer, formatPlanPrompt, formatSecondConfirm, formatChoices, formatBlocked, formatReport, HELP_TEXT, exampleRequests, clip, MAX_REPLY_CHARS,
   type Channel,
 } from './format';
 import { SlidingWindowLimiter, MAX_INBOUND_CHARS, USER_LIMIT, PENDING_TTL_MS } from './limits';
@@ -52,16 +52,17 @@ export async function handleStaffMessage(msg: StaffMessage): Promise<string> {
   const { channel, user } = msg;
   const text = String(msg.text ?? '').trim();
   try {
-    if (!text || /^(help|\?|hi|hello|menu)$/i.test(text)) return HELP_TEXT(channel);
     if (text.length > MAX_INBOUND_CHARS) return `That message is too long for me (${text.length} characters). Keep it under ${MAX_INBOUND_CHARS} — or do this one in the app.`;
     if (!userLimiter.hit(`${channel}:${user.id}`)) {
       const wait = Math.max(1, Math.ceil(userLimiter.retryAfter(`${channel}:${user.id}`) / 60));
       return `You’re sending messages faster than I can handle — try again in about ${wait} min.`;
     }
     const lic = await getEffectiveLicense(user.orgId);
+    // Help names only the org's areas (examples for switched-off areas would mislead).
+    if (!text || /^(help|\?|hi|hello|menu)$/i.test(text)) return HELP_TEXT(channel, lic.blockedModules);
     if (!lic.features.includes('ai_advanced')) return featureNotIncludedMessage(lic, 'ai_advanced');
 
-    return await runWithAiContext({ orgId: user.orgId, userId: user.id, channel }, () => converse(channel, user, text, msg.now ?? new Date()));
+    return await runWithAiContext({ orgId: user.orgId, userId: user.id, channel }, () => converse(channel, user, text, msg.now ?? new Date(), lic.blockedModules));
   } catch (err: any) {
     console.error(`[assistant:${channel}] failed for user ${user.id}:`, err?.status ?? '', err?.message ?? err);
     if (err?.status === 402) return String(err.message || 'The AI allowance for this month is used up.');
@@ -69,7 +70,7 @@ export async function handleStaffMessage(msg: StaffMessage): Promise<string> {
   }
 }
 
-async function converse(channel: Channel, user: StaffUser, text: string, now: Date): Promise<string> {
+async function converse(channel: Channel, user: StaffUser, text: string, now: Date, blockedModules: readonly string[]): Promise<string> {
   const session = await loadSession(channel, user.id);
   const d = decide(session.pending, text, now);
   const planUser: PlanUser = { id: user.id, orgId: user.orgId, role: user.role, email: user.email, name: user.name };
@@ -78,7 +79,7 @@ async function converse(channel: Channel, user: StaffUser, text: string, now: Da
 
   switch (d.do) {
     case 'nothing_pending':
-      reply = 'There’s nothing waiting for a reply. Tell me what you need — e.g. “how many tickets are open?” or “create a ticket: printer offline”.';
+      reply = `There’s nothing waiting for a reply. Tell me what you need — e.g. ${exampleRequests(blockedModules).slice(0, 2).map(x => `“${x}”`).join(' or ')}.`;
       break;
     case 'expired':
       next = null;
@@ -124,7 +125,7 @@ async function converse(channel: Channel, user: StaffUser, text: string, now: Da
     }
     case 'new': {
       next = null;
-      const r = await answerNew(channel, user, planUser, session, text, now);
+      const r = await answerNew(channel, user, planUser, session, text, now, blockedModules);
       reply = (d.dropped ? '(Your earlier request was cancelled.)\n\n' : '') + r.reply;
       next = r.next;
       break;
@@ -136,7 +137,7 @@ async function converse(channel: Channel, user: StaffUser, text: string, now: Da
   return clip(reply, MAX_REPLY_CHARS[channel]);
 }
 
-async function answerNew(channel: Channel, user: StaffUser, planUser: PlanUser, session: Session, text: string, now: Date): Promise<{ reply: string; next: Pending | null }> {
+async function answerNew(channel: Channel, user: StaffUser, planUser: PlanUser, session: Session, text: string, now: Date, blockedModules: readonly string[]): Promise<{ reply: string; next: Pending | null }> {
   const messages = [...session.turns, { role: 'user' as const, content: text }].slice(-12).map(t => ({ role: t.role, content: t.content.slice(0, 2000) }));
   const route = await routeChatTurn(messages);
 
@@ -154,7 +155,7 @@ async function answerNew(channel: Channel, user: StaffUser, planUser: PlanUser, 
     return { reply: formatAnswer(answer, { channel, link }), next: null };
   }
 
-  return { reply: route.reply || HELP_TEXT(channel), next: null };
+  return { reply: route.reply || HELP_TEXT(channel, blockedModules), next: null };
 }
 
 /** A plan from the planner → the next message and what waits for the reply. */

@@ -22,6 +22,7 @@ import { resolveSlackSender, newLinkCode, hashCode, LINK_CODE_TTL_MS, type Sende
 import { verifySlackRequest } from './signatures';
 import { slackPostMessage, slackRespond, slackUserEmail } from './transport';
 import { HELP_TEXT } from './format';
+import { getEffectiveLicense } from '../licensing';
 import { SeenIds, SlidingWindowLimiter, SENDER_LIMIT } from './limits';
 
 const seenEvents = new SeenIds(60 * 60 * 1000);
@@ -136,7 +137,7 @@ export async function handleSlackCommand(cfg: SlackCfg | null, headers: Record<s
   if (!cfg.slackEnabled) return { status: 200, body: { response_type: 'ephemeral', text: 'The Zenkara 360 assistant is turned off for your organisation.' } };
   if (!slackUserId) return { status: 200, body: { response_type: 'ephemeral', text: 'Missing user.' } };
 
-  if (!text || /^help$/i.test(text)) return { status: 200, body: { response_type: 'ephemeral', text: HELP_TEXT('slack') } };
+  if (!text || /^help$/i.test(text)) return { status: 200, body: { response_type: 'ephemeral', text: HELP_TEXT('slack', (await getEffectiveLicense(cfg.orgId)).blockedModules) } };
   if (/^link$/i.test(text)) return { status: 200, body: { response_type: 'ephemeral', text: await issueSlackCode(cfg, teamId!, slackUserId) } };
 
   background(async () => {

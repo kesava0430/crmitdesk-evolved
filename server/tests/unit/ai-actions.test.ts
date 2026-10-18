@@ -19,7 +19,7 @@ import { runSequential } from '../../src/utils/aiActions/executor';
 import { ENTITIES, recordAllowed } from '../../src/utils/aiActions/entities';
 import { normalizeStep, summarisePlan, refLabel, type NormalizeEnv } from '../../src/utils/aiActions/planner';
 import {
-  AI_ACTIONS, getAiAction, riskOf, roleBlockedReason, isActionAvailable, actionBlockedReason, actionMenuForPrompt, listActionsForRole,
+  AI_ACTIONS, getAiAction, riskOf, roleBlockedReason, isActionAvailable, actionBlockedReason, actionMenuForPrompt, listActionsForRole, exampleFor,
 } from '../../src/utils/ai-actions';
 import type { PermCtx, Scope } from '../../src/utils/permissions';
 
@@ -438,4 +438,12 @@ test('plan summary: risk is the highest step, high risk needs the second confirm
   const p = summarisePlan([step('low'), step('high'), step('medium')], { planId: 'p', interactionLogId: 'l', explanation: 'e', confidence: 90, repaired: false });
   assert.equal(p.risk, 'high'); assert.equal(p.requiresSecondConfirmation, true); assert.equal(p.ready, true);
   assert.equal(summarisePlan([], { planId: 'p', interactionLogId: null, explanation: '', confidence: 0, repaired: false }).ready, false);
+});
+
+test('help panel examples follow the org areas (no deal wording when CRM is off, no ticket wording when IT Desk is off)', () => {
+  const itOnly = listActionsForRole('SUPER_ADMIN', ['crm', 'sales_docs', 'campaigns', 'hr_core', 'attendance', 'payroll']);
+  for (const a of itOnly) assert.doesNotMatch(a.example, /\bdeals?\b|\bleads?\b/i, a.name);
+  const crmOnly = listActionsForRole('SUPER_ADMIN', ['itdesk', 'assets', 'knowledge_base', 'customer_portal', 'hr_core', 'attendance', 'payroll']);
+  for (const a of crmOnly) assert.doesNotMatch(a.example, /\btickets?\b/i, a.name);
+  assert.equal(exampleFor(getAiAction('ADD_NOTE')!, []), getAiAction('ADD_NOTE')!.example);
 });

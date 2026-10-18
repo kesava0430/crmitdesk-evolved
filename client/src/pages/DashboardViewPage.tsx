@@ -196,8 +196,8 @@ export default function DashboardViewPage() {
   return (
     <div className="animate-slide-up">
       <PageHeader
-        title={d.title}
-        subtitle={[d.description, !a.isOwner ? `by ${d.owner.name}` : null].filter(Boolean).join(' · ') || undefined}
+        title={<span data-user-content>{d.title}</span>}
+        subtitle={(d.description || !a.isOwner) ? <span data-user-content>{[d.description, !a.isOwner ? `by ${d.owner.name}` : null].filter(Boolean).join(' · ')}</span> : undefined}
         breadcrumb="Dashboards"
         actions={
           <>

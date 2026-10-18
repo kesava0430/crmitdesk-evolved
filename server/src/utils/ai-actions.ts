@@ -273,11 +273,28 @@ export function actionMenuForPrompt(role?: string, blockedModules: readonly stri
  * registry and filtered exactly like execution: role, permission engine, and
  * the org's areas — so it can never show an action this user couldn't run.
  */
+/* Shared actions that work on IT Desk or CRM records carry one example; when
+   that example's area is switched off for the org, the help panel shows the
+   other area's wording instead (an IT-only org isn't shown "the Acme deal"). */
+const AREA_EXAMPLES: Record<string, { itdesk: string; crm: string }> = {
+  ADD_NOTE: { itdesk: 'Add a note on the VPN ticket: waiting for the vendor to replace the router', crm: 'Add a note on the Acme deal: they want the revised proposal by Friday' },
+  SCHEDULE_WHATSAPP_REMINDER: { itdesk: 'Remind me on WhatsApp about the VPN ticket tomorrow at 9am', crm: 'Remind me on WhatsApp about the Acme deal tomorrow at 9am' },
+  SEND_WHATSAPP_NOW: { itdesk: 'Send a WhatsApp message to the VPN ticket requester saying the fix is in progress', crm: 'Send a WhatsApp message to the Acme deal contact saying the proposal is on its way' },
+};
+
+export function exampleFor(a: Pick<AiActionDefinition, 'name' | 'example'>, blockedModules: readonly string[] = []): string {
+  const alt = AREA_EXAMPLES[a.name];
+  if (!alt) return a.example;
+  if (blockedModules.includes('itdesk')) return alt.crm;
+  if (blockedModules.includes('crm')) return alt.itdesk;
+  return a.example;
+}
+
 export function listActionsForRole(role: string, blockedModules: readonly string[] = [], perm?: PermCtx) {
   return AI_ACTIONS
     .filter(a => offered(a, role, blockedModules, perm))
     .map(a => ({
-      name: a.name, label: a.label, description: a.description, example: a.example,
+      name: a.name, label: a.label, description: a.description, example: exampleFor(a, blockedModules),
       category: a.category ?? 'Shared', risk: typeof a.risk === 'string' ? a.risk : 'varies',
     }));
 }

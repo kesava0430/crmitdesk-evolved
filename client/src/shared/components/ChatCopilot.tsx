@@ -19,6 +19,8 @@ import { RichText } from './RichText';
 import { AnalyticsAnswer, type AnswerView } from './AnalyticsAnswer';
 import { PinToDashboardDialog } from './dashboards/DashboardDialogs';
 import type { AnalyticsWidgetSpec } from '../../api/analytics';
+import { useModules, joinWords } from '../modules';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface ChatMsg {
   role: 'user' | 'assistant';
@@ -32,13 +34,18 @@ interface ChatMsg {
   analytics?: AnswerView;
 }
 
-const SUGGESTIONS = [
-  'Create a lead for Ravi from Acme, schedule a follow-up call Friday 11am and remind me on WhatsApp',
-  'Create a high priority ticket: boardroom projector flickering',
-  'How many tickets are open right now?',
-  'Top 5 agents by tickets resolved this month',
-  'Add a lead for Maria Gomez from Initech — met at the expo',
-  'Request 2 days of annual leave from next Monday',
+/* Starter prompts, each tied to the area it needs — an HR-only org isn't
+   offered leads and tickets (Platform Admin → Areas), and an employee isn't
+   offered manager work (the planner would only refuse it). */
+const SUGGESTIONS: Array<{ text: string; module?: string; staffOnly?: boolean }> = [
+  { text: 'Create a lead for Ravi from Acme, schedule a follow-up call Friday 11am and remind me on WhatsApp', module: 'crm', staffOnly: true },
+  { text: 'Create a high priority ticket: boardroom projector flickering', module: 'itdesk' },
+  { text: 'How many tickets are open right now?', module: 'itdesk' },
+  { text: 'Top 5 agents by tickets resolved this month', module: 'itdesk', staffOnly: true },
+  { text: 'Add a lead for Maria Gomez from Initech — met at the expo', module: 'crm', staffOnly: true },
+  { text: 'Request 2 days of annual leave from next Monday', module: 'hr_core' },
+  { text: 'Headcount by department', module: 'hr_core', staffOnly: true },
+  { text: 'Create a task for me to call the bank tomorrow at 10am' },
 ];
 
 export function ChatCopilot() {
@@ -48,6 +55,16 @@ export function ChatCopilot() {
   const listRef = useRef<HTMLDivElement>(null);
   const execute = useExecuteAiAction();
   const [pin, setPin] = useState<AnalyticsWidgetSpec | null>(null);
+  const modules = useModules();
+  const { user } = useAuth();
+  const isEmployee = user?.role === 'EMPLOYEE';
+  const suggestions = SUGGESTIONS.filter(x => (!x.module || modules.isModuleOn(x.module)) && !(x.staffOnly && isEmployee)).slice(0, 6);
+  const canDo = joinWords([
+    modules.isAreaOn('itdesk') && 'create tickets',
+    modules.isAreaOn('crm') && !isEmployee && 'create leads, add notes, assign work',
+    modules.isAreaOn('hr') && (isEmployee ? 'request leave or work from home' : 'file or approve leave'),
+    'create tasks',
+  ]);
 
   const chat = useMutation({
     mutationFn: (msgs: Array<{ role: string; content: string }>) =>
@@ -142,11 +159,10 @@ export function ChatCopilot() {
             {messages.length === 0 && (
               <div className="pt-2">
                 <p className="text-[12.5px] text-fg-muted px-1 mb-2">
-                  Ask a question or tell me what to do — I can create tickets and leads, add notes,
-                  assign work, file or approve leave, and answer questions about your data.
+                  Ask a question or tell me what to do — I can {canDo}, and answer questions about your data.
                 </p>
                 <div className="space-y-1.5">
-                  {SUGGESTIONS.map(s => (
+                  {suggestions.map(({ text: s }) => (
                     <button
                       key={s} type="button" onClick={() => send(s)}
                       className="block w-full text-left text-[12px] px-2.5 py-1.5 rounded-btn border border-line

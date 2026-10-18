@@ -84,7 +84,7 @@ function WidgetCard({ w, r, loading, currency, height, editing, menu, onRetry, d
         {...(editing ? dragHandle : {})}
       >
         {editing && dragHandle && <GripVertical size={13} className="text-fg-subtle shrink-0" aria-hidden />}
-        <h3 className="text-[12.5px] font-semibold text-fg truncate min-w-0 flex-1" title={w.spec.title}>{w.spec.title}</h3>
+        <h3 className="text-[12.5px] font-semibold text-fg truncate min-w-0 flex-1" title={w.spec.title} data-user-content>{w.spec.title}</h3>
         {r?.rangeApplied && <span title="Uses the dashboard date range" className="text-fg-subtle shrink-0"><CalendarRange size={12} aria-label="Uses the dashboard date range" /></span>}
         <div onPointerDown={e => e.stopPropagation()} className="shrink-0">
           <RowActions items={menu} triggerLabel={`Actions for ${w.spec.title}`} />
