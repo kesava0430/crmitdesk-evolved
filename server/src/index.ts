@@ -41,6 +41,7 @@ import { sweepAutoCheckouts, purgeOldLocationPings, purgeOldSelfies, closeForgot
 import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { eventsRouter } from './modules/events/events.routes';
 import { slackRouter } from './modules/slack/slack.routes';
+import { assistantChannelsRouter } from './modules/assistantChannels/assistantChannels.routes';
 import { directoryRouter } from './modules/directory/directory.routes';
 import { assetsRouter } from './modules/itdesk/assets/assets.routes';
 import { csatRouter } from './modules/csat/csat.routes';
@@ -156,6 +157,9 @@ app.use('/api/inbox/whatsapp/webhook', express.urlencoded({ extended: false, lim
 // the body first; the route-level raw() in billing.routes.ts then sees the
 // body is already read and no-ops.
 app.use('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
+// Slack signs the raw request bytes (JSON events and form-encoded /zen
+// commands alike) — same reason as Stripe above.
+app.use('/api/channels/slack', express.raw({ type: () => true, limit: '256kb' }));
 // Payslip templates carry uploaded logo / signature / watermark images as
 // data URLs (≤ 600 KB each, enforced by the schema) — allow room for all three.
 app.use('/api/hr/payroll/templates', express.json({ limit: '3mb' }));
@@ -317,6 +321,7 @@ app.use('/api/billing', billingRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/slack', slackRouter);
+app.use('/api/channels', assistantChannelsRouter);
 app.use('/api/directory', directoryRouter);
 app.use('/api/itdesk/assets', assetsRouter);
 app.use('/api/csat', csatRouter);
