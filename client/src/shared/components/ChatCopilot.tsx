@@ -16,6 +16,7 @@ import { api } from '../../api/client';
 import { type AiActionPlan } from '../../api/ai';
 import { Button } from './Button';
 import { RichText } from './RichText';
+import { AiPlanCard } from './AiPlanCard';
 import { AnalyticsAnswer, type AnswerView } from './AnalyticsAnswer';
 import { PinToDashboardDialog } from './dashboards/DashboardDialogs';
 import type { AnalyticsWidgetSpec } from '../../api/analytics';
@@ -27,9 +28,11 @@ interface ChatMsg {
   content: string;
   /** A proposed plan awaiting confirm — rendered as a card under the text. */
   plan?: AiActionPlan;
-  /** Set once the plan ran (or was dismissed) so the card locks. */
-  planState?: 'done' | 'dismissed' | 'error';
-  resultSummary?: string;
+  /** Set once the plan ran (or was dismissed) so typed "yes" no longer targets it. */
+  planState?: 'done' | 'dismissed';
+  /** Bumped by a typed "yes" / "no" — the card treats them as button presses. */
+  confirmToken?: number;
+  dismissToken?: number;
   /** Data behind an answered question (chart/table + how it was calculated). */
   analytics?: AnswerView;
 }
@@ -53,7 +56,6 @@ export function ChatCopilot() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
-  const execute = useExecuteAiAction();
   const [pin, setPin] = useState<AnalyticsWidgetSpec | null>(null);
   const modules = useModules();
   const { user } = useAuth();
@@ -112,7 +114,7 @@ export function ChatCopilot() {
       setMessages(m => [...m, {
         role: 'assistant',
         content: res.text,
-        plan: res.type === 'plan' && res.plan?.action ? res.plan : undefined,
+        plan: res.type === 'plan' && (res.plan?.steps?.length || res.plan?.action) ? res.plan : undefined,
         analytics: res.analytics ? { ...res.analytics, answer: res.text, currency: res.analytics.currency ?? res.analytics.forecast?.currency ?? 'USD' } as AnswerView : undefined,
       }]);
     } catch (e: any) {
