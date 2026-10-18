@@ -17,6 +17,8 @@ import { type AiActionPlan } from '../../api/ai';
 import { Button } from './Button';
 import { RichText } from './RichText';
 import { AnalyticsAnswer, type AnswerView } from './AnalyticsAnswer';
+import { PinToDashboardDialog } from './dashboards/DashboardDialogs';
+import type { AnalyticsWidgetSpec } from '../../api/analytics';
 
 interface ChatMsg {
   role: 'user' | 'assistant';
@@ -44,6 +46,8 @@ export function ChatCopilot() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const execute = useExecuteAiAction();
+  const [pin, setPin] = useState<AnalyticsWidgetSpec | null>(null);
 
   const chat = useMutation({
     mutationFn: (msgs: Array<{ role: string; content: string }>) =>
@@ -164,7 +168,7 @@ export function ChatCopilot() {
                 }`}>
                   {m.role === 'assistant' ? <RichText content={m.content} className="text-[12.5px]" /> : m.content}
                   {m.analytics && m.analytics.status === 'answered' && (
-                    <div className="mt-2 whitespace-normal"><AnalyticsAnswer view={m.analytics} compact hideText /></div>
+                    <div className="mt-2 whitespace-normal"><AnalyticsAnswer view={m.analytics} compact hideText onPin={setPin} /></div>
                   )}
                   {m.plan && (
                     <div className="mt-2 rounded-btn border border-accent/30 bg-surface p-2.5 whitespace-normal">
@@ -207,6 +211,7 @@ export function ChatCopilot() {
           </form>
         </div>
       )}
+      <PinToDashboardDialog spec={pin} open={!!pin} onClose={() => setPin(null)} />
     </>
   );
 }

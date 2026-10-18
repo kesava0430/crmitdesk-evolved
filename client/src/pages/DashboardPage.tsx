@@ -23,6 +23,10 @@ import { AnalyticsAnswer, answerViewFromAsk } from '../shared/components/Analyti
 import { MeetingNotesModal } from '../shared/components/MeetingNotesModal';
 import { useFormat } from '../hooks/useFormat';
 import { can } from '../shared/permissions';
+import { useHomeDashboard, useDashboard, useSetHome } from '../api/dashboards';
+import type { AnalyticsWidgetSpec } from '../api/analytics';
+import { PinToDashboardDialog } from '../shared/components/dashboards/DashboardDialogs';
+import { DashboardCanvas } from './DashboardViewPage';
 
 /* Decorative icon tints for the quick-action tiles. `violet` and `indigo` used
    to be literal Tailwind hues, which made them a second accent competing with
@@ -161,6 +165,7 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boo
   const suggestions = QUERIES.filter(x => areas[x.area as 'crm' | 'itdesk' | 'hr']).map(x => x.q).slice(0, 4);
   const [question, setQuestion] = useState('');
   const nlQuery = useNLQuery();
+  const [pin, setPin] = useState<AnalyticsWidgetSpec | null>(null);
 
   async function ask(q: string) {
     if (!q.trim()) return;
@@ -235,7 +240,7 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boo
         {nlQuery.data && (
           <div className="space-y-2 min-w-0">
             <AiGeneratedTag />
-            <AnalyticsAnswer view={answerViewFromAsk(nlQuery.data)} />
+            <AnalyticsAnswer view={answerViewFromAsk(nlQuery.data)} onPin={setPin} />
             <Button
               variant="ghost"
               size="xs"
@@ -247,7 +252,34 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boo
           </div>
         )}
       </div>
+      <PinToDashboardDialog spec={pin} open={!!pin} onClose={() => setPin(null)} />
     </Card>
+  );
+}
+
+/* The user's chosen home dashboard (Dashboards → "Set as my home"), rendered
+   with their own permissions, below the built-in dashboard or instead of it. */
+function HomeDashboard({ id, replaceBuiltIn }: { id: string; replaceBuiltIn: boolean }) {
+  const navigate = useNavigate();
+  const { data: d } = useDashboard(id);
+  const setHome = useSetHome();
+  if (!d) return <div className="h-40 skeleton" />;
+  return (
+    <section className="space-y-3" data-testid="home-dashboard">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="w-1 h-5 rounded-full bg-accent" />
+          <h2 className="text-xs font-semibold text-fg-muted uppercase tracking-widest truncate">{d.title}</h2>
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button variant="ghost" size="xs" onClick={() => setHome.mutate({ dashboardId: id, replaceBuiltIn: !replaceBuiltIn })}>
+            {replaceBuiltIn ? 'Show the built-in dashboard too' : 'Show only this'}
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => navigate(`/dashboards/${id}`)} iconRight={<ArrowRight size={12} />} className="!text-accent">Open</Button>
+        </div>
+      </div>
+      {d.widgets.length ? <DashboardCanvas dashboard={d} /> : <p className="text-[13px] text-fg-muted">This dashboard has no widgets yet.</p>}
+    </section>
   );
 }
 
@@ -338,6 +370,10 @@ export function DashboardPage() {
     { label: 'Import CSV',  icon: ArrowUpRight, color: 'gray'   as IconColor, to: '/import',          show: can.readCrmReports(role) && (crmOn || itdeskOn) },
   ].filter(a => a.show);
 
+  const { data: homeData } = useHomeDashboard();
+  const home = homeData?.home ?? null;
+  const builtIn = !home?.replaceBuiltIn;
+
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = user?.name?.split(' ')[0];
@@ -376,6 +412,8 @@ export function DashboardPage() {
       />
 
       <PageBody>
+        {home && !builtIn && <HomeDashboard id={home.dashboardId} replaceBuiltIn />}
+        {builtIn && <>
         {/* Needs attention */}
         {!ticketsLoading && ticketReports && (
           (() => {
@@ -489,6 +527,8 @@ export function DashboardPage() {
             <AiInsightsWidget note={`Looks across ${aiScope({ crm: crmOn, itdesk: itdeskOn })} numbers and flags three to five things worth attention.`} />
           </section>
         )}
+        </>}
+        {home && builtIn && <HomeDashboard id={home.dashboardId} replaceBuiltIn={false} />}
       </PageBody>
 
       <MeetingNotesModal open={meetingNotesOpen} onClose={() => setMeetingNotesOpen(false)} />

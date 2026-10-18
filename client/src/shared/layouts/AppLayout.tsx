@@ -11,7 +11,7 @@ import {
   Clock, CalendarCheck, Building2, Receipt, RefreshCw, Wallet, KeyRound,
   Package, Boxes, Wrench, Tag, Briefcase, ClipboardList,
   CheckSquare, CheckCircle2, Network, UserSquare2, ChevronRight, SlidersHorizontal, Rocket,
-  PanelTop,
+  PanelTop, LayoutGrid,
 } from "lucide-react";
 import { useCustomModules } from "../../api/customModules";
 import { useWorkspace } from "../../api/workspace";
@@ -71,6 +71,8 @@ export const NAV_SECTIONS: NavSection[] = [
     label: null,
     items: [
       { to: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard, tint: "text-indigo-500" },
+      // Saved analytics dashboards — every role and area (each widget renders with the viewer's own permissions).
+      { to: "/dashboards",   label: "Dashboards", icon: LayoutGrid,      tint: "text-sky-500" },
       { to: "/my-work",      label: "My Work",     icon: CheckSquare,    tint: "text-emerald-500" },
       { to: "/approvals",    label: "Approvals",   icon: CheckCircle2,   tint: "text-teal-500" },
       // /inbox/conversations is ALL_STAFF on the server; without this an
@@ -202,6 +204,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/roles":       "Roles & Permissions",
   "/admin/ai-governance": "AI Governance",
   "/my-work":           "My Work",
+  "/dashboards":        "Dashboards",
   "/approvals":         "Approvals",
   "/people":            "People",
   "/hr/directory":      "Org Chart",
@@ -535,7 +538,7 @@ export function AppLayout() {
     : undefined;
   const baseTitle = routeOverride
     ? entityLabel(routeOverride.key, routeOverride.form, PAGE_TITLES[location.pathname] ?? "")
-    : (PAGE_TITLES[location.pathname] ?? moduleTitleMatch ?? workspace.appName);
+    : (PAGE_TITLES[location.pathname] ?? moduleTitleMatch ?? (location.pathname.startsWith("/dashboards/") ? "Dashboards" : workspace.appName));
   // Workspace skin rename (keyed by route) wins over everything else.
   const pageTitle = workspace.navLabel(location.pathname, baseTitle);
 

@@ -101,6 +101,8 @@ const LeavePage          = lazy(() => import('./modules/hr/LeavePage'));
 const PayrollPage        = lazy(() => import('./modules/hr/PayrollPage'));
 const HRSettingsPage     = lazy(() => import('./modules/hr/HRSettingsPage'));
 const PayslipPrintPage   = lazy(() => import('./pages/PayslipPrintPage'));
+const DashboardsPage     = lazy(() => import('./pages/DashboardsPage'));
+const DashboardViewPage  = lazy(() => import('./pages/DashboardViewPage'));
 
 // PLATFORM_ADMIN users have no orgId — the normal AppLayout/org-scoped pages
 // all assume one, so they're routed to the standalone /platform-admin
@@ -199,6 +201,8 @@ export default function App() {
               same sidebar config in AppLayout.tsx (NAV_SECTIONS). */}
           <Route element={<RoleGate />}>
             <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="dashboards" element={<DashboardsPage />} />
+            <Route path="dashboards/:id" element={<DashboardViewPage />} />
             <Route path="crm/contacts" element={<ContactsPage />} />
             <Route path="crm/contacts/:id" element={<ContactDetailPage />} />
             <Route path="crm/leads" element={<LeadsPage />} />
