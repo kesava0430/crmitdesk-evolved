@@ -1,5 +1,4 @@
 import { Response, NextFunction, Request } from 'express';
-import crypto from 'node:crypto';
 import { z } from 'zod';
 import https from 'https';
 import nodemailer from 'nodemailer';
@@ -10,6 +9,8 @@ import { syncEmailAccount } from '../../utils/email-sync';
 import { sseManager, SSEEvent } from '../../utils/sse';
 import { encryptSecret, decryptSecretOrPlain } from '../../utils/crypto';
 import { recordUsage } from '../../utils/usageTracking';
+import { verifyTwilioSignature } from '../../utils/assistantChannels/signatures';
+import { routeWhatsAppInbound } from '../../utils/assistantChannels/whatsapp';
 
 // ─── Twilio REST helper (no SDK — direct HTTPS call) ──────────────────────────
 
@@ -356,14 +357,8 @@ function isValidTwilioSignature(signature: string, req: Request, authToken: stri
     const url = `${proto}://${host}${req.originalUrl}`;
 
     const params = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
-    const data = Object.keys(params).sort().reduce((acc, k) => acc + k + String(params[k] ?? ''), url);
-
-    const expected = crypto.createHmac('sha1', authToken).update(Buffer.from(data, 'utf-8')).digest('base64');
-
-    const a = Buffer.from(expected);
-    const b = Buffer.from(signature);
-    // Length check first: timingSafeEqual throws on a length mismatch.
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
+    // The HMAC itself lives in utils/assistantChannels/signatures.ts (unit-tested).
+    return verifyTwilioSignature(signature, url, params, authToken);
   } catch {
     return false;
   }
@@ -428,6 +423,20 @@ export async function twilioWebhook(req: Request, res: Response, next: NextFunct
     }
 
     const orgId = waConfig.orgId;
+
+    /* Staff assistant over WhatsApp (behind the org's switch, off by default):
+       a verified staff number writing "zen …" (or answering a pending plan)
+       is handled by the assistant and never written to the Inbox — see
+       utils/assistantChannels/whatsapp.ts for the exact rule. Customer
+       messages fall through unchanged; an assistant failure never blocks them. */
+    try {
+      if (await routeWhatsAppInbound({ orgId, from, body, messageSid })) {
+        return res.status(200).send('<Response></Response>');
+      }
+    } catch (err: any) {
+      console.error('[whatsapp-webhook] assistant routing failed, delivering to Inbox:', err?.message ?? err);
+    }
+
     const contactPhone = from;
     const contactDisplay = from.replace('whatsapp:', '');
 
