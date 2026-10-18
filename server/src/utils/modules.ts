@@ -240,7 +240,10 @@ export const SHARED_SURFACES: SharedSurface[] = [
   { key: 'import', label: 'Import CSV', areas: ['crm'], routes: ['/import'], apiPrefixes: ['/api/import'] },
   { key: 'custom_fields', label: 'Custom fields', areas: ['crm', 'itdesk'], routes: ['/custom-fields'], apiPrefixes: [] },
   { key: 'web_forms', label: 'Web forms', areas: ['crm', 'itdesk'], routes: ['/web-forms'], apiPrefixes: ['/api/web-forms'] },
-  { key: 'analytics', label: 'Analytics & reports', areas: ['crm', 'itdesk'], routes: ['/analytics', '/reports'], apiPrefixes: ['/api/analytics', '/api/reports'] },
+  // Only the prebuilt ticket/CRM report endpoints: the query layer under
+  // /api/analytics (catalog, query, forecast — utils/analytics/) serves every
+  // area, HR included, and gates each dataset by its own module.
+  { key: 'analytics', label: 'Analytics & reports', areas: ['crm', 'itdesk'], routes: ['/analytics', '/reports'], apiPrefixes: ['/api/analytics/overview', '/api/analytics/tickets', '/api/analytics/crm', '/api/reports'] },
   { key: 'chat_integrations', label: 'Slack & Microsoft Teams', areas: ['crm', 'itdesk'], routes: ['/slack', '/teams'], apiPrefixes: ['/api/slack', '/api/teams'] },
 ];
 
