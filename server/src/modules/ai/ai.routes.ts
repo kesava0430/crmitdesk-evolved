@@ -90,6 +90,8 @@ aiRouter.post('/command',        requireRole(...ALL_STAFF),  aiAdvanced, trackAi
 aiRouter.get('/actions',          requireRole(...ALL_USERS), ai.listActionsHandler);
 aiRouter.post('/actions/plan',    requireRole(...ALL_USERS), aiAdvanced, trackAiCall, ai.planActionHandler);
 aiRouter.post('/actions/execute', requireRole(...ALL_USERS), aiAdvanced, trackAiCall, ai.executeActionHandler);
+// Re-validate a plan after the user picked a candidate — no model call, so not tracked as one.
+aiRouter.post('/actions/review',  requireRole(...ALL_USERS), aiAdvanced, ai.reviewPlanHandler);
 
 // ── Chat Copilot (multi-turn chat that answers or proposes actions) ─────────
 aiRouter.post('/chat',                     requireRole(...ALL_STAFF), aiAdvanced, trackAiCall, ai.chatCopilotHandler);

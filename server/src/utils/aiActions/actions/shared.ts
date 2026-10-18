@@ -46,7 +46,7 @@ export const SHARED_ACTIONS: AiActionDefinition[] = [
       const c = await callUi(comments.create, ctx, { params: { entityType: p.entityType, entityId: p.entityId }, body: { body: p.body } });
       return { summary: `Added a note on the ${p.entityType.toLowerCase()}.`, data: { id: p.entityId, commentId: c.id } };
     },
-    output: (_r, p) => ({ ...out(ENTITY_OF[p.entityType], { id: p.entityId }), label: 'Note added' }),
+    output: (_r, p) => ({ ...out(ENTITY_OF[p.entityType], { id: p.entityId }), label: undefined }),
   },
 
   // ── WhatsApp reminder (Schedules — the record's Reminders tab) ──────────
@@ -77,7 +77,7 @@ export const SHARED_ACTIONS: AiActionDefinition[] = [
       const s = await callUi(schedules.create, ctx, { body: p });
       return { summary: `Scheduled a WhatsApp reminder for ${when(s.dueAt, ctx)} (to ${RECIPIENT[p.recipientType] ?? p.recipientType}).`, data: s };
     },
-    output: (r, p) => ({ id: (r.data as any)?.id, type: 'reminder', label: 'WhatsApp reminder', link: out(ENTITY_OF[p.entityType], { id: p.entityId }).link }),
+    output: (r, p) => ({ id: (r.data as any)?.id, type: p.entityType.toLowerCase(), link: out(ENTITY_OF[p.entityType], { id: p.entityId }).link }),
   },
   {
     name: 'SEND_WHATSAPP_NOW', label: 'Send a WhatsApp message now', category: 'Shared',
@@ -104,7 +104,7 @@ export const SHARED_ACTIONS: AiActionDefinition[] = [
       await sendWhatsApp(ctx.orgId, phone, p.message);
       return { summary: `Sent a WhatsApp message to ${phone}.`, data: { id: p.entityId } };
     },
-    output: (_r, p) => ({ ...out(ENTITY_OF[p.entityType], { id: p.entityId }), label: 'Message sent' }),
+    output: (_r, p) => ({ ...out(ENTITY_OF[p.entityType], { id: p.entityId }), label: undefined }),
   },
 
   // ── Tasks (My Work) ─────────────────────────────────────────────────────

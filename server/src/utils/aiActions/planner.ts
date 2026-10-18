@@ -188,7 +188,7 @@ export async function normalizeStep(
       : [{ path: k, value: v, set: (id: string) => { params[k] = id; } }];
     const labels: string[] = [];
     for (const item of values) {
-      if (parseRef(item.value)) { labels.push(info.refLabels[k] ?? 'from an earlier step'); continue; }
+      if (parseRef(item.value)) continue; // shown via refLabels
       if (typeof item.value !== 'string' || !item.value.trim()) continue;
       const r = await resolveOne(env, entity, item.value);
       if (r.ok) { item.set(r.id); labels.push(r.label); }
@@ -417,4 +417,14 @@ export async function planCommand(user: PlanUser, command: string, opts: { now?:
 
   const clean: PlanStep[] = steps.map(({ modelErrors: _m, ...s }) => s);
   return summarisePlan(clean, { planId, interactionLogId: logId, explanation: parsed.explanation, confidence: parsed.confidence, repaired });
+}
+
+/**
+ * Re-normalises steps the client sends back after the user picked candidates
+ * (no model call): fresh previews, resolved names, current permissions.
+ */
+export async function reviewPlan(user: PlanUser, raw: Array<{ action: string; params?: Record<string, any> }>, meta: { planId?: string; interactionLogId?: string | null; explanation?: string; confidence?: number }): Promise<ActionPlan> {
+  const env = await envFor(user);
+  const steps = (await normalizeSteps(env, raw.slice(0, MAX_STEPS))).map(({ modelErrors: _m, ...s }) => s);
+  return summarisePlan(steps, { planId: meta.planId || crypto.randomUUID(), interactionLogId: meta.interactionLogId ?? null, explanation: meta.explanation ?? '', confidence: meta.confidence ?? 0, repaired: false });
 }

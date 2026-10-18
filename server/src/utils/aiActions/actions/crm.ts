@@ -360,7 +360,8 @@ export const CRM_ACTIONS: AiActionDefinition[] = [
     preview: async (p, ctx, info) => {
       const q = p.quoteId && !/^\$/.test(p.quoteId) ? await prisma.quote.findFirst({ where: { id: p.quoteId, orgId: ctx.orgId }, include: { lines: true } }) : null;
       const lines = (p.lines ?? q?.lines ?? []).map((l: any) => ({ description: l.description, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice), discount: Number(l.discount ?? 0) }));
-      const pv = listPreview(`Create a draft invoice “${p.title ?? q?.title ?? ''}”`, p, info, ['lines']);
+      const name = p.title ?? q?.title;
+      const pv = listPreview(name ? `Create a draft invoice “${name}”` : `Create a draft invoice from ${info.refLabels.quoteId ?? 'the quote'}`, p, info, ['lines']);
       if (lines.length) pv.changes.push({ field: 'Lines', after: linesText(lines) }, { field: 'Subtotal', after: show(linesTotal(lines)) });
       pv.notes = ['The invoice number is assigned when it is created (INV-…).'];
       return pv;

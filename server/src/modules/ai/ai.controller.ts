@@ -33,7 +33,7 @@ import {
   routeChatTurn,
 } from '../../utils/ai';
 import { getAiAction, listActionsForRole } from '../../utils/ai-actions';
-import { planCommand, type PlanUser } from '../../utils/aiActions/planner';
+import { planCommand, reviewPlan, type PlanUser } from '../../utils/aiActions/planner';
 import { executePlan } from '../../utils/aiActions/executor';
 import { getPermCtx } from '../../utils/permissions';
 import { getEffectiveLicense } from '../../utils/licensing';
@@ -805,6 +805,23 @@ export async function planActionHandler(req: AuthRequest, res: Response, next: N
     const plan = await buildActionPlanForOrg(req.user!, command);
     res.json(plan);
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
+}
+
+// ─── AI Actions: Review (no model call) ─────────────────────────────────────
+// The card calls this after the user picks "which Acme deal?" — it
+// re-validates and re-previews the steps with the picks applied, so the
+// before → after shown is always for the record actually chosen.
+export async function reviewPlanHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const body = z.object({
+      steps: z.array(z.object({ action: z.string().min(1), params: z.record(z.any()).default({}) })).min(1).max(6),
+      planId: z.string().max(64).optional(),
+      interactionLogId: z.string().max(64).nullable().optional(),
+      explanation: z.string().max(400).optional(),
+      confidence: z.number().min(0).max(100).optional(),
+    }).parse(req.body);
+    res.json(await reviewPlan(req.user! as PlanUser, body.steps, body));
+  } catch (err) { next(err); }
 }
 
 // ─── Chat Copilot — multi-turn chat that can answer or act ───────────────────
