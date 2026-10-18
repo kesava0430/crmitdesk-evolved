@@ -18,7 +18,8 @@ import {
 import { useFormat } from '../../hooks/useFormat';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import { useExecuteAiAction, type AiActionPlan } from '../../api/ai';
+import { type AiActionPlan } from '../../api/ai';
+import { AiPlanCard } from '../../shared/components/AiPlanCard';
 import { useAuth } from '../../contexts/AuthContext';
 import { can } from '../../shared/permissions';
 
@@ -371,13 +372,10 @@ export function InboxPage() {
      portal chat alike) and proposes one action: usually create a ticket or
      lead from it, or add a note to the record it already concerns. Nothing
      runs until the user confirms the plan card. */
-  const executeAi = useExecuteAiAction();
   const [aiPlan, setAiPlan] = useState<AiActionPlan | null>(null);
-  const [aiPlanState, setAiPlanState] = useState<'idle' | 'done' | 'error'>('idle');
-  const [aiResult, setAiResult] = useState('');
   const planConversation = useMutation({
     mutationFn: (id: string) => api.post(`/ai/conversation/${id}/plan`).then(r => r.data as { plan: AiActionPlan }),
-    onSuccess: d => { setAiPlan(d.plan); setAiPlanState('idle'); setAiResult(''); },
+    onSuccess: d => { setAiPlan(d.plan); },
   });
   const { data: settings } = useInboxSettings(canReadSettings);
 
@@ -582,43 +580,20 @@ export function InboxPage() {
               </div>
             </div>
 
-            {/* AI filing proposal */}
+            {/* AI filing proposal — the same confirmation card as the command bar and chat */}
             {aiPlan && (
               <div className="mx-3 sm:mx-6 mt-3 rounded-card border border-accent/30 bg-surface shadow-ui-sm overflow-hidden">
                 <div className="flex items-center gap-2 px-3.5 py-2 border-b border-line-subtle bg-accent-soft/50">
                   <Sparkles size={13} className="text-accent shrink-0" />
-                  <p className="text-[12.5px] font-semibold text-accent-soft-fg">{aiPlan.label || aiPlan.action || 'No action suggested'}</p>
+                  <p className="text-[12.5px] font-semibold text-accent-soft-fg">File this conversation</p>
                   <button type="button" aria-label="Dismiss suggestion" className="ml-auto text-fg-subtle hover:text-fg"
                     onClick={() => setAiPlan(null)}>×</button>
                 </div>
-                <div className="px-3.5 py-2 space-y-0.5">
-                  {Object.entries(aiPlan.params || {}).map(([k, v]) => (
-                    <p key={k} className="text-[12px] text-fg-muted"><span className="font-medium text-fg">{k}:</span> {(typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 180) + ((typeof v === 'object' ? JSON.stringify(v) : String(v)).length > 180 ? '…' : '')}</p>
-                  ))}
-                  {aiPlan.explanation && <p className="text-[11.5px] text-fg-subtle pt-0.5">{aiPlan.explanation}</p>}
-                </div>
-                <div className="flex items-center gap-2 px-3.5 py-2 border-t border-line-subtle bg-surface-sunken">
-                  {aiPlanState === 'done' ? (
-                    <p className="flex items-center gap-1.5 text-[12px] font-medium text-success"><Check size={13} /> {aiResult}</p>
-                  ) : aiPlanState === 'error' ? (
-                    <p className="text-[12px] font-medium text-danger">{aiResult}</p>
-                  ) : !aiPlan.action ? (
-                    <p className="text-[12px] text-fg-subtle">The AI couldn't map this thread to an action.</p>
-                  ) : !aiPlan.allowed ? (
-                    <p className="text-[12px] text-fg-subtle">Your role can't run this action.</p>
+                <div className="px-3.5 py-2.5 max-h-[60vh] overflow-y-auto">
+                  {(aiPlan.steps?.length || aiPlan.action) ? (
+                    <AiPlanCard key={aiPlan.planId ?? 'plan'} plan={aiPlan} compact command="File conversation with AI" onDismiss={() => setAiPlan(null)} />
                   ) : (
-                    <>
-                      <Button size="xs" loading={executeAi.isPending}
-                        onClick={async () => {
-                          try {
-                            const r = await executeAi.mutateAsync({ action: aiPlan.action!, params: aiPlan.params });
-                            setAiPlanState('done'); setAiResult(r.summary);
-                          } catch (e: any) { setAiPlanState('error'); setAiResult(e?.response?.data?.error || 'Action failed.'); }
-                        }}>
-                        Run it
-                      </Button>
-                      <Button size="xs" variant="ghost" onClick={() => setAiPlan(null)}>Dismiss</Button>
-                    </>
+                    <p className="text-[12px] text-fg-subtle">{aiPlan.explanation || 'The AI couldn\u2019t map this thread to an action.'}</p>
                   )}
                 </div>
               </div>
