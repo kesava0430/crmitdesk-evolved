@@ -16,24 +16,25 @@ import { api } from '../../api/client';
 import { type AiActionPlan } from '../../api/ai';
 import { Button } from './Button';
 import { RichText } from './RichText';
-import { AiPlanCard } from './AiPlanCard';
+import { AnalyticsAnswer, type AnswerView } from './AnalyticsAnswer';
 
 interface ChatMsg {
   role: 'user' | 'assistant';
   content: string;
   /** A proposed plan awaiting confirm — rendered as a card under the text. */
   plan?: AiActionPlan;
-  /** Set once the plan ran (or was dismissed) so typed "yes" no longer targets it. */
-  planState?: 'done' | 'dismissed';
-  /** Bumped by a typed "yes" / "no" — the card treats them as button presses. */
-  confirmToken?: number;
-  dismissToken?: number;
+  /** Set once the plan ran (or was dismissed) so the card locks. */
+  planState?: 'done' | 'dismissed' | 'error';
+  resultSummary?: string;
+  /** Data behind an answered question (chart/table + how it was calculated). */
+  analytics?: AnswerView;
 }
 
 const SUGGESTIONS = [
   'Create a lead for Ravi from Acme, schedule a follow-up call Friday 11am and remind me on WhatsApp',
   'Create a high priority ticket: boardroom projector flickering',
   'How many tickets are open right now?',
+  'Top 5 agents by tickets resolved this month',
   'Add a lead for Maria Gomez from Initech — met at the expo',
   'Request 2 days of annual leave from next Monday',
 ];
@@ -46,7 +47,7 @@ export function ChatCopilot() {
 
   const chat = useMutation({
     mutationFn: (msgs: Array<{ role: string; content: string }>) =>
-      api.post('/ai/chat', { messages: msgs }).then(r => r.data as { type: 'plan' | 'reply'; text: string; plan?: AiActionPlan }),
+      api.post('/ai/chat', { messages: msgs }).then(r => r.data as { type: 'plan' | 'reply'; text: string; plan?: AiActionPlan; analytics?: Omit<AnswerView, 'answer'> }),
   });
 
   useEffect(() => {
@@ -90,7 +91,8 @@ export function ChatCopilot() {
       setMessages(m => [...m, {
         role: 'assistant',
         content: res.text,
-        plan: res.type === 'plan' && (res.plan?.steps?.length || res.plan?.action) ? res.plan : undefined,
+        plan: res.type === 'plan' && res.plan?.action ? res.plan : undefined,
+        analytics: res.analytics ? { ...res.analytics, answer: res.text, currency: res.analytics.currency ?? res.analytics.forecast?.currency ?? 'USD' } as AnswerView : undefined,
       }]);
     } catch (e: any) {
       setMessages(m => [...m, { role: 'assistant', content: e?.response?.data?.error || 'Something went wrong — try rephrasing.' }]);
@@ -161,6 +163,9 @@ export function ChatCopilot() {
                     : 'bg-surface-sunken border border-line-subtle text-fg'
                 }`}>
                   {m.role === 'assistant' ? <RichText content={m.content} className="text-[12.5px]" /> : m.content}
+                  {m.analytics && m.analytics.status === 'answered' && (
+                    <div className="mt-2 whitespace-normal"><AnalyticsAnswer view={m.analytics} compact hideText /></div>
+                  )}
                   {m.plan && (
                     <div className="mt-2 rounded-btn border border-accent/30 bg-surface p-2.5 whitespace-normal">
                       <AiPlanCard

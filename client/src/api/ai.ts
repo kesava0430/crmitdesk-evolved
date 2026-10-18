@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
+import type { AskAnswer } from './analytics';
 
 export const useScoreLead = () =>
   useMutation({
@@ -31,7 +32,7 @@ export const useTicketReply = () =>
 
 export const useNLQuery = () =>
   useMutation({
-    mutationFn: (question: string) => api.post('/ai/query', { question }).then(r => r.data as { answer: string; question: string }),
+    mutationFn: (question: string) => api.post('/ai/query', { question }).then(r => r.data as AskAnswer),
   });
 
 export const useKbArticle = () =>

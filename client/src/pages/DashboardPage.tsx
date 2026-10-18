@@ -19,6 +19,7 @@ import {
   Alert, Badge, Button, Card, CardHeader, Input, PageBody, PageHeader, Spinner, StatTile,
 } from '../shared/components';
 import { AiInsightsWidget } from '../shared/components/AiInsightsWidget';
+import { AnalyticsAnswer, answerViewFromAsk } from '../shared/components/AnalyticsAnswer';
 import { MeetingNotesModal } from '../shared/components/MeetingNotesModal';
 import { useFormat } from '../hooks/useFormat';
 import { can } from '../shared/permissions';
@@ -137,10 +138,12 @@ const PRIORITY_CFG: Record<string, { label: string; bar: string }> = {
 };
 
 const QUERIES = [
-  { q: 'How many deals are open?', area: 'crm' },
-  { q: 'What is my forecasted revenue?', area: 'crm' },
-  { q: 'How many tickets need attention?', area: 'itdesk' },
-  { q: 'Summarise my pipeline.', area: 'crm' },
+  { q: 'How many leads did we get each week for the last 12 weeks?', area: 'crm' },
+  { q: 'Project our leads for the next 30 days if things continue the same way', area: 'crm' },
+  { q: 'Top 5 agents by tickets resolved this month', area: 'itdesk' },
+  { q: 'Open tickets by priority', area: 'itdesk' },
+  { q: 'Who was absent yesterday?', area: 'hr' },
+  { q: 'Total payroll cost last 3 months by department', area: 'hr' },
 ];
 
 /** What the dashboard AI can see, naming only the areas the org has. */
@@ -148,8 +151,14 @@ function aiScope(areas: { crm: boolean; itdesk: boolean }) {
   return areas.crm && areas.itdesk ? 'your pipeline and help desk' : areas.crm ? 'your pipeline' : 'your help desk';
 }
 
-function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
-  const suggestions = QUERIES.filter(x => areas[x.area as 'crm' | 'itdesk']).map(x => x.q);
+/** Areas the Ask card can talk about, in words. */
+function askScope(areas: { crm: boolean; itdesk: boolean; hr: boolean }) {
+  const parts = [areas.crm && 'sales', areas.itdesk && 'help desk', areas.hr && 'people, attendance and payroll'].filter(Boolean) as string[];
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] ?? 'your business';
+}
+
+function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boolean } }) {
+  const suggestions = QUERIES.filter(x => areas[x.area as 'crm' | 'itdesk' | 'hr']).map(x => x.q).slice(0, 4);
   const [question, setQuestion] = useState('');
   const nlQuery = useNLQuery();
 
@@ -160,7 +169,7 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
   }
 
   return (
-    <Card padding="none" className="overflow-hidden">
+    <Card padding="none" className="overflow-hidden min-w-0">
       <div className="px-5 py-4 border-b border-line-subtle">
         <CardHeader
           title="Ask AI about your data"
@@ -168,16 +177,16 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
           actions={<Badge variant="accent" size="sm">Beta</Badge>}
         />
       </div>
-      <div className="p-5 space-y-4">
-        <AiNote id="dashboard.query" does={`Answers questions about ${aiScope(areas)} in two or three sentences.`} />
+      <div className="p-4 sm:p-5 space-y-4">
+        <AiNote id="dashboard.query" does={`Answers questions about your ${askScope(areas)} from your own data, with a chart and how it was calculated.`} />
         <div className="flex gap-2">
           <Input
             value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && ask(question)}
-            placeholder={`e.g. ${suggestions[0] ?? "What changed this week?"}`}
+            placeholder={`e.g. ${suggestions[0] ?? 'What changed this week?'}`}
             aria-label="Ask AI about your data"
-            className="flex-1"
+            className="flex-1 min-w-0"
           />
           <Button
             onClick={() => ask(question)}
@@ -191,7 +200,7 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
         {!nlQuery.data && !nlQuery.isPending && (
           <div className="flex flex-wrap gap-2">
             {suggestions.map(q => (
-              <Button key={q} variant="secondary" size="xs" onClick={() => ask(q)} className="!rounded-badge">
+              <Button key={q} variant="secondary" size="xs" onClick={() => ask(q)} className="!rounded-badge !h-auto !py-1 text-left whitespace-normal">
                 {q}
               </Button>
             ))}
@@ -199,7 +208,7 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
         )}
         {nlQuery.isPending && (
           <div className="flex items-center gap-2 text-sm text-accent animate-pulse py-1">
-            <Sparkles size={13} /> Thinking...
+            <Sparkles size={13} /> Working it out from your data...
           </div>
         )}
         {nlQuery.isError && (
@@ -211,19 +220,17 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean } }) {
           </Alert>
         )}
         {nlQuery.data && (
-          <div className="space-y-1.5">
+          <div className="space-y-2 min-w-0">
             <AiGeneratedTag />
-            <Alert tone="accent" title="AI Answer">
-              <p className="leading-relaxed">{nlQuery.data.answer}</p>
-              <Button
-                variant="ghost"
-                size="xs"
-                className="mt-2 -ml-2.5"
-                onClick={() => { nlQuery.reset(); setQuestion(''); }}
-              >
-                Ask another
-              </Button>
-            </Alert>
+            <AnalyticsAnswer view={answerViewFromAsk(nlQuery.data)} />
+            <Button
+              variant="ghost"
+              size="xs"
+              className="-ml-2.5"
+              onClick={() => { nlQuery.reset(); setQuestion(''); }}
+            >
+              Ask another
+            </Button>
           </div>
         )}
       </div>
@@ -299,6 +306,9 @@ export function DashboardPage() {
   const attendanceOn = modules.isModuleOn('attendance');
   const payrollOn = modules.isModuleOn('payroll');
   const showHr = hrOn && can.readHrAdmin(role);
+  /* Ask AI answers from the query layer with the asker's own permissions
+     (POST /ai/query is ALL_STAFF), in every area — HR-only orgs included. */
+  const showAsk = can.readStaffRecords(role);
 
   /* Only offer shortcuts the user can actually follow. */
   const quickActions = [
@@ -441,13 +451,12 @@ export function DashboardPage() {
         {/* HR at a glance — managers, when the org has HR. */}
         {showHr && <HrOverview attendanceOn={attendanceOn} />}
 
-        {/* AI query + Quick actions.
-            Both AI panels post to MANAGERS-only endpoints, so for anyone else
-            they were buttons whose only possible outcome was a refusal. Quick
-            actions are filtered the same way: a shortcut to a page the user
-            cannot open is not a shortcut. */}
-        <div className={`grid grid-cols-1 gap-6 ${showAiPanels ? 'lg:grid-cols-2' : ''}`}>
-          {showAiPanels && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn }} />}
+        {/* AI query + Quick actions. Ask AI is open to every staff role (its
+            answers only use what the asker may see); AI Insights below still
+            posts to a MANAGERS-only endpoint. Quick actions are filtered too:
+            a shortcut to a page the user cannot open is not a shortcut. */}
+        <div className={`grid grid-cols-1 gap-6 ${showAsk ? 'lg:grid-cols-2' : ''}`}>
+          {showAsk && <AIQueryBar areas={{ crm: crmOn, itdesk: itdeskOn, hr: hrOn }} />}
           {quickActions.length > 0 && (
             <div className="space-y-3">
               <SectionTitle color="bg-line-strong" label="Quick Actions" />
