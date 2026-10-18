@@ -176,13 +176,6 @@ export const useExecuteAiPlan = () =>
       api.post('/ai/actions/execute', data).then(r => r.data as AiExecutionReport),
   });
 
-/** Single action (older flow) — kept for callers that still send { action, params }. */
-export const useExecuteAiAction = () =>
-  useMutation({
-    mutationFn: (data: { action: string; params: Record<string, any>; command?: string }) =>
-      api.post('/ai/actions/execute', data).then(r => r.data as { summary: string; data?: unknown }),
-  });
-
 // AI Feature Builder hooks
 /** GET /ai/rules is MANAGERS-only — callers pass `can.readAiConfig(role)`. */
 export function useAIRules(enabled = true) {
