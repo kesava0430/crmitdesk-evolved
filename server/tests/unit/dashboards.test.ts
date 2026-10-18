@@ -417,3 +417,11 @@ test('derived explanation: amounts in org currency, counts as ratio + %', () => 
   const usd = derivedExplanation('R', 's', 1234.5, { value: 12345, format: 'money', description: 'a' }, { value: 10, format: 'number', description: 'b' }, 'w', 'USD');
   assert.match(usd, /× \$1,235 — /);
 });
+
+test('normalise: a time series drops a leftover top-N sort/limit', () => {
+  const s = parseWidgetSpec({ title: 't', viz: { type: 'line' }, query: { dataset: 'leads', dimensions: [{ field: 'createdAt', bucket: 'week' }], sort: { by: 'count', dir: 'desc' }, limit: 8 } }).spec as DataWidgetSpec;
+  assert.equal(s.query.sort, null);
+  assert.equal(s.query.limit, null);
+  const bar = parseWidgetSpec({ title: 't', viz: { type: 'hbar' }, query: { dataset: 'leads', dimensions: [{ field: 'source' }], sort: { by: 'count', dir: 'desc' }, limit: 8 } }).spec as DataWidgetSpec;
+  assert.equal(bar.query.limit, 8, 'top N on groups is kept');
+});

@@ -106,6 +106,11 @@ export function normaliseWidgetSpec<T extends DashboardWidgetSpec>(spec: T): T {
     viz.series = col(q.dimensions[1]);
     viz.y = q.measures.map(m => measureKey(m));
   }
+  // A time series is drawn in time order with quiet periods as 0: a "top N by
+  // count" sort/limit (left over from a bar chart) would reorder and cut it.
+  if (q.dimensions.some(d => d.bucket) && ['line', 'area', 'stacked_bar', 'bar', 'forecast'].includes(viz.type) && (q.sort || q.limit)) {
+    return { ...spec, viz, query: { ...q, sort: null, limit: null } };
+  }
   return { ...spec, viz };
 }
 

@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, GripVertical, MoveDiagonal2, CalendarRange } from 'lucide-react';
 import type { RenderedWidget, WidgetSpec, Cell } from '../../../api/dashboards';
+import { useAnalyticsCatalog } from '../../../api/analytics';
 import { RowActions, type RowAction } from '../RowActions';
 import { WidgetView } from './WidgetView';
 import { normaliseLayout, defaultSize, overlaps, GRID_COLS, MIN_W, MIN_H, MAX_H, type Layout } from './layout';
@@ -97,8 +98,14 @@ function WidgetCard({ w, r, loading, currency, height, editing, menu, onRetry, d
   );
 }
 
-export function DashboardGrid({ widgets, layout, rendered, loading, currency, editing, menuFor, onLayoutChange, onOrderChange, onRetry, enumOrderFor }: Props) {
+export function DashboardGrid({ widgets, layout, rendered, loading, currency, editing, menuFor, onLayoutChange, onOrderChange, onRetry, enumOrderFor: enumOrderProp }: Props) {
   const desktop = useIsDesktop();
+  // Funnels follow the stage field's own order (from the viewer's catalog), not the row order.
+  const { data: cat } = useAnalyticsCatalog();
+  const enumOrderFor = enumOrderProp ?? ((spec: WidgetSpec) => {
+    if (spec.kind !== 'data') return [];
+    return cat?.datasets.find(d => d.key === spec.query.dataset)?.fields.find(x => x.key === spec.query.dimensions?.[0]?.field)?.values ?? [];
+  });
   const ids = useMemo(() => widgets.map(w => w.id), [widgets]);
   const sizes = useMemo(() => Object.fromEntries(widgets.map(w => [w.id, defaultSize(w.spec.kind === 'note' ? 'note' : w.spec.viz.type)])), [widgets]);
   const base = useMemo(() => normaliseLayout(ids, layout, sizes), [ids, layout, sizes]);

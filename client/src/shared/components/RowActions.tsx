@@ -39,8 +39,11 @@ export function RowActions({ items, triggerLabel = 'Row actions' }: Props) {
     if (!open || !buttonRef.current) return;
     const rect = buttonRef.current.getBoundingClientRect();
     const left = Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8));
-    setCoords({ top: rect.bottom + 4, left });
-  }, [open]);
+    // Near the bottom of the screen, open upwards (~36px per item) so the menu never falls off it.
+    const height = visible.length * 36 + 8;
+    const top = rect.bottom + 4 + height > window.innerHeight - 8 && rect.top - 4 - height > 8 ? rect.top - 4 - height : rect.bottom + 4;
+    setCoords({ top, left });
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close on outside click (trigger button OR the portaled menu)
   useEffect(() => {

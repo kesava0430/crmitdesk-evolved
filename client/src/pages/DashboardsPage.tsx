@@ -74,7 +74,7 @@ function AiBuilder({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: bool
         {!proposal && !busy && suggestions.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {suggestions.map(q => (
-              <Button key={q} variant="secondary" size="xs" onClick={() => build(q)} className="!rounded-badge !h-auto !py-1 text-left whitespace-normal">{q}</Button>
+              <Button key={q} variant="secondary" size="xs" onClick={() => build(q)} className="!rounded-badge !h-auto !py-1 text-left !whitespace-normal max-w-full">{q}</Button>
             ))}
           </div>
         )}

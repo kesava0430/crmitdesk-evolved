@@ -8,7 +8,6 @@ import {
   useDashboard, useUpdateDashboard, useDeleteDashboard, useDuplicateDashboard, useAddWidget, useUpdateWidget, useRemoveWidget, useDuplicateWidget,
   useSetHome, useDashboards, renderDashboard, apiError, type Dashboard, type WidgetSpec, type RenderedWidget, type DashboardRange,
 } from '../api/dashboards';
-import { useAnalyticsCatalog } from '../api/analytics';
 import { useLicense } from '../api/billing';
 import { useAuth } from '../contexts/AuthContext';
 import { Badge, Button, EmptyState, Input, Modal, PageBody, PageHeader, Field, Toggle, Alert } from '../shared/components';
@@ -76,12 +75,6 @@ export function DashboardCanvas({ dashboard, editing = false, range, refreshKey 
     } catch (e) { addToast(apiError(e), 'error'); }
   }, [dashboard.id, effectiveRange]);
 
-  const { data: cat } = useAnalyticsCatalog();
-  const enumOrderFor = useCallback((spec: WidgetSpec) => {
-    if (spec.kind !== 'data') return [];
-    const f = cat?.datasets.find(d => d.key === spec.query.dataset)?.fields.find(x => x.key === spec.query.dimensions?.[0]?.field);
-    return f?.values ?? [];
-  }, [cat]);
 
   const update = useUpdateDashboard();
   const remove = useRemoveWidget();
@@ -114,7 +107,6 @@ export function DashboardCanvas({ dashboard, editing = false, range, refreshKey 
           editing={editing}
           menuFor={menuFor}
           onRetry={retry}
-          enumOrderFor={enumOrderFor}
           onLayoutChange={l => update.mutate({ id: dashboard.id, layout: l }, { onError: e => addToast(apiError(e), 'error') })}
           onOrderChange={o => {
             // Optimistic: reorder in the cached dashboard right away.
