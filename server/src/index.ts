@@ -39,6 +39,7 @@ import { requireFeatureAtMount, requireModuleAtMount, requireSurfaceAtMount } fr
 import { MODULE_CATALOGUE, SHARED_SURFACES } from './utils/modules';
 import { sweepAutoCheckouts, purgeOldLocationPings, purgeOldSelfies, closeForgottenSessions } from './utils/attendanceAutoCheckout';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
+import { dashboardsRouter } from './modules/dashboards/dashboards.routes';
 import { eventsRouter } from './modules/events/events.routes';
 import { slackRouter } from './modules/slack/slack.routes';
 import { assistantChannelsRouter } from './modules/assistantChannels/assistantChannels.routes';
@@ -319,6 +320,7 @@ app.use('/api/portal', portalRouter);
 app.use('/api/portal-users', portalUsersRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/dashboards', dashboardsRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/slack', slackRouter);
 app.use('/api/channels', assistantChannelsRouter);

@@ -481,6 +481,15 @@ export async function narrateAnalyticsAnswer(system: string, user: string): Prom
   return chat(client, system, user, { feature: 'dashboard.queryAnswer', temperature: 0, maxTokens: 250 });
 }
 
+/** Dashboards (utils/dashboards/propose.ts): a whole dashboard proposal, or one widget changed — JSON, validated by the caller. */
+export async function designDashboardJson(system: string, user: string, feature: 'dashboard.build' | 'dashboard.widgetEdit'): Promise<string | null> {
+  const client = getClient();
+  if (!client) return null;
+  return feature === 'dashboard.build'
+    ? chat(client, system, user, { feature: 'dashboard.build', json: true, temperature: 0, maxTokens: 2500 })
+    : chat(client, system, user, { feature: 'dashboard.widgetEdit', json: true, temperature: 0, maxTokens: 900 });
+}
+
 // ─── KB Article Generator ─────────────────────────────────────────────────────
 
 export async function generateKbArticle(ticket: {

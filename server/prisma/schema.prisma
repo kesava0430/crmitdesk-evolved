@@ -120,6 +120,7 @@ model Organization {
   payrollCycles     PayrollCycle[]
   employeeSalaries  EmployeeSalary[]
   employeeLoans     EmployeeLoan[]
+  dashboards        Dashboard[]
   leaveBalanceAdjustments LeaveBalanceAdjustment[]
   attendancePolicyGroups  AttendancePolicyGroup[]
   holidays                Holiday[]
@@ -375,6 +376,8 @@ model User {
   locationPings     AttendanceLocationPing[]
   employeeSalaries  EmployeeSalary[]
   employeeLoans     EmployeeLoan[]
+  dashboardsOwned   Dashboard[]        @relation("DashboardOwner")
+  dashboardHome     DashboardHome?
   leaveBalanceAdjustments LeaveBalanceAdjustment[]
   attendanceDays          AttendanceDay[]
   wfhSchedules            WfhSchedule[]      @relation("WfhScheduleUser")
@@ -4198,104 +4201,66 @@ model WebForm {
   @@map("web_forms")
 }
 
-// ─── Staff assistant over WhatsApp / Slack ───────────────────────────────────
-// The same assistant as the in-app chat (routeChatTurn → planner/executor or
-// answerQuestion), reachable by messaging. See server/src/utils/assistantChannels/.
-
-/// Per-org switches and Slack app credentials. No row = both channels off.
-model AssistantChannelConfig {
-  id                 String   @id @default(cuid())
-  orgId              String   @unique @map("org_id")
-  /// "Allow staff to use the assistant over WhatsApp" (the org's own Twilio
-  /// number from Inbox → Settings).
-  whatsappEnabled    Boolean  @default(false) @map("whatsapp_enabled")
-  /// "Allow staff to use the assistant over Slack".
-  slackEnabled       Boolean  @default(false) @map("slack_enabled")
-  /// xoxb- bot token and the app's signing secret, encrypted (utils/crypto).
-  slackBotToken      String?  @map("slack_bot_token")
-  slackSigningSecret String?  @map("slack_signing_secret")
-  /// The workspace this org's Slack app belongs to — pinned on the first
-  /// signed request (or set by the owner); any other team is refused.
-  slackTeamId        String?  @map("slack_team_id")
-  /// Let a Slack user whose Slack email equals their staff email use the
-  /// assistant without the link-code step. Off by default.
-  slackEmailMatch    Boolean  @default(false) @map("slack_email_match")
-  /// Random path segment of this org's Slack request URLs.
-  slackKey           String   @unique @map("slack_key")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@map("assistant_channel_configs")
-}
-
-/// A staff user's WhatsApp number, proven by sending a one-time code FROM it.
-/// Valid only while the profile phone still matches (checked on every message).
-model AssistantWhatsAppLink {
-  id         String   @id @default(cuid())
-  orgId      String   @map("org_id")
-  userId     String   @unique @map("user_id")
-  /// The exact E.164 sender Twilio reported when the code arrived.
-  phoneE164  String   @map("phone_e164")
-  verifiedAt DateTime @default(now()) @map("verified_at")
-  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([orgId, phoneE164])
-  @@map("assistant_whatsapp_links")
-}
-
-/// A Slack identity linked to exactly one staff user (code shown in Slack,
-/// confirmed in the app's Profile).
-model SlackUserLink {
+/// A saved analytics dashboard (Dashboards page). Widgets hold query specs,
+/// never data: every view re-runs them as the VIEWER, so a dashboard shared to
+/// the org shows each person only what their own permissions and the org's
+/// areas allow (utils/dashboards/).
+model Dashboard {
   id          String   @id @default(cuid())
   orgId       String   @map("org_id")
-  userId      String   @unique @map("user_id")
-  slackTeamId String   @map("slack_team_id")
-  slackUserId String   @map("slack_user_id")
+  ownerId     String   @map("owner_id")
+  title       String
+  description String?
+  /// PRIVATE (owner only) | ORG (everyone in the org) | ROLES (roleIds / legacyRoles)
+  visibility  String   @default("PRIVATE")
+  /// Role.id values that may view a ROLES dashboard
+  roleIds     String[] @default([]) @map("role_ids")
+  /// UserRole values (JWT role) that may view a ROLES dashboard — for users without a Role row
+  legacyRoles String[] @default([]) @map("legacy_roles")
+  /// Desktop grid: { [widgetId]: { x, y, w, h } } on a 12-column grid (normalised server-side)
+  layout      Json     @default("{}")
+  /// Dashboard-wide date range applied to widgets with relative ranges ({ preset } | { last } | { from, to }); null = each widget's own
+  dateRange   Json?    @map("date_range")
+  /// Minutes between automatic refreshes (0 = off)
+  refreshMinutes Int   @default(0) @map("refresh_minutes")
   createdAt   DateTime @default(now()) @map("created_at")
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  org         Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner       User              @relation("DashboardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  widgets     DashboardWidget[]
+  homes       DashboardHome[]
 
-  @@unique([slackTeamId, slackUserId])
-  @@index([orgId])
-  @@map("slack_user_links")
+  @@index([orgId, ownerId])
+  @@index([orgId, visibility])
+  @@map("dashboards")
 }
 
-/// One-time link codes (SHA-256 only), 15 minutes. WhatsApp: issued in the app
-/// to userId, sent from the phone. Slack: issued in Slack to a Slack user,
-/// typed into the app.
-model AssistantLinkCode {
+/// One widget: a validated widget spec (utils/dashboards/widget.ts) — a query
+/// (+ optional forecast) and how to draw it, or a note.
+model DashboardWidget {
   id          String    @id @default(cuid())
-  orgId       String    @map("org_id")
-  channel     String
-  codeHash    String    @map("code_hash")
-  userId      String?   @map("user_id")
-  slackTeamId String?   @map("slack_team_id")
-  slackUserId String?   @map("slack_user_id")
-  expiresAt   DateTime  @map("expires_at")
-  usedAt      DateTime? @map("used_at")
+  dashboardId String    @map("dashboard_id")
+  spec        Json
+  /// Order in the stacked phone layout (and the default desktop placement order)
+  position    Int       @default(0)
   createdAt   DateTime  @default(now()) @map("created_at")
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 
-  @@index([orgId, channel, codeHash])
-  @@map("assistant_link_codes")
+  @@index([dashboardId, position])
+  @@map("dashboard_widgets")
 }
 
-/// Conversation state per (channel, user): the last few turns and a plan
-/// waiting for "yes" (expires — see assistantChannels/state.ts).
-model AssistantSession {
-  id               String    @id @default(cuid())
-  orgId            String    @map("org_id")
-  userId           String    @map("user_id")
-  channel          String
-  turns            Json      @default("[]")
-  pending          Json?
-  pendingExpiresAt DateTime? @map("pending_expires_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+/// "Set as my home": the dashboard shown on a user's Dashboard page.
+model DashboardHome {
+  userId      String    @id @map("user_id")
+  dashboardId String    @map("dashboard_id")
+  /// true = show it instead of the built-in dashboard; false = below it
+  replaceBuiltIn Boolean @default(false) @map("replace_built_in")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 
-  @@unique([channel, userId])
-  @@map("assistant_sessions")
+  @@index([dashboardId])
+  @@map("dashboard_homes")
 }

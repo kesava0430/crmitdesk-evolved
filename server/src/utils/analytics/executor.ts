@@ -407,7 +407,7 @@ export async function runForecast(actx: AnalyticsContext, input: ForecastSpecInp
       format: d.format ?? 'number',
       explanation: rate == null
         ? `Couldn't compute ${d.label.toLowerCase()}: the ${denQ.description.toLowerCase()} was zero or missing.`
-        : `${d.label} = ${srcLabel} × ${round(rate, 4)} (${numQ.description} ÷ ${denQ.description}, ${wRange.label}: ${round(numQ.value ?? 0, 2)} ÷ ${round(denQ.value ?? 0, 2)}).`,
+        : derivedExplanation(d.label, srcLabel, rate, numQ, denQ, wRange.label, actx.currency),
     });
   }
 
@@ -449,7 +449,30 @@ async function totalOf(actx: AnalyticsContext, dataset: string, measure: QuerySp
   const c = compileQuery(ds, spec, actx.env, { totalsOnly: true, rangeOverride: range });
   const [row] = (await runSql(c)).map(r => normaliseRow(r, c.columns));
   const m = c.columns.find(x => x.role === 'measure')!;
-  return { value: (row?.[m.key] as number) ?? null, description: c.description.replace(/ — .*$/, '') + (c.appliedFilters.length ? ` where ${c.appliedFilters.join(' and ')}` : '') };
+  return { value: (row?.[m.key] as number) ?? null, format: m.format, description: c.description.replace(/ — .*$/, '') + (c.appliedFilters.length ? ` where ${c.appliedFilters.join(' and ')}` : '') };
+}
+
+/**
+ * "Projected revenue = projected conversions × ₹1,58,500 (…: ₹31,70,000 ÷ 20)"
+ * — amounts in the org currency and grouping, a count-over-count rate as a
+ * plain ratio and a percentage, never a raw "× 158500".
+ */
+export function derivedExplanation(
+  label: string, srcLabel: string, rate: number,
+  num: { value: number | null; format: string; description: string },
+  den: { value: number | null; format: string; description: string },
+  windowLabel: string, currency: string,
+): string {
+  const loc = currency === 'INR' ? 'en-IN' : 'en-US';
+  const fmt = (v: number, format: string, frac = 2) => {
+    if (format === 'money') {
+      try { return new Intl.NumberFormat(loc, { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 2 }).format(v); } catch { /* unknown code */ }
+    }
+    return new Intl.NumberFormat(loc, { maximumFractionDigits: frac }).format(v);
+  };
+  const moneyRate = num.format === 'money' && den.format !== 'money';
+  const rateTxt = moneyRate ? fmt(rate, 'money') : `${fmt(round(rate, 4), 'number', 4)}${rate <= 1 ? ` (${fmt(round(rate * 100, 1), 'number', 1)}%)` : ''}`;
+  return `${label} = ${srcLabel} × ${rateTxt} — ${num.description} ÷ ${den.description}, ${windowLabel}: ${fmt(num.value ?? 0, num.format)} ÷ ${fmt(den.value ?? 0, den.format)}.`;
 }
 
 export { QueryError, parseDate };

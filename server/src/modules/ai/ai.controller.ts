@@ -47,7 +47,7 @@ import { logAction } from '../../utils/auditLog';
 // "add OpenAI billing" sends someone to the wrong dashboard entirely).
 const usingGroq = !!process.env.GROQ_API_KEY;
 
-function handleAIError(err: any, res: Response): boolean {
+export function handleAIError(err: any, res: Response): boolean {
   if (err?.status === 429 || err?.code === 'insufficient_quota') {
     // Groq's free tier enforces per-minute/per-day request and token caps
     // rather than a billing balance — a 429 there almost always means "wait

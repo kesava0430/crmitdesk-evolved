@@ -122,6 +122,8 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'ai.governance.manage', module: 'ai', resource: 'governance', action: 'manage', label: 'Manage AI governance', isSensitive: true },
   { key: 'core.audit.read', module: 'core', resource: 'audit', action: 'read', label: 'Read audit logs', isSensitive: true },
   { key: 'core.org.manage', module: 'core', resource: 'org', action: 'manage', label: 'Manage organization settings' },
+  // Edit / share / delete dashboards other people shared (everyone can build and share their own).
+  { key: 'core.dashboard.manage', module: 'core', resource: 'dashboard', action: 'manage', label: 'Manage shared dashboards' },
 ];
 
 const CATALOG_KEYS = new Set(PERMISSION_CATALOG.map(p => p.key));
@@ -617,6 +619,7 @@ const NEW_ROLE_GRANTS: Record<string, Array<[string, Scope]>> = {
     ['core.approval.update', 'ALL'],
     ['core.user.read', 'ALL'],
     ['core.report.read', 'ALL'],
+    ['core.dashboard.manage', 'ALL'],
     ['ai.assistant.use', 'ALL'],
   ],
   FINANCE: [
