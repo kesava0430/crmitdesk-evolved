@@ -79,7 +79,9 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     await prisma.asset.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data: {
       ...data,
       purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : data.purchaseDate === null ? null : undefined,
-      assignedTo: data.assignedTo ?? undefined,
+      // null = check the asset back in (unassign); omitted = leave as is. `?? undefined`
+      // used to turn null into "no change", so an asset could never be unassigned.
+      assignedTo: data.assignedTo === null || data.assignedTo === '' ? null : data.assignedTo ?? undefined,
     }});
     const asset = await prisma.asset.findUnique({ where: { id: req.params.id }, include });
     res.json(asset);

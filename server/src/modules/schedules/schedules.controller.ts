@@ -5,13 +5,15 @@ import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 
 const CreateSchema = z.object({
-  entityType: z.enum(['TICKET', 'DEAL']),
+  // LEAD / CONTACT and the ME recipient were added with the AI assistant's
+  // "remind me on WhatsApp about this lead" — same poller, same send path.
+  entityType: z.enum(['TICKET', 'DEAL', 'LEAD', 'CONTACT']),
   entityId: z.string().min(1),
   // Accepts whatever an <input type="datetime-local"> / Date#toISOString() sends.
   dueAt: z.string().min(1),
   recurrence: z.enum(['NONE', 'DAILY', 'WEEKLY']).default('NONE'),
   message: z.string().min(1).max(1000),
-  recipientType: z.enum(['CONTACT', 'ASSIGNEE', 'CUSTOM_NUMBER', 'ORG_DEFAULT']),
+  recipientType: z.enum(['CONTACT', 'ASSIGNEE', 'CUSTOM_NUMBER', 'ORG_DEFAULT', 'ME']),
   customNumber: z.preprocess(v => (v === '' ? undefined : v), z.string().optional()),
 });
 
@@ -52,17 +54,20 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     if (data.recipientType === 'CUSTOM_NUMBER' && !data.customNumber) {
       throw new AppError(400, 'A phone number is required when the recipient is "Custom number"');
     }
-    if (data.recipientType === 'CONTACT' && data.entityType !== 'DEAL') {
-      throw new AppError(400, 'Only deals have a linked contact — choose a different recipient for tickets');
+    if (data.recipientType === 'CONTACT' && data.entityType === 'TICKET') {
+      throw new AppError(400, 'Only deals, leads and contacts have a linked contact — choose a different recipient for tickets');
     }
+    if (Number.isNaN(new Date(data.dueAt).getTime())) throw new AppError(400, 'dueAt is not a valid date');
 
     // Confirm the target record actually exists in this org before
     // scheduling against it, so a stale/mistyped id doesn't silently create
     // a reminder that can never resolve a recipient.
-    const exists = data.entityType === 'TICKET'
-      ? await prisma.ticket.findFirst({ where: { id: data.entityId, orgId }, select: { id: true } })
-      : await prisma.deal.findFirst({ where: { id: data.entityId, orgId }, select: { id: true } });
-    if (!exists) throw new AppError(404, `${data.entityType === 'TICKET' ? 'Ticket' : 'Deal'} not found`);
+    const where = { id: data.entityId, orgId };
+    const exists = data.entityType === 'TICKET' ? await prisma.ticket.findFirst({ where, select: { id: true } })
+      : data.entityType === 'LEAD' ? await prisma.lead.findFirst({ where, select: { id: true } })
+      : data.entityType === 'CONTACT' ? await prisma.contact.findFirst({ where, select: { id: true } })
+      : await prisma.deal.findFirst({ where, select: { id: true } });
+    if (!exists) throw new AppError(404, `${data.entityType.charAt(0)}${data.entityType.slice(1).toLowerCase()} not found`);
 
     const schedule = await prisma.schedule.create({
       data: {

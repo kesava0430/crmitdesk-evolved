@@ -36,6 +36,8 @@ const LineSchema = z.object({
 const InvoiceSchema = z.object({
   title:    z.string().min(1),
   dealId:   z.string().optional().nullable(),
+  /** Invoicing an existing quote ("create invoice from quote") keeps the link, as the e-signature flow does. */
+  quoteId:  z.string().optional().nullable(),
   notes:    z.string().optional().nullable(),
   dueDate:  z.string().optional().nullable(),
   taxRate:  z.coerce.number().min(0).max(100).default(0),
@@ -57,6 +59,9 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
   try {
     const orgId = req.user!.orgId;
     const { lines, ...data } = InvoiceSchema.parse(req.body);
+    if (data.quoteId && !(await prisma.quote.findFirst({ where: { id: data.quoteId, orgId }, select: { id: true } }))) {
+      throw new AppError(400, 'Quote not found in this organization');
+    }
     const invoiceNumber = await nextInvoiceNumber(orgId);
     const invoice = await prisma.invoice.create({
       data: {
@@ -65,6 +70,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
         invoiceNumber,
         createdBy: req.user!.id,
         dealId: data.dealId ?? undefined,
+        quoteId: data.quoteId ?? undefined,
         notes: data.notes ?? undefined,
         dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
         lines: { create: lines },
@@ -86,7 +92,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { lines, ...data } = InvoiceSchema.partial().parse(req.body);
+    const { lines, quoteId: _quoteId, ...data } = InvoiceSchema.partial().parse(req.body);
     const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!invoice) throw new AppError(404, 'Invoice not found');
     if (invoice.status === 'PAID' || invoice.status === 'VOID') {

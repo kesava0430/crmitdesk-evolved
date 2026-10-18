@@ -5,21 +5,45 @@ import { prisma } from './prisma';
  * Schedule poller and the workflow engine's SEND_WHATSAPP action so the
  * four recipient options behave identically everywhere they're offered.
  */
-export type RecipientType = 'CONTACT' | 'ASSIGNEE' | 'CUSTOM_NUMBER' | 'ORG_DEFAULT' | 'REFERENCE_FIELD';
+export type RecipientType = 'CONTACT' | 'ASSIGNEE' | 'CUSTOM_NUMBER' | 'ORG_DEFAULT' | 'REFERENCE_FIELD' | 'ME';
 
 export async function resolveRecipientPhone(opts: {
   orgId: string;
-  entityType: 'TICKET' | 'DEAL' | 'CONTACT' | 'CUSTOM_MODULE_RECORD';
+  entityType: 'TICKET' | 'DEAL' | 'CONTACT' | 'LEAD' | 'CUSTOM_MODULE_RECORD';
   entityId: string;
   recipientType: RecipientType;
   customNumber?: string | null;
+  /** Required when recipientType === 'ME' — the user who set the reminder ("remind me"). */
+  meUserId?: string | null;
   /** Required when recipientType === 'REFERENCE_FIELD' — a CustomField of
    *  fieldType REFERENCE, whose stored value is a Contact id. */
   referenceFieldId?: string | null;
 }): Promise<string> {
-  const { orgId, entityType, entityId, recipientType, customNumber, referenceFieldId } = opts;
+  const { orgId, entityId, recipientType, customNumber, referenceFieldId } = opts;
+  let entityType = opts.entityType;
+
+  /* A lead's contact / owner stand in for the lead itself, so reminders set
+     on a lead ("remind me about Ravi's lead") use the same four options. */
+  if (entityType === 'LEAD' && (recipientType === 'CONTACT' || recipientType === 'ASSIGNEE')) {
+    const lead = await prisma.lead.findFirst({ where: { id: entityId, orgId }, select: { contactId: true, assignedTo: true } });
+    if (recipientType === 'CONTACT') {
+      if (!lead?.contactId) throw new Error('This lead has no contact on file.');
+      return resolveRecipientPhone({ ...opts, entityType: 'CONTACT', entityId: lead.contactId });
+    }
+    if (!lead?.assignedTo) throw new Error('This lead has no owner to notify.');
+    const owner = await prisma.user.findFirst({ where: { id: lead.assignedTo, orgId }, select: { phone: true } });
+    if (!owner?.phone) throw new Error('The lead owner has no phone number on file.');
+    return owner.phone;
+  }
 
   switch (recipientType) {
+    case 'ME': {
+      if (!opts.meUserId) throw new Error('No user to send this reminder to.');
+      const me = await prisma.user.findFirst({ where: { id: opts.meUserId, orgId }, select: { phone: true } });
+      if (!me?.phone) throw new Error('Your profile has no phone number — add one under Profile to get WhatsApp reminders.');
+      return me.phone;
+    }
+
     case 'CUSTOM_NUMBER': {
       if (!customNumber) throw new Error('No custom phone number was provided.');
       return customNumber;

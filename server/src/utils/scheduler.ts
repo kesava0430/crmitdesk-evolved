@@ -7,10 +7,14 @@ const POLL_INTERVAL_MS = 60 * 1000;
 /** Resolves {{title}} in a reminder message against the linked ticket/deal. */
 async function resolveMessage(entityType: string, entityId: string, message: string): Promise<string> {
   if (!message.includes('{{')) return message;
-  const record = entityType === 'TICKET'
-    ? await prisma.ticket.findUnique({ where: { id: entityId }, select: { title: true } })
-    : await prisma.deal.findUnique({ where: { id: entityId }, select: { title: true } });
-  return message.replace(/\{\{title\}\}/g, record?.title ?? '');
+  const title = entityType === 'TICKET'
+    ? (await prisma.ticket.findUnique({ where: { id: entityId }, select: { title: true } }))?.title
+    : entityType === 'LEAD'
+      ? (await prisma.lead.findUnique({ where: { id: entityId }, select: { contact: { select: { name: true } } } }))?.contact?.name
+      : entityType === 'CONTACT'
+        ? (await prisma.contact.findUnique({ where: { id: entityId }, select: { name: true } }))?.name
+        : (await prisma.deal.findUnique({ where: { id: entityId }, select: { title: true } }))?.title;
+  return message.replace(/\{\{title\}\}/g, title ?? '');
 }
 
 /**
@@ -49,10 +53,11 @@ export async function checkDueSchedules(): Promise<void> {
     try {
       const phone = await resolveRecipientPhone({
         orgId: schedule.orgId,
-        entityType: schedule.entityType as 'TICKET' | 'DEAL',
+        entityType: schedule.entityType as 'TICKET' | 'DEAL' | 'LEAD' | 'CONTACT',
         entityId: schedule.entityId,
         recipientType: schedule.recipientType as any,
         customNumber: schedule.customNumber,
+        meUserId: schedule.createdBy,
       });
       const message = await resolveMessage(schedule.entityType, schedule.entityId, schedule.message);
 
