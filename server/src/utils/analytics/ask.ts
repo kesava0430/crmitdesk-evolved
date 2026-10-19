@@ -116,7 +116,62 @@ function examples(catalog: ResolvedDataset[]): string {
   return ex.join('\n\n');
 }
 
-export function buildSystemPrompt(actx: AnalyticsContext): string {
+/* Words that point at a dataset even when its name isn't used. */
+const DATASET_HINTS: Record<string, string[]> = {
+  leads: ['lead', 'prospect', 'enquir', 'inquir', 'pipeline', 'conversion', 'convert', 'source'],
+  deals: ['deal', 'opportunit', 'revenue', 'won', 'lost', 'pipeline', 'forecast revenue', 'sales'],
+  contacts: ['contact', 'customer', 'client'],
+  accounts: ['account', 'compan', 'customer', 'client'],
+  activities: ['activit', 'call', 'meeting', 'follow'],
+  quotes: ['quote', 'quotation', 'proposal'],
+  invoices: ['invoice', 'billing', 'overdue', 'paid', 'unpaid', 'receivable', 'revenue', 'outstanding'],
+  campaigns: ['campaign', 'email blast', 'newsletter'],
+  tickets: ['ticket', 'agent', 'issue', 'support', 'helpdesk', 'help desk', 'sla', 'resolved', 'resolution', 'priority', 'incident'],
+  assets: ['asset', 'laptop', 'device', 'equipment', 'hardware'],
+  change_requests: ['change request', 'change'],
+  kb_articles: ['article', 'knowledge', 'kb'],
+  csat: ['csat', 'satisfaction', 'rating', 'feedback', 'survey'],
+  employees: ['employee', 'staff', 'headcount', 'people', 'joiner', 'joined', 'department', 'team', 'hire', 'exit', 'attrition'],
+  attendance: ['attendance', 'absent', 'present', 'late', 'leave today', 'on leave', 'check-in', 'check in', 'checked in', 'working days', 'wfh', 'work from home', 'overtime'],
+  attendance_sessions: ['check-in', 'check in', 'session', 'hours worked', 'punch', 'overtime'],
+  leave_requests: ['leave', 'vacation', 'holiday', 'time off', 'sick'],
+  wfh_requests: ['wfh', 'work from home', 'remote'],
+  payslips: ['payroll', 'salary', 'salaries', 'payslip', 'pay ', 'gross', 'net pay', 'ctc', 'cost', 'deduction', 'pf', 'tds'],
+  payroll_runs: ['payroll', 'payroll run', 'salary cost', 'payout'],
+  loans: ['loan', 'advance', 'emi'],
+  tasks: ['task', 'to-do', 'todo', 'reminder'],
+  approvals: ['approval', 'approve', 'pending approval'],
+};
+
+/**
+ * Datasets worth showing the model for this question. The full catalog is
+ * ~25 datasets (~2.5k tokens); Groq's free tier allows 8k tokens a minute
+ * for the whole account, so sending all of it every time capped the product
+ * at two questions a minute. Validation still runs against the caller's full
+ * catalog — this only narrows what the model reads. No match → everything.
+ */
+export function relevantDatasets(catalog: ResolvedDataset[], question: string, max = 6): ResolvedDataset[] {
+  const q = ` ${question.toLowerCase()} `;
+  const scored = catalog.map(d => {
+    let score = 0;
+    const key = d.def.key.replace(/^custom_/, '').replace(/_/g, ' ');
+    if (q.includes(key.replace(/s$/, ''))) score += 5;
+    if (q.includes(d.def.label.toLowerCase().replace(/s$/, ''))) score += 5;
+    for (const h of DATASET_HINTS[d.def.key] ?? []) if (q.includes(h)) score += 2;
+    return { d, score };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+  if (!scored.length) return catalog;
+  const picked = scored.slice(0, max).map(x => x.d);
+  // Revenue / conversion projections need deals next to leads.
+  const has = (k: string) => picked.some(d => d.def.key === k);
+  for (const pair of [['leads', 'deals'], ['deals', 'leads']] as const) {
+    if (has(pair[0]) && !has(pair[1])) { const other = catalog.find(d => d.def.key === pair[1]); if (other) picked.push(other); }
+  }
+  return picked;
+}
+
+export function buildSystemPrompt(actx: AnalyticsContext, question?: string): string {
+  const shown = question ? relevantDatasets(actx.catalog, question) : actx.catalog;
   const dow = WEEKDAYS[parseDate(actx.env.today).getUTCDay()];
   return [
     'You translate a business question into JSON query specs for an analytics engine. You never answer from your own knowledge, never invent datasets or fields, and never write SQL.',
@@ -140,10 +195,10 @@ export function buildSystemPrompt(actx: AnalyticsContext): string {
     `Presets: ${PRESETS_TEXT}`,
     '',
     'CATALOG',
-    catalogSummary(actx.catalog),
+    catalogSummary(shown),
     '',
     'EXAMPLES',
-    examples(actx.catalog),
+    examples(shown),
   ].join('\n');
 }
 
@@ -301,7 +356,7 @@ export async function answerQuestion(user: AnalyticsUser, question: string, opts
   }
 
   if (!plan) {
-    const system = buildSystemPrompt(actx);
+    const system = buildSystemPrompt(actx, q);
     const first = await interpretAnalyticsQuestion(system, `Question: ${q}`);
     modelCalls++;
     let raw = safeJson(first);
@@ -321,6 +376,15 @@ export async function answerQuestion(user: AnalyticsUser, question: string, opts
       return unanswerable(q, actx, why ? why.replace(/^queries\.\d+: /, '') : null, modelCalls);
     }
     plan = v.plan;
+    // The model only saw the datasets that looked relevant. If it says "not
+    // answerable" from that partial view, ask once more with everything so a
+    // trimmed prompt can never cause a wrong refusal.
+    if (!plan.answerable && relevantDatasets(actx.catalog, q).length < actx.catalog.length) {
+      const full = await interpretAnalyticsQuestion(buildSystemPrompt(actx), `Question: ${q}`);
+      modelCalls++;
+      const vf = validatePlan(actx, safeJson(full));
+      if (vf.plan) plan = vf.plan;
+    }
   }
 
   if (!plan.answerable) {
