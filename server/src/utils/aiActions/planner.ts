@@ -279,6 +279,69 @@ async function buildContext(env: NormalizeEnv, command: string, offered: AiActio
   return lines.sort().join('\n');
 }
 
+/* Words that point at an action even when the user doesn't use its name. */
+const ACTION_HINTS: Array<[RegExp, string[]]> = [
+  [/\b(ticket|issue|bug|broken|not working|outage|incident|projector|printer|vpn|laptop|wifi|password)\b/, ['CREATE_TICKET', 'UPDATE_TICKET', 'UPDATE_TICKET_STATUS', 'ASSIGN_TICKET']],
+  [/\b(close|resolve|reopen)\b/, ['UPDATE_TICKET_STATUS']],
+  [/\b(lead|prospect|enquiry|inquiry)\b/, ['CREATE_LEAD', 'UPDATE_LEAD', 'UPDATE_LEAD_STATUS', 'CONVERT_LEAD', 'SCORE_LEAD']],
+  [/\b(deal|opportunity|pipeline|stage)\b/, ['CREATE_DEAL', 'UPDATE_DEAL', 'MOVE_DEAL_STAGE']],
+  [/\b(contact|customer|client)\b/, ['CREATE_CONTACT', 'UPDATE_CONTACT']],
+  [/\b(account|company)\b/, ['CREATE_ACCOUNT', 'UPDATE_ACCOUNT']],
+  [/\b(call|meeting|follow[- ]?up|activity|schedule)\b/, ['LOG_ACTIVITY', 'CREATE_TASK']],
+  [/\b(remind|reminder|whatsapp)\b/, ['SCHEDULE_WHATSAPP_REMINDER', 'SEND_WHATSAPP_NOW', 'CREATE_TASK']],
+  [/\b(task|todo|to-do)\b/, ['CREATE_TASK']],
+  [/\b(note|comment)\b/, ['ADD_NOTE']],
+  [/\b(quote|quotation|proposal)\b/, ['CREATE_QUOTE', 'CHANGE_QUOTE_STATUS']],
+  [/\b(invoice|bill|paid|payment)\b/, ['CREATE_INVOICE', 'CHANGE_INVOICE_STATUS']],
+  [/\b(campaign|newsletter)\b/, ['CREATE_CAMPAIGN', 'SEND_CAMPAIGN']],
+  [/\b(leave|vacation|holiday|sick|time off|day off)\b/, ['REQUEST_LEAVE', 'APPROVE_LEAVE', 'REJECT_LEAVE', 'APPLY_LEAVE_ON_BEHALF']],
+  [/\b(wfh|work from home|remote)\b/, ['REQUEST_WFH', 'APPROVE_LEAVE', 'REJECT_LEAVE']],
+  [/\b(attendance|absent|present|half day|check[- ]?in|mark)\b/, ['MARK_ATTENDANCE', 'BULK_MARK_ATTENDANCE', 'MANUAL_ATTENDANCE_ENTRY']],
+  [/\b(payroll|salary|payslip)\b/, ['START_PAYROLL_RUN', 'CHANGE_SALARY']],
+  [/\b(loan|advance|emi|repay)\b/, ['ADD_LOAN', 'RECORD_LOAN_REPAYMENT']],
+  [/\b(employee|staff|hire|joiner|onboard|designation|department)\b/, ['ADD_EMPLOYEE', 'UPDATE_EMPLOYEE']],
+  [/\b(invite|user|deactivate|disable)\b/, ['INVITE_USER', 'DEACTIVATE_USER']],
+  [/\b(asset|device|equipment|check[- ]?out|check[- ]?in)\b/, ['CREATE_ASSET', 'CHECK_OUT_ASSET', 'CHECK_IN_ASSET', 'UPDATE_ASSET_STATUS']],
+  [/\b(article|kb|knowledge)\b/, ['CREATE_KB_ARTICLE', 'LINK_KB_ARTICLE']],
+  [/\b(change request|change)\b/, ['CREATE_CHANGE_REQUEST']],
+  [/\b(category)\b/, ['CREATE_TICKET_CATEGORY']],
+  [/\b(approv|reject)\w*\b/, ['DECIDE_APPROVAL', 'APPROVE_LEAVE', 'REJECT_LEAVE']],
+  [/\b(module|record|field)\b/, ['CREATE_CUSTOM_MODULE', 'ADD_CUSTOM_MODULE_FIELD', 'CREATE_CUSTOM_MODULE_RECORD', 'UPDATE_CUSTOM_MODULE_RECORD', 'MOVE_CUSTOM_RECORD_STAGE']],
+  [/\b(workflow|rule|automation)\b/, ['TOGGLE_WORKFLOW_RULE']],
+];
+/** Offered when nothing in the request points anywhere in particular. */
+const COMMON_ACTIONS = ['CREATE_TICKET', 'CREATE_LEAD', 'CREATE_TASK', 'REQUEST_LEAVE', 'ADD_NOTE', 'LOG_ACTIVITY', 'CREATE_CONTACT', 'REQUEST_WFH'];
+
+/**
+ * The actions worth showing the model for this request. All 58 actions with
+ * their params are ~7k tokens; Groq's free tier refuses any request over 8k
+ * tokens (prompt + reply allowance), so the planner never worked there, and
+ * on paid tiers the whole menu is slow and dear. The menu is narrowed to the
+ * actions the request points at (by name, description and hint words), plus
+ * a few common ones; execution still re-checks every step against the full
+ * registry, so this only changes what the model reads.
+ */
+export function relevantActions<T extends { name: string; description: string }>(menu: T[], command: string, max = 12): T[] {
+  const q = command.toLowerCase();
+  const words = new Set(q.split(/[^a-z0-9]+/).filter(w => w.length >= 3));
+  const score = new Map<string, number>();
+  for (const a of menu) {
+    let n = 0;
+    for (const w of a.name.toLowerCase().split('_')) if (w.length >= 3 && words.has(w.replace(/s$/, '')) || words.has(w)) n += 3;
+    for (const w of a.description.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 5 && words.has(w)) n += 1;
+    score.set(a.name, n);
+  }
+  for (const [re, names] of ACTION_HINTS) if (re.test(q)) for (const nm of names) if (score.has(nm)) score.set(nm, (score.get(nm) ?? 0) + 4);
+  const ranked = menu.filter(a => (score.get(a.name) ?? 0) > 0).sort((a, b) => (score.get(b.name) ?? 0) - (score.get(a.name) ?? 0));
+  const picked = ranked.slice(0, max);
+  for (const nm of COMMON_ACTIONS) {
+    if (picked.length >= max + 3) break;
+    const a = menu.find(m => m.name === nm);
+    if (a && !picked.includes(a)) picked.push(a);
+  }
+  return picked.length ? picked : menu.slice(0, max);
+}
+
 function systemPrompt(menu: Array<{ name: string; description: string; params: string }>): string {
   const names = new Set(menu.map(m => m.name));
   const example = names.has('CREATE_LEAD') && names.has('LOG_ACTIVITY')
@@ -321,7 +384,7 @@ function parseModelPlan(text: string): { steps: Array<{ action: string; params: 
 }
 
 async function callModel(user: PlanUser, system: string, prompt: string): Promise<{ text: string; logId: string | null }> {
-  const res = await complete({ orgId: user.orgId, userId: user.id, feature: 'command.plan', task: tierFor('command.plan', ''), system, user: prompt, maxTokens: 900, temperature: 0.1, json: true });
+  const res = await complete({ orgId: user.orgId, userId: user.id, feature: 'command.plan', task: tierFor('command.plan', ''), system, user: prompt, maxTokens: 700, temperature: 0.1, json: true });
   if (res.blocked) {
     const err: any = new Error(res.blockedBy === 'TOKEN_LIMIT' ? "Your plan's monthly AI allowance is used up." : 'Monthly AI budget reached. Raise the limit in AI Governance, or wait for the next billing period.');
     err.status = 402;
@@ -375,8 +438,9 @@ export async function planCommand(user: PlanUser, command: string, opts: { now?:
   if (!menu.length) {
     return summarisePlan([], { planId, interactionLogId: null, explanation: 'There are no actions your role can run from the assistant in this organisation.', confidence: 0, repaired: false });
   }
-  const offered = AI_ACTIONS.filter(a => menu.some(m => m.name === a.name));
-  const system = systemPrompt(menu);
+  const shown = relevantActions(menu, command);
+  const offered = AI_ACTIONS.filter(a => shown.some(m => m.name === a.name));
+  const system = systemPrompt(shown);
   const me = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
   const context = await buildContext(env, command, offered);
   const prompt = [
@@ -408,6 +472,24 @@ export async function planCommand(user: PlanUser, command: string, opts: { now?:
         const s2 = await normalizeSteps(env, p2.steps);
         const errs2 = s2.flatMap(s => s.modelErrors).length;
         if (!parsed || errs2 < modelErrors.length) { parsed = p2; steps = s2; logId = fix.logId ?? logId; repaired = true; }
+      }
+    } catch (err: any) {
+      if (err?.status === 402) throw err;
+    }
+  }
+  // The model saw a narrowed menu. If it found nothing to do, try once more
+  // with a wider one, so the narrowing can't hide the action the user meant.
+  if (parsed && !parsed.steps.length && shown.length < menu.length) {
+    try {
+      const wider = [...shown, ...menu.filter(m => !shown.includes(m))].slice(0, 26);
+      const widerOffered = AI_ACTIONS.filter(a => wider.some(m => m.name === a.name));
+      const ctx2 = await buildContext(env, command, widerOffered);
+      const prompt2 = prompt.replace(/Context[\s\S]*$/, ctx2 ? `Context — existing records (use the id when one matches):\n${ctx2}` : 'Context: (no matching records)');
+      const again = await callModel(user, systemPrompt(wider), prompt2);
+      const p3 = parseModelPlan(again.text);
+      if (p3 && p3.steps.length) {
+        const s3 = await normalizeSteps(env, p3.steps);
+        if (!s3.some(x => x.modelErrors.length)) { parsed = p3; steps = s3; logId = again.logId ?? logId; }
       }
     } catch (err: any) {
       if (err?.status === 402) throw err;

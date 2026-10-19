@@ -447,3 +447,20 @@ test('help panel examples follow the org areas (no deal wording when CRM is off,
   for (const a of crmOnly) assert.doesNotMatch(a.example, /\btickets?\b/i, a.name);
   assert.equal(exampleFor(getAiAction('ADD_NOTE')!, []), getAiAction('ADD_NOTE')!.example);
 });
+
+import { relevantActions } from '../../src/utils/aiActions/planner';
+import { actionMenuForPrompt as fullMenu } from '../../src/utils/ai-actions';
+
+test('planner shows the model only the actions a request points at', () => {
+  const menu = fullMenu();
+  const names = (c: string) => relevantActions(menu, c).map(a => a.name);
+  const lead = names('Create a lead for Ravi from Acme and remind me to call him Friday 11am');
+  for (const n of ['CREATE_LEAD', 'LOG_ACTIVITY', 'SCHEDULE_WHATSAPP_REMINDER']) assert.ok(lead.includes(n), n);
+  assert.ok(lead.length <= 15 && lead.length < menu.length);
+  assert.ok(names('Create a ticket: projector flickering, high priority').includes('CREATE_TICKET'));
+  assert.ok(names('I need sick leave tomorrow').includes('REQUEST_LEAVE'));
+  assert.ok(names('Start payroll for November').includes('START_PAYROLL_RUN'));
+  assert.ok(names('Check out a laptop to Priya').includes('CHECK_OUT_ASSET'));
+  assert.ok(names('mark invoice INV-0042 as paid').includes('CHANGE_INVOICE_STATUS'));
+  assert.ok(names('hello there').length > 0);
+});
