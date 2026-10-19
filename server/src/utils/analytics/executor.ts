@@ -10,6 +10,7 @@
  *  - runForecast(): a series query on complete buckets → forecast.ts →
  *    derived projections (rate × projection, with the rate's window stated).
  */
+import { sqlTimeZone } from './timezone';
 import crypto from 'crypto';
 import { prisma } from '../prisma';
 import { getPermCtx, type PermCtx } from '../permissions';
@@ -35,6 +36,8 @@ export interface AnalyticsContext {
   blockedModules: string[];
   /** Hash of what this caller can query — part of AI interpretation cache keys. */
   catalogVersion: string;
+  /** Set when the org's time zone isn't known to the database and UTC is used. */
+  tzWarning?: string;
 }
 
 export async function getAnalyticsContext(user: AnalyticsUser, now = new Date()): Promise<AnalyticsContext> {
@@ -50,7 +53,10 @@ export async function getAnalyticsContext(user: AnalyticsUser, now = new Date())
       take: 50,
     }),
   ]);
-  const timezone = org?.timezone && isValidTimeZone(org.timezone) ? org.timezone : 'UTC';
+  // Resolved to a name Postgres knows — legacy aliases like "Asia/Calcutta"
+  // aren't in newer servers' tzdata (see timezone.ts).
+  const tzResolved = await sqlTimeZone(org?.timezone && isValidTimeZone(org.timezone) ? org.timezone : 'UTC');
+  const timezone = tzResolved.timezone;
   const defs = [...STATIC_DATASETS, ...modules.map(m => customModuleDataset(m as any))];
   const catalog = resolveCatalog(defs, { ctx, blockedModules: lic.blockedModules });
   const catalogVersion = crypto.createHash('sha1')
@@ -60,6 +66,7 @@ export async function getAnalyticsContext(user: AnalyticsUser, now = new Date())
     user, ctx, catalog, currency: org?.currency || 'USD', blockedModules: lic.blockedModules,
     env: { orgId: user.orgId, userId: user.id, timezone, today: localToday(now, timezone), currency: org?.currency || 'USD' },
     catalogVersion,
+    ...(tzResolved.warning ? { tzWarning: tzResolved.warning } : {}),
   };
 }
 
@@ -182,7 +189,7 @@ export async function runQuery(actx: AnalyticsContext, specInput: QuerySpecInput
   const spec = parseQuerySpec(specInput);
   const ds = findDataset(actx, spec.dataset);
   const compiled = compileQuery(ds, spec, actx.env);
-  const warnings = [...compiled.warnings];
+  const warnings = [...compiled.warnings, ...(actx.tzWarning ? [actx.tzWarning] : [])];
 
   let rows = (await runSql(compiled)).map(r => normaliseRow(r, compiled.columns));
   const truncated = rows.length > compiled.limit;

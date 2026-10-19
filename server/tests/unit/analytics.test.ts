@@ -465,3 +465,25 @@ test('ai prompt: only the caller\'s catalog, no redacted fields, no switched-off
   assert.match(prompt, /Today is 2026-10-18 \(Sunday\), time zone Asia\/Kolkata; money is in INR/);
   assert.equal(normaliseQuestion('  How many LEADS did we get?? '), 'how many leads did we get');
 });
+
+import { canonicalTimeZone } from '../../src/utils/analytics/timezone';
+
+test('legacy time-zone aliases map to names every Postgres knows', () => {
+  assert.equal(canonicalTimeZone('Asia/Calcutta'), 'Asia/Kolkata');
+  assert.equal(canonicalTimeZone('US/Eastern'), 'America/New_York');
+  assert.equal(canonicalTimeZone('Asia/Kolkata'), 'Asia/Kolkata');
+  assert.equal(canonicalTimeZone('Europe/London'), 'Europe/London');
+});
+
+import { relevantDatasets } from '../../src/utils/analytics/ask';
+
+test('question-relevant datasets narrow the prompt, never to nothing', () => {
+  const mk = (key: string, label: string) => ({ def: { key, label, description: '' }, fields: [] }) as any;
+  const cat = [mk('leads', 'Leads'), mk('deals', 'Deals'), mk('tickets', 'Tickets'), mk('attendance', 'Attendance days'), mk('payslips', 'Payslips')];
+  const keys = (q: string) => relevantDatasets(cat, q).map(d => d.def.key).sort();
+  assert.deepEqual(keys('Who was absent yesterday?'), ['attendance']);
+  assert.deepEqual(keys('Project our leads for the next 30 days'), ['deals', 'leads']);
+  assert.deepEqual(keys('Top 5 agents by tickets resolved'), ['tickets']);
+  assert.deepEqual(keys('Total payroll cost by department'), ['payslips']);
+  assert.equal(relevantDatasets(cat, 'tell me something interesting').length, cat.length);
+});
