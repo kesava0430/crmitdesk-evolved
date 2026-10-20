@@ -9,16 +9,19 @@ import { AuthRequest } from '../../middleware/authenticate';
 // failing .url()/.email() validation on it, which previously 400'd the
 // *entire* save (including the fields that were actually filled in) any
 // time an optional field was left empty.
-const emptyToUndefined = (v: unknown) => (v === '' ? undefined : v);
+// null too: the client seeds its form from GET /branding, where unset columns
+// are null, and posted them straight back — so saving failed with a 400
+// (silently, on the page) for any org whose branding had an unset field.
+const emptyToUndefined = (v: unknown) => (v === '' || v === null ? undefined : v);
 
-const Schema = z.object({
+export const BrandingSchema = z.object({
   logoUrl:       z.preprocess(emptyToUndefined, z.string().url().optional()),
   faviconUrl:    z.preprocess(emptyToUndefined, z.string().url().optional()),
-  companyName:   z.string().optional(),
-  primaryColor:  z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#2563eb'),
+  companyName:   z.preprocess(emptyToUndefined, z.string().optional()),
+  primaryColor:  z.preprocess(emptyToUndefined, z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#2563eb')),
   supportEmail:  z.preprocess(emptyToUndefined, z.string().email().optional()),
-  portalTitle:   z.string().default('Support Portal'),
-  portalWelcome: z.string().optional(),
+  portalTitle:   z.preprocess(emptyToUndefined, z.string().default('Support Portal')),
+  portalWelcome: z.preprocess(emptyToUndefined, z.string().optional()),
 });
 
 export async function getBranding(req: AuthRequest, res: Response, next: NextFunction) {
@@ -31,7 +34,7 @@ export async function getBranding(req: AuthRequest, res: Response, next: NextFun
 export async function saveBranding(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const data = Schema.parse(req.body);
+    const data = BrandingSchema.parse(req.body);
     const branding = await prisma.orgBranding.upsert({
       where: { orgId },
       create: { orgId, ...data },
