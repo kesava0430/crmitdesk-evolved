@@ -16,6 +16,7 @@ import {
 } from '../../shared/components';
 import { CheckSquare, Plus, AlertTriangle, Calendar, Clock, Inbox, Check, X, ChevronRight } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * "My Work" (§2, §47) — one cross-module queue per person.
@@ -285,6 +286,7 @@ function TaskDetailModal({ task, onClose }: { task: Task | null; onClose: () => 
 
 function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateTask();
+  const { user } = useAuth();
   const [form, setForm] = useState({ title: '', description: '', priority: 'MEDIUM', dueAt: '' });
   const [error, setError] = useState('');
 
@@ -296,6 +298,10 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
         description: form.description || undefined,
         priority: form.priority as Task['priority'],
         dueAt: form.dueAt || undefined,
+        // A task made here is the creator's own: My Work lists tasks assigned to
+        // you, and an unassigned task was invisible here and — for roles with
+        // OWN task scope (employees) — could not even be completed.
+        assigneeUserId: user?.id ?? undefined,
       },
       {
         onSuccess: () => {
