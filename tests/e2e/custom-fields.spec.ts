@@ -24,7 +24,7 @@ test.describe('Custom Fields', () => {
 
   test('creates a TEXT custom field for TICKET entity', async ({ page }) => {
     await page.getByRole('tab', { name: /ticket/i }).click();
-    await page.getByRole('button', { name: /add field|new field|create/i }).click();
+    await page.getByRole('button', { name: /add field|new field|create/i }).first().click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();

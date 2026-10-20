@@ -27,7 +27,7 @@ test.describe('CSAT Surveys', () => {
     await expect(dialog).not.toBeVisible({ timeout: 8_000 });
 
     // Open the ticket
-    await page.getByText('CSAT Test Ticket').click();
+    await page.getByText('CSAT Test Ticket').first().click();
     const ticketDialog = page.getByRole('dialog');
     await expect(ticketDialog).toBeVisible();
 
@@ -49,7 +49,7 @@ test.describe('CSAT Surveys', () => {
 
   test('CSAT survey banner or link is visible on resolved ticket', async ({ page }) => {
     await page.goto('/itdesk/tickets');
-    await page.getByText('CSAT Test Ticket').click();
+    await page.getByText('CSAT Test Ticket').first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 

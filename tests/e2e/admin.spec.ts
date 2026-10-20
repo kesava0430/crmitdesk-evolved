@@ -5,7 +5,7 @@ import { TEST } from '../helpers/seed';
 test.describe('User Management', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await page.getByRole('link', { name: 'Users' }).click();
+    await page.getByRole('link', { name: 'Logins & Invites' }).click();
     await page.waitForURL(/\/admin\/users/);
   });
 
@@ -164,6 +164,7 @@ test.describe('Dashboard', () => {
   test('shows dashboard with metric cards', async ({ page }) => {
     await login(page);
     await page.waitForURL(/\/dashboard/);
-    await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
+    // The dashboard's h1 is the greeting since the Aug 2026 redesign (topbar "Dashboard" is a <p>).
+    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible();
   });
 });

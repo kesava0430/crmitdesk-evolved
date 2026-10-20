@@ -21,7 +21,7 @@ async function createFieldDef(page: Page, tabName: string, label: string, fieldK
   await page.goto('/custom-fields');
   await page.waitForURL(/\/custom-fields/);
   await page.getByRole('tab', { name: new RegExp(tabName, 'i') }).click();
-  await page.getByRole('button', { name: /add field|new field|create/i }).click();
+  await page.getByRole('button', { name: /add field|new field|create/i }).first().click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();

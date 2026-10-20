@@ -473,7 +473,7 @@ test.describe('Bulk Lead Scoring', () => {
     await page.goto('/ai-builder');
     await page.waitForURL(/\/ai-builder/, { timeout: 10_000 });
 
-    await page.getByRole('button', { name: /score all leads/i }).click();
+    await page.getByRole('button', { name: /score all leads/i }).first().click();
 
     await expect(
       page.getByText(/scored|scoring|leads|complete|0 leads/i).first()

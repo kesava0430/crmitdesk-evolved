@@ -54,8 +54,8 @@ test.describe('User Profile', () => {
 
   test('shows Profile Details and Security tabs', async ({ page }) => {
     await page.goto('/profile');
-    await expect(page.getByRole('button', { name: /profile details/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /security/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /profile details/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /security/i })).toBeVisible();
   });
 
   test('Profile Details tab is active by default', async ({ page }) => {
@@ -111,7 +111,7 @@ test.describe('User Profile', () => {
 
   test('switching to Security tab shows password form', async ({ page }) => {
     await page.goto('/profile');
-    await page.getByRole('button', { name: /security/i }).click();
+    await page.getByRole('tab', { name: /security/i }).click();
     await expect(page.getByText('Change Password').first()).toBeVisible();
     await expect(page.getByPlaceholder(/your current password/i)).toBeVisible();
     await expect(page.getByPlaceholder(/min 8 characters/i)).toBeVisible();
@@ -120,7 +120,7 @@ test.describe('User Profile', () => {
 
   test('shows error when new passwords do not match', async ({ page }) => {
     await page.goto('/profile');
-    await page.getByRole('button', { name: /security/i }).click();
+    await page.getByRole('tab', { name: /security/i }).click();
     await page.getByPlaceholder(/your current password/i).fill(ADMIN.password);
     await page.getByPlaceholder(/min 8 characters/i).fill('NewPass@123');
     await page.getByPlaceholder(/re-enter new password/i).fill('DifferentPass@456');
@@ -130,7 +130,7 @@ test.describe('User Profile', () => {
 
   test('shows error when current password is wrong', async ({ page }) => {
     await page.goto('/profile');
-    await page.getByRole('button', { name: /security/i }).click();
+    await page.getByRole('tab', { name: /security/i }).click();
     await page.getByPlaceholder(/your current password/i).fill('WrongPassword123!');
     await page.getByPlaceholder(/min 8 characters/i).fill('NewPass@123');
     await page.getByPlaceholder(/re-enter new password/i).fill('NewPass@123');
@@ -142,7 +142,7 @@ test.describe('User Profile', () => {
 
   test('password toggle shows/hides current password', async ({ page }) => {
     await page.goto('/profile');
-    await page.getByRole('button', { name: /security/i }).click();
+    await page.getByRole('tab', { name: /security/i }).click();
     const currentPwInput = page.getByPlaceholder(/your current password/i);
     await currentPwInput.fill('TestPassword');
     // Initially type="password"
@@ -158,7 +158,7 @@ test.describe('User Profile', () => {
 
   test('new password minimum length validation', async ({ page }) => {
     await page.goto('/profile');
-    await page.getByRole('button', { name: /security/i }).click();
+    await page.getByRole('tab', { name: /security/i }).click();
     await page.getByPlaceholder(/your current password/i).fill(ADMIN.password);
     await page.getByPlaceholder(/min 8 characters/i).fill('short');
     await page.getByPlaceholder(/re-enter new password/i).fill('short');

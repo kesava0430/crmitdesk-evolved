@@ -22,6 +22,17 @@ async function resetOwnFace(page: Page, headers: Record<string, string>) {
   if (me?.id) await page.request.delete(`${API}/api/hr/attendance/face/${me.id}`, { headers });
 }
 
+/**
+ * These tests drive the descriptor-only enrolment API (what older app builds
+ * send). Since the FACE liveness work (e95f2c3 / fbd91ac) the policy's
+ * "Require liveness check" is ON by default and that path answers 426 "app
+ * update required"; switch it off for the test, as an admin can in HR
+ * Settings, and the afterEach turns it back on.
+ */
+async function allowDescriptorOnlyEnrolment(page: Page, headers: Record<string, string>) {
+  await page.request.patch(`${API}/api/hr/attendance/policy`, { headers, data: { requireLiveness: false } });
+}
+
 test.describe('Attendance — face verification', () => {
   test.afterEach(async ({ page }) => {
     // Leave the org as we found it: policy off, own enrolment removed.
@@ -30,6 +41,7 @@ test.describe('Attendance — face verification', () => {
       checkInRule:  { location: true, network: true, face: false, mode: 'ALL', enforce: true },
       checkOutRule: { location: true, network: true, face: false, mode: 'ALL', enforce: false },
       autoCheckoutOnLeave: false, heartbeatTimeoutMinutes: 0, shareLiveLocation: false,
+      requireLiveness: true,
     } });
     await resetOwnFace(page, headers);
   });
@@ -72,6 +84,7 @@ test.describe('Attendance — face verification', () => {
   test('enrolment stores samples and can be listed and reset by a manager', async ({ page }) => {
     await login(page);
     const headers = { Authorization: `Bearer ${await token(page)}` };
+    await allowDescriptorOnlyEnrolment(page, headers);
     const res = await page.request.post(`${API}/api/hr/attendance/face/enrol`, {
       headers, data: { descriptors: [unitDescriptor(1), unitDescriptor(2), unitDescriptor(3)] },
     });
@@ -94,6 +107,7 @@ test.describe('Attendance — face verification', () => {
   test('re-enrolment needs approval and leaves the live face untouched until then', async ({ page }) => {
     await login(page);
     const headers = { Authorization: `Bearer ${await token(page)}` };
+    await allowDescriptorOnlyEnrolment(page, headers);
     const jpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
     await resetOwnFace(page, headers);
 
@@ -177,6 +191,7 @@ test.describe('Attendance — face verification', () => {
   test('bad descriptors are rejected', async ({ page }) => {
     await login(page);
     const headers = { Authorization: `Bearer ${await token(page)}` };
+    await allowDescriptorOnlyEnrolment(page, headers);
     let res = await page.request.post(`${API}/api/hr/attendance/face/enrol`, { headers, data: { descriptors: [Array(100).fill(0.1)] } });
     expect(res.status()).toBe(400);
     res = await page.request.post(`${API}/api/hr/attendance/face/enrol`, { headers, data: { descriptors: [Array(128).fill(0)] } });

@@ -47,7 +47,7 @@ test.describe('Templates — Entity Integration', () => {
     await page.goto('/templates');
     await page.waitForURL(/\/templates/);
     await page.getByRole('tab', { name: /tickets/i }).click();
-    await page.getByRole('button', { name: /new template/i }).click();
+    await page.getByRole('button', { name: /new template/i }).first().click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();

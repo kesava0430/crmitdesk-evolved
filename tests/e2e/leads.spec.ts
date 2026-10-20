@@ -20,7 +20,7 @@ test.describe('Leads', () => {
 
     await page.getByLabel(/full name/i).fill(TEST.lead.name);
     await page.getByLabel(/email/i).fill(TEST.lead.email);
-    await page.getByLabel(/source/i).selectOption(TEST.lead.source);
+    await page.getByRole('dialog').getByLabel(/source/i).selectOption(TEST.lead.source);
     await page.getByRole('button', { name: /create lead/i }).click();
 
     await expect(page.getByRole('dialog')).not.toBeVisible();

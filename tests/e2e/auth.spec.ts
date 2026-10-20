@@ -24,8 +24,8 @@ test.describe('Authentication', () => {
     await page.getByRole('button', { name: /^sign in$/i }).last().click();
     // LoginPage sets: 'Invalid email or password. Please try again.'
     await expect(
-      page.getByText(/invalid.*email|invalid.*password|wrong.*credentials|incorrect.*password|unauthorized/i).first()
-        .or(page.locator('.text-red-500, .text-red-600, .text-red-700, [role="alert"]').first())
+      page.getByText(/invalid.*email|invalid.*password|wrong.*credentials|incorrect.*password|unauthorized/i)
+        .or(page.locator('.text-red-500, .text-red-600, .text-red-700, [role="alert"]')).first()
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -33,7 +33,7 @@ test.describe('Authentication', () => {
     await login(page);
     await expect(page).toHaveURL(/\/dashboard/);
     // Sidebar should be visible
-    await expect(page.getByText('CRM & IT Desk')).toBeVisible();
+    await expect(page.getByText('Zenkara 360').first()).toBeVisible();
   });
 
   test('logs out and redirects to login', async ({ page }) => {

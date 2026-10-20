@@ -144,7 +144,7 @@ test.describe('Theme & Font Picker', () => {
     await page.getByTitle('Appearance').click();
     await expect(page.getByText('Visual Style')).toBeVisible();
     // Click somewhere outside the panel
-    await page.getByText('CRM & IT Desk').click();
+    await page.getByText('Zenkara 360').first().click();
     await expect(page.getByText('Visual Style')).not.toBeVisible({ timeout: 3_000 });
   });
 });

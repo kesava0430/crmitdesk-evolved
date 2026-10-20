@@ -336,12 +336,12 @@ test.describe('New AI Features', () => {
 
     test('Parse Meeting Notes button is visible on dashboard', async ({ page }) => {
       await expect(
-        page.getByRole('button', { name: /meeting notes|parse meeting/i })
+        page.getByRole('button', { name: /^parse meeting notes$/i })
       ).toBeVisible({ timeout: 8_000 });
     });
 
     test('clicking Parse Meeting Notes opens a modal', async ({ page }) => {
-      const btn = page.getByRole('button', { name: /meeting notes|parse meeting/i });
+      const btn = page.getByRole('button', { name: /^parse meeting notes$/i });
       await btn.click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
@@ -354,7 +354,7 @@ test.describe('New AI Features', () => {
     });
 
     test('pasting notes and parsing returns structured results', async ({ page }) => {
-      const btn = page.getByRole('button', { name: /meeting notes|parse meeting/i });
+      const btn = page.getByRole('button', { name: /^parse meeting notes$/i });
       await btn.click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();

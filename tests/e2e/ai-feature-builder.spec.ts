@@ -218,7 +218,7 @@ test.describe('AI Feature Builder', () => {
 
   test.describe('Bulk Lead Scoring', () => {
     test('clicking Score All Leads shows result or loading', async ({ page }) => {
-      await page.getByRole('button', { name: /score all leads/i }).click();
+      await page.getByRole('button', { name: /score all leads/i }).first().click();
       // Should show either a success message or loading spinner
       await expect(
         page.getByText(/scoring|scored|leads scored|complete|all leads/i).first()

@@ -63,8 +63,11 @@ test.describe('Licensing API', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.modules.map((m: any) => m.key)).toEqual(
-      expect.arrayContaining(['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'custom_branding', 'hosted_storage']),
+      expect.arrayContaining(['ai_advanced', 'workflow_automation', 'customer_portal', 'advanced_analytics', 'hosted_storage']),
     );
+    // Enterprise-tier modules are off in the custom-licence catalogue by default
+    // (utils/pricing.ts, LIC-1/3/13 — the operator can enable them in Platform Admin → Pricing).
+    for (const k of ['custom_branding', 'sso', 'directory_sync']) expect(body.modules.map((m: any) => m.key)).not.toContain(k);
     expect(body.plans.map((p: any) => p.key)).toEqual(['FREE', 'PRO', 'ENTERPRISE']);
     expect(body.volumeTiers.length).toBeGreaterThan(0);
   });

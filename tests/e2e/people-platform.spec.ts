@@ -101,7 +101,7 @@ test.describe('Employees', () => {
   });
 
   test('switches to the org chart view', async ({ page }) => {
-    await page.getByRole('button', { name: /org chart/i }).click();
+    await page.getByRole('tab', { name: /org chart/i }).click();
     // Either a populated chart or the explicit empty state — both are correct
     // depending on whether managers have been set.
     await expect(
@@ -137,7 +137,7 @@ test.describe('Org structure', () => {
 
   test('has departments, teams and locations tabs', async ({ page }) => {
     for (const name of [/departments/i, /teams/i, /locations/i]) {
-      await expect(page.getByRole('button', { name }).first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole('tab', { name }).first()).toBeVisible({ timeout: 10_000 });
     }
   });
 
@@ -151,7 +151,7 @@ test.describe('Org structure', () => {
 
   test('creates a team', async ({ page }) => {
     const name = `E2E Team ${stamp()}`;
-    await page.getByRole('button', { name: /^teams$/i }).click();
+    await page.getByRole('tab', { name: /^teams$/i }).click();
     await page.getByRole('button', { name: /^team$/i }).click();
     await page.locator('input').first().fill(name);
     await page.getByRole('button', { name: /^create$/i }).click();
@@ -160,7 +160,7 @@ test.describe('Org structure', () => {
 
   test('creates a location', async ({ page }) => {
     const name = `E2E Office ${stamp()}`;
-    await page.getByRole('button', { name: /^locations$/i }).click();
+    await page.getByRole('tab', { name: /^locations$/i }).click();
     await page.getByRole('button', { name: /^location$/i }).click();
     await page.locator('input').first().fill(name);
     await page.getByRole('button', { name: /^create$/i }).click();
@@ -176,7 +176,7 @@ test.describe('Approvals', () => {
 
   test('has all four tabs', async ({ page }) => {
     for (const name of [/my inbox/i, /all requests/i, /policies/i, /delegations/i]) {
-      await expect(page.getByRole('button', { name }).first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole('tab', { name }).first()).toBeVisible({ timeout: 10_000 });
     }
   });
 
@@ -187,7 +187,7 @@ test.describe('Approvals', () => {
   });
 
   test('builds a policy with two steps', async ({ page }) => {
-    await page.getByRole('button', { name: /^policies$/i }).click();
+    await page.getByRole('tab', { name: /^policies$/i }).click();
     await page.getByRole('button', { name: /^policy$/i }).click();
 
     await page.getByPlaceholder(/standard leave approval/i).fill(`E2E policy ${stamp()}`);
@@ -201,7 +201,7 @@ test.describe('Approvals', () => {
   });
 
   test('self-delegation is rejected with a readable message', async ({ page }) => {
-    await page.getByRole('button', { name: /^delegations$/i }).click();
+    await page.getByRole('tab', { name: /^delegations$/i }).click();
     await expect(page.getByText(/delegate your approvals/i)).toBeVisible({ timeout: 10_000 });
   });
 });
@@ -244,13 +244,13 @@ test.describe('AI governance', () => {
   });
 
   test('the knowledge tab reports which vector backend is active', async ({ page }) => {
-    await page.getByRole('button', { name: /knowledge base/i }).click();
+    await page.getByRole('tab', { name: /knowledge base/i }).click();
     await expect(page.getByText(/vector backend/i).first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: /re-index knowledge base/i })).toBeVisible();
   });
 
   test('the interaction log tab renders', async ({ page }) => {
-    await page.getByRole('button', { name: /interaction log/i }).click();
+    await page.getByRole('tab', { name: /interaction log/i }).click();
     await expect(
       page.getByText(/no ai activity yet|feature|tokens/i).first()
     ).toBeVisible({ timeout: 15_000 });

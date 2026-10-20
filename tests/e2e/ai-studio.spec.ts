@@ -24,9 +24,9 @@ test.describe('AI Studio', () => {
   });
 
   test('shows all three tab buttons', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /Business Context/i })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole('button', { name: /Custom Functions/i })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole('button', { name: /Custom Scripts/i })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('tab', { name: /Business Context/i })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('tab', { name: /Custom Functions/i })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('tab', { name: /Custom Scripts/i })).toBeVisible({ timeout: 5_000 });
   });
 
   test('AI Studio link appears in sidebar', async ({ page }) => {
@@ -111,7 +111,7 @@ test.describe('AI Studio', () => {
 
   test.describe('Custom AI Functions tab', () => {
     test.beforeEach(async ({ page }) => {
-      await page.getByRole('button', { name: /Custom Functions/i }).click();
+      await page.getByRole('tab', { name: /Custom Functions/i }).click();
       await expect(page.getByRole('button', { name: /New Function/i })).toBeVisible({ timeout: 5_000 });
     });
 
@@ -248,7 +248,7 @@ test.describe('AI Studio', () => {
 
   test.describe('Custom Scripts tab', () => {
     test.beforeEach(async ({ page }) => {
-      await page.getByRole('button', { name: /Custom Scripts/i }).click();
+      await page.getByRole('tab', { name: /Custom Scripts/i }).click();
       await expect(page.getByRole('button', { name: /New Script/i })).toBeVisible({ timeout: 5_000 });
     });
 
@@ -411,7 +411,7 @@ test.describe('AI Studio', () => {
   // ── Context API reference ────────────────────────────────────────────────────
 
   test('context API reference expands in script editor', async ({ page }) => {
-    await page.getByRole('button', { name: /Custom Scripts/i }).click();
+    await page.getByRole('tab', { name: /Custom Scripts/i }).click();
     await page.getByRole('button', { name: /New Script/i }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 5_000 });

@@ -9,7 +9,8 @@ test.describe('Dashboard', () => {
 
   // Verifies the page title / heading renders after login
   test('dashboard loads with a heading', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
+    // The dashboard's h1 is the greeting since the Aug 2026 redesign (topbar "Dashboard" is a <p>).
+    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible();
   });
 
   // Verifies the greeting text and current date appear on the dashboard

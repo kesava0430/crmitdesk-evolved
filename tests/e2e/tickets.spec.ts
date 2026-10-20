@@ -23,7 +23,7 @@ test.describe('IT Desk — Tickets', () => {
 
     await page.getByLabel(/title/i).fill(TEST.ticket.title);
     await page.getByLabel(/description/i).fill(TEST.ticket.body);
-    await page.getByLabel(/priority/i).selectOption(TEST.ticket.priority);
+    await page.getByRole('dialog').getByLabel(/^priority$/i).selectOption(TEST.ticket.priority);
     await page.getByRole('button', { name: /submit ticket/i }).click();
 
     await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 8_000 });

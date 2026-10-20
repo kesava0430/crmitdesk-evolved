@@ -44,7 +44,7 @@ test.describe('AI Command — whitelisted actions', () => {
     // common to every valid outcome — asserting on it instead of the
     // specific action-card copy avoids coupling the test to which parser
     // the model happens to prefer for this exact phrasing.
-    await expect(dialog.getByText(/% confidence/i).first()).toBeVisible({ timeout: 30_000 });
+    await expect(dialog.getByText(/% confiden(ce|t)/i).first()).toBeVisible({ timeout: 30_000 });
 
     const confirmBtn = dialog.getByRole('button', { name: /confirm & run/i });
     if (await confirmBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {

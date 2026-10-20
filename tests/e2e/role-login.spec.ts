@@ -15,6 +15,7 @@
  *   itagent@crmitdesk.com     IT_AGENT
  */
 
+import { expandNav } from '../helpers/auth';
 import { test, expect, Page } from '@playwright/test';
 
 // ── Seeded user credentials ──────────────────────────────────────────────────
@@ -27,6 +28,7 @@ const USERS = [
 ];
 
 async function loginAs(page: Page, email: string, password: string) {
+  await expandNav(page);
   await page.goto('/login');
   await page.getByPlaceholder(/you@company/i).fill(email);
   await page.getByPlaceholder(/password/i).fill(password);
@@ -52,7 +54,7 @@ test.describe('Core navigation visible for all roles', () => {
     test(`${u.role} sees Dashboard and Tickets links`, async ({ page }) => {
       await loginAs(page, u.email, u.password);
       const sidebar = page.locator('aside');
-      await expect(sidebar.getByRole('link', { name: /dashboard/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
       await expect(sidebar.getByRole('link', { name: /tickets/i })).toBeVisible();
     });
   }
@@ -178,8 +180,8 @@ test.describe('Wrong password rejected', () => {
       await page.getByRole('button', { name: /^sign in$/i }).last().click();
 
       await expect(
-        page.getByText(/invalid.*email|invalid.*password|wrong.*credentials|incorrect/i).first()
-          .or(page.locator('.text-red-500, .text-red-600, .text-red-700, [role="alert"]').first())
+        page.getByText(/invalid.*email|invalid.*password|wrong.*credentials|incorrect/i)
+          .or(page.locator('.text-red-500, .text-red-600, .text-red-700, [role="alert"]')).first()
       ).toBeVisible({ timeout: 10_000 });
 
       // Must not have navigated away from login

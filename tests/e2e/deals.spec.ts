@@ -49,7 +49,7 @@ test.describe('Deals / Pipeline', () => {
   });
 
   test('switches to Reports tab and shows funnel', async ({ page }) => {
-    await page.getByRole('button', { name: /reports/i }).click();
+    await page.getByRole('tab', { name: /reports/i }).click();
     await expect(page.getByText('Pipeline Funnel')).toBeVisible();
     await expect(page.getByText('Weighted Forecast')).toBeVisible();
   });

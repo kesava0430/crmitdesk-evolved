@@ -24,12 +24,12 @@ test.describe('Registration', () => {
     await page.goto('/login');
     // Two "Sign in" buttons exist (tab + submit), so use .first() to get the tab
     await expect(page.getByRole('button', { name: /sign in/i }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /create account/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /create account/i })).toBeVisible();
   });
 
   test('Create Account tab shows Company Name field', async ({ page }) => {
     await page.goto('/login');
-    await page.getByRole('button', { name: /create account/i }).click();
+    await page.getByRole('tab', { name: /create account/i }).click();
     await expect(page.getByPlaceholder(/acme inc/i)).toBeVisible();
     await expect(page.getByPlaceholder(/jane smith/i)).toBeVisible();
   });
@@ -41,7 +41,7 @@ test.describe('Registration', () => {
   // then logging in for real once the account actually exists.
   async function submitAndApprove(page: import('@playwright/test').Page, request: import('@playwright/test').APIRequestContext, org: typeof ORG_A) {
     await page.goto('/login');
-    await page.getByRole('button', { name: /create account/i }).click();
+    await page.getByRole('tab', { name: /create account/i }).click();
 
     await page.getByPlaceholder(/acme inc/i).fill(org.orgName);
     await page.getByPlaceholder(/jane smith/i).fill(org.name);
@@ -75,7 +75,7 @@ test.describe('Registration', () => {
 
   test('shows error on duplicate email', async ({ page }) => {
     await page.goto('/login');
-    await page.getByRole('button', { name: /create account/i }).click();
+    await page.getByRole('tab', { name: /create account/i }).click();
 
     await page.getByPlaceholder(/acme inc/i).fill('Duplicate Org');
     await page.getByPlaceholder(/jane smith/i).fill('Dupe User');
@@ -89,7 +89,7 @@ test.describe('Registration', () => {
 
   test('shows validation error when password is too short', async ({ page }) => {
     await page.goto('/login');
-    await page.getByRole('button', { name: /create account/i }).click();
+    await page.getByRole('tab', { name: /create account/i }).click();
 
     await page.getByPlaceholder(/acme inc/i).fill('Short Pass Org');
     await page.getByPlaceholder(/jane smith/i).fill('Short User');
@@ -116,7 +116,7 @@ test.describe('Org name in sidebar', () => {
     const sidebar = page.locator('aside');
     await expect(sidebar).toBeVisible();
     // The logo text is always present
-    await expect(sidebar.getByText('CRM & IT Desk')).toBeVisible();
+    await expect(sidebar.getByText('Zenkara 360').first()).toBeVisible();
   });
 });
 
@@ -126,7 +126,7 @@ test.describe('Org name in sidebar', () => {
 test.describe('User invite flow', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await page.getByRole('link', { name: 'Users' }).click();
+    await page.getByRole('link', { name: 'Logins & Invites' }).click();
     await page.waitForURL(/\/admin\/users/);
   });
 
@@ -194,7 +194,7 @@ test.describe('Accept Invite page', () => {
 
   test('shows the logo and branding on accept invite page', async ({ page }) => {
     await page.goto('/accept-invite?token=anytoken');
-    await expect(page.getByText('CRM & IT Desk')).toBeVisible();
+    await expect(page.getByText('Zenkara 360').first()).toBeVisible();
   });
 });
 

@@ -24,7 +24,8 @@ test.describe('Payslip templates (phase 4)', () => {
     expect(t.isDefault).toBe(false);
 
     const html = await (await page.request.get(`${API}/api/hr/payroll/templates/${t.id}/preview`, { headers })).json();
-    expect(html.html).toContain('SALARY STATEMENT');
+    // The header title is upper-cased in CSS (text-transform) by the current renderer.
+    expect(html.html).toContain('Salary Statement');
     expect(html.html).toContain('E2E Bot');
     expect(html.html).toMatch(/Rupees|Dollars|Only/);
 
@@ -36,7 +37,7 @@ test.describe('Payslip templates (phase 4)', () => {
     // unsaved draft preview
     const draft = await page.request.post(`${API}/api/hr/payroll/templates/preview`, { headers, data: { layout: 'STATEMENT', primaryColor: '#000000', headerTitle: 'Draft Slip' } });
     expect(draft.ok()).toBeTruthy();
-    expect((await draft.json()).html).toContain('DRAFT SLIP');
+    expect((await draft.json()).html).toContain('Draft Slip'); // upper-cased in CSS
 
     const dup = await (await page.request.post(`${API}/api/hr/payroll/templates/${t.id}/duplicate`, { headers })).json();
     expect(dup.name).toBe(`${name} (copy)`);

@@ -67,7 +67,10 @@ test.describe('Refresh token rotation', () => {
     const res1 = await apiRefresh(r1);
     expect(res1.ok()).toBeTruthy();
 
-    // Try to reuse r1 — must be rejected
+    // A rotated token gets a short, bounded grace window (refreshPolicy.ts:
+    // 120 s, at most 5 extra successors) so a lost response on a phone doesn't
+    // log the user out. Beyond that budget the old token is dead.
+    for (let i = 0; i < 5; i++) expect((await apiRefresh(r1)).ok()).toBeTruthy();
     const res2 = await apiRefresh(r1);
     expect(res2.status()).toBe(401);
   });

@@ -35,7 +35,7 @@ test.describe('Schedules — WhatsApp reminders on Tickets', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByLabel(/title/i).fill(SCHEDULE_TICKET_TITLE);
     await page.getByLabel(/description/i).fill('Fixture ticket for schedules.spec.ts reminder tests.');
-    await page.getByLabel(/priority/i).selectOption('MEDIUM');
+    await page.getByRole('dialog').getByLabel(/^priority$/i).selectOption('MEDIUM');
     await page.getByRole('button', { name: /submit ticket/i }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 8_000 });
     await expect(page.getByText(SCHEDULE_TICKET_TITLE).first()).toBeVisible({ timeout: 8_000 });
