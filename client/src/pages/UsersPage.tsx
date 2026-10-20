@@ -390,11 +390,12 @@ export function UsersPage() {
           <Alert tone="warning" title={`Pending Invites (${pendingInvites.length})`}>
             <div className="space-y-1 mt-1">
               {pendingInvites.map((inv: any) => (
-                <div key={inv.id} className="flex items-center justify-between gap-2">
-                  <span>{inv.email}</span>
-                  <div className="flex items-center gap-2">
+                <div key={inv.id} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                  {/* Wraps on phones: a long address used to push the role badge past the card edge. */}
+                  <span className="min-w-0 break-all">{inv.email}</span>
+                  <div className="flex items-center gap-2 shrink-0">
                     <span data-user-content="role"><Badge variant="yellow">{inv.role.replace(/_/g, ' ')}</Badge></span>
-                    <span className="text-[11.5px] opacity-80">Expires {date(inv.expiresAt)}</span>
+                    <span className="text-[11.5px] opacity-80 whitespace-nowrap">Expires {date(inv.expiresAt)}</span>
                   </div>
                 </div>
               ))}
