@@ -353,7 +353,7 @@ function systemPrompt(menu: Array<{ name: string; description: string; params: s
     'You are the action planner of Zenkara 360, a business app with HR, CRM and IT Desk. Turn the user\'s request into an ordered plan of actions taken ONLY from this list:',
     menu.map(a => `- ${a.name}: ${a.description}\n  params: ${a.params}`).join('\n'),
     '',
-    'Reply with JSON only: {"steps":[{"action":"NAME","params":{...}}],"confidence":0-100,"explanation":"one short sentence the user will read before confirming"}',
+    'Reply with JSON only: {"steps":[{"action":"NAME","params":{...}}],"confidence":0-100,"explanation":"one short sentence, in the future tense, saying what WILL happen once the user confirms (nothing has run yet)"}',
     'Rules:',
     `1. Fewest steps that do what was asked, in the order they must happen (at most ${MAX_STEPS}). If nothing in the list fits, or the user is only asking a question, return {"steps":[],"confidence":0,"explanation":"<what you can't do>"}.`,
     '2. To use a record an earlier step creates, write "$N.id" where N is that step\'s number (starting at 1), e.g. {"leadId":"$1.id"}.',
@@ -414,7 +414,20 @@ export async function normalizeSteps(env: NormalizeEnv, raw: Array<{ action: str
   return steps;
 }
 
+/* The model's one-line explanation is shown on the confirmation card, before
+   anything has run. Live, gpt-oss sometimes wrote it as if the work were done
+   ("Your sick leave has been requested") — misleading at exactly the moment
+   the user decides. Such wording is replaced with a plain list of the steps. */
+const CLAIMS_DONE = /\b(has|have) been\b|\b(was|were) (created|sent|added|requested|scheduled|approved|updated|assigned|logged|recorded|submitted|marked)\b|\b(successfully|done)\b|\bi(?:'|’)?ve (created|sent|added|requested|scheduled|approved|updated|assigned|logged|recorded|submitted|marked)\b/i;
+export function confirmableExplanation(explanation: string, steps: Array<{ label?: string }>): string {
+  if (explanation && !CLAIMS_DONE.test(explanation)) return explanation;
+  const labels = steps.map(s => s.label).filter(Boolean) as string[];
+  if (!labels.length) return explanation && !CLAIMS_DONE.test(explanation) ? explanation : '';
+  return `This will: ${labels.map((l, i) => (i ? l.charAt(0).toLowerCase() + l.slice(1) : l)).join(', then ')}. Nothing happens until you confirm.`;
+}
+
 export function summarisePlan(steps: PlanStep[], meta: { planId: string; interactionLogId: string | null; explanation: string; confidence: number; repaired: boolean }): ActionPlan {
+  meta = { ...meta, explanation: confirmableExplanation(meta.explanation, steps) };
   const risk = steps.reduce<Risk>((m, s) => (RISK_ORDER.indexOf(s.risk) > RISK_ORDER.indexOf(m) ? s.risk : m), 'low');
   const ready = steps.length > 0 && steps.every(s => s.allowed && !s.errors.length && !s.needs.length);
   const first = steps[0];

@@ -464,3 +464,13 @@ test('planner shows the model only the actions a request points at', () => {
   assert.ok(names('mark invoice INV-0042 as paid').includes('CHANGE_INVOICE_STATUS'));
   assert.ok(names('hello there').length > 0);
 });
+
+import { confirmableExplanation } from '../../src/utils/aiActions/planner';
+
+test('confirmation text never claims the work is already done', () => {
+  const steps = [{ label: 'Create a lead' }, { label: 'Schedule a WhatsApp reminder' }];
+  assert.equal(confirmableExplanation('Create Ravi’s lead and remind you Friday.', steps), 'Create Ravi’s lead and remind you Friday.');
+  for (const done of ['Your sick leave for tomorrow has been requested.', 'The ticket was created successfully.', "I've scheduled the reminder."]) {
+    assert.equal(confirmableExplanation(done, steps), 'This will: Create a lead, then schedule a WhatsApp reminder. Nothing happens until you confirm.');
+  }
+});
