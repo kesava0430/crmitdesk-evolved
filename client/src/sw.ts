@@ -46,7 +46,12 @@ precacheAndRoute(self.__WB_MANIFEST);
 // tests regexes against the absolute URL ("https://host/api/..."), so a
 // ^-anchored /^\/api\//-style pattern silently never matches — and would
 // also miss a future cross-origin VITE_API_URL deployment.
-registerRoute(({ url }) => url.pathname.startsWith(asset('api/')), new NetworkOnly());
+// …except the live-update stream (api/events/stream, SSE): routed through the
+// worker it stays an in-flight fetch event for as long as the tab is open, and
+// Chromium will not activate a new worker while the old one has one pending —
+// so after a deploy the new worker sat "waiting" and open tabs never reloaded
+// onto the new bundle. Left unhandled here, the browser fetches it directly.
+registerRoute(({ url }) => url.pathname.startsWith(asset('api/')) && !url.pathname.startsWith(asset('api/events/')), new NetworkOnly());
 registerRoute(({ url }) => url.pathname.startsWith(asset('portal/')), new NetworkOnly());
 
 // Face-verification model weights (<base>models/face/*, ~6.7 MB total) are static
