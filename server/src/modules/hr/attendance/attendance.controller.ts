@@ -9,7 +9,9 @@ import { logAction } from '../../../utils/auditLog';
 import {
   DescriptorSchema, SelfieSchema, MAX_ENROLLMENT_SAMPLES, assertPlausibleDescriptor,
   getOrCreateAttendancePolicy, checkFaceSignal, faceNotEnrolledError, faceRequiredError,
+  LivenessPayloadSchema, bestMatchDistance, DESCRIPTOR_LENGTH, type LivenessPayload, type FaceSignal,
 } from '../../../utils/faceVerification';
+import { verifyLiveness, redeemEnrolChallenge, appUpdateRequiredError, issueChallenge, abandonChallenge, type LivenessPurpose } from '../../../utils/liveness/challenge';
 import {
   RuleSchema, DEFAULT_CHECK_IN_RULE, DEFAULT_CHECK_OUT_RULE, parseRule, evaluateRule, describeRule,
   type VerificationRule, type SignalResults,
@@ -33,11 +35,18 @@ const CheckSchema = z.object({
   /** Omitted/null when the rule doesn't use location (e.g. face-only) — never 0,0 */
   lat: z.number().min(-90).max(90).nullable().optional(),
   lng: z.number().min(-180).max(180).nullable().optional(),
-  /** 128-float descriptor from the browser face model — required when the org's AttendancePolicy demands it */
+  /** Answer to a server-issued liveness challenge — the server analyses the frames itself */
+  liveness: LivenessPayloadSchema.optional(),
+  /** The check-in right after a first enrolment: spends that enrolment's liveness pass once */
+  enrolChallengeId: z.string().min(16).max(64).optional(),
+  /** LEGACY (apps without liveness): 128-float descriptor computed in the browser.
+   *  Only accepted when the org has turned "Require liveness check" off. */
   faceDescriptor: DescriptorSchema.optional(),
-  /** Small JPEG data URL captured with the descriptor; stored as evidence when the policy keeps selfies */
+  /** LEGACY: selfie sent with the descriptor above */
   selfie: SelfieSchema.optional(),
 });
+
+type FaceInput = { liveness?: LivenessPayload; enrolChallengeId?: string; faceDescriptor?: number[] };
 
 interface VerifiedSignals {
   rule: VerificationRule;
@@ -46,7 +55,49 @@ interface VerifiedSignals {
   networkOk: boolean;
   faceOk: boolean | null;
   faceDistance: number | null;
+  /** Evidence photo chosen by the server (a verified liveness frame), when there is one */
+  faceEvidence: string | null;
   ip: string;
+}
+
+/**
+ * The face signal for a check-in/out. Liveness answers are verified on the
+ * server (utils/liveness); a bare descriptor from an old app is refused while
+ * the org requires liveness — `legacyBlocked` tells the caller to answer
+ * "update the app" when the face is actually needed.
+ */
+async function resolveFaceSignal(
+  action: 'in' | 'out', orgId: string, userId: string,
+  policy: { faceMatchThreshold: number; requireLiveness: boolean },
+  input: FaceInput,
+): Promise<FaceSignal & { evidence?: string; legacyBlocked?: boolean }> {
+  const enrollment = await prisma.faceEnrollment.findUnique({ where: { userId } });
+  if (!enrollment) return { status: 'not_enrolled' };
+  const samples = (enrollment.descriptors as number[][]).filter(s => Array.isArray(s) && s.length === DESCRIPTOR_LENGTH);
+  const threshold = policy.faceMatchThreshold;
+
+  if (input.liveness) {
+    const pass = await verifyLiveness({
+      orgId, userId, purpose: action === 'in' ? 'CHECK_IN' : 'CHECK_OUT',
+      input: input.liveness, enrolled: samples, threshold,
+    });
+    const distance = pass.distance ?? Infinity;
+    return pass.matched ? { status: 'matched', distance, evidence: pass.neutralFrame } : { status: 'mismatch', distance, threshold };
+  }
+  if (input.enrolChallengeId) {
+    const redeemed = await redeemEnrolChallenge(input.enrolChallengeId, userId);
+    // Expired or already used: the client simply runs a fresh face check.
+    if (!redeemed) return { status: 'not_provided' };
+    const distance = Number(bestMatchDistance(redeemed.descriptor, samples).toFixed(4));
+    return distance <= threshold
+      ? { status: 'matched', distance, evidence: enrollment.referenceSelfie ?? undefined }
+      : { status: 'mismatch', distance, threshold };
+  }
+  if (input.faceDescriptor) {
+    if (policy.requireLiveness) return { status: 'not_provided', legacyBlocked: true };
+    return checkFaceSignal(userId, threshold, input.faceDescriptor);
+  }
+  return { status: 'not_provided' };
 }
 
 /**
@@ -60,7 +111,7 @@ interface VerifiedSignals {
 async function verifySignals(
   action: 'in' | 'out',
   req: AuthRequest,
-  input: { lat: number | null; lng: number | null; faceDescriptor?: number[] },
+  input: { lat: number | null; lng: number | null } & FaceInput,
   wfh = false,
 ): Promise<VerifiedSignals> {
   const orgId = req.user!.orgId;
@@ -89,16 +140,21 @@ async function verifySignals(
   };
 
   let faceDistance: number | null = null;
+  let faceEvidence: string | null = null;
   if (rule.face) {
-    const face = await checkFaceSignal(userId, policy.faceMatchThreshold, input.faceDescriptor);
-    if (face.status === 'matched') { results.face = true; faceDistance = face.distance; }
-    else if (face.status === 'mismatch') { results.face = false; faceDistance = face.distance; }
+    const face = await resolveFaceSignal(action, orgId, userId, policy, input);
+    if (face.status === 'matched') { results.face = true; faceDistance = face.distance; faceEvidence = face.evidence ?? null; }
+    else if (face.status === 'mismatch') { results.face = false; faceDistance = Number.isFinite(face.distance) ? face.distance : null; }
     else {
-      // Not enrolled / not captured. Under ANY the other signals may still carry
-      // the action; otherwise tell the client exactly what to do next.
+      // Not enrolled / not captured / old app. Under ANY the other signals may
+      // still carry the action; otherwise tell the client exactly what to do next.
       results.face = false;
       const without = evaluateRule(rule, results);
-      if (rule.enforce && !without.passed) throw face.status === 'not_enrolled' ? faceNotEnrolledError(verb) : faceRequiredError(verb);
+      if (rule.enforce && !without.passed) {
+        throw face.status === 'not_enrolled' ? faceNotEnrolledError(verb)
+          : face.legacyBlocked ? appUpdateRequiredError()
+          : faceRequiredError(verb);
+      }
     }
   }
 
@@ -118,7 +174,7 @@ async function verifySignals(
   return {
     rule, passed: outcome.passed, ip,
     locationOk: hasCoords && geo.locationOk, networkOk: geo.networkOk,
-    faceOk: rule.face ? results.face : null, faceDistance,
+    faceOk: rule.face ? results.face : null, faceDistance, faceEvidence,
   };
 }
 
@@ -127,7 +183,7 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
   try {
     const body = CheckSchema.parse(req.body);
     const lat = body.lat ?? null, lng = body.lng ?? null;
-    const { faceDescriptor, selfie } = body;
+    const { faceDescriptor, selfie, liveness, enrolChallengeId } = body;
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
 
@@ -156,7 +212,10 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     const wfh = await wfhDayInfo(orgId, userId, dayKey);
 
     const policy = await getOrCreateAttendancePolicy(orgId);
-    const v = await verifySignals('in', req, { lat, lng, faceDescriptor }, !!wfh);
+    const v = await verifySignals('in', req, { lat, lng, faceDescriptor, liveness, enrolChallengeId }, !!wfh);
+    // A verified liveness frame is the evidence; the client's own selfie only
+    // on the legacy path (liveness turned off by the org).
+    const evidence = v.faceEvidence ?? (policy.requireLiveness ? null : selfie ?? null);
 
     let record;
     try {
@@ -166,7 +225,7 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
           checkInAt: now, checkInLat: lat, checkInLng: lng, checkInIp: v.ip,
           checkInLocationOk: v.locationOk, checkInNetworkOk: v.networkOk,
           checkInFaceOk: v.faceOk, checkInFaceDistance: v.faceDistance, checkInPassed: v.passed,
-          ...(v.faceOk && policy.keepCheckInSelfie && selfie ? { checkInSelfie: selfie } : {}),
+          ...(v.faceOk && policy.keepCheckInSelfie && evidence ? { checkInSelfie: evidence } : {}),
           source: 'SELF', mode: wfh ? 'WFH' : 'OFFICE',
         },
         select: RECORD_PUBLIC_SELECT,
@@ -188,7 +247,7 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
   try {
     const body = CheckSchema.parse(req.body);
     const lat = body.lat ?? null, lng = body.lng ?? null;
-    const { faceDescriptor, selfie } = body;
+    const { faceDescriptor, selfie, liveness, enrolChallengeId } = body;
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
 
@@ -223,7 +282,8 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
     // A WFH session checks out from home too: the office checks don't apply.
     const wfhOut = openSession.mode === 'WFH' || !!(await wfhDayInfo(orgId, userId, recordDayKey(openSession, dayPolicy)));
     const policy = await getOrCreateAttendancePolicy(orgId);
-    const v = await verifySignals('out', req, { lat, lng, faceDescriptor }, wfhOut);
+    const v = await verifySignals('out', req, { lat, lng, faceDescriptor, liveness, enrolChallengeId }, wfhOut);
+    const evidence = v.faceEvidence ?? (policy.requireLiveness ? null : selfie ?? null);
 
     const record = await prisma.attendanceRecord.update({
       where: { id: openSession.id },
@@ -232,7 +292,7 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
         checkOutLocationOk: v.locationOk, checkOutNetworkOk: v.networkOk,
         checkOutFaceOk: v.faceOk, checkOutFaceDistance: v.faceDistance, checkOutPassed: v.passed,
         checkOutSource: 'SELF', outsideSince: null, backgroundedAt: null,
-        ...(v.faceOk && policy.keepCheckInSelfie && selfie ? { checkOutSelfie: selfie } : {}),
+        ...(v.faceOk && policy.keepCheckInSelfie && evidence ? { checkOutSelfie: evidence } : {}),
       },
       select: RECORD_PUBLIC_SELECT,
     });
@@ -503,6 +563,7 @@ const PolicySchema = z.object({
   checkInRule: RuleSchema.optional(),
   checkOutRule: RuleSchema.optional(),
   faceMatchThreshold: z.number().min(0.3).max(0.8).optional(),
+  requireLiveness: z.boolean().optional(),
   keepCheckInSelfie: z.boolean().optional(),
   autoCheckoutOnLeave: z.boolean().optional(),
   autoCheckoutAfterMinutes: z.number().int().min(1).max(240).optional(),
@@ -555,9 +616,34 @@ export async function updatePolicy(req: AuthRequest, res: Response, next: NextFu
 // ─── Face enrolment ──────────────────────────────────────────────────────────
 
 const EnrolSchema = z.object({
-  descriptors: z.array(DescriptorSchema).min(1).max(MAX_ENROLLMENT_SAMPLES),
+  /** The liveness answer; the server derives the descriptors from its frames. */
+  liveness: LivenessPayloadSchema.optional(),
+  /** LEGACY (liveness turned off): client-computed descriptors + selfie. */
+  descriptors: z.array(DescriptorSchema).min(1).max(MAX_ENROLLMENT_SAMPLES).optional(),
   referenceSelfie: SelfieSchema.optional(),
 });
+
+/**
+ * The face to store for an enrolment / re-enrolment request. With liveness,
+ * everything comes from the server's own analysis of the challenge frames —
+ * a photo can't be enrolled, and neither can a descriptor made offline.
+ */
+async function enrolmentFromRequest(orgId: string, userId: string, body: z.infer<typeof EnrolSchema>) {
+  const policy = await getOrCreateAttendancePolicy(orgId);
+  if (body.liveness) {
+    const pass = await verifyLiveness({ orgId, userId, purpose: 'ENROL', input: body.liveness, enrolled: null, threshold: policy.faceMatchThreshold });
+    return {
+      descriptors: pass.descriptors.slice(0, MAX_ENROLLMENT_SAMPLES),
+      images: pass.frames.slice(0, MAX_ENROLLMENT_SAMPLES),
+      referenceSelfie: pass.neutralFrame,
+      enrolChallengeId: pass.challengeId as string | null,
+    };
+  }
+  if (policy.requireLiveness) throw appUpdateRequiredError();
+  if (!body.descriptors) throw new AppError(400, 'Face samples are missing — please try again.');
+  body.descriptors.forEach(assertPlausibleDescriptor);
+  return { descriptors: body.descriptors, images: null as string[] | null, referenceSelfie: body.referenceSelfie ?? null, enrolChallengeId: null };
+}
 
 /**
  * POST /hr/attendance/face/enrol — first-time enrolment only.
@@ -570,31 +656,90 @@ const EnrolSchema = z.object({
  */
 export async function enrolFace(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { descriptors, referenceSelfie } = EnrolSchema.parse(req.body);
-    descriptors.forEach(assertPlausibleDescriptor);
+    const body = EnrolSchema.parse(req.body);
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
 
+    // Refused before any liveness work, so a 409 never spends a challenge.
     const existing = await prisma.faceEnrollment.findUnique({ where: { userId }, select: { id: true } });
     if (existing) {
       throw new AppError(409, 'Your face is already enrolled. Submit a re-enrolment request for approval instead.');
     }
 
+    const face = await enrolmentFromRequest(orgId, userId, body);
     const enrollment = await prisma.faceEnrollment.create({
-      data: { orgId, userId, descriptors, samples: descriptors.length, referenceSelfie: referenceSelfie ?? null },
+      data: { orgId, userId, descriptors: face.descriptors, samples: face.descriptors.length, referenceSelfie: face.referenceSelfie },
       select: { samples: true, enrolledAt: true, updatedAt: true, referenceSelfie: true },
     });
-    logAction(userId, 'CREATE', 'FaceEnrollment', userId, { samples: descriptors.length });
-    res.json(enrollment);
+    logAction(userId, 'CREATE', 'FaceEnrollment', userId, { samples: face.descriptors.length, liveness: !!body.liveness });
+    // enrolChallengeId lets the check-in that triggered this enrolment go
+    // straight through without a second face check (redeemable once, briefly).
+    res.json({ ...enrollment, enrolChallengeId: face.enrolChallengeId });
+  } catch (err) { next(err); }
+}
+
+// ─── Face liveness challenges ────────────────────────────────────────────────
+
+const ChallengeRequestSchema = z.object({ purpose: z.enum(['check_in', 'check_out', 'enrol']) });
+const PURPOSES: Record<'check_in' | 'check_out' | 'enrol', LivenessPurpose> = { check_in: 'CHECK_IN', check_out: 'CHECK_OUT', enrol: 'ENROL' };
+
+/**
+ * POST /hr/attendance/face/challenge — a fresh, single-use liveness challenge
+ * (random steps, ~90 s) bound to the caller and what it's for. Refused with
+ * 429 after 5 failed face checks in 10 minutes.
+ */
+export async function createFaceChallenge(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { purpose } = ChallengeRequestSchema.parse(req.body ?? {});
+    res.json(await issueChallenge(req.user!.orgId, req.user!.id, PURPOSES[purpose]));
+  } catch (err) { next(err); }
+}
+
+/** POST /hr/attendance/face/challenge/:id/abandon — the client gave up (audit + rate limit only). */
+export async function abandonFaceChallenge(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const reason = z.object({ reason: z.string().max(60).optional() }).parse(req.body ?? {}).reason ?? 'abandoned';
+    await abandonChallenge(req.params.id, req.user!.id, reason);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+}
+
+/** GET /hr/attendance/face/attempts — managers: recent failed face checks with reasons (no images). */
+export async function listFaceAttempts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const rows = await prisma.faceLivenessChallenge.findMany({
+      where: { orgId: req.user!.orgId, result: 'FAILED' },
+      orderBy: { usedAt: 'desc' },
+      take: 100,
+      select: {
+        id: true, purpose: true, steps: true, failureReason: true, usedAt: true, createdAt: true,
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+    const withEvidence = new Set((await prisma.faceLivenessChallenge.findMany({
+      where: { id: { in: rows.map(r => r.id) }, evidenceFrame: { not: null } }, select: { id: true },
+    })).map(r => r.id));
+    res.json(rows.map(r => ({ ...r, hasEvidence: withEvidence.has(r.id) })));
+  } catch (err) { next(err); }
+}
+
+/** GET /hr/attendance/face/attempts/:id — one failed attempt with its evidence frame and metrics. */
+export async function getFaceAttempt(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const row = await prisma.faceLivenessChallenge.findFirst({
+      where: { id: req.params.id, orgId: req.user!.orgId, result: 'FAILED' },
+      select: { id: true, purpose: true, steps: true, failureReason: true, usedAt: true, details: true, evidenceFrame: true, user: { select: { id: true, name: true, email: true } } },
+    });
+    if (!row) throw new AppError(404, 'Attempt not found');
+    res.json(row);
   } catch (err) { next(err); }
 }
 
 // ─── Face re-enrolment requests ──────────────────────────────────────────────
 
-const ReenrolSchema = z.object({
-  descriptors: z.array(DescriptorSchema).min(1).max(MAX_ENROLLMENT_SAMPLES),
-  /** One image per descriptor — the reviewer compares these with the current face. */
-  sampleImages: z.array(SelfieSchema).min(1).max(MAX_ENROLLMENT_SAMPLES),
+const ReenrolSchema = EnrolSchema.extend({
+  /** LEGACY: one image per descriptor. With liveness the challenge frames are the images. */
+  sampleImages: z.array(SelfieSchema).min(1).max(MAX_ENROLLMENT_SAMPLES).optional(),
 });
 
 /** Shape returned to the employee and to reviewers in list views (no images). */
@@ -611,8 +756,7 @@ const REQUEST_SUMMARY = {
  */
 export async function requestFaceReenrolment(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { descriptors, sampleImages } = ReenrolSchema.parse(req.body);
-    descriptors.forEach(assertPlausibleDescriptor);
+    const body = ReenrolSchema.parse(req.body);
     const orgId = req.user!.orgId;
     const userId = req.user!.id;
 
@@ -623,6 +767,17 @@ export async function requestFaceReenrolment(req: AuthRequest, res: Response, ne
     /* Nothing to replace — the plain enrolment route handles that case, and
        routing it here would create a request with no "before" to compare. */
     if (!current) throw new AppError(400, 'You have no enrolled face yet — enrol first.');
+    // Checked before the liveness work too, so a duplicate doesn't spend a
+    // challenge; the unique index below still settles a genuine race.
+    const pending = await prisma.faceReenrollmentRequest.findFirst({ where: { orgId, userId, status: 'PENDING' }, select: { id: true } });
+    if (pending) throw new AppError(409, 'You already have a re-enrolment request awaiting approval.');
+
+    const face = await enrolmentFromRequest(orgId, userId, body);
+    const descriptors = face.descriptors;
+    // The reviewer compares these with the current face: the verified
+    // challenge frames, or (legacy) the images the old client sent.
+    const sampleImages = face.images ?? body.sampleImages;
+    if (!sampleImages?.length) throw new AppError(400, 'Sample images are missing — please try again.');
 
     try {
       const created = await prisma.faceReenrollmentRequest.create({

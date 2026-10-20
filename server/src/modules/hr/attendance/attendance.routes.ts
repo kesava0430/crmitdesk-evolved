@@ -28,6 +28,18 @@ router.post('/heartbeat', requireRole(...ALL_USERS), c.heartbeat);
 router.get('/policy',            requireRole(...ALL_USERS), c.getPolicy);
 router.patch('/policy',          requireRole(...MANAGERS),  c.updatePolicy);
 router.post('/face/enrol',       requireRole(...ALL_USERS), c.enrolFace);
+// Liveness challenges (utils/liveness). Failed checks are capped at 5 per 10
+// minutes in the challenge service itself (DB-backed, survives restarts);
+// this limiter only stops a client from minting challenges in a loop.
+const challengeLimiter = rateLimit({
+  windowMs: 10 * 60_000, max: 30, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => (req as any).user?.id ?? req.ip ?? 'anon',
+  message: { error: 'Too many face checks in a short time — wait a few minutes and try again.' },
+});
+router.post('/face/challenge',             requireRole(...ALL_USERS), challengeLimiter, c.createFaceChallenge);
+router.post('/face/challenge/:id/abandon', requireRole(...ALL_USERS), c.abandonFaceChallenge);
+router.get('/face/attempts',               requireRole(...MANAGERS),  c.listFaceAttempts);
+router.get('/face/attempts/:id',           requireRole(...MANAGERS),  c.getFaceAttempt);
 router.post('/face/reenrol',     requireRole(...ALL_USERS), c.requestFaceReenrolment);
 router.get('/face',              requireRole(...MANAGERS),  c.listEnrollments);
 

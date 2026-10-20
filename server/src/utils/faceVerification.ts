@@ -1,16 +1,17 @@
 // ─── Face verification helpers ───────────────────────────────────────────────
 //
-// The browser (client/src/shared/face.ts, @vladmandic/face-api) turns a webcam
-// frame into a 128-float face descriptor. We never receive or process the
-// photo for matching — only descriptors — so the server stays light enough
-// for Render and no third-party face service is involved. Matching is the
-// standard euclidean distance between descriptors; face-api's conventional
-// "same person" threshold is 0.6, we default to a stricter 0.5.
+// Matching is the standard euclidean distance between 128-float face-api
+// descriptors; face-api's conventional "same person" threshold is 0.6, we
+// default to a stricter 0.5.
 //
-// Trust model: the descriptor is computed client-side, so this protects
-// against the everyday "buddy punching" case (someone else checking in from
-// a colleague's phone) rather than a deliberately modified client. The
-// selfie captured alongside is kept as evidence for manager review.
+// Trust model (since 2026-10): when the org's policy requires liveness (the
+// default), the descriptor is NOT taken from the client. The browser runs a
+// server-issued challenge (random head turns / mouth open) and uploads a few
+// small frames; the server finds the face, landmarks and descriptor in them
+// itself and checks the movement — see utils/liveness/. That is what stops a
+// photo held up to the camera, and a descriptor computed offline from a photo
+// and POSTed without a camera. The descriptor-only payload below is the
+// legacy path, accepted only when an org has explicitly turned liveness off.
 
 import { z } from 'zod';
 import { prisma } from './prisma';
@@ -23,6 +24,13 @@ export const MAX_SELFIE_CHARS = 60_000;
 
 export const DescriptorSchema = z.array(z.number().finite()).length(DESCRIPTOR_LENGTH);
 export const SelfieSchema = z.string().regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/).max(MAX_SELFIE_CHARS);
+
+/** Answer to a liveness challenge: its id plus the frames (neutral, one per step, neutral). */
+export const LivenessPayloadSchema = z.object({
+  challengeId: z.string().min(16).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  frames: z.array(SelfieSchema).min(3).max(5),
+});
+export type LivenessPayload = z.infer<typeof LivenessPayloadSchema>;
 
 export function euclideanDistance(a: number[], b: number[]): number {
   let sum = 0;

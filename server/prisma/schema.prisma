@@ -115,6 +115,7 @@ model Organization {
   attendancePolicy  AttendancePolicy?
   faceEnrollments   FaceEnrollment[]
   faceReenrollmentRequests FaceReenrollmentRequest[]
+  faceLivenessChallenges   FaceLivenessChallenge[]
   locationPings     AttendanceLocationPing[]
   salaryComponents  SalaryComponent[]
   payrollCycles     PayrollCycle[]
@@ -373,6 +374,7 @@ model User {
   faceEnrollment    FaceEnrollment?
   faceReenrollmentRequests FaceReenrollmentRequest[] @relation("FaceReenrolRequester")
   faceReenrollmentsDecided FaceReenrollmentRequest[] @relation("FaceReenrolDecider")
+  faceLivenessChallenges   FaceLivenessChallenge[]
   locationPings     AttendanceLocationPing[]
   employeeSalaries  EmployeeSalary[]
   employeeLoans     EmployeeLoan[]
@@ -1892,6 +1894,11 @@ model AttendancePolicy {
   faceMatchThreshold       Float        @default(0.5) @map("face_match_threshold")
   /// Keep the check-in selfie on the attendance record for manager review.
   keepCheckInSelfie        Boolean      @default(true) @map("keep_check_in_selfie")
+  /// Face checks must pass a server-verified liveness challenge (random head
+  /// turns / mouth open, frames re-analysed on the server — see
+  /// utils/liveness). On by default: without it a photo of the person matched.
+  /// Off = the legacy descriptor-only payload is accepted again.
+  requireLiveness          Boolean      @default(true) @map("require_liveness")
   createdAt                DateTime     @default(now()) @map("created_at")
   updatedAt                DateTime     @updatedAt @map("updated_at")
   org                      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -1986,6 +1993,45 @@ model FaceReenrollmentRequest {
   @@index([orgId, status])
   @@index([orgId, userId])
   @@map("face_reenrollment_requests")
+}
+
+// One server-issued liveness challenge (utils/liveness/challenge.ts).
+//
+// The id is a random 144-bit token, not a cuid: it is the thing a client
+// proves it answered. Single use — usedAt is set by a compare-and-set the
+// moment a submission arrives, before any analysis, so two submissions can't
+// both spend it. Bound to the user and the purpose it was issued for.
+// Failed rows double as the rate-limit counter (5 per 10 min) and the audit
+// trail; on failure one frame is kept as evidence for review and purged with
+// the org's selfie retention.
+model FaceLivenessChallenge {
+  id            String       @id
+  orgId         String       @map("org_id")
+  userId        String       @map("user_id")
+  /// CHECK_IN | CHECK_OUT | ENROL
+  purpose       String
+  /// string[] — ordered steps, e.g. ["turn_left","open_mouth"]
+  steps         Json
+  expiresAt     DateTime     @map("expires_at")
+  usedAt        DateTime?    @map("used_at")
+  /// PASSED | FAILED (null while unused)
+  result        String?
+  /// e.g. photo_suspected, steps_out_of_order, timeout, face_changed, face_mismatch
+  failureReason String?      @map("failure_reason")
+  /// Per-frame metrics, distances and timing, for audit/debugging
+  details       Json?
+  /// One small JPEG data URL from a failed attempt, for review
+  evidenceFrame String?      @map("evidence_frame")
+  /// An ENROL challenge that passed can stand in for the check-in that
+  /// immediately follows a first enrolment, once (so nobody is asked twice).
+  redeemedAt    DateTime?    @map("redeemed_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([orgId, result, createdAt])
+  @@map("face_liveness_challenges")
 }
 
 // ─── HR: Leave Management ───────────────────────────────────────────────────

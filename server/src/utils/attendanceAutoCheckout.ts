@@ -144,6 +144,7 @@ export async function purgeOldLocationPings(now = new Date()): Promise<number> {
 /**
  * Clear check-in/out selfies older than each org's selfieRetentionDays (hourly
  * from index.ts). The pass/fail result and face distance stay on the record.
+ * Failed liveness attempts (with their evidence frame) age out the same way.
  */
 export async function purgeOldSelfies(now = new Date()): Promise<number> {
   const policies = await prisma.attendancePolicy.findMany({ select: { orgId: true, selfieRetentionDays: true } });
@@ -152,8 +153,14 @@ export async function purgeOldSelfies(now = new Date()): Promise<number> {
     const cutoff = new Date(now.getTime() - Math.max(1, p.selfieRetentionDays) * 86_400_000);
     const a = await prisma.attendanceRecord.updateMany({ where: { orgId: p.orgId, checkInAt: { lt: cutoff }, checkInSelfie: { not: null } }, data: { checkInSelfie: null } });
     const b = await prisma.attendanceRecord.updateMany({ where: { orgId: p.orgId, checkInAt: { lt: cutoff }, checkOutSelfie: { not: null } }, data: { checkOutSelfie: null } });
-    total += a.count + b.count;
+    // Liveness attempts (utils/liveness): their evidence frame is a photo too,
+    // so it follows the same retention; the row itself (reason + metrics) goes
+    // with it — the audit log keeps the failure record.
+    const c = await prisma.faceLivenessChallenge.deleteMany({ where: { orgId: p.orgId, createdAt: { lt: cutoff } } });
+    total += a.count + b.count + c.count;
   }
+  // Challenges nobody answered are useless after they expire.
+  await prisma.faceLivenessChallenge.deleteMany({ where: { usedAt: null, expiresAt: { lt: new Date(now.getTime() - 86_400_000) } } });
   return total;
 }
 
