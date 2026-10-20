@@ -193,7 +193,12 @@ export async function createField(req: AuthRequest, res: Response, next: NextFun
       },
     });
     res.status(201).json(field);
-  } catch (err) { next(err); }
+  } catch (err: any) {
+    // (orgId, entityType, fieldKey) is unique — a reused API name used to
+    // surface as "Internal server error" in the Create Custom Field dialog.
+    if (err?.code === 'P2002') return next(new AppError(409, `A ${String(req.body?.entityType ?? '').toLowerCase()} field with the API name "${req.body?.fieldKey}" already exists — pick a different API name.`));
+    next(err);
+  }
 }
 
 export async function updateField(req: AuthRequest, res: Response, next: NextFunction) {
