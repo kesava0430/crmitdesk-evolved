@@ -220,7 +220,7 @@ function AIQueryBar({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boo
         {!nlQuery.data && !nlQuery.isPending && (
           <div className="flex flex-wrap gap-2">
             {suggestions.map(q => (
-              <Button key={q} variant="secondary" size="xs" onClick={() => ask(q)} className="!rounded-badge !h-auto !py-1 text-left whitespace-normal">
+              <Button key={q} variant="secondary" size="xs" onClick={() => ask(q)} className="!rounded-badge !h-auto !py-1 text-left !whitespace-normal max-w-full">
                 {q}
               </Button>
             ))}
