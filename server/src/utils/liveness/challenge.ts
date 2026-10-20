@@ -199,21 +199,39 @@ export function judgeFrames(steps: LivenessStep[], analysed: FrameAnalysis[], en
 
   const seq = evaluateSequence(steps, analysed.map(a => a.geometry!));
   details.sequence = { reason: seq.reason, failedStep: seq.failedStep ?? null, steps: seq.steps.map(s => ({ ok: s.ok, strong: s.strong, reason: s.reason, dYaw: +s.yawDelta.toFixed(3), dAsym: +s.asymDelta.toFixed(3), dMar: +s.marDelta.toFixed(3) })) };
-  if (!seq.ok) return { ok: false, reason: seq.reason as FailureReason, details };
 
-  // Each turn, at pixel level: a flat picture moves as one plane. A planar
-  // verdict always fails; a weak turn additionally needs a positive 3D
-  // verdict (inconclusive = too blurry/dark to tell, which is what the
-  // "good light" message asks the person to fix).
+  // Each turn, at pixel level: a flat picture moves as one plane. Run for
+  // every turn the landmarks say happened (or that looked like "no 3D
+  // motion") BEFORE reporting sequence problems, so a photo is logged as a
+  // photo even when its squeezed face also confused another step.
   const planarity: Record<string, unknown>[] = [];
-  for (let i = 0; i < steps.length; i++) {
-    if (steps[i] === 'open_mouth') continue;
+  const verdicts = new Map<number, 'planar' | 'non_planar' | 'inconclusive'>();
+  for (let i = 0; i < steps.length && i < seq.steps.length; i++) {
+    const st = seq.steps[i];
+    if (steps[i] === 'open_mouth' || !(st.ok || st.reason === 'no_3d_motion')) continue;
     const a = analysed[0], b = analysed[i + 1];
     const r = planarMotion(a.grey, b.grey, a.landmarks!, b.landmarks!);
-    planarity.push({ step: i, strong: seq.steps[i].strong, ...r });
-    details.planarity = planarity;
-    if (r.verdict === 'planar') return { ok: false, reason: 'photo_suspected', details };
-    if (!seq.steps[i].strong && r.verdict !== 'non_planar') return { ok: false, reason: 'motion_unconfirmed', details };
+    planarity.push({ step: i, strong: st.strong, ...r });
+    verdicts.set(i, r.verdict);
+  }
+  details.planarity = planarity;
+  if ([...verdicts.values()].includes('planar')) return { ok: false, reason: 'photo_suspected', details };
+
+  if (!seq.ok) {
+    // The landmarks saw an incoherent "turn" but the pixels show real depth:
+    // a genuine head that simply didn't turn far enough, not a photo.
+    if (seq.reason === 'photo_suspected' && seq.failedStep != null && verdicts.get(seq.failedStep) === 'non_planar') {
+      return { ok: false, reason: 'step_not_performed', details };
+    }
+    return { ok: false, reason: seq.reason as FailureReason, details };
+  }
+
+  // A weak turn needs a positive 3D verdict (inconclusive = too blurry/dark
+  // to tell, which is what the "good light" message asks the person to fix).
+  for (let i = 0; i < steps.length; i++) {
+    if (steps[i] !== 'open_mouth' && !seq.steps[i].strong && verdicts.get(i) !== 'non_planar') {
+      return { ok: false, reason: 'motion_unconfirmed', details };
+    }
   }
 
   if (!enrolled) return { ok: true, distance: null, matched: null, details };

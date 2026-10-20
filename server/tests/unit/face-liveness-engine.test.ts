@@ -59,6 +59,8 @@ test('a genuine sequence passes and its timing is reported', { timeout: 60_000 }
   const b = await judge(['open_mouth', 'turn_left'], ['b_neutral', 'b_mouth', 'b_left', 'b_neutral']);
   // b_neutral is reused as the end frame here; the mouth/turn frames differ, so it's not "static".
   assert.ok(b.verdict.ok, JSON.stringify(b.verdict));
+  const b2 = await judge(['turn_right', 'turn_left', 'open_mouth'], ['b_neutral', 'b_right', 'b_left', 'b_mouth', 'b_neutral']);
+  assert.ok(b2.verdict.ok, JSON.stringify(b2.verdict));
 });
 
 test('photo replay — the same image for every frame — fails', { timeout: 60_000 }, async () => {
@@ -81,8 +83,11 @@ test('a photo turned as a flat card moves as one plane and fails, even next to a
   const r = await judge(['turn_left', 'open_mouth'], ['a_neutral', 'a_flat60', 'a_mouth', 'a_end']);
   assert.equal(r.verdict.ok, false);
   assert.equal((r.verdict as any).reason, 'photo_suspected', JSON.stringify(r.verdict));
-  const r2 = await judge(['turn_left', 'turn_right'], ['a_neutral', 'a_flat60', 'a_flatm60', 'a_end']);
+  // Every step faked with the card, in the order a real challenge might ask:
+  // logged as a photo even though the squeezed face also fooled the mouth metric.
+  const r2 = await judge(['turn_left', 'turn_right', 'open_mouth'], ['a_neutral', 'a_flat60', 'a_flatm60', 'a_flat40', 'a_end']);
   assert.equal(r2.verdict.ok, false);
+  assert.equal((r2.verdict as any).reason, 'photo_suspected', JSON.stringify(r2.verdict));
 });
 
 test('steps in the wrong order fail as out of order', { timeout: 60_000 }, async () => {
