@@ -2,10 +2,12 @@
  * Browser-side face capture for attendance (enrolment + check-in).
  *
  * Loads @vladmandic/face-api lazily (it pulls in TensorFlow.js, ~1 MB gz) so the
- * rest of the app never pays for it, detects a single face in a webcam frame
- * and returns the 128-float descriptor the server compares against the user's
- * enrolment (server/src/utils/faceVerification.ts). Model weights are served
- * from /models/face (client/public/models/face).
+ * rest of the app never pays for it. The browser's job is to GUIDE the person
+ * through the server's liveness challenge in real time (trackFace + the shared
+ * metrics in livenessMetrics.ts) and to capture a few small frames. It is not
+ * trusted: the server re-detects the face, landmarks and descriptor in those
+ * frames itself (server/src/utils/liveness). Model weights are served from
+ * /models/face (client/public/models/face) — the same files the server loads.
  */
 
 import { asset } from './asset';
@@ -31,51 +33,72 @@ export async function loadFaceApi(): Promise<FaceApi> {
   return faceApiPromise;
 }
 
-export interface FaceCapture {
-  descriptor: number[];
-  /** Detection confidence 0–1 */
-  score: number;
-  /** Face box relative to the video frame (0–1), for the on-screen guide */
-  box: { x: number; y: number; width: number; height: number };
-}
+/** Face box relative to the frame (0–1), for the on-screen guide. */
+export interface FaceBox { x: number; y: number; width: number; height: number }
 
-export type FaceDetectResult =
-  | { status: 'ok'; capture: FaceCapture }
+export type FaceTrack =
+  | { status: 'ok'; landmarks: { x: number; y: number }[]; descriptor?: number[]; box: FaceBox }
   | { status: 'none' }
   | { status: 'multiple' }
-  | { status: 'small' };
+  | { status: 'small'; box: FaceBox };
 
-/** Detect exactly one, reasonably sized face in the current video frame. */
-export async function detectFace(video: HTMLVideoElement): Promise<FaceDetectResult> {
+/** Longest edge of the frames analysed here AND uploaded (the server caps at 640). */
+export const FRAME_EDGE = 320;
+
+/**
+ * Copy the current video frame into a small canvas. Detection runs on this
+ * canvas and, when a frame is kept, this same canvas is encoded — so the
+ * server analyses exactly the pixels the client judged, at the same size.
+ */
+export function grabFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement = document.createElement('canvas')): HTMLCanvasElement {
+  const vw = video.videoWidth || FRAME_EDGE, vh = video.videoHeight || Math.round(FRAME_EDGE * 0.75);
+  const scale = Math.min(1, FRAME_EDGE / Math.max(vw, vh));
+  const w = Math.round(vw * scale), h = Math.round(vh * scale);
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
+  canvas.getContext('2d')?.drawImage(video, 0, 0, w, h);
+  return canvas;
+}
+
+/**
+ * One tracking step for the liveness flow: landmarks every frame (cheap), the
+ * descriptor only when asked (the recognition net is the expensive part) — used
+ * to make sure the same face stays in front of the camera.
+ */
+export async function trackFace(frame: HTMLCanvasElement, withDescriptor = false): Promise<FaceTrack> {
   const faceapi = await loadFaceApi();
+  // Same detector settings as the server (server/src/utils/liveness/faceEngine.ts).
   const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
-  const detections = await faceapi.detectAllFaces(video, options).withFaceLandmarks(true).withFaceDescriptors();
+  const base = faceapi.detectAllFaces(frame, options).withFaceLandmarks(true);
+  const detections = withDescriptor ? await base.withFaceDescriptors() : await base;
   if (detections.length === 0) return { status: 'none' };
   if (detections.length > 1) return { status: 'multiple' };
-  const d = detections[0];
+  const d = detections[0] as (typeof detections)[number] & { descriptor?: Float32Array };
   const { x, y, width, height } = d.detection.box;
-  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
-  if (width / vw < 0.18) return { status: 'small' };
+  const vw = frame.width || 1, vh = frame.height || 1;
+  const box = { x: x / vw, y: y / vh, width: width / vw, height: height / vh };
+  if (width / vw < 0.18) return { status: 'small', box };
   return {
-    status: 'ok',
-    capture: {
-      descriptor: Array.from(d.descriptor),
-      score: d.detection.score,
-      box: { x: x / vw, y: y / vh, width: width / vw, height: height / vh },
-    },
+    status: 'ok', box,
+    landmarks: d.landmarks.positions.map(p => ({ x: p.x, y: p.y })),
+    descriptor: d.descriptor ? Array.from(d.descriptor) : undefined,
   };
 }
 
-/** Small JPEG data URL of the current frame (evidence / reference thumbnail). */
-export function snapshotDataUrl(video: HTMLVideoElement, maxWidth = 320, quality = 0.7): string {
-  const scale = Math.min(1, maxWidth / (video.videoWidth || maxWidth));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round((video.videoWidth || maxWidth) * scale);
-  canvas.height = Math.round((video.videoHeight || maxWidth * 0.75) * scale);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', quality);
+/** The server refuses frames over this many characters (server/src/utils/faceVerification.ts). */
+const MAX_FRAME_CHARS = 58_000;
+
+/**
+ * JPEG data URL of a grabbed frame, within the server's size limit. Not
+ * mirrored — the preview is flipped with CSS, the pixels the server analyses
+ * are what the camera saw.
+ */
+export function encodeFrame(canvas: HTMLCanvasElement, quality = 0.8): string {
+  for (let q = quality; q >= 0.4; q -= 0.15) {
+    const url = canvas.toDataURL('image/jpeg', q);
+    if (url.length <= MAX_FRAME_CHARS) return url;
+  }
+  return canvas.toDataURL('image/jpeg', 0.35);
 }
 
 export async function openCamera(): Promise<MediaStream> {

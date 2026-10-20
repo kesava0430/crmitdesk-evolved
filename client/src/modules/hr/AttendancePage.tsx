@@ -8,7 +8,7 @@ import {
 } from '../../shared/components';
 import { LogIn, LogOut, MapPin, Users, Clock, ScanFace, ChevronLeft, ChevronRight, PartyPopper, Home } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
-import { FaceCaptureModal, type FaceSample } from '../../shared/components/FaceCaptureModal';
+import { FaceCaptureModal, type LivenessAnswer } from '../../shared/components/FaceCaptureModal';
 import { RegisterSection } from './attendance/RegisterSection';
 import { useMyPolicy, useOptionalHolidays, useSetOptionalHoliday } from '../../api/attendanceAdmin';
 import { MyWfhCard } from './wfh/WfhParts';
@@ -195,16 +195,18 @@ function CheckInWidget() {
     } finally { setBusy(null); }
   }
 
-  /** Called by the capture modal with the live sample(s); throws so the modal can show the server's reason. */
-  async function onFaceCaptured(samples: FaceSample[]) {
+  /** Called by the capture modal with the liveness answer; throws so the modal can show the server's reason. */
+  async function onFaceCaptured(answer: LivenessAnswer) {
     if (!face) return;
     if (face.mode === 'enrol') {
-      await api.post('/hr/attendance/face/enrol', { descriptors: samples.map(s => s.descriptor), referenceSelfie: samples[0]?.selfie });
+      const { data } = await api.post('/hr/attendance/face/enrol', { liveness: answer }, { _silent: true });
       qc.invalidateQueries({ queryKey: ['attendance-policy'] });
+      // Straight on to the actual check-in/out: the server lets this one
+      // check-in spend the enrolment's liveness pass, so nobody is asked twice.
+      await postCheck(face.action, { enrolChallengeId: data?.enrolChallengeId });
+      return;
     }
-    // Straight on to the actual check-in/out with the last sample so the user isn't asked twice
-    const last = samples[samples.length - 1];
-    await postCheck(face.action, { faceDescriptor: last.descriptor, selfie: last.selfie });
+    await postCheck(face.action, { liveness: answer });
   }
 
   return (
@@ -289,11 +291,12 @@ function CheckInWidget() {
         <FaceCaptureModal
           open
           mode={face.mode}
+          purpose={face.mode === 'enrol' ? 'enrol' : face.action === 'in' ? 'check_in' : 'check_out'}
           onClose={() => setFace(null)}
           onCaptured={onFaceCaptured}
           title={face.mode === 'enrol' ? `Enrol your face to check ${face.action}` : 'Face verification'}
           subtitle={face.mode === 'enrol'
-            ? `Your organisation's check-${face.action} rule includes face verification. We'll capture 3 quick samples now and check you ${face.action} straight after. A numeric face signature and one reference photo are stored for matching${policy?.keepCheckInSelfie ? ', and a small photo is kept with each verified check-in for your manager to review' : ''}.`
+            ? `Your organisation's check-${face.action} rule includes face verification. Follow the prompts (a few quick head movements) and you'll be checked ${face.action} straight after. A numeric face signature and one reference photo are stored for matching${policy?.keepCheckInSelfie ? ', and a small photo is kept with each verified check-in for your manager to review' : ''}.`
             : undefined}
         />
       )}
@@ -322,15 +325,13 @@ function FaceIdCard() {
   const pending = request?.status === 'PENDING';
   const rejected = request?.status === 'REJECTED';
 
-  async function enrol(samples: FaceSample[]) {
-    await api.post('/hr/attendance/face/enrol', { descriptors: samples.map(s => s.descriptor), referenceSelfie: samples[0]?.selfie });
+  async function enrol(answer: LivenessAnswer) {
+    await api.post('/hr/attendance/face/enrol', { liveness: answer }, { _silent: true });
     qc.invalidateQueries({ queryKey: ['attendance-policy'] });
   }
-  async function submitReenrolment(samples: FaceSample[]) {
-    await api.post('/hr/attendance/face/reenrol', {
-      descriptors: samples.map(s => s.descriptor),
-      sampleImages: samples.map(s => s.selfie),
-    });
+  async function submitReenrolment(answer: LivenessAnswer) {
+    // The server derives the face and the review images from the verified frames.
+    await api.post('/hr/attendance/face/reenrol', { liveness: answer }, { _silent: true });
     qc.invalidateQueries({ queryKey: ['attendance-policy'] });
   }
 
@@ -381,16 +382,17 @@ function FaceIdCard() {
         </Alert>
       )}
 
-      {mode === 'enrol' && <FaceCaptureModal open mode="enrol" onClose={() => setMode(null)} onCaptured={enrol} />}
+      {mode === 'enrol' && <FaceCaptureModal open mode="enrol" purpose="enrol" onClose={() => setMode(null)} onCaptured={enrol} />}
       {mode === 'reenrol' && (
         <FaceCaptureModal
           open
           mode="enrol"
+          purpose="enrol"
           onClose={() => setMode(null)}
           onCaptured={submitReenrolment}
           submitLabel="Submit for Verification"
           title="Re-enrol your face"
-          subtitle="We'll capture 3 samples and send them to a Super Admin for approval. Your current Face ID keeps working for attendance until they approve the replacement."
+          subtitle="Follow the prompts (a few quick head movements); the captured frames go to a Super Admin for approval. Your current Face ID keeps working for attendance until they approve the replacement."
         />
       )}
     </Card>

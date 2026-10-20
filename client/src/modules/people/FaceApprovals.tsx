@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { ScanFace, Check, X } from 'lucide-react';
+import { ScanFace, Check, X, ShieldAlert } from 'lucide-react';
 import {
   Card, Badge, Button, Modal, Alert, FormError, EmptyState, Avatar,
   DataTable, type Column, Textarea, Label, SkeletonTable,
 } from '../../shared/components';
 import { useFormat } from '../../hooks/useFormat';
 import {
-  useFaceRequests, useFaceRequest, useDecideFaceRequest,
-  type FaceRequest, type FaceRequestStatus,
+  useFaceRequests, useFaceRequest, useDecideFaceRequest, useFaceAttempts, useFaceAttempt,
+  type FaceRequest, type FaceRequestStatus, type FaceAttempt,
 } from '../../api/faceApprovals';
 
 const STATUS_VARIANT: Record<FaceRequestStatus, 'orange' | 'green' | 'red'> = {
@@ -159,6 +159,100 @@ function ReviewModal({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
+// ─── Failed liveness checks ───────────────────────────────────────────────────
+
+/** Plain-language versions of the reasons the server records (utils/liveness/challenge.ts). */
+const ATTEMPT_REASON: Record<string, string> = {
+  photo_suspected: 'Photo or screen suspected — no real 3D head movement',
+  static_frames: 'Photo suspected — the same still image in every frame',
+  steps_out_of_order: 'Movements done out of order',
+  wrong_direction: 'Turned the wrong way',
+  step_not_performed: 'A requested movement was not performed',
+  motion_unconfirmed: 'Movement too small to confirm (image too dark or blurry)',
+  not_facing_camera: 'Not facing the camera at the start',
+  end_not_neutral: 'Did not look back at the camera at the end',
+  face_changed: 'A different face appeared during the check',
+  no_face: 'No face in one of the frames',
+  multiple_faces: 'More than one face in view',
+  face_mismatch: "Live face didn't match the enrolled face",
+  timeout: 'Took too long',
+  too_fast: 'Submitted impossibly fast (scripted?)',
+  bad_frames: 'Frames missing or unreadable',
+  challenge_invalid: 'Invalid challenge',
+  client_timeout: 'Gave up: time ran out',
+  client_face_lost: 'Gave up: face left the frame',
+  client_multiple_faces: 'Gave up: more than one face',
+  client_face_changed: 'Gave up: face changed',
+  client_wrong_action: 'Gave up: wrong movement',
+};
+const reasonLabel = (r: string | null) => (r && ATTEMPT_REASON[r]) || r || 'Unknown';
+const PURPOSE_LABEL: Record<FaceAttempt['purpose'], string> = { CHECK_IN: 'Check-in', CHECK_OUT: 'Check-out', ENROL: 'Enrolment' };
+
+function AttemptModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const { data, isLoading } = useFaceAttempt(id);
+  const { dateTime } = useFormat();
+  return (
+    <Modal open onClose={onClose} title="Failed face check" subtitle={data ? `${data.user.name} · ${data.user.email}` : undefined}
+      icon={<ShieldAlert size={16} />} size="md" footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
+      {isLoading && <SkeletonTable rows={2} />}
+      {data && (
+        <div className="space-y-3">
+          <Alert tone="warning" title={reasonLabel(data.failureReason)}>
+            {PURPOSE_LABEL[data.purpose]}{data.usedAt ? ` · ${dateTime(data.usedAt)}` : ''}
+            {data.steps?.length ? ` · asked for: ${data.steps.map(s => s.replace('_', ' ')).join(', ')}` : ''}
+          </Alert>
+          {data.evidenceFrame ? (
+            <div>
+              <Label>Camera frame at the start of the attempt</Label>
+              <img src={data.evidenceFrame} alt="Evidence frame" className="mt-1 w-full max-w-[320px] rounded-lg border border-line -scale-x-100" />
+            </div>
+          ) : <p className="text-[12.5px] text-fg-muted">No frame was kept for this attempt.</p>}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function FailedChecks() {
+  const { data, isLoading } = useFaceAttempts();
+  const { dateTime } = useFormat();
+  const [viewing, setViewing] = useState<string | null>(null);
+  const columns: Column<FaceAttempt>[] = [
+    {
+      key: 'user', header: 'Employee',
+      cell: r => (
+        <div className="min-w-0">
+          <p className="text-[13px] text-fg truncate">{r.user.name}</p>
+          <p className="text-[11.5px] text-fg-muted truncate">{r.user.email}</p>
+        </div>
+      ),
+    },
+    { key: 'purpose', header: 'For', cell: r => PURPOSE_LABEL[r.purpose] },
+    { key: 'reason', header: 'Reason', cell: r => <span className="text-[12.5px]">{reasonLabel(r.failureReason)}</span> },
+    { key: 'usedAt', header: 'When', cell: r => dateTime(r.usedAt ?? r.createdAt) },
+    {
+      key: 'actions', header: '', align: 'right',
+      cell: r => r.hasEvidence ? <Button size="sm" variant="ghost" onClick={() => setViewing(r.id)}>View</Button> : null,
+    },
+  ];
+  return (
+    <Card>
+      <div className="mb-3 min-w-0">
+        <p className="text-[13px] font-medium text-fg">Failed face checks</p>
+        <p className="text-[12px] text-fg-muted">
+          Liveness or face-match failures from check-in, check-out and enrolment, with one camera frame for review. Kept for the check-in photo retention period.
+        </p>
+      </div>
+      {isLoading ? <SkeletonTable rows={3} /> : !data?.length ? (
+        <EmptyState icon={<ShieldAlert size={22} />} title="No failed checks" description="Attempts that fail the liveness check or don't match the enrolled face show up here." />
+      ) : (
+        <DataTable columns={columns} rows={data} rowKey={r => r.id} />
+      )}
+      {viewing && <AttemptModal id={viewing} onClose={() => setViewing(null)} />}
+    </Card>
+  );
+}
+
 // ─── Queue ────────────────────────────────────────────────────────────────────
 
 /** Review queue for the People page's Face Approvals tab. Super Admin only —
@@ -198,6 +292,7 @@ export function FaceApprovals() {
   const rows = data?.data ?? [];
 
   return (
+    <div className="space-y-4">
     <Card>
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div className="min-w-0 basis-[16rem] grow">
@@ -232,5 +327,7 @@ export function FaceApprovals() {
 
       {reviewing && <ReviewModal id={reviewing} onClose={() => setReviewing(null)} />}
     </Card>
+    <FailedChecks />
+    </div>
   );
 }

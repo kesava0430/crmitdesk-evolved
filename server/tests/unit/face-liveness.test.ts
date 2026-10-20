@@ -390,3 +390,14 @@ test('challenge routes are open to every staff role; attempt review is for manag
     assert.match(body, /orgId: req\.user!\.orgId/, `${fn} must be org-scoped`);
   }
 });
+
+test('the client answers challenges with frames and never sends its own descriptors', () => {
+  const page = code('../client/src/modules/hr/AttendancePage.tsx');
+  assert.ok(!/faceDescriptor|descriptors:/.test(page), 'AttendancePage still posts client-computed descriptors');
+  assert.match(page, /liveness: answer/);
+  assert.match(page, /enrolChallengeId/);
+  const modal = code('../client/src/shared/components/FaceCaptureModal.tsx');
+  assert.match(modal, /\/hr\/attendance\/face\/challenge/);
+  // Only the shared metric code decides on the client — the same file the server uses.
+  assert.match(modal, /from '\.\.\/livenessMetrics'/);
+});

@@ -72,3 +72,36 @@ export function useDecideFaceRequest() {
     },
   });
 }
+
+// ─── Failed liveness checks (managers) ───────────────────────────────────────
+// Every failed face check is kept, with its reason and one evidence frame,
+// until the org's selfie retention purges it (server/src/utils/liveness).
+
+export interface FaceAttempt {
+  id: string;
+  purpose: 'CHECK_IN' | 'CHECK_OUT' | 'ENROL';
+  steps: string[];
+  failureReason: string | null;
+  usedAt: string | null;
+  createdAt: string;
+  hasEvidence: boolean;
+  user: { id: string; name: string; email: string };
+}
+export interface FaceAttemptDetail extends Omit<FaceAttempt, 'hasEvidence' | 'createdAt'> {
+  evidenceFrame: string | null;
+  details: Record<string, unknown> | null;
+}
+
+export const useFaceAttempts = (enabled = true) =>
+  useQuery<FaceAttempt[]>({
+    queryKey: ['face-attempts'],
+    queryFn: () => api.get('/hr/attendance/face/attempts').then(r => r.data),
+    enabled,
+  });
+
+export const useFaceAttempt = (id: string | null) =>
+  useQuery<FaceAttemptDetail>({
+    queryKey: ['face-attempts', id],
+    queryFn: () => api.get(`/hr/attendance/face/attempts/${id}`).then(r => r.data),
+    enabled: !!id,
+  });

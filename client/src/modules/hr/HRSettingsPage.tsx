@@ -398,7 +398,7 @@ function LeaveTypesSection() {
 interface VerificationRule { location: boolean; network: boolean; face: boolean; mode: 'ALL' | 'ANY'; enforce: boolean }
 interface AttendancePolicy {
   checkInRule: VerificationRule; checkOutRule: VerificationRule;
-  faceVerificationRequired: boolean; faceMatchThreshold: number; keepCheckInSelfie: boolean;
+  faceVerificationRequired: boolean; faceMatchThreshold: number; keepCheckInSelfie: boolean; requireLiveness: boolean;
   autoCheckoutOnLeave: boolean; autoCheckoutAfterMinutes: number; heartbeatTimeoutMinutes: number;
   shareLiveLocation: boolean; locationRetentionDays: number;
   nudgeAfterMinutes: number; nudgeRepeatMinutes: number;
@@ -556,7 +556,7 @@ function FaceVerificationSection() {
           </div>
         )}
         {policy?.faceVerificationRequired && (
-          <p className="text-[12px] text-fg-muted">Face verification: employees enrol once from the Attendance page (3 webcam samples). A numeric face signature and one reference photo are stored; replacing a face needs Super Admin approval and you can reset an enrolment below. Check-in photos (if kept) are deleted after the retention period.</p>
+          <p className="text-[12px] text-fg-muted">Face verification: employees enrol once from the Attendance page by following a few on-screen prompts (head turns, open mouth). A numeric face signature and one reference photo are stored; replacing a face needs Super Admin approval and you can reset an enrolment below. Check-in photos (if kept) are deleted after the retention period.</p>
         )}
         {policy?.faceVerificationRequired && (
           <>
@@ -568,6 +568,16 @@ function FaceVerificationSection() {
                     onClick={() => { update.mutate({ faceMatchThreshold: Number(shownThreshold) }); setThreshold(null); }}>Save</Button>
                 </div>
               </Field>
+              <Toggle
+                checked={policy.requireLiveness !== false}
+                disabled={update.isPending}
+                onChange={v => {
+                  if (!v && !window.confirm('Turn off the liveness check? Without it, a photo of an employee held up to the camera can pass face verification, and older app versions are accepted again.')) return;
+                  update.mutate({ requireLiveness: v });
+                }}
+                label="Require liveness check"
+                hint="Each face check asks for a few random movements (turn left/right, open mouth) and the server verifies them from the captured frames, so a printed photo or a picture on a screen is rejected. Older app versions must be updated. Strongly recommended."
+              />
               <Toggle
                 checked={!!policy.keepCheckInSelfie}
                 disabled={update.isPending}
