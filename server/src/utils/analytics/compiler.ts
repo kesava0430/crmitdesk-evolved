@@ -327,7 +327,7 @@ function filterSql(ds: ResolvedDataset, flt: FilterSpec, p: ParamSink, env: Comp
       if (op !== 'eq' && op !== 'neq') throw new QueryError(`${L} supports eq / neq.`);
       let b = asBool(vals[0], f);
       if (op === 'neq') b = !b;
-      return { sql: b ? `(${f.sql}) IS TRUE` : `(${f.sql}) IS NOT TRUE`, text: `${L}: ${b ? 'yes' : 'no'}`, joins };
+      return { sql: b ? `(${f.sql}) IS TRUE` : `(${f.sql}) IS NOT TRUE`, text: booleanPhrase(L, b), joins };
     }
     case 'number': case 'money': {
       const cmp: Record<string, string> = { eq: '=', neq: '<>', gt: '>', gte: '>=', lt: '<', lte: '<=' };
@@ -580,6 +580,12 @@ export function compileQuery(ds: ResolvedDataset, spec: QuerySpec, env: CompileE
   };
   compiled.description = describe(ds, spec, compiled);
   return compiled;
+}
+
+/** Boolean filter in words: "open (not resolved/closed)" / "not overdue" — not "Open: yes". */
+export function booleanPhrase(label: string, value: boolean): string {
+  const l = /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label;
+  return value ? l : `not ${l}`;
 }
 
 /** "Number of tickets by assignee (agent) — resolved at this month (1 – 18 Oct 2026), where status is RESOLVED; top 5" */

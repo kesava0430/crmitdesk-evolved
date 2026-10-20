@@ -250,7 +250,7 @@ test('compiler: filters by type', () => {
   const cat = admin();
   const money = compile(cat, { dataset: 'invoices', mode: 'list', filters: [{ field: 'total', op: 'gt', value: '₹50,000' }, { field: 'isOverdue', op: 'eq', value: true }] });
   assert.ok(money.params.includes(50000));
-  assert.deepEqual(money.appliedFilters, ['Total (incl. tax) over ₹50,000', 'Overdue: yes']);
+  assert.deepEqual(money.appliedFilters, ['Total (incl. tax) over ₹50,000', 'overdue']);
   assert.throws(() => compile(cat, { dataset: 'tickets', filters: [{ field: 'status', op: 'eq', value: 'WAITING' }] }), /isn't a valid Status/);
   const en = compile(cat, { dataset: 'tickets', filters: [{ field: 'status', op: 'in', value: ['resolved', 'in progress'] }] });
   assert.ok(en.params.some(p => JSON.stringify(p) === '["RESOLVED","IN_PROGRESS"]'), 'enum values are normalised');
@@ -497,4 +497,12 @@ test('forecast flags histories too lumpy to project', () => {
   const spike = Array(30).fill(1); spike[10] = 60;
   assert.match(sparseHistory(spike) ?? '', /More than half/);
   assert.equal(sparseHistory(Array.from({ length: 30 }, (_, i) => 5 + (i % 3))), null);
+});
+
+import { booleanPhrase } from '../../src/utils/analytics/compiler';
+
+test('boolean filters read as words, not "Label: yes"', () => {
+  assert.equal(booleanPhrase('Open (not resolved/closed)', true), 'open (not resolved/closed)');
+  assert.equal(booleanPhrase('Overdue', false), 'not overdue');
+  assert.equal(booleanPhrase('SLA breached', true), 'SLA breached');
 });
