@@ -78,6 +78,41 @@ const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 30_000
 /** Embedding batches are larger; give them longer, but still bounded. */
 const AI_EMBED_TIMEOUT_MS = Number(process.env.AI_EMBED_TIMEOUT_MS ?? 60_000);
 
+/* GPT-OSS models (what Groq runs for us) "think" before answering, and that
+   hidden reasoning counts against max_tokens. On default effort a JSON reply
+   could run out of room mid-object, which Groq then rejects with
+   "400 Failed to validate JSON" — the live Ask AI failure on 2026-10-20.
+   Low effort keeps replies short, fast and cheap; if a provider ever rejects
+   the parameter it is dropped for the rest of the process. */
+let reasoningEffortSupported = true;
+export function wantsLowReasoning(m: Pick<ResolvedModel, 'model'>): boolean {
+  return reasoningEffortSupported && /gpt-oss/i.test(m.model) && process.env.AI_REASONING_EFFORT !== 'default';
+}
+
+/** Groq's json_validate_failed error carries what the model produced. */
+export function failedGeneration(err: any): string | null {
+  const fg = err?.error?.failed_generation ?? err?.error?.error?.failed_generation ?? err?.failed_generation;
+  return typeof fg === 'string' && fg.trim() ? fg : null;
+}
+
+/** First balanced JSON object in a text, if any (models sometimes add prose). */
+export function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) {
+      const candidate = text.slice(start, i + 1);
+      try { JSON.parse(candidate); return candidate; } catch { return null; }
+    }
+  }
+  return null;
+}
+
 function clientFor(m: ResolvedModel, timeout = AI_REQUEST_TIMEOUT_MS): OpenAI {
   return new OpenAI({ apiKey: m.apiKey, ...(m.baseUrl ? { baseURL: m.baseUrl } : {}), timeout, maxRetries: 0 });
 }
@@ -386,26 +421,47 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
   for (const m of candidates) {
     const client = clientFor(m);
 
+    let jsonMode = !!(opts.json && m.supportsJson);
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await new Promise(r => setTimeout(r, 2 ** attempt * 1000));
       try {
-        const res = await client.chat.completions.create({
-          model: m.model,
-          messages: [
-            { role: 'system', content: opts.system },
-            { role: 'user', content: opts.user },
-          ],
-          temperature: opts.temperature ?? 0.3,
-          max_tokens: opts.maxTokens ?? 800,
-          ...(opts.json && m.supportsJson ? { response_format: { type: 'json_object' as const } } : {}),
-        });
+        let recovered: string | null = null;
+        let res: any;
+        try {
+          res = await client.chat.completions.create({
+            model: m.model,
+            messages: [
+              { role: 'system', content: opts.system },
+              { role: 'user', content: opts.user },
+            ],
+            temperature: opts.temperature ?? 0.3,
+            max_tokens: opts.maxTokens ?? 800,
+            ...(jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+            ...(wantsLowReasoning(m) ? { reasoning_effort: 'low' } : {}),
+          } as any);
+        } catch (err: any) {
+          const msg = String(err?.message ?? '');
+          if (err?.status === 400 && /reasoning_effort/i.test(msg) && reasoningEffortSupported) {
+            reasoningEffortSupported = false;
+            attempt--; continue; // same attempt, without the parameter
+          }
+          if (err?.status === 400 && jsonMode && /validate JSON|json_validate_failed/i.test(msg)) {
+            // Use what the model produced if it holds a valid object;
+            // otherwise ask once more without JSON mode — every JSON caller
+            // already pulls the object out of a plain reply.
+            recovered = extractJsonObject(failedGeneration(err) ?? '');
+            if (!recovered) { jsonMode = false; attempt--; continue; }
+          } else {
+            throw err;
+          }
+        }
 
-        const text = res.choices[0]?.message?.content?.trim() ?? '';
-        const promptTokens = res.usage?.prompt_tokens ?? 0;
-        const completionTokens = res.usage?.completion_tokens ?? 0;
+        const text = recovered ?? res?.choices?.[0]?.message?.content?.trim() ?? '';
+        const promptTokens = res?.usage?.prompt_tokens ?? 0;
+        const completionTokens = res?.usage?.completion_tokens ?? 0;
         // Groq/OpenAI report prompt-cache hits here; they are part of
         // prompt_tokens and billed at a discount.
-        const cachedPromptTokens = (res.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
+        const cachedPromptTokens = res?.usage?.prompt_tokens_details?.cached_tokens ?? 0;
         const costUsd = costOf(m, promptTokens, completionTokens, cachedPromptTokens);
         const latencyMs = Date.now() - started;
 

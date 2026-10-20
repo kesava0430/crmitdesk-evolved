@@ -93,3 +93,20 @@ test('AI status: provider failures are explained with a fix', () => {
   assert.match(explainAiError({ status: 404 }, 'groq').hint, /AI_MODEL_FAST/);
   assert.match(explainAiError({ status: 429 }, 'groq').error, /429/);
 });
+
+import { extractJsonObject, failedGeneration, wantsLowReasoning } from '../../src/utils/aiGateway';
+
+test('gateway recovers JSON from replies Groq rejected', () => {
+  assert.equal(extractJsonObject('{"a":1}'), '{"a":1}');
+  assert.equal(extractJsonObject('Sure! {"a":{"b":"x}y"}} trailing'), '{"a":{"b":"x}y"}}');
+  assert.equal(extractJsonObject('{"a": "unterminated'), null);
+  assert.equal(extractJsonObject('no json here'), null);
+  assert.equal(failedGeneration({ error: { failed_generation: '{"x":1}' } }), '{"x":1}');
+  assert.equal(failedGeneration({ error: { error: { failed_generation: 'abc' } } }), 'abc');
+  assert.equal(failedGeneration({ message: 'boom' }), null);
+});
+
+test('low reasoning effort only for GPT-OSS models', () => {
+  assert.equal(wantsLowReasoning({ model: 'openai/gpt-oss-20b' }), true);
+  assert.equal(wantsLowReasoning({ model: 'gpt-4o-mini' }), false);
+});

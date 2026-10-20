@@ -79,6 +79,15 @@ export function handleAIError(err: any, res: Response): boolean {
     res.status(503).json({ error: `${error} The AI service is unreachable from the server right now — an administrator can run the check under AI Governance → AI connection.` });
     return true;
   }
+  /* The provider rejected the request itself (e.g. Groq's "Failed to validate
+     JSON" after the gateway's own retry). Say so plainly instead of a 500. */
+  if (err?.status === 400 || err?.status === 413) {
+    console.error('[ai] provider rejected request:', err?.status, String(err?.message ?? '').slice(0, 300));
+    res.status(502).json({ error: err?.status === 413
+      ? 'That request was too large for the AI provider\u2019s current plan. Try a shorter question, or raise the provider plan limits.'
+      : 'The AI couldn\u2019t produce a usable answer for that. Try rephrasing the question.' });
+    return true;
+  }
   if (err?.status === 404) {
     res.status(502).json({ error: explainAiError(err, usingGroq ? 'groq' : 'openai').hint });
     return true;
