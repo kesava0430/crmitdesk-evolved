@@ -140,8 +140,14 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 
 export async function getOne(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    // Same scope as list(): an EMPLOYEE only ever sees tickets they raised.
+    // Without this, any employee could open a colleague's ticket (body,
+    // history, assignee) just by its id, though their list never showed it.
     const ticket = await prisma.ticket.findFirst({
-      where: { id: req.params.id, orgId: req.user!.orgId },
+      where: {
+        id: req.params.id, orgId: req.user!.orgId,
+        ...(req.user!.role === 'EMPLOYEE' && { requesterId: req.user!.id }),
+      },
       include: { ...include, history: { orderBy: { changedAt: 'desc' } } }
     });
     if (!ticket) throw new AppError(404, 'Ticket not found');
