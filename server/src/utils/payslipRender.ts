@@ -662,7 +662,10 @@ function drawPayslipContent(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: Pd
   const addr = L.branchHeader && doc.company.branchAddress ? doc.company.branchAddress : doc.company.address;
   const branch = L.branchHeader && doc.company.branch ? `${doc.company.branch} branch` : null;
   const leftH = H(doc.company.name, bold, fs + 6, nameW) + (branch ? H(branch, bold, fs, nameW) + 1 : 0) + (addr ? H(addr, reg, small, nameW) + 3 : 0);
-  const rightH = small + 3 + (fs + 6) + 3 + small + 2;
+  // A weekly / custom cycle's label ("02 Mar 2026 – 11 Mar 2026") wraps to two
+  // lines in the title column; size the header for it, or the payslip number
+  // below is drawn over the header rule.
+  const rightH = small + 3 + H(doc.payslip.periodLabel, bold, fs + 6, titleW) + 3 + small + 2;
   const headerH = Math.max(logo ? logoBox : 0, leftH, rightH) + hp * 2 + (band ? 0 : 6);
   if (band) pdf.save().rect(left, y, width, headerH).fill(primary).restore();
   if (L.header === 'boxed') pdf.save().lineWidth(1.2).strokeColor(primary).rect(left, y, width, headerH).stroke().restore();
