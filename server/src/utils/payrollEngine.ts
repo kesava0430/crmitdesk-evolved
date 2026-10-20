@@ -10,6 +10,7 @@
 // that need gross (ESI, PT) run after all earnings are known.
 
 import { prisma } from './prisma';
+import { AppError } from '../middleware/errorHandler';
 import { evaluate, formulaRefs, validateFormula } from './payrollFormula';
 
 export type Category = 'EARNING' | 'DEDUCTION' | 'REIMBURSEMENT' | 'EMPLOYER_CONTRIBUTION';
@@ -293,8 +294,14 @@ export function knownNames(components: { code: string }[]): string[] {
   return [...VAR_NAMES, 'GROSS_EARNINGS_UNPRORATED', ...components.map(c => c.code)];
 }
 
+/** Throws a 400 (not a bare Error, which the error handler turns into a 500)
+ *  so the component / salary form can show what is wrong with the formula. */
 export function assertValidFormula(formula: string, components: { code: string }[]) {
-  validateFormula(formula, knownNames(components));
+  try {
+    validateFormula(formula, knownNames(components));
+  } catch (e: any) {
+    throw new AppError(400, `Invalid formula — ${e?.message || 'it could not be evaluated'}`);
+  }
 }
 
 // ─── Pay periods ─────────────────────────────────────────────────────────────
