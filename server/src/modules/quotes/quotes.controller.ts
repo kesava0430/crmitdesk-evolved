@@ -204,7 +204,14 @@ export async function publicAccept(req: Request, res: Response, next: NextFuncti
         signerIp: ip,
         signatureImage: body.signatureImage,
       },
-      include: { lines: true },
+      // Same shape as publicView(): the public page replaces its quote with
+      // this response, and rendered "Something went wrong" (quote.org was
+      // undefined) right after the customer signed.
+      include: {
+        lines: true,
+        org: { select: { name: true, currency: true, timezone: true } },
+        deal: { select: { id: true, title: true } },
+      },
     });
 
     // Automation hook — the customer just accepted via the public link, which
