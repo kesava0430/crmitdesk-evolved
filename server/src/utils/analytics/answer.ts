@@ -201,6 +201,10 @@ export function forecastAnswer(f: ForecastResponse): string {
     const v = d.format === 'money' ? fmtMoney(d.projected, f.currency) : fmtNumber(Math.round(d.projected), f.currency);
     s += ` ${d.label}: ${v}.`;
   }
+  // A lumpy history (see sparseHistory) gets its caveat in the answer itself,
+  // not only under "how this was calculated".
+  const caveat = f.warnings.find(w => /unreliable until/.test(w));
+  if (caveat) s += ` Caution: ${caveat}`;
   return s;
 }
 

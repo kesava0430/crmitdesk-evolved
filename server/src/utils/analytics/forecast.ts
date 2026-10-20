@@ -231,6 +231,17 @@ const METHOD_TEXT: Record<ForecastMethod, string> = {
   none: 'no model',
 };
 
+/** A plain-words reason why a series is too lumpy to project, or null. */
+export function sparseHistory(history: number[]): string | null {
+  const total = history.reduce((a, b) => a + Math.max(0, b), 0);
+  if (total <= 0) return 'There was no activity at all in the history period.';
+  const active = history.filter(v => v > 0).length;
+  const peak = Math.max(...history);
+  if (active < 5) return `Activity happened on only ${active} of ${history.length} periods in the history.`;
+  if (peak / total > 0.5) return `More than half of all activity (${Math.round(peak)} of ${Math.round(total)}) happened in a single period.`;
+  return null;
+}
+
 export function forecast(history: number[], opts: ForecastOptions): ForecastResult {
   const n = history.length;
   const unit = opts.unit;
@@ -248,6 +259,12 @@ export function forecast(history: number[], opts: ForecastOptions): ForecastResu
   const candidates: ForecastMethod[] = n < WARN_POINTS ? ['linear'] : ['linear', 'holt'];
   if (season.detected) candidates.push(...candidates.map(c => `${c}+weekly` as ForecastMethod));
   if (n < WARN_POINTS) warnings.push(`Only ${n} ${unit}s of history (fewer than ${WARN_POINTS}) — treat this projection as a rough guide; a simple straight-line trend was used.`);
+  // Enough points, but nearly all the activity sits in a few of them (e.g. a
+  // one-off import on a single day): the trend line is mathematically right
+  // and practically meaningless. Say so in words — seen live on 2026-10-20,
+  // where 15 leads on one day projected "about 0".
+  const sparse = sparseHistory(history);
+  if (sparse) warnings.push(`${sparse} Treat this projection as unreliable until there's more steady history.`);
 
   // Holdout model selection.
   const hold = candidates.length > 1 ? holdoutSize(n, opts.horizon) : 0;

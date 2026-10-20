@@ -487,3 +487,14 @@ test('question-relevant datasets narrow the prompt, never to nothing', () => {
   assert.deepEqual(keys('Total payroll cost by department'), ['payslips']);
   assert.equal(relevantDatasets(cat, 'tell me something interesting').length, cat.length);
 });
+
+import { sparseHistory } from '../../src/utils/analytics/forecast';
+
+test('forecast flags histories too lumpy to project', () => {
+  const oneDay = Array(31).fill(0); oneDay[0] = 15;
+  assert.match(sparseHistory(oneDay) ?? '', /only 1 of 31/);
+  assert.match(sparseHistory(Array(30).fill(0)) ?? '', /no activity/);
+  const spike = Array(30).fill(1); spike[10] = 60;
+  assert.match(sparseHistory(spike) ?? '', /More than half/);
+  assert.equal(sparseHistory(Array.from({ length: 30 }, (_, i) => 5 + (i % 3))), null);
+});
