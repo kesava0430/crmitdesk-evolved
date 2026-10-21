@@ -229,7 +229,7 @@ async function handleAiMention(
     return postAssistantMessage(orgId, thread, 'The @ai assistant is part of Advanced AI, which isn’t included in your current plan. An admin can upgrade under Billing to turn it on.');
   }
 
-  const current = await prisma.chatThread.findUnique({ where: { id: thread.id }, select: { pendingPlan: true } });
+  const current = await prisma.chatThread.findUnique({ where: { id: thread.id }, select: { pendingPlan: true, pendingPlanBy: true } });
 
   // "@ai confirm" — run the thread's pending plan as the person confirming:
   // the executor re-checks their role, permissions, the org's areas and every
@@ -240,6 +240,15 @@ async function handleAiMention(
       ? plan.steps.map((s: any) => ({ action: s.action, params: s.params }))
       : plan?.action ? [{ action: plan.action, params: plan.params }] : [];
     if (!steps.length) return postAssistantMessage(orgId, thread, 'There’s nothing pending to confirm. Ask me to do something first — e.g. "@ai create a ticket for the printer jam".');
+    /* Only the person who asked may confirm. The plan runs with the
+       CONFIRMER's permissions, and anyone in the thread can replace the
+       pending plan with a fresh "@ai …" at any moment — so letting a
+       different (often more privileged) participant confirm meant a
+       teammate could swap in "delete …" right before a manager typed
+       "@ai confirm" for what they had read a moment earlier. */
+    if (current?.pendingPlanBy && current.pendingPlanBy !== user.id) {
+      return postAssistantMessage(orgId, thread, 'Only the person who asked for this can confirm it. If you want it done, ask me yourself (e.g. "@ai …") and confirm your own request.');
+    }
     const highRiskOk = /high[\s-]?risk/i.test(command);
     try {
       const report = await executePlan({ user: { ...user, orgId }, steps, planId: plan.planId, interactionLogId: plan.interactionLogId, confirmHighRisk: highRiskOk, command: 'team chat @ai' });
