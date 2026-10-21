@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   checkLimits, checkNotice, requestDays, scheduleDays, scheduleCovers, scheduleFor, mergeDays, usageFor, usageWindow,
-  weekStartOf, approvalOutcome, exemptRule, wfhSettingsOf, describeWeekdays, DEFAULT_WFH, type ScheduleLike,
+  weekStartOf, approvalOutcome, exemptRule, wfhSettingsOf, describeWeekdays, DEFAULT_WFH, type ScheduleLike, limitEntries,
 } from '../../src/utils/wfhRules';
 import { evaluateDay, summarise, keyToDate, DEFAULT_POLICY, type Policy, type DayContext } from '../../src/utils/attendanceEngine';
 import { evaluateRule, DEFAULT_CHECK_IN_RULE } from '../../src/utils/attendanceRules';
@@ -52,7 +52,7 @@ test('usage is per calendar month and ISO week (Mon–Sun) of the reference day'
   assert.deepEqual(usageWindow(['2026-10-30']), { from: '2026-10-01', to: '2026-11-01' }); // widened to that day's whole ISO week
 });
 
-test('limits count approved + pending + recurring days already in the month', () => {
+test('limits count approved + pending requests already in the month', () => {
   const existing = [{ day: '2026-10-02', weight: 1 }, { day: '2026-10-05', weight: 1 }, { day: MON, weight: 1 }];
   assert.equal(checkLimits({ maxPerMonth: 4, maxPerWeek: null }, existing, [{ day: FRI, weight: 1 }]), null);       // 4th day fits
   const msg = checkLimits({ maxPerMonth: 4, maxPerWeek: null }, existing, requestDays(THU, FRI, false, OFFS, NONE));
@@ -227,4 +227,19 @@ test('period summary counts WFH days (present and paid) separately', () => {
   assert.equal(s.presentDays, 3);
   assert.equal(s.paidDays, 3);
   assert.equal(s.lopDays, 1);
+});
+
+test('team-wide recurring WFH days never count towards a person\'s limit (five-Friday month)', () => {
+  // January 2027 has five Fridays (1, 8, 15, 22, 29); the whole team works from home every Friday.
+  const team = { id: 's1', userId: null, policyGroupId: 'g1', weekdays: [5], startDate: '2026-10-01', endDate: null };
+  const recurring = scheduleDays([team], 'u1', '2027-01-01', '2027-01-31', OFFS, NONE);
+  assert.equal(recurring.length, 5);
+  const settings = { maxPerMonth: 4, maxPerWeek: null };
+  // Before: the five Fridays alone exceeded the limit, so no request could ever pass.
+  assert.ok(checkLimits(settings, recurring, [{ day: '2027-01-05', weight: 1 }]));
+  // Now only requested days count: four requests fit, the fifth is refused.
+  const asked = ['2027-01-05', '2027-01-12', '2027-01-19'].map(day => ({ day, weight: 1 }));
+  assert.equal(checkLimits(settings, limitEntries(asked, recurring), [{ day: '2027-01-26', weight: 1 }]), null);
+  const msg = checkLimits(settings, limitEntries([...asked, { day: '2027-01-26', weight: 1 }], recurring), [{ day: '2027-01-27', weight: 1 }]);
+  assert.match(msg!, /limit is 4 days a month \(4 days already used or requested\)/);
 });

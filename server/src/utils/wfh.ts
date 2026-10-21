@@ -15,7 +15,7 @@ import { AppError } from '../middleware/errorHandler';
 import { policyForUser, holidayKeysForUser, schedulesFor } from './attendanceRegister';
 import { dateKey, keyToDate, todayKeyFor, type Policy } from './attendanceEngine';
 import {
-  wfhSettingsOf, approvalOutcome, requestDays, scheduleDays, scheduleFor, mergeDays, usageWindow, usageFor, checkLimits, checkNotice,
+  wfhSettingsOf, approvalOutcome, requestDays, scheduleDays, scheduleFor, mergeDays, usageWindow, usageFor, checkLimits, checkNotice, limitEntries,
   type WfhSettings, type DayWeight,
 } from './wfhRules';
 
@@ -57,21 +57,21 @@ type Ctx = Awaited<ReturnType<typeof wfhContext>>;
 
 /**
  * Every WFH working day of [fromKey, toKey] that counts towards the limits:
- * approved and pending WFH requests (half day = 0.5) plus recurring days.
+ * approved and pending WFH requests (half day = 0.5). Recurring days don't
+ * count (wfhRules.limitEntries).
  */
 export async function wfhUsageDays(orgId: string, userId: string, ctx: Ctx, fromKey: string, toKey: string, excludeRequestId?: string): Promise<DayWeight[]> {
   const from = keyToDate(fromKey), to = keyToDate(toKey);
-  const [requests, holidays, schedules] = await Promise.all([
+  const [requests, holidays] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { orgId, userId, status: { in: ['PENDING', 'APPROVED'] }, leaveType: { isWfh: true }, startDate: { lte: to }, endDate: { gte: from }, ...(excludeRequestId ? { id: { not: excludeRequestId } } : {}) },
       select: { startDate: true, endDate: true, halfDay: true },
     }),
     holidayKeysForUser(orgId, userId, ctx.locationId, from, to),
-    schedulesFor(orgId, userId, ctx.group, fromKey, toKey),
   ]);
   const offs = ctx.policy.weeklyOffs;
   const fromReqs = requests.flatMap(r => requestDays(dateKey(r.startDate), dateKey(r.endDate), r.halfDay, offs, holidays)).filter(d => d.day >= fromKey && d.day <= toKey);
-  return mergeDays(fromReqs, scheduleDays(schedules, userId, fromKey, toKey, offs, holidays));
+  return limitEntries(fromReqs);
 }
 
 /** "used / limit" for the month and ISO week of `refDay` (default today). */

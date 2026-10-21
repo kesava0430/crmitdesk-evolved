@@ -173,7 +173,7 @@ export function PolicyGroupsSection() {
                   <Checkbox label="Half days allowed" checked={form.wfhAllowHalfDay} onChange={e => set('wfhAllowHalfDay', e.target.checked)} />
                   <Checkbox label="Check-in required on WFH days" hint={form.wfhRequireCheckIn ? 'Judged on hours like a workday (no late marks); no check-in = absent.' : 'WFH days are paid whatever is punched.'} checked={form.wfhRequireCheckIn} onChange={e => set('wfhRequireCheckIn', e.target.checked)} />
                 </div>
-                <p className="text-[11.5px] text-fg-muted">Limits count approved + pending requests and recurring days (working days only; a half day is 0.5). Managers can override them when applying on someone's behalf. On a WFH day, check-in skips the office location / network checks (face still applies).</p>
+                <p className="text-[11.5px] text-fg-muted">Limits count approved + pending requests (working days only; a half day is 0.5) — recurring WFH days set here don't count. Managers can override them when applying on someone's behalf. On a WFH day, check-in skips the office location / network checks (face still applies).</p>
                 <div>
                   <p className="text-[12px] font-medium text-fg mb-1">Recurring WFH for everyone in this policy</p>
                   {editing ? <WfhSchedulesPanel policyGroupId={editing.id} /> : <p className="text-[11.5px] text-fg-subtle">Save the policy first, then add a weekly pattern (e.g. every Friday).</p>}

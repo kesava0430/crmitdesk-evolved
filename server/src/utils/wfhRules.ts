@@ -8,8 +8,12 @@
 // Counting rules (owner-approved spec, item 5):
 //   - only WORKING days count (the person's weekly offs and holidays don't);
 //   - a half day counts 0.5;
-//   - approved AND pending requests count, and so do recurring WFH days, so
-//     "2 of 4 used" means the same thing on screen and at request time;
+//   - approved AND pending requests count; recurring WFH days (a schedule HR
+//     set for a team, the whole org or a person) do NOT — the limit is about
+//     what a person asks for, and a team-wide "every Friday" in a month with
+//     five Fridays used to leave nobody in the team able to request a single
+//     day (owner decision, full regression follow-up). The same rule feeds
+//     "2 of 4 used" on screen and the check at request time;
 //   - the month is the calendar month and the week the ISO week (Mon–Sun) of
 //     each requested day — a request spanning two months is checked per month.
 
@@ -158,6 +162,15 @@ export function checkNotice(settings: Pick<WfhSettings, 'minNoticeDays' | 'allow
  */
 export function approvalOutcome(settings: Pick<WfhSettings, 'approvalMode'>, actor: 'self' | 'manager', overridden: boolean): 'AUTO_APPROVED' | 'NORMAL' {
   return settings.approvalMode === 'AUTO' && actor === 'self' && !overridden ? 'AUTO_APPROVED' : 'NORMAL';
+}
+
+/**
+ * The WFH days that count towards a person's monthly / weekly limit: only
+ * their own requests. Recurring days are listed so callers can show them, but
+ * never counted.
+ */
+export function limitEntries(requested: DayWeight[], _recurring: DayWeight[] = []): DayWeight[] {
+  return mergeDays(requested);
 }
 
 // ─── Recurring schedules ─────────────────────────────────────────────────────
