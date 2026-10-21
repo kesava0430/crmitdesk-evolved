@@ -27,6 +27,25 @@ export function renderDocHtml(doc: PayslipDoc, opts: { embed?: boolean } = {}): 
   return { html: renderPayslipHtml(doc, opts), isolated: false };
 }
 
+/**
+ * Clients that show embed HTML in the sandboxed iframe say so with
+ * `?sandbox=1` (client/src/api/payslipTemplates.ts → usePayslipHtml).
+ * Older clients — notably installed Android app builds, whose web code is
+ * bundled — inject embed HTML straight into the app's DOM. That is fine for
+ * the built-in layouts (our own markup) but not for an author-written custom
+ * template (its <style>/ids would leak into the app), so they get this fixed
+ * notice instead. It carries no payslip data; their "Download PDF" button
+ * keeps working because the PDF route is unaffected.
+ */
+export const UPDATE_APP_NOTICE_HTML = '<div style="padding:32px 20px;text-align:center;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#374151">'
+  + '<p style="font-size:16px;font-weight:600;margin:0 0 8px">Please update the app to view this payslip</p>'
+  + '<p style="font-size:13px;margin:0;color:#6b7280">This payslip uses a layout your version of the app can\'t show on screen. Use <b>Download PDF</b> above to see it, or update the app.</p></div>';
+
+export function renderDocHtmlForClient(doc: PayslipDoc, opts: { embed: boolean; clientSandboxes: boolean }): { html: string; isolated: boolean; updateRequired?: true } {
+  if (doc.custom && opts.embed && !opts.clientSandboxes) return { html: UPDATE_APP_NOTICE_HTML, isolated: false, updateRequired: true };
+  return renderDocHtml(doc, { embed: opts.embed });
+}
+
 const DATA_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml)(?:;[a-z0-9=.+-]+)*;base64,/i;
 
 /**

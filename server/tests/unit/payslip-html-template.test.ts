@@ -15,7 +15,7 @@ import {
   Money, escapeCssValue, TemplateRenderError, PLACEHOLDERS, STARTER_HTML, STARTER_CSS, HTML_TEMPLATE_MAX_BYTES,
 } from '../../src/utils/payslipHtmlTemplate';
 import { samplePayslipDoc, buildPayslipDoc, renderPayslipHtml, renderPayslipPdf, LAYOUTS, PAYSLIP_FIELDS, type PayslipDoc } from '../../src/utils/payslipRender';
-import { renderDocHtml, renderDocPdf, renderDocsBundlePdf, customPdfHtml } from '../../src/utils/payslipOutput';
+import { renderDocHtml, renderDocPdf, renderDocsBundlePdf, customPdfHtml, renderDocHtmlForClient, UPDATE_APP_NOTICE_HTML } from '../../src/utils/payslipOutput';
 import { findChromium, htmlToPdf, closeHtmlPdfBrowser, htmlPdfStatus } from '../../src/utils/htmlPdf';
 
 const org = { name: 'Zenkara Tech', currency: 'INR' };
@@ -350,4 +350,22 @@ test('SEC-HTML: tokenizer keeps the old semantics (triple braces, CSS "}}}", unc
   assert.throws(() => renderTemplate('{{{org.name}}}', { org: { name: 'x' } }), TemplateRenderError);
   assert.equal(renderTemplate('.t{color:{{brand.primaryColor}}}', { brand: { primaryColor: '#f00' } }, escapeCssValue), '.t{color:#f00}');
   assert.equal(renderTemplate('a {{org.name}} b {{ tail', { org: { name: 'N' } }), 'a N b {{ tail');
+});
+
+test('SEC-HTML: custom-template embed HTML only goes to clients that sandbox it; old clients get an update notice', () => {
+  const custom = doc('<p class="mine">{{employee.name}}</p><style>body{display:none}</style>');
+  const old = renderDocHtmlForClient(custom, { embed: true, clientSandboxes: false });
+  assert.equal(old.updateRequired, true);
+  assert.equal(old.isolated, false);
+  assert.equal(old.html, UPDATE_APP_NOTICE_HTML);
+  assert.doesNotMatch(old.html, /mine|<style|display:none/);
+  assert.match(old.html, /update the app/i);
+  const fresh = renderDocHtmlForClient(custom, { embed: true, clientSandboxes: true });
+  assert.equal(fresh.isolated, true); assert.equal(fresh.updateRequired, undefined); assert.match(fresh.html, /class="mine"/);
+  // Built-in layouts: exactly what old and new clients always got.
+  const std = samplePayslipDoc({ layout: 'STANDARD' }, org);
+  for (const clientSandboxes of [false, true]) {
+    const r = renderDocHtmlForClient(std, { embed: true, clientSandboxes });
+    assert.deepEqual(r, { html: renderPayslipHtml(std, { embed: true }), isolated: false });
+  }
 });

@@ -13,7 +13,7 @@ import { sendMail } from '../../../utils/mailer';
 import {
   LAYOUTS, CUSTOM_HTML_LAYOUT, PAYSLIP_FIELDS, buildPayslipDoc, samplePayslipDoc, type PayslipDoc,
 } from '../../../utils/payslipRender';
-import { renderDocHtml, renderDocPdf, renderDocsBundlePdf } from '../../../utils/payslipOutput';
+import { renderDocHtml, renderDocHtmlForClient, renderDocPdf, renderDocsBundlePdf } from '../../../utils/payslipOutput';
 import { PLACEHOLDERS, STARTER_HTML, STARTER_CSS, HTML_TEMPLATE_MAX_BYTES, checkTemplateSource, renderCustomPayslipHtml, TemplateRenderError, type TemplateIssue } from '../../../utils/payslipHtmlTemplate';
 import { htmlPdfStatus, HtmlPdfUnavailableError } from '../../../utils/htmlPdf';
 
@@ -228,7 +228,7 @@ export async function payslipHtml(req: AuthRequest, res: Response, next: NextFun
   try {
     const doc = await loadPayslipForRender(req, req.params.id, typeof req.query.templateId === 'string' ? req.query.templateId : undefined);
     const embed = req.query.embed === '1';
-    if (embed) { const r = renderDocHtml(doc, { embed: true }); return res.json({ html: r.html, isolated: r.isolated, template: { layout: doc.layout.key } }); }
+    if (embed) { const r = renderDocHtmlForClient(doc, { embed: true, clientSandboxes: req.query.sandbox === '1' }); return res.json({ html: r.html, isolated: r.isolated, ...(r.updateRequired ? { updateRequired: true } : {}), template: { layout: doc.layout.key } }); }
     const r = renderDocHtml(doc);
     // A custom template's document is author-written: when opened directly
     // (not in the client's sandboxed iframe) the browser must still treat it

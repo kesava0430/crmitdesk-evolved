@@ -58,7 +58,8 @@ export const useTemplatePreview = (draft: Partial<TemplateInput> | null, payslip
 
 export const usePayslipHtml = (id?: string, templateId?: string) => useQuery<{ html: string; isolated?: boolean; template: { layout: LayoutKey } }>({
   queryKey: ['payslip-html', id, templateId ?? ''],
-  queryFn: () => api.get(`/hr/payroll/payslips/${id}/html`, { params: { embed: '1', templateId } }).then(r => r.data),
+  // sandbox=1: this client shows custom-HTML payslips in a sandboxed iframe (PayslipPrintPage); without it the server sends an "update the app" notice instead.
+  queryFn: () => api.get(`/hr/payroll/payslips/${id}/html`, { params: { embed: '1', sandbox: '1', templateId } }).then(r => r.data),
   enabled: !!id,
 });
 
