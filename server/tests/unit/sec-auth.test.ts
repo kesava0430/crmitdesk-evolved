@@ -81,3 +81,20 @@ test('payroll cycle save refuses another org\'s cycle before writing anything', 
   assert.equal(err?.statusCode, 404);
   assert.deepEqual(writes, []);
 });
+
+test('fieldEscalations: a masked caller cannot hand out an unmasked role', () => {
+  const { fieldEscalations, SENSITIVE_FIELD_DEFAULTS } = require('../../src/utils/permissions');
+  const masked = new Map<string, string>();
+  const allMaskedRows: any[] = [];
+  for (const [resource, fields] of Object.entries(SENSITIVE_FIELD_DEFAULTS) as any) {
+    for (const f of fields) { masked.set(`${resource}.${f}`, 'MASKED'); allMaskedRows.push({ resource, field: f, access: 'MASKED' }); }
+  }
+  // HR Manager / custom role with no masks → refused
+  assert.ok(fieldEscalations(masked, []).includes('employee.bankAccountNumber'));
+  // Built-in roles carrying the same masks → allowed
+  assert.deepEqual(fieldEscalations(masked, allMaskedRows), []);
+  // A caller who sees everything may assign anything
+  assert.deepEqual(fieldEscalations(new Map(), []), []);
+  // HIDDEN is stricter than MASKED
+  assert.deepEqual(fieldEscalations(new Map([['employee.taxId', 'HIDDEN']]), [{ resource: 'employee', field: 'taxId', access: 'MASKED' }]), ['employee.taxId']);
+});

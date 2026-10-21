@@ -225,7 +225,7 @@ const ctxCache = new Map<string, { ctx: PermCtx; expires: number }>();
 
 /** Drops a user's cached grants. Call after changing their role or manager. */
 export function invalidatePermCtx(userId: string): void {
-  ctxCache.delete(userId);
+  for (const k of ctxCache.keys()) if (k === userId || k.startsWith(`${userId}:`)) ctxCache.delete(k);
 }
 
 export function invalidateAllPermCtx(): void {
@@ -239,7 +239,11 @@ export function invalidateAllPermCtx(): void {
  * it immediate where we control the write.
  */
 export async function getPermCtx(user: { id: string; orgId: string; role: string }): Promise<PermCtx> {
-  const cached = ctxCache.get(user.id);
+  // Keyed by role as well as user: an API key rides on its creator's user id
+  // with the synthetic role 'API', and sharing one entry meant a key could be
+  // handed the admin's context (role SUPER_ADMIN) or the admin the key's.
+  const cacheKey = `${user.id}:${user.role}`;
+  const cached = ctxCache.get(cacheKey);
   if (cached && Date.now() < cached.expires) return cached.ctx;
 
   const dbUser = await prisma.user.findUnique({
@@ -282,6 +286,17 @@ export async function getPermCtx(user: { id: string; orgId: string; role: string
     }
   }
 
+  // An API key is a credential handed to an integration, not a person: it
+  // never sees bank, tax-id or pay fields in full, whatever its creator can.
+  if (user.role === 'API') {
+    for (const [resource, fields] of Object.entries(SENSITIVE_FIELD_DEFAULTS)) {
+      for (const f of fields) {
+        const k = `${resource}.${f}`;
+        if (fieldRules.get(k) !== 'HIDDEN') fieldRules.set(k, 'MASKED');
+      }
+    }
+  }
+
   const employeeId = dbUser?.employee?.id ?? null;
   const departmentId = dbUser?.employee?.departmentId ?? null;
 
@@ -306,7 +321,7 @@ export async function getPermCtx(user: { id: string; orgId: string; role: string
     fieldRules,
   };
 
-  ctxCache.set(user.id, { ctx, expires: Date.now() + CTX_TTL_MS });
+  ctxCache.set(cacheKey, { ctx, expires: Date.now() + CTX_TTL_MS });
   return ctx;
 }
 
@@ -709,4 +724,56 @@ export async function seedPermissionCatalog(orgId?: string): Promise<void> {
   }
 
   invalidateAllPermCtx();
+}
+
+// ─── Role assignment: no field-level escalation ──────────────────────────────
+
+const RESTRICTIVENESS: Record<string, number> = { HIDDEN: 2, MASKED: 1 };
+const restrictiveness = (a: string | undefined) => (a ? RESTRICTIVENESS[a] ?? 0 : 0);
+
+/**
+ * Pure: the sensitive fields a role would see more of than the caller does.
+ * `callerRules` is the caller's effective field rules (PermCtx.fieldRules);
+ * `targetRules` the FieldPermission rows of the role being handed out.
+ */
+export function fieldEscalations(
+  callerRules: Map<string, string>,
+  targetRules: Array<{ resource: string; field: string; access: string }>,
+): string[] {
+  const target = new Map(targetRules.map(r => [`${r.resource}.${r.field}`, r.access]));
+  const out: string[] = [];
+  for (const [resource, fields] of Object.entries(SENSITIVE_FIELD_DEFAULTS)) {
+    for (const f of fields) {
+      const k = `${resource}.${f}`;
+      if (restrictiveness(target.get(k)) < restrictiveness(callerRules.get(k))) out.push(k);
+    }
+  }
+  return out;
+}
+
+/**
+ * Refuses to let someone assign a role that sees HR-sensitive fields (bank,
+ * tax id, salary, payslip amounts) their own role has masked or hidden.
+ *
+ * Rank alone did not cover this: HR Manager, Finance and admin-created custom
+ * roles (which get no field masks by default) all sit on the EMPLOYEE enum,
+ * so an IT or Sales Manager — who sees those fields masked — could create an
+ * account with one of them and read every employee's bank details through it.
+ * A Super Admin sees everything and is never refused.
+ */
+export async function assertNoFieldEscalation(
+  caller: { id: string; orgId: string; role: string },
+  roleId: string,
+): Promise<void> {
+  if (caller.role === 'SUPER_ADMIN') return;
+  const ctx = await getPermCtx(caller);
+  const role = await prisma.role.findUnique({
+    where: { id: roleId },
+    select: { name: true, fieldPermissions: { select: { resource: true, field: true, access: true } } },
+  });
+  if (!role) return; // the caller's own lookup already 404s
+  const extra = fieldEscalations(ctx.fieldRules as Map<string, string>, role.fieldPermissions);
+  if (extra.length) {
+    throw new AppError(403, `You cannot assign the "${role.name}" role: it can see fields your own role cannot (${extra.slice(0, 3).join(', ')}${extra.length > 3 ? ', …' : ''}). Ask a Super Admin, or mask those fields on the role first.`);
+  }
 }
