@@ -24,6 +24,11 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token: this job only builds and tests (pull requests from forks
+# run it too), it never needs to write to the repository.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest

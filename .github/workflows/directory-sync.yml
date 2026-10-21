@@ -26,6 +26,9 @@ on:
     - cron: '0 4 * * *'
   workflow_dispatch: {} # manual "Run workflow" button in the Actions tab
 
+# Calls the live API with a shared secret; needs no GITHUB_TOKEN scopes.
+permissions: {}
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -35,10 +38,11 @@ jobs:
           # Public base URL of the app. Defaults to production; set the repo
           # variable SITE_URL (Settings → Variables) to point elsewhere.
           SITE_URL: ${{ vars.SITE_URL || 'https://app.zenkara.in' }}
+          DIRECTORY_SYNC_SECRET: ${{ secrets.DIRECTORY_SYNC_SECRET }}
         run: |
           status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
             -X POST "${SITE_URL%/}/zenkara/api/directory/sync-all" \
-            -H "X-Directory-Sync-Secret: ${{ secrets.DIRECTORY_SYNC_SECRET }}")
+            -H "X-Directory-Sync-Secret: $DIRECTORY_SYNC_SECRET")
           echo "HTTP status: $status"
           cat /tmp/response.json
           if [ "$status" != "200" ]; then

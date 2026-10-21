@@ -50,6 +50,11 @@ on:
       - '.github/workflows/android.yml'
   workflow_dispatch: {}
 
+# The job reads the source and uploads run artifacts; the Play upload
+# authenticates with its own service account, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
@@ -87,7 +92,7 @@ jobs:
       # the SDK repository, so sdkmanager exits 1 ("Failed to find package
       # 'tools'") and every run failed here. Ask only for current packages;
       # Gradle fetches anything else it needs (compile SDK, build tools).
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools
 
@@ -185,8 +190,10 @@ jobs:
 
       - name: Decode keystore
         if: steps.secrets.outputs.sign == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > client/android/zenkara.jks
+          echo "$KEYSTORE" | base64 -d > client/android/zenkara.jks
           test -s client/android/zenkara.jks
 
       - name: Build signed release bundle
@@ -213,7 +220,9 @@ jobs:
 
       - name: Upload to Google Play
         if: steps.secrets.outputs.sign == 'true' && steps.secrets.outputs.play == 'true'
-        uses: r0adkll/upload-google-play@v1.1.3
+        # Third-party action handed the Play service-account key: pinned to
+        # the commit of v1.1.3 so a moved/compromised tag cannot swap the code.
+        uses: r0adkll/upload-google-play@935ef9c68bb393a8e6116b1575626a7f5be3a7fb # v1.1.3
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.zenkara.app

@@ -10,8 +10,17 @@
 # Secrets and variables → Actions) with the same Neon DIRECT connection
 # string the server uses, including ?sslmode=require.
 #
+# Also add a repo secret BACKUP_PASSPHRASE (a long random string kept in your
+# password manager — NOT in this repo). The dump holds every tenant's data
+# (employees, salaries, customers, tickets), and Actions artifacts can be
+# downloaded by anyone with read access to the repository, so it is
+# encrypted (AES-256, gpg symmetric) before upload. Without the passphrase
+# the job fails rather than upload a plain-text copy of the database.
+#
 # Restore: download the artifact from the workflow run page, then
-#   gunzip backup.sql.gz && psql "<new-database-url>" -f backup.sql
+#   gpg --batch --pinentry-mode loopback --passphrase "<BACKUP_PASSPHRASE>" \
+#       -d backup.sql.gz.gpg | gunzip > backup.sql
+#   psql "<new-database-url>" -f backup.sql
 name: Nightly database backup
 
 on:
@@ -26,22 +35,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Dump database
+      - name: Dump and encrypt database
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
+          set -euo pipefail
           if [ -z "$DATABASE_URL" ]; then
             echo "DATABASE_URL repo secret is not set — see the comment at the top of this workflow." >&2
             exit 1
           fi
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::BACKUP_PASSPHRASE repo secret is not set — refusing to upload an unencrypted database dump. See the comment at the top of this workflow." >&2
+            exit 1
+          fi
+          umask 077
           # Ubuntu runners ship a pg_dump; --no-owner/--no-privileges makes the
-          # dump restorable into any provider without role juggling.
+          # dump restorable into any provider without role juggling. Streamed
+          # straight into gpg so no plain-text copy ever touches the disk.
           pg_dump --no-owner --no-privileges -d "$DATABASE_URL" \
-            | gzip > backup.sql.gz
-          ls -lh backup.sql.gz
-      - name: Upload backup artifact
-        uses: actions/upload-artifact@v4
+            | gzip \
+            | gpg --batch --yes --pinentry-mode loopback --symmetric --cipher-algo AES256 \
+                  --passphrase-fd 3 -o backup.sql.gz.gpg 3<<<"$BACKUP_PASSPHRASE"
+          ls -lh backup.sql.gz.gpg
+      - name: Upload encrypted backup artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: db-backup-${{ github.run_id }}
-          path: backup.sql.gz
+          path: backup.sql.gz.gpg
           retention-days: 30

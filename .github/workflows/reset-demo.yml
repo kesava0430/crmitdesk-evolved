@@ -20,6 +20,9 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch: {} # manual "Run workflow" button in the Actions tab
 
+# Calls the live API with a shared secret; needs no GITHUB_TOKEN scopes.
+permissions: {}
+
 jobs:
   reset:
     runs-on: ubuntu-latest
@@ -29,10 +32,11 @@ jobs:
           # Public base URL of the app. Defaults to production; set the repo
           # variable SITE_URL (Settings → Variables) to point elsewhere.
           SITE_URL: ${{ vars.SITE_URL || 'https://app.zenkara.in' }}
+          DEMO_RESET_SECRET: ${{ secrets.DEMO_RESET_SECRET }}
         run: |
           status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
             -X POST "${SITE_URL%/}/zenkara/api/demo/reset" \
-            -H "X-Demo-Reset-Secret: ${{ secrets.DEMO_RESET_SECRET }}")
+            -H "X-Demo-Reset-Secret: $DEMO_RESET_SECRET")
           echo "HTTP status: $status"
           cat /tmp/response.json
           if [ "$status" != "200" ]; then
