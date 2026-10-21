@@ -141,11 +141,16 @@ export async function saveCycle(req: AuthRequest, res: Response, next: NextFunct
     if (data.frequency === 'CUSTOM' && (!data.anchorDate || !data.lengthDays)) throw new AppError(400, 'Custom cycles need an anchor date and a length in days');
     const payload = { ...data, anchorDate: data.anchorDate ? parseDateOnly(data.anchorDate) : null };
     const id = req.params.id;
+    // Ownership is checked BEFORE writing. The org comparison used to run on
+    // the updated row, so another org's cycle had already been rewritten (and
+    // this org's default flag cleared) by the time the 404 was thrown.
+    if (id && !(await prisma.payrollCycle.findFirst({ where: { id, orgId }, select: { id: true } }))) {
+      throw new AppError(404, 'Cycle not found');
+    }
     if (data.isDefault) await prisma.payrollCycle.updateMany({ where: { orgId }, data: { isDefault: false } });
     const cycle = id
       ? await prisma.payrollCycle.update({ where: { id }, data: payload })
       : await prisma.payrollCycle.create({ data: { orgId, ...payload } });
-    if (id && cycle.orgId !== orgId) throw new AppError(404, 'Cycle not found');
     logAction(req.user!.id, id ? 'UPDATE' : 'CREATE', 'PayrollCycle', cycle.id, data);
     res.json({ ...cycle, currentPeriod: periodFor(cycle, new Date()) });
   } catch (err) { next(err); }

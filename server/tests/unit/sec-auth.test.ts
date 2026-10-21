@@ -65,3 +65,19 @@ for (const [model, path, fn] of READ_BACK) {
     assert.deepEqual(readWhere, { id: 'foreign', orgId: 'orgA' });
   });
 }
+
+test('payroll cycle save refuses another org\'s cycle before writing anything', async () => {
+  const { saveCycle } = require('../../src/modules/hr/payroll/payrollConfig.controller');
+  const writes: string[] = [];
+  (prisma as any).payrollCycle = {
+    findFirst: async () => null, // not in the caller's org
+    update: async () => { writes.push('update'); return { id: 'c', orgId: 'orgB' }; },
+    updateMany: async () => { writes.push('updateMany'); return { count: 1 }; },
+    create: async () => { writes.push('create'); return {}; },
+  };
+  let err: any = null;
+  await saveCycle({ user: { id: 'u1', role: 'SUPER_ADMIN', orgId: 'orgA' }, params: { id: 'cB' }, body: { name: 'x', isDefault: true } } as any,
+    { json: () => {} } as any, (e: any) => { err = e; });
+  assert.equal(err?.statusCode, 404);
+  assert.deepEqual(writes, []);
+});
