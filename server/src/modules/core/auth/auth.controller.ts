@@ -17,7 +17,7 @@ import { assertSeatAvailable } from '../../../utils/licensing';
 import { DEMO_LOGIN_EMAIL, DEMO_VERTICAL_SLUGS, DEFAULT_VERTICAL, loginEmailFor } from '../../../utils/seedDemoData';
 import { verifyGoogleIdToken, isGoogleSsoConfigured } from '../../../utils/googleAuth';
 import { decryptSecret } from '../../../utils/crypto';
-import { buildEntraAuthUrl, exchangeEntraCode, fetchEntraProfile, fetchEntraGroups } from '../../../utils/entraAuth';
+import { buildEntraAuthUrl, exchangeEntraCode, fetchEntraProfile, fetchEntraGroups, isMultiTenantAlias } from '../../../utils/entraAuth';
 import { resolveRoleForGroups } from '../../directory/roleMapping';
 import {
   ClientType, clientTypeFromHeader, decideRefresh, isValidProposedToken, refreshExpiry, rotatedRetentionMs,
@@ -321,6 +321,32 @@ export async function approveOrgSignup(req: Request, res: Response, next: NextFu
   } catch (err) { next(err); }
 }
 
+// Compared against when the email is unknown or inactive, so those answers
+// take as long as a wrong password and response time no longer tells an
+// attacker which emails have accounts.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 12);
+
+// Wrong 2FA codes per account. Reached only after the correct password, so a
+// stranger cannot use it to lock someone out; it stops a password holder
+// from walking the 6-digit space from many IPs (the login rate limit is per
+// IP). In-memory, like redeemedSsoCodes below: per process, which is fine
+// for the single API process this runs as.
+const TOTP_MAX_FAILURES = 5;
+const TOTP_WINDOW_MS = 15 * 60 * 1000;
+const totpFailures = new Map<string, { count: number; until: number }>();
+
+export function totpLocked(userId: string, now = Date.now()): boolean {
+  const f = totpFailures.get(userId);
+  if (!f) return false;
+  if (f.until < now) { totpFailures.delete(userId); return false; }
+  return f.count >= TOTP_MAX_FAILURES;
+}
+export function recordTotpFailure(userId: string, now = Date.now()) {
+  const f = totpFailures.get(userId);
+  if (!f || f.until < now) totpFailures.set(userId, { count: 1, until: now + TOTP_WINDOW_MS });
+  else f.count++;
+}
+
 /** POST /auth/login */
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
@@ -329,7 +355,10 @@ export async function login(req: Request, res: Response, next: NextFunction) {
       where: { email: data.email },
       include: { org: { select: { id: true, name: true, slug: true } } },
     });
-    if (!user || !user.isActive) throw new AppError(401, 'Invalid credentials');
+    if (!user || !user.isActive) {
+      await bcrypt.compare(data.password, DUMMY_PASSWORD_HASH);
+      throw new AppError(401, 'Invalid credentials');
+    }
     const valid = await bcrypt.compare(data.password, user.passwordHash);
     if (!valid) throw new AppError(401, 'Invalid credentials');
 
@@ -347,8 +376,13 @@ export async function login(req: Request, res: Response, next: NextFunction) {
       if (!data.totpToken) {
         return res.json({ requires2FA: true });
       }
+      if (totpLocked(user.id)) throw new AppError(429, 'Too many wrong 2FA codes — try again in 15 minutes');
       const totpValid = await verifyTotpLogin(user.id, data.totpToken);
-      if (!totpValid) throw new AppError(401, 'Invalid or expired 2FA code');
+      if (!totpValid) {
+        recordTotpFailure(user.id);
+        throw new AppError(401, 'Invalid or expired 2FA code');
+      }
+      totpFailures.delete(user.id);
     }
 
     const orgId = user.orgId ?? '';
@@ -932,6 +966,7 @@ export async function entraLoginRedirect(req: Request, res: Response) {
     const config = await prisma.directoryConfig.findUnique({ where: { loginSlug: req.params.slug } });
     if (!config) return failTo('sso_not_found');
     if (!config.isEnabled) return failTo('sso_disabled');
+    if (isMultiTenantAlias(config.tenantId)) return failTo('sso_misconfigured');
 
     const state = jwt.sign(appChallenge ? { orgId: config.orgId, ac: appChallenge } : { orgId: config.orgId }, ssoSigningKey(), { expiresIn: '10m' });
     res.redirect(buildEntraAuthUrl({ tenantId: config.tenantId, clientId: config.clientId, state }));
@@ -963,6 +998,9 @@ export async function entraCallback(req: Request, res: Response) {
     }
     const config = await prisma.directoryConfig.findUnique({ where: { orgId } });
     if (!config || !config.isEnabled) return fail('Single sign-on is not available for this organization.');
+    // A multi-tenant alias lets ANY Microsoft account sign in, and the email
+    // match below would then hand it the matching user of this org.
+    if (isMultiTenantAlias(config.tenantId)) return fail('Single sign-on is misconfigured: set your own Entra tenant ID (not "common"/"organizations"/"consumers") in Directory settings.');
 
     const { accessToken } = await exchangeEntraCode({
       tenantId: config.tenantId, clientId: config.clientId,
