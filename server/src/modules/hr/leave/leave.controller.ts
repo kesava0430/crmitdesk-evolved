@@ -29,7 +29,7 @@ const LeaveTypeSchema = z.object({
 });
 import { audit, parseDateOnly as parseD, computeDays, frozenUntil } from '../../../utils/attendanceRegister';
 import { computeBalances, validateLeaveRequest } from '../../../utils/leaveRules';
-import { HR_MANAGERS, isHrManager, mustSomeoneElseApprove } from '../../../utils/hrAccess';
+import { canManageHr, hrManagersWhere, mustSomeoneElseApprove } from '../../../utils/hrAccess';
 import { wfhContext } from '../../../utils/wfh';
 
 export { computeBalances };
@@ -83,7 +83,7 @@ export async function deleteLeaveType(req: AuthRequest, res: Response, next: Nex
 /** GET /hr/leave/balance[?userId=&year=] — own balances; managers may query anyone */
 export async function myBalance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const isManager = isHrManager(req.user!.role);
+    const isManager = (await canManageHr(req.user!, 'leave'));
     const userId = isManager && typeof req.query.userId === 'string' ? req.query.userId : req.user!.id;
     const year = Number(req.query.year) || new Date().getUTCFullYear();
     const target = await prisma.user.findFirst({ where: { id: userId, orgId: req.user!.orgId }, select: { id: true } });
@@ -183,7 +183,7 @@ export async function submitOwnRequest(req: AuthRequest, data: z.infer<typeof Re
   }).catch(() => {});
 
   if (!autoApproved) {
-    const managers = await prisma.user.findMany({ where: { orgId, role: { in: [...HR_MANAGERS] }, isActive: true, id: { not: userId } } });
+    const managers = await prisma.user.findMany({ where: hrManagersWhere(orgId, 'leave', userId) });
     managers.forEach(m => sendMail({
       ...(leaveType.isWfh
         ? emailTemplates.wfhRequested(m.email, m.name, request.user.name, when, days, data.reason)
@@ -213,7 +213,7 @@ export async function listRequests(req: AuthRequest, res: Response, next: NextFu
   try {
     const orgId = req.user!.orgId;
     const { status, userId, scope, kind } = req.query as Record<string, string>;
-    const isManager = isHrManager(req.user!.role);
+    const isManager = (await canManageHr(req.user!, 'leave'));
 
     const where: any = { orgId };
     if (isManager && scope === 'org') {

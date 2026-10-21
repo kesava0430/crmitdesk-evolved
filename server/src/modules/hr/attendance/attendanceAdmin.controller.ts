@@ -13,7 +13,7 @@ import {
 } from '../../../utils/attendanceRegister';
 import { DEFAULT_LATE_BANDS, isValidTimeZone, isScoped, todayKeyFor } from '../../../utils/attendanceEngine';
 import { createManualSession, editSession } from '../../../utils/attendanceSessions';
-import { isHrManager } from '../../../utils/hrAccess';
+import { canManageHr } from '../../../utils/hrAccess';
 import { writeManualStatus, resetManualDays, runBulkCorrection } from '../../../utils/attendanceCorrections';
 import { expandCells } from '../../../utils/attendanceBulk';
 
@@ -258,7 +258,7 @@ const USER_SELECT = { id: true, name: true, avatarUrl: true, department: true, i
 export async function register(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const isManager = isHrManager(req.user!.role);
+    const isManager = (await canManageHr(req.user!, 'attendance'));
     const q = req.query as Record<string, string>;
     const { from, to } = rangeFromQuery(q);
     if (to.getTime() < from.getTime()) throw new AppError(400, 'Invalid range');
@@ -300,7 +300,7 @@ export async function summary(req: AuthRequest, res: Response, next: NextFunctio
     const q = req.query as Record<string, string>;
     const { from, to } = rangeFromQuery(q);
     const orgId = req.user!.orgId;
-    const userId = isHrManager(req.user!.role) && q.userId ? q.userId : req.user!.id;
+    const userId = (await canManageHr(req.user!, 'attendance')) && q.userId ? q.userId : req.user!.id;
     // computeDays refuses a user outside the caller's org (ATT-10)
     const { days, policy, group } = await computeDays(orgId, userId, from, to);
     res.json({ ...registerSummary(policy, days), policyGroupName: group.name });
@@ -313,7 +313,7 @@ export async function dayDetail(req: AuthRequest, res: Response, next: NextFunct
     const orgId = req.user!.orgId;
     const q = req.query as Record<string, string>;
     if (!DATE_RE.test(q.date || '')) throw new AppError(400, 'date=YYYY-MM-DD is required');
-    const userId = isHrManager(req.user!.role) && q.userId ? q.userId : req.user!.id;
+    const userId = (await canManageHr(req.user!, 'attendance')) && q.userId ? q.userId : req.user!.id;
     const date = parseDateOnly(q.date);
     const { days, policy } = await computeDays(orgId, userId, date, date);
     const sessions = await recordsForDays(orgId, userId, policy, q.date, q.date, RECORD_PUBLIC_SELECT);
@@ -460,7 +460,7 @@ export async function bulkDays(req: AuthRequest, res: Response, next: NextFuncti
 export async function auditHistory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const q = req.query as Record<string, string>;
-    const isManager = isHrManager(req.user!.role);
+    const isManager = (await canManageHr(req.user!, 'attendance'));
     const userId = isManager ? q.userId : req.user!.id;
     const rows = await prisma.attendanceAudit.findMany({
       where: { orgId: req.user!.orgId, ...(userId ? { userId } : {}) },

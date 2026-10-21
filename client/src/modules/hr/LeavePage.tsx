@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
+import { useHrAccess } from '../../shared/hrAccess';
+import { useMyPermissions } from '../../api/work';
 import {
   PageHeader, PageBody, Card, CardHeader, StatTile, Tabs, Button, Modal, StatusBadge,
   EmptyState, SearchableSelect, Field, Input, Textarea, Select, Checkbox, Alert, SkeletonStats, SkeletonTable,
@@ -12,7 +14,6 @@ import { EmployeeWfhCard } from './wfh/WfhParts';
 import { useFormat } from '../../hooks/useFormat';
 import { useUsers } from '../../api/users';
 
-const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
 interface LeaveType { id: string; name: string; annualQuota: number; isPaid: boolean; color: string; allowHalfDay?: boolean; isUnlimited?: boolean; isWfh?: boolean }
 interface Balance { leaveType: LeaveType; quota: number; carriedForward: number; adjustments: number; used: number; remaining: number | null; entitlement: number }
@@ -319,10 +320,11 @@ function Approvals() {
     queryFn: () => api.get('/hr/leave/requests', { params: { scope: 'org' } }).then(r => r.data),
   });
   const { user: me } = useAuth();
-  const { data: orgUsers } = useUsers();
+  const { data: myPerms } = useMyPermissions();
   // Own requests can't be decided by yourself — unless you're the org's only
-  // HR manager (the server applies the same rule and audits it as self-approved).
-  const soleManager = !!orgUsers && !orgUsers.some(u => u.id !== me?.id && MANAGER_ROLES.includes(u.role) && (u as any).isActive !== false);
+  // leave approver. The server works that out (utils/hrAccess.ts, which also
+  // counts HR Manager / custom approver roles) and audits it as self-approved.
+  const soleManager = !!myPerms?.hrSoleLeaveApprover;
   const ownLocked = (r: LeaveRequest) => r.user.id === me?.id && !soleManager;
   const [decideError, setDecideError] = useState('');
   const approve = useMutation({
@@ -452,8 +454,7 @@ function EmployeeLeave() {
 }
 
 export default function LeavePage() {
-  const { user } = useAuth();
-  const isManager = MANAGER_ROLES.includes(user?.role || '');
+  const isManager = useHrAccess().leave;
   const [tab, setTab] = useState<'me' | 'approvals' | 'employees'>('me');
 
   return (

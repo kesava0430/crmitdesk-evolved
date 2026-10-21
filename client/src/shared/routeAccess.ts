@@ -1,4 +1,5 @@
 import { NAV_SECTIONS } from './layouts/AppLayout';
+import type { HrArea } from './hrAccess';
 
 // Flattened path -> allowed-roles map, derived from the same NAV_SECTIONS
 // config that drives sidebar link visibility. A path with no entry here has
@@ -12,6 +13,8 @@ import { NAV_SECTIONS } from './layouts/AppLayout';
 // RoleRoute in App.tsx reads this map to show an in-app "Access Denied"
 // screen instead of silently rendering a page full of 403s.
 export const ROUTE_ROLES: Record<string, string[] | undefined> = {};
+/** HR admin pages also open to whoever manages that HR area (shared/hrAccess.ts). */
+export const ROUTE_HR: Record<string, HrArea | undefined> = {};
 
 for (const section of NAV_SECTIONS) {
   for (const item of section.items) {
@@ -27,18 +30,21 @@ for (const section of NAV_SECTIONS) {
       roles = sectionRoles || itemRoles;
     }
     ROUTE_ROLES[item.to] = roles;
+    ROUTE_HR[item.to] = item.hr;
   }
 }
 
-export function isRouteAllowed(path: string, role: string | undefined): boolean {
+export function isRouteAllowed(path: string, role: string | undefined, hr?: Partial<Record<HrArea, boolean>>): boolean {
   if (!role) return false;
+  const allows = (key: string) => {
+    const allowed = ROUTE_ROLES[key];
+    const area = ROUTE_HR[key];
+    return !allowed || allowed.includes(role) || (!!area && !!hr?.[area]);
+  };
   // Exact match first (e.g. "/crm/deals"), then fall back to the longest
   // registered prefix (e.g. "/crm/contacts/:id" inherits "/crm/contacts"'s
   // restriction) so detail sub-routes aren't accidentally left unrestricted.
-  if (path in ROUTE_ROLES) {
-    const allowed = ROUTE_ROLES[path];
-    return !allowed || allowed.includes(role);
-  }
+  if (path in ROUTE_ROLES) return allows(path);
   let bestMatch = '';
   for (const key of Object.keys(ROUTE_ROLES)) {
     if ((path === key || path.startsWith(key + '/')) && key.length > bestMatch.length) {
@@ -46,6 +52,5 @@ export function isRouteAllowed(path: string, role: string | undefined): boolean 
     }
   }
   if (!bestMatch) return true; // unrestricted route
-  const allowed = ROUTE_ROLES[bestMatch];
-  return !allowed || allowed.includes(role);
+  return allows(bestMatch);
 }

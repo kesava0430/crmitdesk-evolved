@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppLayout } from './shared/layouts/AppLayout';
 import { isRouteAllowed } from './shared/routeAccess';
+import { useHrAccess } from './shared/hrAccess';
 import { AccessDenied } from './shared/components/AccessDenied';
 import { ModuleNotEnabled } from './shared/components/ModuleNotEnabled';
 import { useModules } from './shared/modules';
@@ -129,7 +130,12 @@ function RoleGate() {
   const { user } = useAuth();
   const location = useLocation();
   const modules = useModules();
-  if (!isRouteAllowed(location.pathname, user?.role)) return <AccessDenied />;
+  const hr = useHrAccess();
+  if (!isRouteAllowed(location.pathname, user?.role, hr)) {
+    // An HR page an HR Manager may open: wait for /permissions/me before refusing.
+    if (hr.loading && isRouteAllowed(location.pathname, user?.role, { people: true, org: true, leave: true, attendance: true, payroll: true })) return <PageSkeleton />;
+    return <AccessDenied />;
+  }
   // First load only (the licence is cached afterwards): wait for it rather
   // than render a page of a switched-off area that would fire failing requests.
   if (modules.loading) return <PageSkeleton />;

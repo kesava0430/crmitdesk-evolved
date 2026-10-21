@@ -15,7 +15,7 @@ import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
-import { isHrManager } from '../../../utils/hrAccess';
+import { canManageHr } from '../../../utils/hrAccess';
 import {
   planLoan, loanFigures, ledgerWithBalances, projectSchedule, outstandingOf, payslipLoanSummary, round2, isLoanCode, type LoanSummaryRow,
 } from '../../../utils/payrollLoans';
@@ -86,7 +86,7 @@ export async function myLoans(req: AuthRequest, res: Response, next: NextFunctio
 export async function getLoan(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const loan = await loadLoan(req.user!.orgId, req.params.id);
-    const manager = isHrManager(req.user!.role);
+    const manager = (await canManageHr(req.user!, 'payroll'));
     if (!manager && loan.userId !== req.user!.id) throw new AppError(403, 'You can only view your own loans');
     res.json(present(loan, true, !manager));
   } catch (err) { next(err); }

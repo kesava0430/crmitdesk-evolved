@@ -78,10 +78,10 @@ export const can = {
                                                                           // /custom-fields/values, /inbox/conversations
 
   /* ── HR ── */
-  readHrAdmin:        (r?: string | null) => inGroup(r, MANAGERS),         // /hr/attendance (all), /hr/payroll/runs|structures
-  approveLeave:       (r?: string | null) => inGroup(r, MANAGERS),         // /hr/leave/requests/:id/approve|reject
-  manageOrgStructure: (r?: string | null) => inGroup(r, MANAGERS),         // POST/PATCH /hr/org/*
-  managePeople:       (r?: string | null) => inGroup(r, MANAGERS),         // POST /people, grant/revoke login
+  // HR admin screens (attendance registers, leave approvals, payroll, org
+  // structure, HR settings) are gated by useHrAccess() in shared/hrAccess.ts,
+  // which also admits the HR Manager role — not by a role list here.
+  managePeople:       (r?: string | null) => inGroup(r, MANAGERS),         // grant/revoke login, assign role (core.user.* on the server)
 
   /* ── Admin / platform config ── */
   readAdmin:          (r?: string | null) => inGroup(r, MANAGERS),         // /admin/users, /audit-logs, /jobs, /permissions/*

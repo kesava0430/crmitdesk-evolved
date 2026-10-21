@@ -384,6 +384,10 @@ export interface MyPermissions {
   directReports: number;
   permissions: Record<string, PermScope>;
   fieldRules: Record<string, FieldAccess>;
+  /** HR areas this user manages org-wide (server utils/hrAccess.ts). */
+  hr?: Record<'people' | 'org' | 'leave' | 'attendance' | 'payroll', boolean>;
+  /** True when nobody else in the org can approve this user's leave (self-approval allowed, audited). */
+  hrSoleLeaveApprover?: boolean;
 }
 
 /**
@@ -393,11 +397,12 @@ export interface MyPermissions {
  * and re-fetching it on every navigation would add a round trip to every page
  * load for data that changes when an admin edits a role — i.e. rarely.
  */
-export const useMyPermissions = () =>
+export const useMyPermissions = (enabled = true) =>
   useQuery<MyPermissions>({
     queryKey: ['my-permissions'],
     queryFn: () => api.get('/permissions/me').then(r => r.data),
     staleTime: 5 * 60_000,
+    enabled,
   });
 
 /** Convenience: does the current user hold this permission at any scope? */

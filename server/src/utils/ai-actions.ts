@@ -25,7 +25,7 @@ import { prisma } from './prisma';
 import { AppError } from '../middleware/errorHandler';
 import { scoreLead as aiScoreLead } from './ai';
 import { MANAGERS, CRM_STAFF, ALL_STAFF, CRM_MANAGERS } from '../middleware/authenticate';
-import { HR_MANAGERS } from './hrAccess';
+import { HR_MANAGERS, hrAccessFor } from './hrAccess';
 import { FIELD_TYPES, recordTitle } from '../modules/custom-modules/customModules.service';
 import * as customModules from '../modules/custom-modules/customModules.controller';
 import * as workflows from '../modules/workflows/workflows.controller';
@@ -174,7 +174,7 @@ const CORE_ACTIONS: AiActionDefinition[] = [
     description: 'Adds a manual check-in/check-out session for an employee, bypassing location checks (e.g. "log John as present today from 9 to 5"). Self check-in isn\'t an AI action — it needs the employee\'s own device. To just set a day\'s status use MARK_ATTENDANCE.',
     example: 'Log John as present today from 9am to 5pm',
     paramsHint: '{ userId: employee\'s name, checkInAt: date-time words or ISO, checkOutAt?: date-time (required for past days), reason: string, notes?: string }',
-    allowedRoles: HR_MANAGERS, modules: ['attendance'], requiresConfirmation: true, risk: 'medium',
+    allowedRoles: HR_MANAGERS, hrArea: 'attendance', modules: ['attendance'], requiresConfirmation: true, risk: 'medium',
     refs: { userId: 'user' }, dates: { checkInAt: 'datetime', checkOutAt: 'datetime' },
     schema: z.object({ userId: zId, date: z.string().optional(), checkInAt: zDateTime, checkOutAt: zDateTime.optional(), reason: z.string().min(1).max(300), notes: z.string().max(300).optional() })
       .refine(p => !p.checkOutAt || p.checkOutAt > p.checkInAt, { message: 'Check-out must be after check-in', path: ['checkOutAt'] }),
@@ -247,7 +247,10 @@ export function actionBlockedReason(name: string, params: any, blockedModules: r
 
 /** Pure: why this user can't run the action at all (null = allowed). Role first (mirrors the route), then the permission engine. */
 export function roleBlockedReason(def: AiActionDefinition, role: string, perm?: PermCtx): string | null {
-  if (!def.allowedRoles.includes(role as any)) return `Your role isn't permitted to ${def.label.charAt(0).toLowerCase()}${def.label.slice(1)}.`;
+  // HR actions also admit whoever manages that HR area (HR Manager role, or a
+  // custom role with the matching permission) — same rule as the HR routes.
+  const hrOk = !!def.hrArea && !!perm && hrAccessFor({ role: perm.role, roleKey: perm.roleKey, grants: perm.grants })[def.hrArea];
+  if (!hrOk && !def.allowedRoles.includes(role as any)) return `Your role isn't permitted to ${def.label.charAt(0).toLowerCase()}${def.label.slice(1)}.`;
   if (perm && def.permission && !can(perm, def.permission)) return `You don't have the “${def.permission}” permission needed to ${def.label.charAt(0).toLowerCase()}${def.label.slice(1)}.`;
   return null;
 }

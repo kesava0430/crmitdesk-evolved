@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Response, NextFunction } from 'express';
-import { authenticate, requireRole, ALL_USERS, MANAGERS, AuthRequest } from '../../middleware/authenticate';
+import { authenticate, requireRole, ALL_USERS, AuthRequest } from '../../middleware/authenticate';
+import { requireHrManager } from '../../utils/hrAccess';
 import { AppError } from '../../middleware/errorHandler';
 import * as c from './people.controller';
 
@@ -34,9 +35,9 @@ router.patch('/me',    requireRole(...ALL_USERS), noApiKeys, c.updateSelf);
 router.post('/',                  requireRole(...ALL_USERS), noApiKeys, c.create);
 router.get('/:id',                requireRole(...ALL_USERS), c.getOne);
 router.patch('/:id',              requireRole(...ALL_USERS), noApiKeys, c.update);
-router.post('/:id/grant-login',   requireRole(...MANAGERS), c.grantLogin);
-router.post('/:id/revoke-login',  requireRole(...MANAGERS), c.revokeLogin);
-router.post('/:id/role',          requireRole(...MANAGERS), c.assignRole);
-router.post('/repair-unlinked',   requireRole(...MANAGERS), c.repairUnlinked);
+router.post('/:id/grant-login',   requireHrManager('people'), c.grantLogin);
+router.post('/:id/revoke-login',  requireHrManager('people'), c.revokeLogin);
+router.post('/:id/role',          requireHrManager('people'), c.assignRole);
+router.post('/repair-unlinked',   requireHrManager('people'), c.repairUnlinked);
 
 export { router as peopleRouter };

@@ -383,7 +383,7 @@ test('liveness is on by default and the legacy descriptor is refused while it is
 test('challenge routes are open to every staff role; attempt review is for managers', () => {
   const r = code('src/modules/hr/attendance/attendance.routes.ts');
   assert.match(r, /post\('\/face\/challenge',\s*requireRole\(\.\.\.ALL_USERS\),\s*challengeLimiter/);
-  assert.match(r, /get\('\/face\/attempts',\s*requireRole\(\.\.\.MANAGERS\)/);
+  assert.match(r, /get\('\/face\/attempts',\s*requireHrManager\('attendance'\)/); // HR managers (utils/hrAccess.ts)
   const c = code('src/modules/hr/attendance/attendance.controller.ts');
   for (const fn of ['listFaceAttempts', 'getFaceAttempt']) {
     const body = c.split(`async function ${fn}`)[1].split('\nexport ')[0];

@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, requireRole, ALL_USERS, MANAGERS } from '../../../middleware/authenticate';
+import { authenticate, requireRole, ALL_USERS } from '../../../middleware/authenticate';
+import { requireHrManager } from '../../../utils/hrAccess';
 import * as c from './employees.controller';
 
 const router = Router();
@@ -19,10 +20,10 @@ router.get('/',              requireRole(...ALL_USERS), c.list);
 router.get('/:id',           requireRole(...ALL_USERS), c.getOne);
 router.get('/:id/reports',   requireRole(...ALL_USERS), c.directReports);
 
-router.post('/',             requireRole(...MANAGERS),  c.create);
+router.post('/',             requireHrManager('people'),  c.create);
 router.patch('/:id',         requireRole(...ALL_USERS), c.update);
-router.post('/:id/exit',     requireRole(...MANAGERS),  c.recordExit);
-router.delete('/:id',        requireRole(...MANAGERS),  c.remove);
+router.post('/:id/exit',     requireHrManager('people'),  c.recordExit);
+router.delete('/:id',        requireHrManager('people'),  c.remove);
 
 router.post('/:id/contacts',       requireRole(...ALL_USERS), c.addContact);
 router.post('/:id/skills',         requireRole(...ALL_USERS), c.addSkill);

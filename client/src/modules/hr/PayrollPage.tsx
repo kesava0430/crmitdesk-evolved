@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import { useAuth } from '../../contexts/AuthContext';
+import { useHrAccess } from '../../shared/hrAccess';
 import {
   PageHeader, PageBody, Card, CardHeader, Tabs, Button, Modal, StatusBadge, EmptyState,
   Field, Input, Select, Alert,
@@ -20,7 +20,6 @@ import { useFormat } from '../../hooks/useFormat';
 import { useRunHistory, useFinalize, type RerunSummary } from '../../api/payrollRevision';
 import { RerunDialog, RerunResults, ReopenDialog, FinaliseDialog, RevisionNotices, VersionsSection, SettlementPanel, CompareModal, DeltaText } from './payroll/RunRevision';
 
-const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
 /** Shared with the payroll-run and payslip chips: paid is settled (green),
  *  anything else is still in flight (yellow). */
@@ -480,8 +479,7 @@ function MyPayslipsTab() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function PayrollPage() {
-  const { user } = useAuth();
-  const isManager = MANAGER_ROLES.includes(user?.role || '');
+  const isManager = useHrAccess().payroll;
   const [tab, setTab] = useState<'me' | 'salaries' | 'components' | 'cycles' | 'runs' | 'loans' | 'template'>('me');
 
   return (

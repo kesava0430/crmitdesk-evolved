@@ -69,6 +69,8 @@ export interface AiActionDefinition<TParams = any> {
   paramsHint: string;
   /** Legacy role names allowed to invoke this action — checked server-side, always. Mirrors the UI route's requireRole. */
   allowedRoles: readonly string[];
+  /** HR actions: also allowed for users who manage this HR area (utils/hrAccess.ts). */
+  hrArea?: import('../hrAccess').HrArea;
   requiresConfirmation: boolean;
   schema: ZodSchema<TParams>;
   handler: (params: TParams, ctx: AiActionContext) => Promise<AiActionResult>;

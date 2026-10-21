@@ -1,3 +1,4 @@
+import { useHrAccess } from '../shared/hrAccess';
 import { useModules } from '../shared/modules';
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -352,7 +353,9 @@ export function DashboardPage() {
   const hrOn = modules.isModuleOn('hr_core');
   const attendanceOn = modules.isModuleOn('attendance');
   const payrollOn = modules.isModuleOn('payroll');
-  const showHr = hrOn && can.readHrAdmin(role);
+  const hrAccess = useHrAccess();
+  // HR overview reads org-wide attendance + pending leave: whoever manages those.
+  const showHr = hrOn && (hrAccess.attendance || hrAccess.leave);
   /* Ask AI answers from the query layer with the asker's own permissions
      (POST /ai/query), in every area — HR-only orgs included. A "Full answer
      and chart" link from the WhatsApp/Slack assistant (/dashboard?ask=…) must

@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
+import { useHrAccess } from '../../shared/hrAccess';
 import {
   PageHeader, PageBody, Card, CardHeader, Tabs, Button, Badge, Alert, Avatar,
   DataTable, EmptyState, IconButton,
@@ -15,7 +16,6 @@ import { MyWfhCard } from './wfh/WfhParts';
 import type { WfhDayInfo } from '../../api/wfh';
 const LiveMap = lazy(() => import('./LiveMap').then(m => ({ default: m.LiveMap })));
 
-const MANAGER_ROLES = ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'];
 
 interface AttendanceRecord {
   id: string;
@@ -628,7 +628,7 @@ function TeamToday() {
 
 export default function AttendancePage() {
   const { user } = useAuth();
-  const isManager = MANAGER_ROLES.includes(user?.role || '');
+  const isManager = useHrAccess().attendance;
   const [tab, setTab] = useState<'me' | 'team' | 'register' | 'map'>('me');
   const { data: policy } = useAttendancePolicy();
 

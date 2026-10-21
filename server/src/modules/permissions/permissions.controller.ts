@@ -1,3 +1,4 @@
+import { hrAccessFor, mustSomeoneElseApprove } from '../../utils/hrAccess';
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
@@ -449,6 +450,11 @@ export async function myPermissions(req: AuthRequest, res: Response, next: NextF
       directReports: ctx.reportEmployeeIds.length,
       permissions: Object.fromEntries(ctx.grants),
       fieldRules: Object.fromEntries(ctx.fieldRules),
+      // Which HR areas this user manages org-wide — the same rule every HR
+      // route guard uses (utils/hrAccess.ts); the client gates HR screens on it.
+      hr: hrAccessFor({ role: ctx.role, roleKey: ctx.roleKey, grants: ctx.grants }),
+      // No other active leave approver in the org → own leave may be self-approved (audited).
+      hrSoleLeaveApprover: !(await mustSomeoneElseApprove(req.user!.orgId, req.user!.id)),
     });
   } catch (err) {
     next(err);

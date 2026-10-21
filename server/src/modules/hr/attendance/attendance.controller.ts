@@ -21,7 +21,7 @@ import { sendPushToUser } from '../../../utils/webPush';
 import { policyForUser, policiesForOrg, recordsForDays, recordDayKey, RECORD_PUBLIC_SELECT } from '../../../utils/attendanceRegister';
 import { shiftDayKey, todayKeyFor, keyToDate, zonedDayStart, addDaysKey, dateKey } from '../../../utils/attendanceEngine';
 import { createManualSession } from '../../../utils/attendanceSessions';
-import { isHrManager } from '../../../utils/hrAccess';
+import { canManageHr } from '../../../utils/hrAccess';
 import { wfhDayInfo, wfhTodayForUsers } from '../../../utils/wfh';
 import { exemptRule } from '../../../utils/wfhRules';
 
@@ -437,7 +437,7 @@ export async function manualEntry(req: AuthRequest, res: Response, next: NextFun
 export async function recordSelfie(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const rec = await prisma.attendanceRecord.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, select: { userId: true, checkInSelfie: true, checkOutSelfie: true } });
-    if (!rec || (rec.userId !== req.user!.id && !isHrManager(req.user!.role))) throw new AppError(404, 'Record not found');
+    if (!rec || (rec.userId !== req.user!.id && !(await canManageHr(req.user!, 'attendance')))) throw new AppError(404, 'Record not found');
     const selfie = req.query.which === 'out' ? rec.checkOutSelfie : rec.checkInSelfie;
     if (!selfie) throw new AppError(404, 'No photo stored for this session');
     res.set('Cache-Control', 'private, max-age=300');

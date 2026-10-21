@@ -23,6 +23,8 @@ import { ChatCopilot } from "../components/ChatCopilot";
 import { ThemePicker } from "../components/ThemePicker";
 import { useLabels, type LabelEntityKey } from "../../hooks/useLabels";
 import { can } from "../permissions";
+import { useHrAccess, type HrArea } from "../hrAccess";
+import { useMyPermissions } from "../../api/work";
 import { useLicense } from "../../api/billing";
 import { useModules } from "../modules";
 import { useAttendanceHeartbeat } from "../../hooks/useAttendanceHeartbeat";
@@ -47,6 +49,9 @@ type NavItem = {
   label: string;
   icon: React.ElementType;
   roles?: string[];
+  /** HR admin pages: also shown to whoever manages this HR area (HR Manager
+      role / matching custom role — see shared/hrAccess.ts), on top of `roles`. */
+  hr?: HrArea;
   /** Tailwind text-* class tinting the item's icon when inactive. Mid-tone
       (≈500) hues are used so they read on both the light and dark rails. */
   tint?: string;
@@ -105,11 +110,11 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: "/people",        label: "People",      icon: UserSquare2, tint: "text-violet-500", feature: 'hr_core' },
       { to: "/hr/directory",  label: "Org Chart",   icon: Network,     tint: "text-cyan-500", feature: 'hr_core' },
-      { to: "/hr/org",        label: "Org Structure", icon: Network,   tint: "text-teal-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'hr_core' },
+      { to: "/hr/org",        label: "Org Structure", icon: Network,   tint: "text-teal-500", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], hr: 'org', feature: 'hr_core' },
       { to: "/hr/attendance", label: "Attendance",  icon: Clock,        tint: "text-amber-500", feature: 'attendance' },
       { to: "/hr/leave",      label: "Leave",       icon: CalendarCheck, tint: "text-green-500", feature: 'hr_core' },
       { to: "/hr/payroll",    label: "Payroll",     icon: Wallet,        tint: "text-emerald-500", feature: 'payroll' },
-      { to: "/hr/settings",   label: "HR Settings", icon: Building2,     tint: "text-slate-400", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], feature: 'hr_core' },
+      { to: "/hr/settings",   label: "HR Settings", icon: Building2,     tint: "text-slate-400", roles: ['SUPER_ADMIN', 'IT_MANAGER', 'CRM_MANAGER'], hr: 'attendance', feature: 'hr_core' },
     ],
   },
   {
@@ -296,6 +301,9 @@ function SidebarContent({ user, onLogout, onNavClick }: {
   user: any; onLogout: () => void; onNavClick?: () => void;
 }) {
   const userRole: string | undefined = user?.role;
+  const hrAccess = useHrAccess();
+  // Built-in roles without a UserRole value (HR Manager, Finance…) show their own name, not "Employee".
+  const { data: myPerms } = useMyPermissions(!!user && user.role !== 'PLATFORM_ADMIN');
   const { entityLabel } = useLabels();
   const workspace = useWorkspace();
   const location = useLocation();
@@ -395,7 +403,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
 
           // Filter items by role, then by the workspace skin's hidden routes
           const visibleItems = section.items.filter(
-            item => (!item.roles || !userRole || item.roles.includes(userRole)) && !workspace.isRouteHidden(item.to) && !isHiddenByModule(item)
+            item => (!item.roles || !userRole || item.roles.includes(userRole) || (!!item.hr && hrAccess[item.hr])) && !workspace.isRouteHidden(item.to) && !isHiddenByModule(item)
           );
           if (visibleItems.length === 0) return null;
 
@@ -454,7 +462,7 @@ function SidebarContent({ user, onLogout, onNavClick }: {
           <div className="flex-1 min-w-0">
             <p className="text-sidebar-fg text-xs font-medium truncate">{user?.name}</p>
             <p className="text-sidebar-heading text-[10.5px] truncate group-hover:text-sidebar-muted">
-              {user?.role?.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase()) ?? "Edit profile"}
+              {(myPerms?.roleKey && myPerms.roleKey !== user?.role ? myPerms.roleKey : user?.role)?.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase()) ?? "Edit profile"}
             </p>
           </div>
         </Link>

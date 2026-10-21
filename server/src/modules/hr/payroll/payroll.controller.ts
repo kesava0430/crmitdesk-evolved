@@ -10,7 +10,7 @@ import { ensureDefaultCycle, employeeContext, toDef } from './payrollConfig.cont
 import { ensureDefaultTemplate } from './payslipTemplates.controller';
 import { loanSummaryForPayslip } from './loans.controller';
 
-import { isHrManager } from '../../../utils/hrAccess';
+import { canManageHr } from '../../../utils/hrAccess';
 import { nextSequence, totalsOfLines, type SlipLine } from '../../../utils/payrollRevision';
 import { computeLoanRecoveries, recoveryLines, withLoanLines, recoveryEntriesFromLines, outstandingOf, isLoanCode, loanIdOf, round2 } from '../../../utils/payrollLoans';
 
@@ -403,7 +403,7 @@ export async function listPayslips(req: AuthRequest, res: Response, next: NextFu
   try {
     const orgId = req.user!.orgId;
     const { scope, userId, month, year } = req.query as Record<string, string>;
-    const isManager = isHrManager(req.user!.role);
+    const isManager = (await canManageHr(req.user!, 'payroll'));
 
     const where: any = { orgId };
     if (isManager && scope === 'org') {
@@ -428,7 +428,7 @@ export async function getPayslip(req: AuthRequest, res: Response, next: NextFunc
   try {
     const payslip = await prisma.payslip.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include: payslipInclude });
     if (!payslip) throw new AppError(404, 'Payslip not found');
-    const isManager = isHrManager(req.user!.role);
+    const isManager = (await canManageHr(req.user!, 'payroll'));
     if (!isManager && payslip.userId !== req.user!.id) throw new AppError(403, 'You can only view your own payslips');
     if (!isManager && payslip.status === 'DRAFT') throw new AppError(404, 'Payslip not found');
     res.json({ ...payslip, loanSummary: await loanSummaryForPayslip(payslip) });

@@ -8,7 +8,7 @@ import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
 import { sseManager, SSEEvent } from '../../../utils/sse';
-import { isHrManager } from '../../../utils/hrAccess';
+import { canManageHr } from '../../../utils/hrAccess';
 import { audit, computeDays, schedulesFor } from '../../../utils/attendanceRegister';
 import { dateKey, keyToDate, localDateKey, safeTimeZone, addDaysKey } from '../../../utils/attendanceEngine';
 import { ensureWfhTypes, wfhContext, wfhUsage, wfhDayInfo } from '../../../utils/wfh';
@@ -42,7 +42,7 @@ function serializeSchedule(s: any) {
 /** Target of the summary: yourself, or (managers) ?userId= */
 async function targetUser(req: AuthRequest) {
   const q = req.query.userId;
-  const userId = isHrManager(req.user!.role) && typeof q === 'string' && q ? q : req.user!.id;
+  const userId = (await canManageHr(req.user!, 'leave')) && typeof q === 'string' && q ? q : req.user!.id;
   const u = await prisma.user.findFirst({ where: { id: userId, orgId: req.user!.orgId }, select: { id: true, name: true } });
   if (!u) throw new AppError(404, 'User not found');
   return u;
