@@ -60,7 +60,9 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
   try {
     const data = Schema.partial().parse(req.body);
     await prisma.campaign.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
-    const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+    // Org-scoped read-back — see accounts.controller update().
+    const campaign = await prisma.campaign.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
+    if (!campaign) throw new AppError(404, 'Campaign not found');
     res.json(campaign);
   } catch (err) { next(err); }
 }

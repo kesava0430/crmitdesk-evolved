@@ -53,7 +53,11 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
   try {
     const data = Schema.partial().parse(req.body);
     await prisma.account.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
-    const account = await prisma.account.findUnique({ where: { id: req.params.id }, include });
+    // Read back within the org: updateMany above silently matches nothing for
+    // another org's id, and an unscoped findUnique here then returned that
+    // org's record to the caller.
+    const account = await prisma.account.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
+    if (!account) throw new AppError(404, 'Account not found');
     res.json(account);
   } catch (err) { next(err); }
 }

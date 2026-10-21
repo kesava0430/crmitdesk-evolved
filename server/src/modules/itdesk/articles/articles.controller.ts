@@ -142,7 +142,9 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     const data = Schema.partial().parse(req.body);
     if (data.body) data.body = sanitizeRichText(data.body);
     await prisma.knowledgeArticle.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data: { ...data, publishedAt: data.status === 'PUBLISHED' ? new Date() : undefined } });
-    const article = await prisma.knowledgeArticle.findUnique({ where: { id: req.params.id }, include });
+    // Org-scoped read-back — see accounts.controller update().
+    const article = await prisma.knowledgeArticle.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
+    if (!article) throw new AppError(404, 'Article not found');
     res.json(article);
   } catch (err) { next(err); }
 }

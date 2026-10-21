@@ -81,7 +81,9 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
         plannedEnd: data.plannedEnd ? new Date(data.plannedEnd) : data.plannedEnd === null ? null : undefined,
       },
     });
-    const cr = await prisma.changeRequest.findUnique({ where: { id: req.params.id }, include });
+    // Org-scoped read-back — see accounts.controller update().
+    const cr = await prisma.changeRequest.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
+    if (!cr) throw new AppError(404, 'Change request not found');
     res.json(cr);
   } catch (err) { next(err); }
 }

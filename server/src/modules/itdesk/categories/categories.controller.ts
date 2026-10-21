@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
+import { AppError } from '../../../middleware/errorHandler';
 
 const Schema = z.object({
   name: z.string().min(1),
@@ -31,7 +32,9 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
   try {
     const data = Schema.partial().parse(req.body);
     await prisma.category.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
-    const category = await prisma.category.findUnique({ where: { id: req.params.id }, include });
+    // Org-scoped read-back — see accounts.controller update().
+    const category = await prisma.category.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
+    if (!category) throw new AppError(404, 'Category not found');
     res.json(category);
   } catch (err) { next(err); }
 }

@@ -83,7 +83,9 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       // used to turn null into "no change", so an asset could never be unassigned.
       assignedTo: data.assignedTo === null || data.assignedTo === '' ? null : data.assignedTo ?? undefined,
     }});
-    const asset = await prisma.asset.findUnique({ where: { id: req.params.id }, include });
+    // Org-scoped read-back — see accounts.controller update().
+    const asset = await prisma.asset.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
+    if (!asset) throw new AppError(404, 'Asset not found');
     res.json(asset);
   } catch (err) { next(err); }
 }
