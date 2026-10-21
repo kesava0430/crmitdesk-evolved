@@ -346,7 +346,7 @@ function PayrollRunsSection() {
       ) : (
         <div className="space-y-2">
           {(data || []).map(r => (
-            <button key={r.id} onClick={() => setViewing(r.id)} className="w-full text-left flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card hover:border-line-strong hover:bg-surface-hover transition-colors">
+            <button key={r.id} onClick={() => setViewing(r.id)} className="group w-full text-left flex items-center justify-between gap-3 p-3 border border-line-subtle rounded-card hover:border-line-strong hover:bg-surface-hover transition-colors">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-fg text-sm tabular-nums">{periodLabel(r)}</span>
@@ -358,7 +358,9 @@ function PayrollRunsSection() {
                   {r._count?.payslips ?? 0} payslip{(r._count?.payslips ?? 0) === 1 ? '' : 's'} · run by {r.runByUser?.name}{r.status === 'DRAFT' ? ((r.version ?? 1) > 1 ? ' · reopened for changes' : ' · awaiting review') : ''}
                 </p>
               </div>
-              <Button size="xs" variant="ghost" className="shrink-0">{r.status === 'DRAFT' ? 'Review' : 'View'}</Button>
+              {/* Looks like a ghost button, but it's a label: the whole row is the button
+                  (a <button> inside a <button> is invalid HTML and broke click targets). */}
+              <span aria-hidden="true" className="shrink-0 inline-flex items-center h-ctl-xs px-2.5 rounded-btn text-[11.5px] font-medium text-fg-muted group-hover:bg-surface-hover group-hover:text-fg">{r.status === 'DRAFT' ? 'Review' : 'View'}</span>
             </button>
           ))}
         </div>

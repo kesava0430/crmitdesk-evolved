@@ -9,13 +9,18 @@ import { logAction } from '../../../utils/auditLog';
 import { purgeEntityChildren } from '../../../utils/entityCleanup';
 import { tagIdFilter } from '../../../utils/tagFilter';
 
-const Schema = z.object({
+// A fetched contact serialises unset columns as null; API / AI callers that
+// send a record back as-is used to get "source: expected string, received
+// null" for the whole update. null = not provided (field left unchanged).
+const nullToUndefined = (v: unknown) => (v === null ? undefined : v);
+
+export const ContactSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().optional(),
-  jobTitle: z.string().optional(),
-  accountId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
-  source: z.string().optional(),
+  email: z.preprocess(nullToUndefined, z.string().email().optional().or(z.literal(''))),
+  phone: z.preprocess(nullToUndefined, z.string().optional()),
+  jobTitle: z.preprocess(nullToUndefined, z.string().optional()),
+  accountId: z.preprocess(nullToUndefined, z.string().optional().or(z.literal(''))).transform(v => v || undefined),
+  source: z.preprocess(nullToUndefined, z.string().optional()),
   // Date-only picker input ("YYYY-MM-DD") — powers the DATE_FIELD_REACHED
   // workflow trigger's birthday automation (see utils/dateAutomation.ts).
   // Accepts null too (not just string | undefined): the edit form on
@@ -53,7 +58,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const data = Schema.parse(req.body);
+    const data = ContactSchema.parse(req.body);
     const contact = await prisma.contact.create({ data: { ...data, orgId: req.user!.orgId, ownerId: req.user!.id }, include });
     logAction(req.user!.id, 'CREATE', 'Contact', contact.id, { name: contact.name, email: contact.email });
     res.status(201).json(contact);
@@ -85,7 +90,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const data = Schema.partial().parse(req.body);
+    const data = ContactSchema.partial().parse(req.body);
     const contact = await prisma.contact.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
     if (contact.count === 0) throw new AppError(404, 'Contact not found');
     const updated = await prisma.contact.findUnique({ where: { id: req.params.id }, include });

@@ -40,8 +40,18 @@ const STATUS_VARIANT: Record<string, any> = {
   CANCELLED: 'gray',
 };
 
+/* The area a linked record belongs to. A task linked to a deal keeps existing
+   after CRM is switched off for the org; its "deal" label then names an area
+   the org doesn't have, so it's hidden (the task itself stays). */
+const ENTITY_AREA: Record<string, string> = {
+  DEAL: 'crm', LEAD: 'crm', CONTACT: 'crm', ACCOUNT: 'crm', QUOTE: 'sales_docs', INVOICE: 'sales_docs', CAMPAIGN: 'campaigns',
+  TICKET: 'itdesk', ASSET: 'assets', CHANGE_REQUEST: 'itdesk', ARTICLE: 'knowledge_base',
+  EMPLOYEE: 'hr_core', LEAVE_REQUEST: 'hr_core',
+};
+
 function TaskRow({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
   const update = useUpdateTask();
+  const modules = useModules();
   const fmt = useFormat();
   const done = task.status === 'DONE';
   const checklistDone = (task.checklist ?? []).filter(i => i.done).length;
@@ -68,7 +78,7 @@ function TaskRow({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
         </p>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <Badge variant={PRIORITY_VARIANT[task.priority]}>{task.priority}</Badge>
-          {task.entityType && (
+          {task.entityType && (!ENTITY_AREA[task.entityType] || modules.isModuleOn(ENTITY_AREA[task.entityType])) && (
             <span className="text-[11px] text-fg-subtle">
               {task.entityType.replace(/_/g, ' ').toLowerCase()}
             </span>

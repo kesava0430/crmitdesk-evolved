@@ -4,7 +4,7 @@ import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
-import { getPermCtx, assertCan, invalidateAllPermCtx } from '../../../utils/permissions';
+import { getPermCtx, assertCan, can, invalidateAllPermCtx } from '../../../utils/permissions';
 import { purgeEntityChildren } from '../../../utils/entityCleanup';
 
 /**
@@ -39,7 +39,12 @@ const departmentInclude = {
 export async function listDepartments(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const ctx = await getPermCtx(req.user!);
-    assertCan(ctx, 'hr.department.read');
+    // Without hr.department.read: names only, for pickers and filters (People,
+    // Org chart, Tickets, Leads) — those used to 403 and stay empty.
+    if (!can(ctx, 'hr.department.read')) {
+      const rows = await prisma.department.findMany({ where: { orgId: req.user!.orgId }, select: { id: true, name: true, code: true, parentId: true }, orderBy: { name: 'asc' } });
+      return res.json({ data: rows, total: rows.length, minimal: true });
+    }
 
     const rows = await prisma.department.findMany({
       where: { orgId: req.user!.orgId },
@@ -337,7 +342,11 @@ const LocationSchema = z.object({
 export async function listLocations(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const ctx = await getPermCtx(req.user!);
-    assertCan(ctx, 'hr.location.read');
+    // Names only without hr.location.read (pickers / filters), never addresses or geofences.
+    if (!can(ctx, 'hr.location.read')) {
+      const rows = await prisma.location.findMany({ where: { orgId: req.user!.orgId }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+      return res.json({ data: rows, total: rows.length, minimal: true });
+    }
     const rows = await prisma.location.findMany({
       where: { orgId: req.user!.orgId },
       include: {

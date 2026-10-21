@@ -1,3 +1,4 @@
+import { useUsers } from '../../../api/users';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../api/client';
@@ -157,10 +158,9 @@ export default function AssetsPage() {
     queryFn: () => api.get('/itdesk/assets/stats').then(r => r.data),
   });
 
-  const { data: usersData } = useQuery({
-    queryKey: ['users-list'],
-    queryFn: () => api.get('/admin/users').then(r => r.data?.data ?? r.data ?? []),
-  });
+  // Assignee picker: the org's active users (names only) — /users is open to every
+  // role, unlike /admin/users (managers), which left the picker empty for IT agents.
+  const { data: usersData } = useUsers();
 
   const params = new URLSearchParams();
   if (search) params.set('search', search);

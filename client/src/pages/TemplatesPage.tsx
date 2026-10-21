@@ -606,10 +606,11 @@ export default function TemplatesPage() {
   // switched off for the org (Platform Admin → Areas).
   const modules = useModules();
   // Replies are ticket replies (IT Desk); Emails are campaign emails (CRM).
+  // Email and quote templates are CRM-staff APIs: IT staff got two tabs of 403s.
   const topTabs = TOP_TABS.filter(t =>
-    (t !== 'Quotes' || modules.isModuleOn('sales_docs')) &&
+    (t !== 'Quotes' || (modules.isModuleOn('sales_docs') && can.readQuotesInvoices(user?.role))) &&
     (t !== 'Replies' || modules.isModuleOn('itdesk')) &&
-    (t !== 'Emails' || modules.isModuleOn('campaigns') || modules.isModuleOn('crm')));
+    (t !== 'Emails' || ((modules.isModuleOn('campaigns') || modules.isModuleOn('crm')) && can.readCrm(user?.role))));
   useEffect(() => { if (topTabs.length && !topTabs.includes(tab)) setTab(topTabs[0]); }, [topTabs.join(), tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Every one of /templates/records|replies|emails|quotes is ALL_STAFF-only,

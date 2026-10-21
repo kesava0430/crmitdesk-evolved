@@ -88,9 +88,12 @@ export function ReportsPage() {
   const { user } = useAuth();
   // Tabs of areas switched off for the org (Platform Admin → Areas) go too.
   const modules = useModules();
-  const ticketsOn = modules.isModuleOn('itdesk');
-  const showCsat = can.readCsat(user?.role) && ticketsOn;
-  const tabs = TABS.filter(x => (x.key !== 'csat' || showCsat) && (x.key !== 'tickets' || ticketsOn) && (x.key !== 'crm' || modules.isModuleOn('crm')));
+  // Same for the area reports: /reports/tickets is IT managers only, /reports/crm
+  // Sales managers only (a CRM manager's first request used to be a 403).
+  const ticketsOn = modules.isModuleOn('itdesk') && can.readTicketReports(user?.role);
+  const crmOn = modules.isModuleOn('crm') && can.readCrmReports(user?.role);
+  const showCsat = can.readCsat(user?.role) && modules.isModuleOn('itdesk');
+  const tabs = TABS.filter(x => (x.key !== 'csat' || showCsat) && (x.key !== 'tickets' || ticketsOn) && (x.key !== 'crm' || crmOn));
   // A remembered / default tab that's no longer offered falls to the first one.
   useEffect(() => { if (tabs.length && !tabs.some(t => t.key === tab)) setTab(tabs[0].key); }, [tabs.map(t => t.key).join(), tab]);
 
@@ -103,7 +106,7 @@ export function ReportsPage() {
   const { data: crmData, isLoading: crmLoading } = useQuery({
     queryKey: ['reports-crm'],
     queryFn: () => api.get('/reports/crm').then(r => r.data),
-    enabled: tab === 'crm' && modules.isModuleOn('crm'),
+    enabled: tab === 'crm' && crmOn,
   });
 
   const { data: csatStats, isLoading: csatStatsLoading } = useCsatStats(showCsat && tab === 'csat');

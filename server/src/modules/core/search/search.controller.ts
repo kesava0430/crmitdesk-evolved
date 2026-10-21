@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../../../utils/prisma';
-import { AuthRequest } from '../../../middleware/authenticate';
+import { AuthRequest, CRM_STAFF, IT_STAFF, ALL_STAFF } from '../../../middleware/authenticate';
 import { interpretSearchQuery, isAiConfigured, searchNeedsAi } from '../../../utils/ai';
 import { hasFeature, getEffectiveLicense } from '../../../utils/licensing';
 
@@ -26,6 +26,22 @@ const DEAL_STATUSES = ['OPEN', 'WON', 'LOST'] as const;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED'] as const;
 const ASSET_STATUSES = ['active', 'inactive', 'retired', 'in_repair'] as const;
 const INVOICE_STATUSES = ['DRAFT', 'SENT', 'PAID', 'OVERDUE', 'VOID'] as const;
+
+// Which record types each role may find — the same role lists that guard the
+// records' own pages/APIs (crm/* and invoices: CRM_STAFF, assets: IT_STAFF).
+// Search used to return every type to all staff, so an IT agent could find
+// deals, contacts and invoices whose pages answer 403 for them.
+const ENTITY_ROLES: Record<string, readonly string[]> = {
+  contact: CRM_STAFF, deal: CRM_STAFF, lead: CRM_STAFF, invoice: CRM_STAFF,
+  asset: IT_STAFF, ticket: ALL_STAFF, article: ALL_STAFF,
+};
+const ENTITY_MODULE: Record<string, string> = { contact: 'crm', deal: 'crm', lead: 'crm', ticket: 'itdesk', article: 'knowledge_base', asset: 'assets', invoice: 'sales_docs' };
+
+/** Pure: record types `role` may search given the org's switched-off modules. */
+export function searchableTypes(role: string, blockedModules: readonly string[]): string[] {
+  // An X-API-Key request (role 'API') may use every staff-level read route, so it may search them all.
+  return Object.keys(ENTITY_ROLES).filter(t => (role === 'API' || (ENTITY_ROLES[t] as readonly string[]).includes(role)) && !blockedModules.includes(ENTITY_MODULE[t]));
+}
 
 export async function search(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -53,8 +69,8 @@ export async function search(req: AuthRequest, res: Response, next: NextFunction
     // Entities of an area / module switched off for the org (Platform Admin →
     // Areas) are never searched — their pages and APIs are off too.
     const { blockedModules } = await getEffectiveLicense(orgId);
-    const ENTITY_MODULE: Record<string, string> = { contact: 'crm', deal: 'crm', lead: 'crm', ticket: 'itdesk', article: 'knowledge_base', asset: 'assets', invoice: 'sales_docs' };
-    const wants = (type: string) => !(blockedModules as string[]).includes(ENTITY_MODULE[type]) && (wantAll || interpretation.entityTypes.includes(type));
+    const allowed = new Set(searchableTypes(req.user!.role, blockedModules as string[]));
+    const wants = (type: string) => allowed.has(type) && (wantAll || interpretation.entityTypes.includes(type));
 
     const ticketStatus = matchEnum(interpretation.status, TICKET_STATUSES);
     const ticketPriority = matchEnum(interpretation.priority, TICKET_PRIORITIES);
