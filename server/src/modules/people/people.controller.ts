@@ -10,7 +10,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../utils/pagination';
 import { logAction } from '../../utils/auditLog';
 import { assertSeatAvailable, assertSeatForTransition, withSeatLock } from '../../utils/licensing';
-import { sendMail } from '../../utils/mailer';
+import { sendMail, escHtml } from '../../utils/mailer';
 import {
   getPermCtx,
   assertCan,
@@ -435,9 +435,9 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
         subject: `You've been invited to join ${org?.name ?? 'the team'}`,
         html: `<div style="font-family:sans-serif;max-width:500px;margin:0 auto">
           <h2 style="color:#4f46e5">You're invited</h2>
-          <p>You've been added to <strong>${org?.name ?? 'the team'}</strong>. Set up your account below — this link expires in 7 days.</p>
-          <a href="${inviteLink}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">Accept Invitation</a>
-          <p style="color:#6b7280;font-size:13px">Or copy this link: ${inviteLink}</p>
+          <p>You've been added to <strong>${escHtml(org?.name ?? 'the team')}</strong>. Set up your account below — this link expires in 7 days.</p>
+          <a href="${escHtml(inviteLink)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">Accept Invitation</a>
+          <p style="color:#6b7280;font-size:13px">Or copy this link: ${escHtml(inviteLink)}</p>
         </div>`,
       }).catch(() => {});
     }

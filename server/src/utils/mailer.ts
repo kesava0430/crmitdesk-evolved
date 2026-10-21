@@ -150,9 +150,9 @@ function brandedFromAddress(companyName: string, fromAddress: string): string {
 /** Prepends a small logo/company-name header banner in the org's own color, above the existing template content. */
 function withBrandHeader(html: string, branding: MailBranding): string {
   const mark = branding.logoUrl
-    ? `<img src="${branding.logoUrl}" alt="${branding.companyName}" style="height:32px;max-width:200px;object-fit:contain" />`
-    : `<span style="font-weight:700;font-size:18px;color:${branding.primaryColor}">${branding.companyName}</span>`;
-  return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto 4px;padding-bottom:12px;border-bottom:3px solid ${branding.primaryColor}">${mark}</div>${html}`;
+    ? `<img src="${escHtml(branding.logoUrl)}" alt="${escHtml(branding.companyName)}" style="height:32px;max-width:200px;object-fit:contain" />`
+    : `<span style="font-weight:700;font-size:18px;color:${safeColor(branding.primaryColor)}">${escHtml(branding.companyName)}</span>`;
+  return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto 4px;padding-bottom:12px;border-bottom:3px solid ${safeColor(branding.primaryColor)}">${mark}</div>${html}`;
 }
 
 /**
@@ -262,8 +262,17 @@ const base = (content: string, color = '#4f46e5') => `
   </div>
 `;
 
-/** For free text typed by users (WFH reasons) placed inside email HTML. */
-const escHtml = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+/**
+ * Every value interpolated into email HTML goes through this. Ticket titles
+ * arrive from inbound email and web forms, org-signup names from an
+ * anonymous public form, requester names from an email's From header — left
+ * raw, any of them could put links, images or fake buttons into a mail sent
+ * under the org's (or the platform's) own name.
+ */
+export const escHtml = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
+/** Brand colours are validated on save (#rrggbb); legacy rows fall back rather than land raw in a style attribute. */
+const safeColor = (c: string) => (/^#[0-9a-fA-F]{3,8}$/.test(c) ? c : '#4f46e5');
 
 const highlight = (text: string, color = '#4f46e5') => `
   <div style="background:#f5f3ff;border-left:4px solid ${color};padding:12px 16px;margin:16px 0;border-radius:4px">
@@ -272,7 +281,7 @@ const highlight = (text: string, color = '#4f46e5') => `
 `;
 
 const btn = (href: string, label: string, color = '#4f46e5') =>
-  `<a href="${href}" style="display:inline-block;background:${color};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">${label}</a>`;
+  `<a href="${escHtml(href)}" style="display:inline-block;background:${color};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">${label}</a>`;
 
 export const emailTemplates = {
   invite: (to: string, orgName: string, role: string, link: string) => ({
@@ -281,10 +290,10 @@ export const emailTemplates = {
     subject: `You've been invited to join ${orgName}`,
     html: base(`
       <h2 style="color:#4f46e5">You're invited!</h2>
-      <p>You've been invited to join <strong>${orgName}</strong> as a <strong>${role.replace(/_/g, ' ')}</strong>.</p>
+      <p>You've been invited to join <strong>${escHtml(orgName)}</strong> as a <strong>${escHtml(role.replace(/_/g, ' '))}</strong>.</p>
       <p>Click below to set up your account. This link expires in 7 days.</p>
       ${btn(link, 'Accept Invitation')}
-      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${link}</code></p>
+      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${escHtml(link)}</code></p>
     `),
   }),
 
@@ -293,8 +302,8 @@ export const emailTemplates = {
     subject: `[Ticket] New: ${ticket.title}`,
     html: base(`
       <h2 style="color:#2563eb">New Ticket Submitted</h2>
-      <p><strong>${requesterName}</strong> submitted a new support ticket:</p>
-      ${highlight(`<strong>${ticket.title}</strong>`, '#2563eb')}
+      <p><strong>${escHtml(requesterName)}</strong> submitted a new support ticket:</p>
+      ${highlight(`<strong>${escHtml(ticket.title)}</strong>`, '#2563eb')}
       <p>Log in to view and respond to this ticket.</p>
     `, '#2563eb'),
   }),
@@ -304,8 +313,8 @@ export const emailTemplates = {
     subject: `[Ticket] Assigned to you: ${ticket.title}`,
     html: base(`
       <h2 style="color:#2563eb">Ticket Assigned to You</h2>
-      <p>Hi <strong>${assigneeName}</strong>, a ticket has been assigned to you:</p>
-      ${highlight(`<strong>${ticket.title}</strong>`, '#2563eb')}
+      <p>Hi <strong>${escHtml(assigneeName)}</strong>, a ticket has been assigned to you:</p>
+      ${highlight(`<strong>${escHtml(ticket.title)}</strong>`, '#2563eb')}
       <p>Log in to view and start working on it.</p>
     `, '#2563eb'),
   }),
@@ -315,8 +324,8 @@ export const emailTemplates = {
     subject: `[Ticket] Resolved: ${ticket.title}`,
     html: base(`
       <h2 style="color:#16a34a">Your Ticket Has Been Resolved</h2>
-      <p>Hi <strong>${requesterName}</strong>, your ticket has been resolved:</p>
-      ${highlight(`<strong>${ticket.title}</strong>`, '#16a34a')}
+      <p>Hi <strong>${escHtml(requesterName)}</strong>, your ticket has been resolved:</p>
+      ${highlight(`<strong>${escHtml(ticket.title)}</strong>`, '#16a34a')}
       <p>If you need further help, please submit a new ticket.</p>
     `, '#16a34a'),
   }),
@@ -326,21 +335,21 @@ export const emailTemplates = {
     subject: `[Ticket] Status update: ${ticket.title}`,
     html: base(`
       <h2 style="color:#d97706">Ticket Status Updated</h2>
-      <p>Hi <strong>${requesterName}</strong>, your ticket status has changed to <strong>${status.replace(/_/g, ' ')}</strong>:</p>
-      ${highlight(`<strong>${ticket.title}</strong>`, '#d97706')}
+      <p>Hi <strong>${escHtml(requesterName)}</strong>, your ticket status has changed to <strong>${escHtml(status.replace(/_/g, ' '))}</strong>:</p>
+      ${highlight(`<strong>${escHtml(ticket.title)}</strong>`, '#d97706')}
     `, '#d97706'),
   }),
 
   csatSurvey: (ticket: { id: string; title: string }, requesterName: string, requesterEmail: string) => {
     const base_url = process.env.APP_URL || 'http://localhost:5173';
-    const link = `${base_url}/api/csat/submit/${ticket.id}`;
+    const link = escHtml(`${base_url}/api/csat/submit/${encodeURIComponent(ticket.id)}`);
     return {
       to: requesterEmail,
       subject: `How did we do? Rate your support experience`,
       html: base(`
         <h2 style="color:#4f46e5">How was your experience?</h2>
-        <p>Hi <strong>${requesterName}</strong>, we recently resolved your ticket:</p>
-        ${highlight(`<strong>${ticket.title}</strong>`, '#4f46e5')}
+        <p>Hi <strong>${escHtml(requesterName)}</strong>, we recently resolved your ticket:</p>
+        ${highlight(`<strong>${escHtml(ticket.title)}</strong>`, '#4f46e5')}
         <p>We'd love your feedback! Click a star below to rate your experience:</p>
         <div style="text-align:center;margin:24px 0;font-size:36px">
           ${[1,2,3,4,5].map(r => `<a href="${link}?rating=${r}&via=email" style="text-decoration:none;margin:0 4px">⭐</a>`).join('')}
@@ -358,12 +367,12 @@ export const emailTemplates = {
       <h2 style="color:#4f46e5">New Organization Signup Request</h2>
       <p>Someone just requested a new workspace:</p>
       ${highlight(`
-        <strong>${req.organizationName}</strong><br/>
-        ${req.name} &lt;${req.email}&gt;
+        <strong>${escHtml(req.organizationName)}</strong><br/>
+        ${escHtml(req.name)} &lt;${escHtml(req.email)}&gt;
       `)}
       <p>Nothing has been created yet — review and approve (or reject) below.</p>
       ${btn(approveLink, 'Review request')}
-      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${approveLink}</code></p>
+      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${escHtml(approveLink)}</code></p>
     `),
   }),
 
@@ -373,7 +382,7 @@ export const emailTemplates = {
     subject: `You're approved — ${orgName} is ready`,
     html: base(`
       <h2 style="color:#16a34a">You're approved!</h2>
-      <p>Hi <strong>${requesterName}</strong>, your workspace <strong>${orgName}</strong> has been approved.</p>
+      <p>Hi <strong>${escHtml(requesterName)}</strong>, your workspace <strong>${escHtml(orgName)}</strong> has been approved.</p>
       <p>You can log in now with the email and password you signed up with.</p>
       ${btn(loginLink, 'Log in', '#16a34a')}
     `, '#16a34a'),
@@ -385,9 +394,9 @@ export const emailTemplates = {
     subject: 'Reset your password',
     html: base(`
       <h2 style="color:#4f46e5">Reset your password</h2>
-      <p>Hi <strong>${name}</strong>, we received a request to reset your password. This link expires in 30 minutes.</p>
+      <p>Hi <strong>${escHtml(name)}</strong>, we received a request to reset your password. This link expires in 30 minutes.</p>
       ${btn(resetLink, 'Reset password')}
-      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${resetLink}</code></p>
+      <p style="color:#6b7280;font-size:13px">Or copy this link: <code>${escHtml(resetLink)}</code></p>
       <p style="color:#6b7280;font-size:13px">If you didn't request this, you can safely ignore this email — your password won't change.</p>
     `),
   }),
@@ -398,7 +407,7 @@ export const emailTemplates = {
     subject: 'Your password was changed',
     html: base(`
       <h2 style="color:#4f46e5">Password changed</h2>
-      <p>Hi <strong>${name}</strong>, your password was just changed. If this wasn't you, contact your workspace admin immediately.</p>
+      <p>Hi <strong>${escHtml(name)}</strong>, your password was just changed. If this wasn't you, contact your workspace admin immediately.</p>
     `),
   }),
 
@@ -407,10 +416,10 @@ export const emailTemplates = {
     subject: `Leave request from ${requesterName}`,
     html: base(`
       <h2 style="color:#4f46e5">New leave request</h2>
-      <p>Hi <strong>${managerName}</strong>, <strong>${requesterName}</strong> has requested time off.</p>
+      <p>Hi <strong>${escHtml(managerName)}</strong>, <strong>${escHtml(requesterName)}</strong> has requested time off.</p>
       ${highlight(`
-        <strong>${leaveTypeName}</strong><br/>
-        ${startDate} &rarr; ${endDate} (${days} day${days === 1 ? '' : 's'})
+        <strong>${escHtml(leaveTypeName)}</strong><br/>
+        ${escHtml(startDate)} &rarr; ${escHtml(endDate)} (${days} day${days === 1 ? '' : 's'})
       `)}
       <p>Review it from the Leave page in the app.</p>
     `),
@@ -421,8 +430,8 @@ export const emailTemplates = {
     subject: `Your leave request was ${approved ? 'approved' : 'rejected'}`,
     html: base(`
       <h2 style="color:${approved ? '#16a34a' : '#dc2626'}">Leave request ${approved ? 'approved' : 'rejected'}</h2>
-      <p>Hi <strong>${requesterName}</strong>, your <strong>${leaveTypeName}</strong> request for ${startDate} &rarr; ${endDate} was ${approved ? 'approved' : 'rejected'}.</p>
-      ${reason ? `<p style="color:#6b7280;font-size:13px">Reason: ${reason}</p>` : ''}
+      <p>Hi <strong>${escHtml(requesterName)}</strong>, your <strong>${escHtml(leaveTypeName)}</strong> request for ${escHtml(startDate)} &rarr; ${escHtml(endDate)} was ${approved ? 'approved' : 'rejected'}.</p>
+      ${reason ? `<p style="color:#6b7280;font-size:13px">Reason: ${escHtml(reason)}</p>` : ''}
     `, approved ? '#16a34a' : '#dc2626'),
   }),
 
@@ -431,8 +440,8 @@ export const emailTemplates = {
     subject: `Work-from-home request from ${requesterName}`,
     html: base(`
       <h2 style="color:#4f46e5">New work-from-home request</h2>
-      <p>Hi <strong>${managerName}</strong>, <strong>${requesterName}</strong> would like to work from home.</p>
-      ${highlight(`${when} (${days} day${days === 1 ? '' : 's'})${reason ? `<br/><span style="color:#6b7280">${escHtml(reason)}</span>` : ''}`)}
+      <p>Hi <strong>${escHtml(managerName)}</strong>, <strong>${escHtml(requesterName)}</strong> would like to work from home.</p>
+      ${highlight(`${escHtml(when)} (${days} day${days === 1 ? '' : 's'})${reason ? `<br/><span style="color:#6b7280">${escHtml(reason)}</span>` : ''}`)}
       <p>Approve or reject it from Leave &rarr; Approvals in the app.</p>
     `),
   }),
@@ -442,7 +451,7 @@ export const emailTemplates = {
     subject: `Your work-from-home request was ${approved ? 'approved' : 'rejected'}`,
     html: base(`
       <h2 style="color:${approved ? '#16a34a' : '#dc2626'}">Work from home ${approved ? 'approved' : 'rejected'}</h2>
-      <p>Hi <strong>${requesterName}</strong>, your work-from-home request for ${when} was ${approved ? 'approved' : 'rejected'}.</p>
+      <p>Hi <strong>${escHtml(requesterName)}</strong>, your work-from-home request for ${escHtml(when)} was ${approved ? 'approved' : 'rejected'}.</p>
       ${approved ? '<p style="color:#6b7280;font-size:13px">Check in from the Attendance page as usual — the office location check is skipped on WFH days.</p>' : ''}
       ${reason ? `<p style="color:#6b7280;font-size:13px">Reason: ${escHtml(reason)}</p>` : ''}
     `, approved ? '#16a34a' : '#dc2626'),
@@ -453,8 +462,8 @@ export const emailTemplates = {
     subject: `[CRM] Deal moved to ${deal.stage}: ${deal.title}`,
     html: base(`
       <h2 style="color:#7c3aed">Deal Stage Updated</h2>
-      <p>Hi <strong>${assigneeName}</strong>, a deal you own has moved stages:</p>
-      ${highlight(`<strong>${deal.title}</strong><br/><span style="color:#7c3aed">→ ${deal.stage}</span>`, '#7c3aed')}
+      <p>Hi <strong>${escHtml(assigneeName)}</strong>, a deal you own has moved stages:</p>
+      ${highlight(`<strong>${escHtml(deal.title)}</strong><br/><span style="color:#7c3aed">→ ${escHtml(deal.stage)}</span>`, '#7c3aed')}
     `, '#7c3aed'),
   }),
 };

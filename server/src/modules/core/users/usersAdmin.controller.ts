@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { optionalText, emailField } from '../../../utils/zodHelpers';
 import { prisma } from '../../../utils/prisma';
 import { parsePagination, paginate } from '../../../utils/pagination';
-import { sendMail } from '../../../utils/mailer';
+import { sendMail, escHtml } from '../../../utils/mailer';
 import { AuthRequest, forgetSession } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { assertSeatAvailable, assertSeatForTransition, withSeatLock } from '../../../utils/licensing';
@@ -198,10 +198,10 @@ export async function invite(req: AuthRequest, res: Response, next: NextFunction
       html: `
         <div style="font-family:sans-serif;max-width:500px;margin:0 auto">
           <h2 style="color:#4f46e5">You're invited!</h2>
-          <p>You've been invited to join <strong>${org?.name || 'CRM & IT Desk'}</strong> as a <strong>${role.replace(/_/g,' ')}</strong>.</p>
+          <p>You've been invited to join <strong>${escHtml(org?.name || 'CRM & IT Desk')}</strong> as a <strong>${escHtml(role.replace(/_/g,' '))}</strong>.</p>
           <p>Click the button below to set up your account. This link expires in 7 days.</p>
-          <a href="${link}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">Accept Invitation</a>
-          <p style="color:#6b7280;font-size:13px">Or copy this link: ${link}</p>
+          <a href="${escHtml(link)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">Accept Invitation</a>
+          <p style="color:#6b7280;font-size:13px">Or copy this link: ${escHtml(link)}</p>
         </div>
       `,
     }).catch(() => {}); // Don't fail the request if email sending fails

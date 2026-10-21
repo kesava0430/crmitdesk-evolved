@@ -4,7 +4,7 @@ import { emailField } from '../../utils/zodHelpers';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
-import { sendMail } from '../../utils/mailer';
+import { sendMail, escHtml } from '../../utils/mailer';
 import { portalEntryLink, resolveAppBase } from '../../utils/frontendUrl';
 
 const Schema = z.object({
@@ -44,9 +44,9 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
         to: email,
         subject: 'You\'ve been invited to the support portal',
         html: `
-          <p>Hello ${name},</p>
+          <p>Hello ${escHtml(name)},</p>
           <p>You've been given access to the support portal. Click below to get started:</p>
-          <p><a href="${portalUrl}" style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Open Portal</a></p>
+          <p><a href="${escHtml(portalUrl)}" style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Open Portal</a></p>
           <p>You'll receive a magic login link each time you want to sign in — no password needed.</p>
         `,
       }).catch(() => {});
@@ -84,7 +84,7 @@ export async function resendInvite(req: AuthRequest, res: Response, next: NextFu
       essential: true, // account access — never held back by the platform send quota
       to: user.email,
       subject: 'Your portal access link',
-      html: `<p>Hello ${user.name},</p><p><a href="${portalUrl}">Click here to access the support portal</a>.</p>`,
+      html: `<p>Hello ${escHtml(user.name)},</p><p><a href="${escHtml(portalUrl)}">Click here to access the support portal</a>.</p>`,
     });
     res.json({ message: 'Invite sent' });
   } catch (err) { next(err); }

@@ -4,7 +4,7 @@ import { emailField } from '../../utils/zodHelpers';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../../utils/prisma';
-import { sendMail } from '../../utils/mailer';
+import { sendMail, escHtml } from '../../utils/mailer';
 import { PortalRequest } from '../../middleware/authenticatePortal';
 import { AppError } from '../../middleware/errorHandler';
 import { sseManager, SSEEvent } from '../../utils/sse';
@@ -58,9 +58,9 @@ export async function requestAccess(req: Request, res: Response, next: NextFunct
       to: email,
       subject: 'Your portal login link',
       html: `
-        <p>Hello ${portalUser.name},</p>
+        <p>Hello ${escHtml(portalUser.name)},</p>
         <p>Click the link below to access your support portal. This link expires in 30 minutes.</p>
-        <p><a href="${portalUrl}" style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Access Portal</a></p>
+        <p><a href="${escHtml(portalUrl)}" style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Access Portal</a></p>
         <p>If you didn't request this, you can safely ignore this email.</p>
       `,
     });
