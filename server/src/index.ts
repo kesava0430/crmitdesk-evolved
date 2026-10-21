@@ -103,6 +103,7 @@ import { syncAllEmailAccounts } from './utils/email-sync';
 import { errorHandler } from './middleware/errorHandler';
 import { prisma } from './utils/prisma';
 import { sseManager } from './utils/sse';
+import { parseQueryString } from './utils/queryParser';
 
 dotenv.config();
 
@@ -124,6 +125,8 @@ const isProd = process.env.NODE_ENV === 'production';
 // limits entirely. Behind the docker-compose stack (Caddy → nginx → here)
 // there are two hops, so TRUST_PROXY_HOPS=2 is set in docker-compose.yml.
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 1);
+// Flat query values only — no `?field[not]=x` Prisma-operator injection (utils/queryParser.ts).
+app.set('query parser', parseQueryString);
 
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({
