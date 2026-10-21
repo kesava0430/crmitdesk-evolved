@@ -376,9 +376,16 @@ app.use('/api/knowledge', knowledgeRouter);
 app.use(errorHandler);
 
 // ─── Start ───────────────────────────────────────────────────────────────────
-const server = app.listen(PORT, () => {
-  console.log(`[server] Running on http://localhost:${PORT} (${isProd ? 'production' : 'development'})`);
-});
+// LISTEN_HOST=127.0.0.1 keeps the API reachable only through nginx on the same box.
+// Bound to every interface (the default, kept for docker-compose and older
+// setups), anyone who can reach :4000 directly bypasses nginx — and with
+// `trust proxy` above, can set X-Forwarded-For to any value, so every
+// per-IP rate limit (login, password reset) becomes unlimited.
+const HOST = process.env.LISTEN_HOST?.trim();
+const onListening = () => {
+  console.log(`[server] Running on http://${HOST || 'localhost'}:${PORT} (${isProd ? 'production' : 'development'})`);
+};
+const server = HOST ? app.listen(Number(PORT), HOST, onListening) : app.listen(PORT, onListening);
 
 // Seed the permission catalog and built-in roles on boot.
 //
