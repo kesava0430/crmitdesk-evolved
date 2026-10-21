@@ -318,7 +318,7 @@ async function emailOne(payslip: any, orgId: string, sentBy: string) {
   // A custom-HTML payslip that can't be printed (no Chromium) is reported as
   // failed — never e-mailed in a different layout or without its PDF.
   try { pdf = await renderDocPdf(doc); }
-  catch (err) { if (err instanceof HtmlPdfUnavailableError || err instanceof TemplateRenderError || (err instanceof AppError && err.statusCode === 504)) return { id: payslip.id, ok: false, reason: err.message, pdfError: true }; throw err; }
+  catch (err) { if (err instanceof HtmlPdfUnavailableError || err instanceof TemplateRenderError || (err instanceof AppError && (err.statusCode === 504 || err.statusCode === 503))) return { id: payslip.id, ok: false, reason: err.message, pdfError: true }; throw err; }
   const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#111">
     <p>Hi ${doc.employee.name.split(' ')[0]},</p>
     <p>${doc.revision ? `Your <strong>revised</strong> payslip (v${doc.revision.version}) for <strong>${doc.payslip.periodLabel}</strong> is attached as a PDF. It replaces the one you received earlier.` : `Your payslip for <strong>${doc.payslip.periodLabel}</strong> is attached as a PDF.`}</p>

@@ -128,9 +128,28 @@ function browser(): Promise<any> {
   return browserPromise;
 }
 
+/**
+ * The slots are shared by every tenant on this instance. Without a bound, one
+ * org's HR manager firing hundreds of sample-PDF requests (each up to the
+ * render timeout) would queue every other org's payslip PDFs behind them for
+ * as long as they liked. So the queue is capped and a waiter gives up after a
+ * while with a "busy, try again" 503 instead of hanging.
+ */
+export const HTML_PDF_MAX_QUEUE = Math.max(1, Number(process.env.HTML_PDF_MAX_QUEUE) || 40);
+const QUEUE_WAIT_MS = HTML_PDF_TIMEOUT_MS * 3;
+const busy = () => new AppError(503, 'The PDF engine is busy right now — please try again in a minute.');
+
 async function acquire() {
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-  if (active >= HTML_PDF_CONCURRENCY) await new Promise<void>(r => waiters.push(r));
+  if (active >= HTML_PDF_CONCURRENCY) {
+    if (waiters.length >= HTML_PDF_MAX_QUEUE) throw busy();
+    await new Promise<void>((resolve, reject) => {
+      const w = () => { clearTimeout(t); resolve(); };
+      const t = setTimeout(() => { const i = waiters.indexOf(w); if (i >= 0) waiters.splice(i, 1); reject(busy()); }, QUEUE_WAIT_MS);
+      t.unref?.();
+      waiters.push(w);
+    });
+  }
   active++;
 }
 function release() {

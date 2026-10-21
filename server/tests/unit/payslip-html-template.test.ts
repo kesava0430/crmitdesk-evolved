@@ -311,3 +311,43 @@ test('no Chromium: a custom-HTML PDF fails with a clear 503 — never a built-in
 });
 
 test.after(() => closeHtmlPdfBrowser());
+
+// ─── SEC-HTML: the template language must not block the API's event loop ────
+// Before the fix each of these took 5–35 s (or effectively forever) on the
+// single Node thread every tenant shares; an HR manager could trigger them from
+// the live editor preview. Each must now finish well under a second.
+const fast = (label: string, f: () => unknown, ms = 1500) => {
+  const t0 = Date.now(); try { f(); } catch { /* a clean rejection is fine */ }
+  const took = Date.now() - t0;
+  assert.ok(took < ms, `${label} took ${took} ms`);
+};
+
+test('SEC-HTML: 200 KB of unclosed "{{" is linear (was ~21 s)', () => {
+  fast('unclosed braces', () => checkTemplateSource('{{'.repeat(100_000), null));
+});
+
+test('SEC-HTML: tens of thousands of placeholders validate quickly (line numbers were O(n²), ~5 s)', () => {
+  fast('many placeholders', () => validateTemplate('{{org.name}}\n'.repeat(15_000)));
+  const r = validateTemplate('a\nb\n{{nope}}\n{{org.name}}');
+  assert.equal(r.errors[0].line, 3);
+});
+
+test('SEC-HTML: "<style" without ">" repeated is linear (was ~8 s), and <style> extraction is unchanged', () => {
+  fast('style scan', () => sanitizeTemplateHtml('<style'.repeat(33_000), { mode: 'save' }));
+  const r = sanitizeTemplateHtml('<p>a</p><STYLE media="print">.x{color:red}</style ><p>b</p><style>.y{color:blue}', { mode: 'save' });
+  assert.match(r.html, /^<style>\.x\{color:red\}\n\.y\{color:blue\}<\/style><p>a<\/p><p>b<\/p>$/);
+});
+
+test('SEC-HTML: deeply nested loops hit a work budget instead of running for minutes', () => {
+  const ctx = { employeeDetails: Array.from({ length: 12 }, (_, i) => ({ label: 'l' + i, value: 'v' })) };
+  const src = '{{#each employeeDetails}}'.repeat(12) + '{{/each}}'.repeat(12);
+  fast('nested each', () => assert.throws(() => renderTemplate(src, ctx), TemplateRenderError), 3000);
+  // ordinary nesting still renders
+  assert.equal(renderTemplate('{{#each employeeDetails}}{{#if label}}.{{/if}}{{/each}}', ctx), '.'.repeat(12));
+});
+
+test('SEC-HTML: tokenizer keeps the old semantics (triple braces, CSS "}}}", unclosed tail is text)', () => {
+  assert.throws(() => renderTemplate('{{{org.name}}}', { org: { name: 'x' } }), TemplateRenderError);
+  assert.equal(renderTemplate('.t{color:{{brand.primaryColor}}}', { brand: { primaryColor: '#f00' } }, escapeCssValue), '.t{color:#f00}');
+  assert.equal(renderTemplate('a {{org.name}} b {{ tail', { org: { name: 'N' } }), 'a N b {{ tail');
+});

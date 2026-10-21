@@ -42,6 +42,8 @@ export const HTML_TEMPLATE_MAX_BYTES = 200 * 1024;
 /** Hard cap on rendered output — loops over a payslip's lines can't legitimately get near this. */
 const OUTPUT_MAX_CHARS = 3_000_000;
 const MAX_NESTING = 12;
+/** Max placeholder/block visits per render (see renderTemplate). */
+export const RENDER_MAX_STEPS = 200_000;
 
 // ─── Placeholder catalogue ───────────────────────────────────────────────────
 //
@@ -172,7 +174,20 @@ export interface TemplateIssue { message: string; line: number }
 class ParseError extends Error { constructor(message: string, public pos: number) { super(message); } }
 
 const PATH_RE = /^(?:this|@[a-z]+|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)$/;
-const lineOf = (src: string, pos: number) => src.slice(0, pos).split('\n').length;
+// Line numbers via a cached table of line starts + binary search: slicing and
+// splitting the source per placeholder was O(size × placeholders) — seconds of
+// blocked event loop for a 200 KB template full of {{…}}.
+let lineCache: { src: string; starts: number[] } | null = null;
+const lineOf = (src: string, pos: number) => {
+  if (lineCache?.src !== src) {
+    const starts = [0];
+    for (let i = src.indexOf('\n'); i >= 0; i = src.indexOf('\n', i + 1)) starts.push(i + 1);
+    lineCache = { src, starts };
+  }
+  const st = lineCache.starts; let lo = 0, hi = st.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (st[mid] <= pos) lo = mid; else hi = mid - 1; }
+  return lo + 1;
+};
 
 /** Tokenise + build the tree. Throws ParseError on structural problems. */
 function parse(src: string): Node[] {
@@ -181,12 +196,24 @@ function parse(src: string): Node[] {
   const out = () => { const top = stack[stack.length - 1]; return !top ? root : top.inElse ? top.node.inverse : top.node.body; };
   // `{{{` opens a (rejected) triple; a lone `}` after `}}` is ordinary text —
   // minified CSS like `.t{color:{{brand.primaryColor}}}` must keep working.
-  const re = /\{\{(\{?)([\s\S]*?)\}\}/g;
-  let last = 0; let m: RegExpExecArray | null;
-  while ((m = re.exec(src))) {
-    if (m.index > last) out().push({ t: 'text', v: src.slice(last, m.index) });
-    last = re.lastIndex;
-    const pos = m.index;
+  // Scanned with indexOf, not a lazy regex: /\{\{([\s\S]*?)\}\}/ retried from
+  // every "{{" to the end of the source when no "}}" followed — quadratic, 20 s
+  // of blocked event loop (every tenant) for 200 KB of "{{". Same semantics:
+  // the first "}}" after the opener closes it; an opener with no "}}" after it
+  // (and so everything after) is plain text.
+  let last = 0; let from = 0;
+  for (;;) {
+    const open = src.indexOf('{{', from);
+    if (open < 0) break;
+    const triple = src[open + 2] === '{';
+    let close = triple ? src.indexOf('}}', open + 3) : -1;
+    const isTriple = triple && close >= 0;
+    if (!isTriple) close = src.indexOf('}}', open + 2);
+    if (close < 0) break;
+    const m = ['', isTriple ? '{' : '', src.slice(open + (isTriple ? 3 : 2), close)];
+    if (open > last) out().push({ t: 'text', v: src.slice(last, open) });
+    last = from = close + 2;
+    const pos = open;
     if (m[1]) throw new ParseError('Triple braces {{{…}}} (unescaped output) are not supported — every value is escaped', pos);
     const raw = m[2].trim();
     if (raw.startsWith('!')) continue; // comment
@@ -315,8 +342,14 @@ export function renderTemplate(src: string, ctx: Record<string, unknown>, escape
   const parts: string[] = [];
   const emit = (s: string) => { size += s.length; if (size > OUTPUT_MAX_CHARS) throw new TemplateRenderError('Rendered payslip is too large'); parts.push(s); };
   const known = (path: string, frames: any[]) => !opts.lenient || typeOf(path, frames.map(f => f.list)) !== null;
+  // Work budget, not just an output cap: nested {{#each}} blocks with no text
+  // in them emit nothing, so 8–12 levels over a 12-row list ran for minutes
+  // (12^8 visits ≈ 34 s) on the API's single thread without ever hitting
+  // OUTPUT_MAX_CHARS. A real payslip visits a few thousand nodes.
+  let work = 0;
   const run = (nodes: Node[], frames: any[]) => {
     for (const n of nodes) {
+      if (++work > RENDER_MAX_STEPS) throw new TemplateRenderError('The template does too much work (deeply nested loops) — simplify it');
       if (n.t === 'text') emit(n.v);
       else if (n.t === 'var') emit(escape(known(n.path, frames) ? show(lookup(ctx, n.path, frames)) : `⟦${n.path}?⟧`));
       else if (n.t === 'if') { const v = truthy(lookup(ctx, n.path, frames)); run(v !== n.negate ? n.body : n.inverse, frames); }
@@ -482,6 +515,30 @@ export function sanitizeCss(css: string, policy: SanitizePolicy): { css: string;
 export interface SanitizeResult { html: string; removed: string[] }
 
 /**
+ * Pull out <style …>…</style> blocks (an unclosed one runs to the end), the
+ * same as /<style\b[^>]*>([\s\S]*?)(?:<\/style\s*>|$)/gi but in linear time:
+ * that regex rescanned to the end for every "<style" lacking a ">" (8 s for
+ * 200 KB). A "<style" with no ">" after it is left for sanitize-html.
+ */
+export function extractStyleBlocks(html: string, onCss: (css: string) => void): string {
+  const lower = html.toLowerCase();
+  let out = ''; let i = 0; let from = 0;
+  for (;;) {
+    const at = lower.indexOf('<style', from);
+    if (at < 0) break;
+    if (/\w/.test(lower[at + 6] ?? '')) { from = at + 6; continue; } // <styles> — not a style tag (\b in the old regex)
+    const gt = lower.indexOf('>', at + 6);
+    if (gt < 0) break;
+    const closeRe = /<\/style\s*>/g; closeRe.lastIndex = gt + 1;
+    const c = closeRe.exec(lower);
+    onCss(html.slice(gt + 1, c ? c.index : html.length));
+    out += html.slice(i, at);
+    i = from = c ? closeRe.lastIndex : html.length;
+  }
+  return out + html.slice(i);
+}
+
+/**
  * Sanitize template HTML. <style> blocks are pulled out first and run through
  * sanitizeCss (sanitize-html does not clean CSS inside <style>); everything
  * else goes through sanitize-html with a layout/text/table/image allow-list.
@@ -490,8 +547,8 @@ export interface SanitizeResult { html: string; removed: string[] }
 export function sanitizeTemplateHtml(html: string, policy: SanitizePolicy): SanitizeResult {
   const removed = new Set<string>();
   const styles: string[] = [];
-  const withoutStyles = html.replace(/<style\b[^>]*>([\s\S]*?)(?:<\/style\s*>|$)/gi, (_m, css: string) => {
-    const r = sanitizeCss(css, policy); r.removed.forEach(x => removed.add(x)); styles.push(r.css); return '';
+  const withoutStyles = extractStyleBlocks(html, css => {
+    const r = sanitizeCss(css, policy); r.removed.forEach(x => removed.add(x)); styles.push(r.css);
   });
   const body = sanitizeHtml(withoutStyles, {
     allowedTags: ALLOWED_TAGS,
