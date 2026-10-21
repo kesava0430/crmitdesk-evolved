@@ -189,7 +189,7 @@ export async function sendReply(req: AuthRequest, res: Response, next: NextFunct
 
       const result = await sendTwilioMessage(
         waConfig.accountSid,
-        waConfig.authToken,
+        decryptSecretOrPlain(waConfig.authToken),
         fromNumber,
         toNumber,
         body,
@@ -301,7 +301,11 @@ const WhatsAppConfigSchema = z.object({
 export async function connectWhatsApp(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
-    const data = WhatsAppConfigSchema.parse(req.body);
+    const parsed = WhatsAppConfigSchema.parse(req.body);
+    // The Twilio auth token is a live credential (it can send messages and
+    // read the account) — encrypted at rest like mailbox passwords. Rows saved
+    // before this stay plain text and keep working (decryptSecretOrPlain).
+    const data = { ...parsed, authToken: encryptSecret(parsed.authToken) };
 
     const config = await prisma.whatsAppConfig.upsert({
       where: { orgId },
@@ -408,7 +412,7 @@ export async function twilioWebhook(req: Request, res: Response, next: NextFunct
        with THAT org's Twilio auth token. Validation runs against the org's
        own token when it has one, else the platform token. */
     const signature = req.header('X-Twilio-Signature');
-    const authToken = waConfig.authToken || process.env.TWILIO_AUTH_TOKEN || '';
+    const authToken = (waConfig.authToken ? decryptSecretOrPlain(waConfig.authToken) : '') || process.env.TWILIO_AUTH_TOKEN || '';
 
     if (!authToken) {
       // Nothing to verify against. Refuse in production rather than accept

@@ -12,6 +12,7 @@
 
 import crypto from 'crypto';
 import { prisma } from './prisma';
+import { encryptSecret, decryptSecretOrPlain } from './crypto';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -108,15 +109,18 @@ async function getValidAccessToken(userId: string): Promise<{ accessToken: strin
   const conn = await prisma.calendarConnection.findUnique({ where: { userId } });
   if (!conn) return null;
 
+  // Stored encrypted (calendar.controller.ts); rows from before that are
+  // plain text, which decryptSecretOrPlain passes through unchanged.
+  const accessToken = decryptSecretOrPlain(conn.accessToken);
   if (conn.tokenExpiresAt && conn.tokenExpiresAt.getTime() > Date.now() + 60_000) {
-    return { accessToken: conn.accessToken, calendarId: conn.calendarId };
+    return { accessToken, calendarId: conn.calendarId };
   }
-  if (!conn.refreshToken) return { accessToken: conn.accessToken, calendarId: conn.calendarId }; // best effort, will 401 if truly expired
+  if (!conn.refreshToken) return { accessToken, calendarId: conn.calendarId }; // best effort, will 401 if truly expired
 
-  const refreshed = await refreshAccessToken(conn.refreshToken);
+  const refreshed = await refreshAccessToken(decryptSecretOrPlain(conn.refreshToken));
   await prisma.calendarConnection.update({
     where: { userId },
-    data: { accessToken: refreshed.accessToken, tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000) },
+    data: { accessToken: encryptSecret(refreshed.accessToken), tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000) },
   });
   return { accessToken: refreshed.accessToken, calendarId: conn.calendarId };
 }

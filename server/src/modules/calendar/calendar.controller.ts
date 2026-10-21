@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
+import { encryptSecret } from '../../utils/crypto';
 import {
   buildCalendarAuthUrl, exchangeCodeForTokens, isCalendarSyncConfigured, pushCalendarEvent,
 } from '../../utils/googleCalendar';
@@ -49,18 +50,21 @@ export async function oauthCallback(req: Request, res: Response) {
     const { userId } = jwt.verify(state, process.env.JWT_SECRET!) as { userId: string };
     const tokens = await exchangeCodeForTokens(code);
 
+    // Google OAuth tokens grant access to the user's calendar — encrypted at
+    // rest like the Drive storage tokens (utils/googleCalendar.ts decrypts,
+    // and still reads rows saved in plain text before this change).
     await prisma.calendarConnection.upsert({
       where: { userId },
       create: {
         userId,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
+        accessToken: encryptSecret(tokens.accessToken),
+        refreshToken: tokens.refreshToken ? encryptSecret(tokens.refreshToken) : tokens.refreshToken,
         tokenExpiresAt: new Date(Date.now() + tokens.expiresIn * 1000),
         connectedEmail: tokens.email,
       },
       update: {
-        accessToken: tokens.accessToken,
-        ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
+        accessToken: encryptSecret(tokens.accessToken),
+        ...(tokens.refreshToken ? { refreshToken: encryptSecret(tokens.refreshToken) } : {}),
         tokenExpiresAt: new Date(Date.now() + tokens.expiresIn * 1000),
         connectedEmail: tokens.email,
       },

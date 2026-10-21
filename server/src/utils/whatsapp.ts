@@ -1,5 +1,6 @@
 import https from 'https';
 import { prisma } from './prisma';
+import { decryptSecretOrPlain } from './crypto';
 import { recordUsage } from './usageTracking';
 import { getPlatformWhatsAppConfig } from './platformSettings';
 import { assertPlatformSendQuota } from './licensing';
@@ -91,7 +92,7 @@ export async function sendWhatsApp(orgId: string, toNumber: string, body: string
   const waConfig = await prisma.whatsAppConfig.findUnique({ where: { orgId } });
   if (waConfig) {
     const from = waConfig.phoneNumber.startsWith('whatsapp:') ? waConfig.phoneNumber : `whatsapp:${waConfig.phoneNumber}`;
-    const result = await sendTwilioMessage(waConfig.accountSid, waConfig.authToken, from, to, body);
+    const result = await sendTwilioMessage(waConfig.accountSid, decryptSecretOrPlain(waConfig.authToken), from, to, body);
     recordUsage(orgId, 'WHATSAPP_SEND', 'OWN');
     return result;
   }
