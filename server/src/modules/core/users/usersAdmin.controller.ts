@@ -15,7 +15,7 @@ import { emailTemplates } from '../../../utils/mailer';
 // twice — see utils/employeeProvisioning.ts for why the split is invisible
 // in day-to-day use.
 import { ensureEmployeeForUser, syncUserToEmployee, reconcileOrphans, linkUserToEmployee } from '../../../utils/employeeProvisioning';
-import { invalidatePermCtx } from '../../../utils/permissions';
+import { invalidatePermCtx, assertNoFieldEscalation } from '../../../utils/permissions';
 import { LEGACY_ROLES, assertCanManage, assertCanAssign, type LegacyRole } from '../../../utils/roleRank';
 
 // phone is preprocessed so an empty string (the form's untouched default)
@@ -77,10 +77,11 @@ const UpdateSchema = z.object({
  * too much is a security hole.
  */
 async function resolveRole(
-  orgId: string,
+  caller: { id: string; orgId: string; role: string },
   input: { roleId?: string | null; role?: LegacyRole },
   currentRoleId?: string | null,
 ): Promise<{ roleId: string | null; role: LegacyRole }> {
+  const orgId = caller.orgId;
   if (input.roleId) {
     const role = await prisma.role.findFirst({
       where: { id: input.roleId, OR: [{ orgId }, { orgId: null }] },
@@ -89,6 +90,7 @@ async function resolveRole(
     if (!role) throw new AppError(404, 'That role was not found in this organization');
     if (!role.isActive) throw new AppError(400, 'That role is deactivated');
     await assertRoleAssignable(orgId, role, currentRoleId);
+    if (role.id !== currentRoleId) await assertNoFieldEscalation(caller, role.id);
 
     const legacy = LEGACY_ROLES.includes(role.legacyRole as LegacyRole)
       ? (role.legacyRole as LegacyRole)
@@ -141,7 +143,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new AppError(409, 'Email already registered');
 
-    const resolved = await resolveRole(req.user!.orgId, data);
+    const resolved = await resolveRole(req.user!, data);
     assertCanAssign(req.user!.role, resolved.role);
     // Destructure password out so it is not spread into the Prisma create call
     // (the User model has `passwordHash`, not `password`)
@@ -173,7 +175,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 export async function invite(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const input = InviteSchema.parse(req.body);
-    const { role, roleId } = await resolveRole(req.user!.orgId, input);
+    const { role, roleId } = await resolveRole(req.user!, input);
     assertCanAssign(req.user!.role, role);
     await assertSeatAvailable(req.user!.orgId, role);
     const email = input.email;
@@ -233,7 +235,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       throw new AppError(403, 'You cannot change your own role');
     }
     const currentRoleId = changingRole ? (await prisma.user.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, select: { roleId: true } }))?.roleId ?? null : null;
-    const resolved = changingRole ? await resolveRole(req.user!.orgId, data, currentRoleId) : null;
+    const resolved = changingRole ? await resolveRole(req.user!, data, currentRoleId) : null;
     if (resolved) assertCanAssign(req.user!.role, resolved.role);
 
     const { roleId: _rid, role: _r, ...rest } = data;

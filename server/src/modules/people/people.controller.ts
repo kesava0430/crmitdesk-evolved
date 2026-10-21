@@ -24,6 +24,7 @@ import {
   invalidatePermCtx,
   invalidateAllPermCtx,
   type PermCtx,
+  assertNoFieldEscalation,
 } from '../../utils/permissions';
 import { ensureEmployeeForUser, syncUserToEmployee } from '../../utils/employeeProvisioning';
 import { assertCanAssign, rankOf, toLegacyRole } from '../../utils/roleRank';
@@ -343,7 +344,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
           })
         : null;
       if (data.roleId && !role) throw new AppError(404, 'That role was not found in this organization');
-      if (role) await assertRoleAssignable(orgId, role);
+      if (role) { await assertRoleAssignable(orgId, role); await assertNoFieldEscalation(req.user!, role.id); }
       const legacyRole = toLegacyRole(role?.legacyRole) as any;
       // Same rank rule as Administration → Users: nobody hands out a role
       // above their own (an IT Manager cannot add a Super Admin here either).
@@ -490,7 +491,7 @@ export async function grantLogin(req: AuthRequest, res: Response, next: NextFunc
         })
       : null;
     if (data.roleId && !role) throw new AppError(404, 'That role was not found in this organization');
-    if (role) await assertRoleAssignable(orgId, role);
+    if (role) { await assertRoleAssignable(orgId, role); await assertNoFieldEscalation(req.user!, role.id); }
     const legacyRole = toLegacyRole(role?.legacyRole) as any;
     assertCanAssign(req.user!.role, legacyRole);
     await assertSeatAvailable(orgId, legacyRole);
@@ -661,6 +662,7 @@ async function changeRole(
   if (!role) throw new AppError(404, 'Role not found');
   if (!role.isActive) throw new AppError(400, 'That role is deactivated');
   await assertRoleAssignable(orgId, role);
+  await assertNoFieldEscalation(req.user!, role.id);
 
   const legacyRole = toLegacyRole(role.legacyRole);
   checkRoleChange({
