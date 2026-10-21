@@ -1,27 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Palette, Plus, Pencil, Copy, Trash2, Star, Eye, FileDown, Upload, X, Droplets } from 'lucide-react';
+import { Palette, Plus, Pencil, Copy, Trash2, Star, Eye, FileDown, Upload, X, Droplets, Code2 } from 'lucide-react';
 import {
   Card, CardHeader, Button, Modal, Badge, Field, Input, Textarea, Checkbox, Alert, SkeletonTable, IconButton, EmptyState, Label, Toggle,
 } from '../../../shared/components';
 import { useDepartments, useLocations } from '../../../api/people';
 import {
-  usePayslipTemplates, useSaveTemplate, useDeleteTemplate, useDuplicateTemplate, useTemplatePreview, downloadPdf,
-  WATERMARK_LIMITS, type PayslipTemplate, type TemplateInput, type LayoutKey,
+  usePayslipTemplates, useSaveTemplate, useDeleteTemplate, useDuplicateTemplate, useTemplatePreview, downloadPdf, downloadDraftPdf, apiErrorMessage,
+  WATERMARK_LIMITS, type PayslipTemplate, type TemplateInput, type LayoutKey, type CustomHtmlInfo, type TemplateIssue,
 } from '../../../api/payslipTemplates';
+import { HtmlTemplateTab } from './HtmlTemplateEditor';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { fileToDataUrl, isDataUrl, dataUrlKb } from './imageUpload';
 
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'CONSULTANT', 'TEMPORARY'];
 const human = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
 
-type Nullable = 'companyName' | 'companyAddress' | 'logoUrl' | 'accentColor' | 'headerNote' | 'footerNote' | 'signatoryName' | 'signatureUrl' | 'watermarkImageUrl';
+type Nullable = 'companyName' | 'companyAddress' | 'logoUrl' | 'accentColor' | 'headerNote' | 'footerNote' | 'signatoryName' | 'signatureUrl' | 'watermarkImageUrl' | 'htmlBody' | 'htmlCss';
 type Form = Omit<TemplateInput, 'showFields' | 'applicability' | Nullable> & Record<Nullable, string> & { showFields: Record<string, boolean>; departmentIds: string[]; locationIds: string[]; employmentTypes: string[] };
 
-const emptyForm = (layout: LayoutKey = 'STANDARD'): Form => ({
+const emptyForm = (layout: LayoutKey = 'STANDARD', starter?: { html: string; css: string }): Form => ({
   name: '', layout, isDefault: false, isActive: true, companyName: '', companyAddress: '', logoUrl: '', primaryColor: '#2563eb', accentColor: '',
   headerTitle: 'Payslip', headerNote: '', footerNote: '', showSignature: true, signatureLabel: 'Authorized Signatory', signatoryName: '', signatureUrl: '',
   watermarkEnabled: false, watermarkSource: 'LOGO', watermarkImageUrl: '', watermarkOpacity: 0.08, watermarkSize: 55, watermarkRotation: 0, watermarkRepeat: false,
   showFields: {}, departmentIds: [], locationIds: [], employmentTypes: [],
+  htmlBody: starter?.html ?? '', htmlCss: starter?.css ?? '',
 });
 const fromTemplate = (t: PayslipTemplate): Form => ({
   name: t.name, layout: t.layout, isDefault: t.isDefault, isActive: t.isActive, companyName: t.companyName ?? '', companyAddress: t.companyAddress ?? '', logoUrl: t.logoUrl ?? '',
@@ -31,6 +33,7 @@ const fromTemplate = (t: PayslipTemplate): Form => ({
   watermarkEnabled: t.watermarkEnabled ?? false, watermarkSource: t.watermarkSource ?? 'LOGO', watermarkImageUrl: t.watermarkImageUrl ?? '',
   watermarkOpacity: t.watermarkOpacity ?? 0.08, watermarkSize: t.watermarkSize ?? 55, watermarkRotation: t.watermarkRotation ?? 0, watermarkRepeat: t.watermarkRepeat ?? false,
   showFields: t.showFields ?? {}, departmentIds: t.applicability?.departmentIds ?? [], locationIds: t.applicability?.locationIds ?? [], employmentTypes: t.applicability?.employmentTypes ?? [],
+  htmlBody: t.htmlBody ?? '', htmlCss: t.htmlCss ?? '',
 });
 const toPayload = (f: Form): Partial<TemplateInput> => {
   const { departmentIds, locationIds, employmentTypes, ...rest } = f;
@@ -44,18 +47,22 @@ export function PayslipTemplatesSection() {
   const duplicate = useDuplicateTemplate();
   const { data: departments } = useDepartments();
   const { data: locations } = useLocations();
-  const [editing, setEditing] = useState<PayslipTemplate | 'new' | null>(null);
+  const [editing, setEditing] = useState<PayslipTemplate | 'new' | 'new-html' | null>(null);
   const [notice, setNotice] = useState('');
   const deptName = (id: string) => departments?.data?.find(d => d.id === id)?.name ?? id;
   const locName = (id: string) => locations?.data?.find(l => l.id === id)?.name ?? id;
-  const layoutName = (k: string) => data?.layouts.find(l => l.key === k)?.name ?? k;
+  const layoutName = (k: string) => (k === 'CUSTOM_HTML' ? 'Custom HTML' : data?.layouts.find(l => l.key === k)?.name ?? k);
+  const htmlPdfOff = data?.customHtml && !data.customHtml.pdf.available;
 
   return (
     <Card>
       <CardHeader
         title="Payslip templates" icon={<Palette size={14} />} className="mb-3"
         subtitle="Design one or more layouts. The default applies to everyone; other templates apply to the departments, locations or employment types you assign."
-        actions={<Button size="sm" icon={<Plus size={14} />} onClick={() => setEditing('new')}>New template</Button>}
+        actions={<div className="flex flex-wrap gap-2 justify-end">
+          {data?.customHtml && <Button size="sm" variant="secondary" icon={<Code2 size={14} />} onClick={() => setEditing('new-html')}>Start from HTML</Button>}
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => setEditing('new')}>New template</Button>
+        </div>}
       />
       {notice && <Alert tone="info" className="mb-3" onDismiss={() => setNotice('')}>{notice}</Alert>}
       {isLoading || !data ? <SkeletonTable rows={3} /> : data.templates.length === 0 ? (
@@ -71,6 +78,7 @@ export function PayslipTemplatesSection() {
                     <span className="font-medium text-fg truncate">{t.name}</span>
                     {t.isDefault && <Badge variant="accent">Default</Badge>}
                     {!t.isActive && <Badge variant="gray">Inactive</Badge>}
+                    {t.layout === 'CUSTOM_HTML' && htmlPdfOff && <span title={data.customHtml!.pdf.detail}><Badge variant="yellow">PDF unavailable</Badge></span>}
                   </div>
                   <p className="text-xs text-fg-subtle mt-0.5">{layoutName(t.layout)} layout · {t.payslipCount ?? 0} payslip{t.payslipCount === 1 ? '' : 's'} issued</p>
                   {!t.isDefault && (
@@ -96,8 +104,10 @@ export function PayslipTemplatesSection() {
       )}
       {editing && data && (
         <TemplateEditor
-          template={editing === 'new' ? null : editing}
-          layouts={data.layouts} fields={data.fields}
+          template={editing === 'new' || editing === 'new-html' ? null : editing}
+          startHtml={editing === 'new-html'}
+          layouts={data.customHtml ? [...data.layouts, data.customHtml.layout] : data.layouts} fields={data.fields} customHtml={data.customHtml}
+          onSaved={(warnings) => { if (warnings.length) setNotice(`Saved. Removed for safety: ${warnings.slice(0, 6).join(' · ')}${warnings.length > 6 ? ' …' : ''}`); }}
           departments={departments?.data ?? []} locations={locations?.data ?? []}
           onClose={() => setEditing(null)}
         />
@@ -106,17 +116,36 @@ export function PayslipTemplatesSection() {
   );
 }
 
-function TemplateEditor({ template, layouts, fields, departments, locations, onClose }: {
-  template: PayslipTemplate | null; layouts: { key: LayoutKey; name: string; description: string; defaults: Record<string, boolean> }[];
-  fields: { key: string; label: string; group: string; default: boolean }[]; departments: { id: string; name: string }[]; locations: { id: string; name: string }[]; onClose: () => void;
+type EditorTab = 'code' | 'design' | 'fields' | 'assign';
+
+function TemplateEditor({ template, startHtml, layouts, fields, customHtml, departments, locations, onClose, onSaved }: {
+  template: PayslipTemplate | null; startHtml?: boolean; layouts: { key: LayoutKey; name: string; description: string; defaults: Record<string, boolean> }[];
+  fields: { key: string; label: string; group: string; default: boolean }[]; customHtml?: CustomHtmlInfo; departments: { id: string; name: string }[]; locations: { id: string; name: string }[];
+  onClose: () => void; onSaved?: (warnings: string[]) => void;
 }) {
   const save = useSaveTemplate();
-  const [form, setForm] = useState<Form>(template ? fromTemplate(template) : emptyForm());
+  const [form, setForm] = useState<Form>(template ? fromTemplate(template) : startHtml && customHtml ? { ...emptyForm('CUSTOM_HTML', customHtml.starter), name: 'HTML payslip' } : emptyForm());
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'design' | 'fields' | 'assign'>('design');
+  const [saveIssues, setSaveIssues] = useState<TemplateIssue[]>([]);
+  const isHtml = form.layout === 'CUSTOM_HTML';
+  const [tab, setTab] = useState<EditorTab>(isHtml ? 'code' : 'design');
+  const [pdfBusy, setPdfBusy] = useState(false);
   const debounced = useDebounce(form, 400);
   const previewBody = useMemo(() => toPayload(debounced), [debounced]);
   const { data: preview, isFetching } = useTemplatePreview(previewBody);
+  // Live problems from the preview win; the last save's problems show until the next preview arrives.
+  const issues = isHtml ? (preview?.isolated ? preview.issues ?? [] : saveIssues) : [];
+  const chooseLayout = (k: LayoutKey) => {
+    if (k === 'CUSTOM_HTML' && customHtml && !form.htmlBody.trim()) setForm(f => ({ ...f, layout: k, htmlBody: customHtml.starter.html, htmlCss: f.htmlCss.trim() ? f.htmlCss : customHtml.starter.css }));
+    else set('layout', k);
+    if (k === 'CUSTOM_HTML') setTab('code');
+  };
+  const samplePdf = async () => {
+    setPdfBusy(true); setError('');
+    try { await downloadDraftPdf(toPayload(form), `${form.name || 'payslip-template'}-sample.pdf`); }
+    catch (e) { setError(await apiErrorMessage(e, 'Could not make the sample PDF')); }
+    finally { setPdfBusy(false); }
+  };
   const layout = layouts.find(l => l.key === form.layout);
   const fieldValue = (k: string) => (typeof form.showFields[k] === 'boolean' ? form.showFields[k] : (layout?.defaults[k] ?? fields.find(f => f.key === k)?.default ?? false));
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm(f => ({ ...f, [k]: v }));
@@ -125,13 +154,22 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
 
   const submit = () => {
     if (!form.name.trim()) { setError('Give the template a name'); setTab('design'); return; }
-    save.mutate({ id: template?.id, ...toPayload(form) }, { onSuccess: onClose, onError: (e: any) => setError(e?.response?.data?.error || 'Could not save template') });
+    save.mutate({ id: template?.id, ...toPayload(form) }, {
+      onSuccess: (r: any) => { onSaved?.(Array.isArray(r?.warnings) ? r.warnings : []); onClose(); },
+      onError: (e: any) => {
+        const d = e?.response?.data;
+        if (Array.isArray(d?.issues)) { setSaveIssues(d.issues); setTab('code'); }
+        setError(d?.error || 'Could not save template');
+      },
+    });
   };
+  const tabs: EditorTab[] = isHtml ? ['code', 'design', 'fields', 'assign'] : ['design', 'fields', 'assign'];
+  const tabLabel = (t: EditorTab) => (t === 'code' ? 'HTML' : t === 'design' ? (isHtml ? 'Branding' : 'Design') : t === 'fields' ? 'Fields' : 'Applies to');
 
   return (
     <Modal open onClose={onClose} title={template ? `Edit template · ${template.name}` : 'New payslip template'} icon={<Palette size={16} />} size="xl"
       footer={<>
-        <Button variant="ghost" icon={<Eye size={13} />} onClick={() => downloadPdf(`/hr/payroll/templates/${template?.id ?? ''}/preview?format=pdf`, 'sample.pdf', true)} disabled={!template}>Open sample PDF</Button>
+        <Button variant="ghost" icon={<Eye size={13} />} loading={pdfBusy} onClick={samplePdf}>{isHtml ? 'Download sample PDF' : 'Open sample PDF'}</Button>
         <span className="mr-auto" />
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button loading={save.isPending} onClick={submit}>{template ? 'Save changes' : 'Create template'}</Button>
@@ -139,24 +177,40 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] gap-5">
         <div className="space-y-4">
           {error && <Alert tone="danger">{error}</Alert>}
-          <div className="flex gap-1 border-b border-line-subtle">
-            {(['design', 'fields', 'assign'] as const).map(t => (
-              <button key={t} type="button" onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px ${tab === t ? 'border-accent text-fg' : 'border-transparent text-fg-subtle hover:text-fg'}`}>
-                {t === 'design' ? 'Design' : t === 'fields' ? 'Fields' : 'Applies to'}
+          <div className="flex gap-1 border-b border-line-subtle overflow-x-auto">
+            {tabs.map(t => (
+              <button key={t} type="button" onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px whitespace-nowrap ${tab === t ? 'border-accent text-fg' : 'border-transparent text-fg-subtle hover:text-fg'}`}>
+                {tabLabel(t)}{t === 'code' && issues.length ? <span className="ml-1 text-danger">•</span> : null}
               </button>
             ))}
           </div>
 
-          {tab === 'design' && (
-            <div className="space-y-4">
+          {tab === 'code' && isHtml && customHtml && (
+            <div className="space-y-3">
               <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
-                <Field label="Template name"><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Head office, Contractors" /></Field>
+                <Field label="Template name"><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Head office (HTML)" /></Field>
                 <Checkbox label="Default" checked={form.isDefault} disabled={template?.isDefault} onChange={e => set('isDefault', e.target.checked)} />
               </div>
+              <HtmlTemplateTab
+                info={customHtml} html={form.htmlBody} css={form.htmlCss} onHtml={v => set('htmlBody', v)} onCss={v => set('htmlCss', v)}
+                issues={issues} removed={preview?.isolated ? preview.removed ?? [] : []}
+              />
+            </div>
+          )}
+
+          {tab === 'design' && (
+            <div className="space-y-4">
+              {!isHtml && (
+                <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
+                  <Field label="Template name"><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Head office, Contractors" /></Field>
+                  <Checkbox label="Default" checked={form.isDefault} disabled={template?.isDefault} onChange={e => set('isDefault', e.target.checked)} />
+                </div>
+              )}
+              {isHtml && <p className="text-xs text-fg-subtle">These values fill the placeholders in your HTML — e.g. <code className="font-mono">{'{{org.logo}}'}</code>, <code className="font-mono">{'{{brand.primaryColor}}'}</code>, <code className="font-mono">{'{{brand.footerNote}}'}</code>. Switching to a built-in layout keeps your HTML for later.</p>}
               <Field label="Layout">
                 <div className="grid grid-cols-2 gap-2">
                   {layouts.map(l => (
-                    <button key={l.key} type="button" onClick={() => set('layout', l.key)} className={`text-left rounded-lg border p-2.5 transition ${form.layout === l.key ? 'border-accent ring-1 ring-accent bg-accent-soft/40' : 'border-line-subtle hover:border-line-strong'}`}>
+                    <button key={l.key} type="button" onClick={() => chooseLayout(l.key)} className={`text-left rounded-lg border p-2.5 transition ${form.layout === l.key ? 'border-accent ring-1 ring-accent bg-accent-soft/40' : 'border-line-subtle hover:border-line-strong'}`}>
                       <LayoutThumb layout={l.key} color={form.primaryColor} />
                       <div className="text-xs font-medium text-fg mt-1.5">{l.name}</div>
                       <div className="text-[10.5px] text-fg-subtle leading-snug">{l.description}</div>
@@ -224,10 +278,13 @@ function TemplateEditor({ template, layouts, fields, departments, locations, onC
         <div className="min-w-0 lg:sticky lg:top-0 lg:self-start">
           <div className="flex items-center justify-between mb-1.5">
             <Label>Live preview{isFetching ? ' · updating…' : ''}</Label>
-            <span className="text-[11px] text-fg-subtle">Sample data · the PDF uses the same layout</span>
+            <span className="text-[11px] text-fg-subtle">Sample data · {isHtml ? 'the PDF prints this HTML' : 'the PDF uses the same layout'}</span>
           </div>
           <div className="rounded-lg border border-line-subtle bg-surface-sunken overflow-hidden" style={{ height: 620 }}>
-            {preview ? <iframe title="Template preview" className="w-full h-full bg-white" sandbox="" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:14px;background:#f3f4f6;zoom:.82}</style></head><body>${preview.html}</body></html>`} /> : <div className="p-6 text-xs text-fg-subtle">Loading preview…</div>}
+            {/* A custom template's preview is author-written HTML: a complete document in a sandbox with no
+                permissions at all (no scripts, opaque origin) — it can't reach the app's tokens or DOM. */}
+            {preview?.isolated ? (preview.html ? <iframe title="Template preview" className="w-full h-full bg-white" sandbox="" referrerPolicy="no-referrer" srcDoc={preview.html} /> : <div className="p-6 text-xs text-danger">Fix the problems in the HTML tab to see the preview.</div>)
+            : preview ? <iframe title="Template preview" className="w-full h-full bg-white" sandbox="" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:14px;background:#f3f4f6;zoom:.82}</style></head><body>${preview.html}</body></html>`} /> : <div className="p-6 text-xs text-fg-subtle">Loading preview…</div>}
           </div>
         </div>
       </div>
@@ -242,6 +299,13 @@ function Chips({ items, selected, onToggle, empty }: { items: { id: string; labe
 
 /** Tiny schematic of each layout so the picker reads at a glance. */
 function LayoutThumb({ layout, color }: { layout: LayoutKey; color: string }) {
+  if (layout === 'CUSTOM_HTML') {
+    return (
+      <div className="w-full h-16 rounded bg-white border border-line-subtle p-1.5 flex items-center justify-center gap-1.5 font-mono text-[10px]" aria-hidden style={{ color }}>
+        <Code2 size={16} /><span>{'{{ }}'}</span>
+      </div>
+    );
+  }
   const band = layout === 'MODERN' || layout === 'BRANCH';
   const boxed = layout === 'CORPORATE' || layout === 'COMPACT' || layout === 'STATEMENT';
   const one = layout === 'STATEMENT';

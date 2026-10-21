@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Wallet, Printer, FileDown } from 'lucide-react';
 import { Button, EmptyState } from '../shared/components';
@@ -16,6 +16,17 @@ export default function PayslipPrintPage() {
   const templateId = params.get('templateId') ?? undefined;
   const { data, isLoading, error } = usePayslipHtml(id, templateId);
   const [busy, setBusy] = useState(false);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [frameH, setFrameH] = useState(900);
+  // Custom HTML templates arrive as a complete, author-written document. It is
+  // shown in a sandboxed iframe — no allow-scripts, so nothing in it can run or
+  // reach this app's tokens/DOM. allow-same-origin only lets THIS page size the
+  // frame to its content and print it (the frame itself can't run code to use
+  // it); allow-modals is what lets its print dialog open.
+  // body, not documentElement: the latter is never shorter than the frame itself, so it could only grow.
+  const fit = () => { const d = frameRef.current?.contentDocument; if (d?.body) setFrameH(Math.max(400, Math.ceil(d.body.getBoundingClientRect().height) + 4)); };
+  useEffect(() => { if (!data?.isolated) return; window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, [data?.isolated]);
+  const print = () => (data?.isolated ? frameRef.current?.contentWindow?.print() : window.print());
 
   if (isLoading) {
     return (
@@ -44,9 +55,16 @@ export default function PayslipPrintPage() {
           </Button>
           {/* window.print() is a no-op inside the Android WebView — the PDF
               (opened through the share sheet) is the printable copy there. */}
-          {!isNative && <Button icon={<Printer size={14} />} onClick={() => window.print()}>Print</Button>}
+          {!isNative && <Button icon={<Printer size={14} />} onClick={print}>Print</Button>}
         </div>
-        <div className="rounded-card shadow-card overflow-x-auto overflow-y-hidden bg-white print:shadow-none print:rounded-none print:overflow-visible" dangerouslySetInnerHTML={{ __html: data.html }} />
+        {data.isolated ? (
+          <iframe
+            ref={frameRef} title="Payslip" srcDoc={data.html} sandbox="allow-same-origin allow-modals" referrerPolicy="no-referrer" onLoad={fit}
+            className="block w-full rounded-card shadow-card bg-white border-0 print:shadow-none print:rounded-none" style={{ height: frameH }}
+          />
+        ) : (
+          <div className="rounded-card shadow-card overflow-x-auto overflow-y-hidden bg-white print:shadow-none print:rounded-none print:overflow-visible" dangerouslySetInnerHTML={{ __html: data.html }} />
+        )}
       </div>
       <style>{`@media print { @page { margin: 1.4cm; } body { background: white; } }`}</style>
     </div>
