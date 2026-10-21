@@ -15,6 +15,7 @@ import {
   ensureVectorIndex,
 } from '../../utils/rag';
 import { getObservability, recordFeedback, checkBudget } from '../../utils/aiGateway';
+import { publicUrlProblem } from '../../utils/safeHttp';
 
 /**
  * Knowledge / RAG surface plus AI governance reporting (§43, §78, §79, §81).
@@ -355,6 +356,10 @@ export async function createProvider(req: AuthRequest, res: Response, next: Next
     assertCan(ctx, 'ai.governance.manage');
     const orgId = req.user!.orgId;
     const { apiKey, models, ...data } = ProviderSchema.parse(req.body);
+    if (data.baseUrl) {
+      const urlProblem = await publicUrlProblem(data.baseUrl, { allowHttp: false });
+      if (urlProblem) throw new AppError(400, `Base URL refused: ${urlProblem}`);
+    }
 
     const { encryptSecret } = await import('../../utils/crypto');
 

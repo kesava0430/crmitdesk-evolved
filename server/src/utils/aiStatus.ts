@@ -11,7 +11,7 @@
  */
 import OpenAI from 'openai';
 import { prisma } from './prisma';
-import { resolveModels, isGatewayConfigured } from './aiGateway';
+import { resolveModels, isGatewayConfigured, openAiTarget } from './aiGateway';
 
 export type AiConfigSource = 'env' | 'database' | 'none';
 
@@ -108,7 +108,7 @@ export async function testAiConnection(orgId: string): Promise<AiConnectionTest>
 
   const started = Date.now();
   try {
-    const client = new OpenAI({ apiKey: m.apiKey, ...(m.baseUrl ? { baseURL: m.baseUrl } : {}), timeout: 15_000, maxRetries: 0 });
+    const client = new OpenAI({ apiKey: m.apiKey, ...openAiTarget(m), timeout: 15_000, maxRetries: 0 });
     await client.chat.completions.create({
       model: m.model,
       messages: [{ role: 'user', content: 'Reply with the word ok.' }],

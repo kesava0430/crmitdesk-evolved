@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { postToSlack } from '../../utils/slack';
+import { AppError } from '../../middleware/errorHandler';
+import { publicUrlProblem } from '../../utils/safeHttp';
 
 const ConfigSchema = z.object({
   webhookUrl:           z.string().url(),
@@ -33,6 +35,8 @@ export async function saveConfig(req: AuthRequest, res: Response, next: NextFunc
   try {
     const orgId = req.user!.orgId;
     const data = ConfigSchema.parse(req.body);
+    const urlProblem = await publicUrlProblem(data.webhookUrl, { allowHttp: false });
+    if (urlProblem) throw new AppError(400, `Webhook URL refused: ${urlProblem}`);
     const config = await prisma.slackConfig.upsert({
       where: { orgId },
       create: { orgId, ...data },

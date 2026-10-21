@@ -4,6 +4,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { runSyncNow } from '../../utils/customModuleSync';
+import { publicUrlProblem } from '../../utils/safeHttp';
 
 const SyncConfigSchema = z.object({
   url: z.string().url(),
@@ -36,6 +37,8 @@ export async function upsertSyncConfig(req: AuthRequest, res: Response, next: Ne
   try {
     const module_ = await assertModuleInOrg(req.params.id, req.user!.orgId);
     const data = SyncConfigSchema.parse(req.body);
+    const urlProblem = await publicUrlProblem(data.url);
+    if (urlProblem) throw new AppError(400, `Sync URL refused: ${urlProblem}`);
     // Every mapped fieldKey must be a real field on this module — otherwise
     // synced data would validate against fields that don't exist and
     // silently vanish (validateRecordData only keeps known fieldKeys).

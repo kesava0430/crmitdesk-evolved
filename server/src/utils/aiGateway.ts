@@ -30,6 +30,7 @@ import { decryptSecretOrPlain } from './crypto';
 import type { PermCtx } from './permissions';
 import { getEffectiveLicense } from './licensing';
 import { getAiContext } from './aiContext';
+import { checkOutboundUrl, publicHttpAgent, publicHttpsAgent } from './safeHttp';
 
 // ─── Task types ───────────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ export interface ResolvedModel {
   outputCostPer1k: number;
   supportsJson: boolean;
   embeddingDim?: number;
+  /** baseUrl came from an org's own AI settings (not the platform's env/config) — see clientFor(). */
+  tenantSupplied?: boolean;
 }
 
 // ─── Built-in Groq prices ─────────────────────────────────────────────────────
@@ -114,7 +117,21 @@ export function extractJsonObject(text: string): string | null {
 }
 
 function clientFor(m: ResolvedModel, timeout = AI_REQUEST_TIMEOUT_MS): OpenAI {
-  return new OpenAI({ apiKey: m.apiKey, ...(m.baseUrl ? { baseURL: m.baseUrl } : {}), timeout, maxRetries: 0 });
+  return new OpenAI({ apiKey: m.apiKey, ...openAiTarget(m), timeout, maxRetries: 0 });
+}
+
+/**
+ * baseURL (+ agent) for a model. An org admin can point their own provider
+ * at any URL, and the API then POSTs to it — so a tenant-supplied base URL
+ * only ever connects to public addresses (utils/safeHttp.ts), never to
+ * instance metadata or the VPC. Platform-configured providers (env, platform
+ * rows) are trusted as before and may be internal.
+ */
+export function openAiTarget(m: Pick<ResolvedModel, 'baseUrl' | 'tenantSupplied'>): { baseURL?: string; httpAgent?: any } {
+  if (!m.baseUrl) return {};
+  if (!m.tenantSupplied) return { baseURL: m.baseUrl };
+  const u = checkOutboundUrl(m.baseUrl, { allowHttp: false });
+  return { baseURL: m.baseUrl, httpAgent: u.protocol === 'https:' ? publicHttpsAgent : publicHttpAgent };
 }
 
 /** Share of the input price charged for prompt tokens served from the
@@ -223,6 +240,7 @@ export async function resolveModels(orgId: string, task: AiTaskType): Promise<Re
       out.push({
         providerKey: p.key,
         baseUrl: p.baseUrl ?? undefined,
+        tenantSupplied: p.orgId !== null,
         apiKey: key,
         model: m.modelName,
         inputCostPer1k: Number(m.inputCostPer1k ?? 0),

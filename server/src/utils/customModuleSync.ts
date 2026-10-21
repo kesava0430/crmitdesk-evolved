@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { validateRecordData } from '../modules/custom-modules/customModules.service';
 import { runWorkflows } from './workflow-engine';
+import { safeRequest } from './safeHttp';
 
 // Same setInterval-poller shape as scheduler.ts (see comment there) — one
 // Node process, one periodic DB scan, no job queue. Checked every minute;
@@ -31,9 +32,13 @@ async function runSyncForConfig(configId: string): Promise<void> {
       headers['Authorization'] = `Bearer ${config.authValue}`;
     }
 
-    const res = await fetch(config.url, { method: config.method || 'GET', headers });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    const json = await res.json();
+    // safeRequest, not fetch: the URL is typed in by a CRM manager and the
+    // response is imported into records, so a private/metadata target would
+    // be a readable SSRF channel into the server's network (utils/safeHttp.ts).
+    const res = await safeRequest(config.url, { method: config.method || 'GET', headers, timeoutMs: 30_000, maxBytes: 10 * 1024 * 1024 });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    let json: unknown;
+    try { json = res.json(); } catch { throw new Error('The response was not valid JSON'); }
     const list = getByPath(json, config.recordPath);
     if (!Array.isArray(list)) {
       throw new Error(`recordPath "${config.recordPath || '(response root)'}" did not resolve to an array`);

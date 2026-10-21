@@ -1,38 +1,24 @@
-import https from 'https';
-import { URL } from 'url';
+import { safeRequest } from './safeHttp';
 import { prisma } from './prisma';
 import { enqueueJob, registerJobHandler } from './jobQueue';
 
 // ─── Low-level Slack webhook POST ─────────────────────────────────────────────
 
 export async function postToSlack(webhookUrl: string, payload: object): Promise<void> {
-  const body = JSON.stringify(payload);
-  const parsed = new URL(webhookUrl);
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: parsed.hostname,
-        path: parsed.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (c) => (data += c));
-        res.on('end', () => {
-          if (res.statusCode === 200 && data === 'ok') resolve();
-          else reject(new Error(`Slack webhook error ${res.statusCode}: ${data}`));
-        });
-      },
-    );
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+  // safeRequest: the webhook URL is typed in by an admin, so it must not be
+  // able to reach private/metadata addresses (utils/safeHttp.ts). The
+  // receiver's reply is NOT put in the error — the test button shows the
+  // error to the admin, which made any internal HTTPS service readable.
+  const res = await safeRequest(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    allowHttp: false,
+    maxRedirects: 0,
+    timeoutMs: 10_000,
+    maxBytes: 64 * 1024,
   });
+  if (!(res.status === 200 && res.text() === 'ok')) throw new Error(`Slack webhook error: HTTP ${res.status}`);
 }
 
 /**

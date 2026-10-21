@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { postToTeams } from '../../utils/teams';
+import { AppError } from '../../middleware/errorHandler';
+import { publicUrlProblem } from '../../utils/safeHttp';
 
 const Schema = z.object({
   webhookUrl:           z.string().url(),
@@ -24,6 +26,8 @@ export async function saveConfig(req: AuthRequest, res: Response, next: NextFunc
   try {
     const orgId = req.user!.orgId;
     const data = Schema.parse(req.body);
+    const urlProblem = await publicUrlProblem(data.webhookUrl, { allowHttp: false });
+    if (urlProblem) throw new AppError(400, `Webhook URL refused: ${urlProblem}`);
     const config = await prisma.teamsConfig.upsert({
       where: { orgId },
       create: { orgId, ...data },

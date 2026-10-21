@@ -7,7 +7,8 @@ import { resolveRecipientPhone } from './notification-recipient';
 import { scoreLead, pickAssignment } from './ai';
 import { getAiContext, runWithAiContext } from './aiContext';
 import { sendPushToUser } from './webPush';
-import { sendMail, emailTemplates } from './mailer';
+import { sendMail, emailTemplates, escHtml } from './mailer';
+import { safeRequest, checkOutboundUrl, OutboundUrlError } from './safeHttp';
 
 // ─── Outbound webhook delivery (signed + retried) ─────────────────────────────
 // Previously this action fired a single, unsigned fetch() with no retry —
@@ -20,42 +21,19 @@ import { sendMail, emailTemplates } from './mailer';
  * The URL comes from a rule any manager can edit, and this runs server-side —
  * so without a guard a rule could aim at cloud metadata (169.254.169.254),
  * localhost, or a private-range service, and the log detail would report the
- * outcome back to whoever configured it. That is a server-side request
- * forgery primitive with a readable response channel.
- *
- * Hostname-based, so it does not catch a public DNS name resolving to a
- * private address (a full fix needs resolve-then-pin, which fetch does not
- * expose). It removes the trivial cases; treat outbound webhooks as
- * privileged either way.
+ * outcome back to whoever configured it. The quick checks here give a
+ * readable reason in the log; the real enforcement is safeRequest(), which
+ * also refuses public names that RESOLVE to private addresses, at connect
+ * time (utils/safeHttp.ts).
  */
 function isBlockedWebhookHost(rawUrl: string): string | null {
-  let u: URL;
-  try { u = new URL(rawUrl); } catch { return 'not a valid URL'; }
-
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return `unsupported protocol ${u.protocol}`;
-  if (process.env.NODE_ENV === 'production' && u.protocol !== 'https:') return 'must use https';
-
-  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-
-  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '0.0.0.0') return 'points at localhost';
-  if (h.endsWith('.internal') || h.endsWith('.local')) return 'points at an internal hostname';
-
-  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 127) return 'points at loopback';
-    if (a === 10) return 'points at a private network';
-    if (a === 172 && b >= 16 && b <= 31) return 'points at a private network';
-    if (a === 192 && b === 168) return 'points at a private network';
-    if (a === 169 && b === 254) return 'points at link-local / cloud metadata';
-    if (a === 100 && b >= 64 && b <= 127) return 'points at carrier-grade NAT space';
-    if (a === 0) return 'points at an unspecified address';
+  try {
+    const u = checkOutboundUrl(rawUrl);
+    if (process.env.NODE_ENV === 'production' && u.protocol !== 'https:') return 'must use https';
+    return null;
+  } catch (e: any) {
+    return e instanceof OutboundUrlError ? e.message.replace(/^URLs? /, '').toLowerCase() : 'not a valid URL';
   }
-  // IPv6 loopback / unique-local / link-local
-  if (h === '::' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) {
-    return 'points at a private IPv6 address';
-  }
-  return null;
 }
 
 /**
@@ -105,17 +83,19 @@ async function postWebhookWithRetry(
   let lastError = '';
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const res = await fetch(url, {
+      const res = await safeRequest(url, {
         method: 'POST',
         headers: { ...headers, 'X-Webhook-Attempt': String(attempt) },
         body,
-        signal: AbortSignal.timeout(10_000),
+        timeoutMs: 10_000,
       });
       if (res.ok) {
         return attempt === 1 ? `Webhook sent to ${url}` : `Webhook sent to ${url} (succeeded on attempt ${attempt})`;
       }
       lastError = `HTTP ${res.status}`;
     } catch (e: any) {
+      // A refused target (resolves to a private address) won't change on retry.
+      if (e instanceof OutboundUrlError) return `Webhook skipped — ${e.message}`;
       lastError = e.message;
     }
     if (attempt < maxAttempts) {
@@ -309,11 +289,18 @@ async function executeAction(action: Action, ctx: WorkflowContext): Promise<stri
       // mailer.ts now — passing orgId routes it there instead of duplicating
       // that lookup here. plain-text body -> <br>-joined html, since
       // sendMail only takes html.
+      /* Record values (a ticket title from an inbound email, a web-form
+         message) are outsider-controlled, so they are HTML-escaped where they
+         land in the body — otherwise anyone who can file a ticket could put
+         links/markup into a mail the org itself sends. The rule author's own
+         template text is left as written. */
+      const resolveHtml = (s: string) =>
+        s.replace(/\{\{(\w+)\}\}/g, (_, k) => escHtml(String(entity[k] ?? k)));
       await sendMail({
         orgId,
         to: resolve(to),
         subject: resolve(subject || 'CRM Notification'),
-        html: resolve(body || '').replace(/\n/g, '<br>'),
+        html: resolveHtml(body || '').replace(/\n/g, '<br>'),
       });
       return `Email sent to ${resolve(to)}`;
     }
