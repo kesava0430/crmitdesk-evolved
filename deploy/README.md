@@ -228,6 +228,30 @@ password resets, customer-portal invites, Stripe returns) point at
 `APP_URL` is how the Google/Microsoft OAuth callbacks and CSAT survey links
 reach the API (`<APP_URL>/api/...` → nginx `/zenkara/api/`).
 
+## Hardening the box (one-time)
+
+```bash
+# 1. Security headers for the web app (clickjacking, nosniff, HSTS) and a
+#    log-free live-updates location — see the comments in each file.
+sudo cp /opt/zenkara-crm/deploy/nginx-zenkara-maps.conf     /etc/nginx/conf.d/zenkara-maps.conf
+sudo cp /opt/zenkara-crm/deploy/nginx-security-headers.conf /etc/nginx/snippets/zenkara-security-headers.conf
+#    then copy the `server_tokens`, `location ^~ /zenkara/api/events/` and
+#    `include snippets/zenkara-security-headers.conf;` lines from
+#    deploy/nginx-360.zenkara.in.conf into BOTH live site files (certbot has
+#    edited them, so merge by hand — inside the `listen 443` server blocks).
+sudo nginx -t && sudo systemctl reload nginx
+
+# 2. API reachable only through nginx.
+echo 'LISTEN_HOST=127.0.0.1' | sudo tee -a /opt/zenkara-crm/server/.env
+sudo systemctl restart zenkara-crm-api
+sudo ss -ltnp | grep 4000        # expect 127.0.0.1:4000, not 0.0.0.0/*:4000
+```
+
+Then remove any inbound rule for port 4000 (and 5432) from the instance's
+security group: only 80/443 (and 22 from your own IP) should be open. A
+directly reachable API lets a client forge `X-Forwarded-For` and bypass the
+login / password-reset rate limits.
+
 ## Billing (Stripe)
 
 Until both keys below are set the app works normally, the Billing page says

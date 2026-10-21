@@ -48,6 +48,16 @@ if [ -z "$WANT" ]; then
   exit 0
 fi
 
+# This script runs as root, and WANT goes into S3 keys, file names and
+# `git reset --hard`. Only the Deploy workflow writes current.txt and it only
+# ever writes a commit sha — accept nothing else, so a bad or tampered value
+# (an option like --upload-pack=…, a path with ../) can never reach git or
+# the shell.
+if ! [[ "$WANT" =~ ^[0-9a-f]{40}$ ]]; then
+  log "ERROR: s3://$BUCKET/current.txt is not a 40-character commit sha — refusing to deploy it"
+  exit 1
+fi
+
 HAVE=$(cat "$STAMP" 2>/dev/null || echo "none")
 if [ "$WANT" = "$HAVE" ]; then
   exit 0          # already current; the common case, stay silent
@@ -136,9 +146,12 @@ if npx prisma migrate status 2>&1 | grep -qi "following migration.*not yet been 
     /usr/local/bin/zenkara-crm-backup.sh
   else
     # Fall back to an inline dump rather than migrating unprotected.
-    mkdir -p /var/backups/zenkara-crm
-    sudo -u postgres pg_dump --no-owner --no-privileges zenkara_crm \
-      | gzip > "/var/backups/zenkara-crm/pre-migrate_${WANT:0:7}_$(date +%F_%H%M).sql.gz"
+    # Root-only: the dump is every tenant's data, and the default umask would
+    # leave it world-readable to any other account or service on the box.
+    install -d -m 700 /var/backups/zenkara-crm
+    ( umask 077
+      sudo -u postgres pg_dump --no-owner --no-privileges zenkara_crm \
+        | gzip > "/var/backups/zenkara-crm/pre-migrate_${WANT:0:7}_$(date +%F_%H%M).sql.gz" )
   fi
   log "backup complete"
 fi
