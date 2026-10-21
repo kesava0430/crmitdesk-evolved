@@ -75,10 +75,21 @@ export function authenticate(req: AuthRequest, _res: Response, next: NextFunctio
   }
 }
 
-/* Manager/admin-tier roles. Used below to decide which requireRole() gates an
-   API key may pass: a route is "staff-level" if its allowed-roles list names
-   at least one role outside this set. */
-const ELEVATED = new Set<string>([R.SUPER_ADMIN, R.IT_MANAGER, R.CRM_MANAGER]);
+/* The non-manager org roles. Used below to decide which requireRole() gates
+   an API key may pass: a route is "staff-level" if its allowed-roles list
+   names at least one of these.
+
+   This is an allow-list on purpose. It used to be the inverse — "passes
+   unless every listed role is a manager" — and PLATFORM_ADMIN is not an org
+   manager role, so requireRole('PLATFORM_ADMIN') counted as staff-level and
+   every org's API key (including one minted from the public demo login) could
+   read and change every organisation and the platform settings. */
+const KEY_REACHABLE = new Set<string>([R.IT_AGENT, R.SALES_REP, R.EMPLOYEE]);
+
+/** Pure: may an X-API-Key request pass requireRole(...roles)? Exported for tests. */
+export function apiKeyMayPass(roles: readonly string[]): boolean {
+  return roles.some(r => KEY_REACHABLE.has(r));
+}
 
 export function requireRole(...roles: string[]) {
   return (req: AuthRequest, _res: Response, next: NextFunction) => {
@@ -94,7 +105,7 @@ export function requireRole(...roles: string[]) {
        non-manager role — e.g. CRM_STAFF lists SALES_REP, so contacts CRUD
        is open to keys, while CRM_MANAGERS/ADMIN routes stay closed. */
     if (req.user.role === 'API') {
-      if (roles.some(r => !ELEVATED.has(r))) return next();
+      if (apiKeyMayPass(roles)) return next();
       throw new AppError(403, 'API keys cannot access admin-gated endpoints');
     }
 
