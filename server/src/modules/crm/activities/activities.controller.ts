@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { runWorkflows } from '../../../utils/workflow-engine';
 import { pushCalendarEvent } from '../../../utils/googleCalendar';
@@ -37,6 +38,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId], ['CONTACT', data.contactId], ['LEAD', data.leadId]]);
     const activity = await prisma.activity.create({
       data: {
         ...data,
@@ -64,6 +66,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId], ['CONTACT', data.contactId], ['LEAD', data.leadId]]);
     const orgId = req.user!.orgId;
     const existing = await prisma.activity.findFirst({ where: { id: req.params.id, orgId } });
     await prisma.activity.updateMany({

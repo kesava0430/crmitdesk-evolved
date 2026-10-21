@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
+import { assertRefsInOrg } from '../../utils/entityAccess';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { runWorkflows } from '../../utils/workflow-engine';
@@ -44,6 +45,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
   try {
     const orgId = req.user!.orgId;
     const { lines, ...data } = QuoteSchema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId]]);
     const quote = await prisma.quote.create({
       data: {
         ...data,
@@ -74,6 +76,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { lines, ...data } = QuoteSchema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId]]);
     const quote = await prisma.quote.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!quote) throw new AppError(404, 'Quote not found');
 

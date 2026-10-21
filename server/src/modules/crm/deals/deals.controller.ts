@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { runAiRules } from '../../../utils/ai-rules';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
@@ -89,6 +90,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
   try {
     const orgId = req.user!.orgId;
     const data = Schema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CONTACT', data.contactId], ['ACCOUNT', data.accountId], ['USER', data.assignedTo]]);
     const p = await ensureDefaultPipeline(orgId);
     const stages = normalizeStages(p.stages);
     const deal = await prisma.deal.create({
@@ -127,6 +129,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CONTACT', data.contactId], ['ACCOUNT', data.accountId], ['USER', data.assignedTo]]);
     const existing = await prisma.deal.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!existing) throw new AppError(404, 'Deal not found');
     if (data.departmentId !== undefined) {

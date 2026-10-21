@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../../utils/pagination';
@@ -46,6 +47,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
   try {
     const orgId = req.user!.orgId;
     const data = Schema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['USER', data.assignedTo]]);
     const asset = await prisma.asset.create({
       data: {
         ...data,
@@ -76,6 +78,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['USER', data.assignedTo]]);
     await prisma.asset.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data: {
       ...data,
       purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : data.purchaseDate === null ? null : undefined,

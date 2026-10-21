@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { assertEntityInOrg } from '../../utils/entityAccess';
+import { assertEntityInOrg, assertRefsInOrg } from '../../utils/entityAccess';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
@@ -263,6 +263,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 
     const orgId = req.user!.orgId;
     const data = CreateSchema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['USER', data.assigneeUserId], ['EMPLOYEE', data.assigneeEmployeeId], ['TASK', data.parentTaskId]]);
 
     if (data.entityType && !data.entityId) throw new AppError(400, 'entityId is required when entityType is set');
 
@@ -338,6 +339,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
     }
 
     const data = UpdateSchema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['USER', data.assigneeUserId], ['EMPLOYEE', data.assigneeEmployeeId], ['TASK', data.parentTaskId]]);
 
     // A FINISH_TO_START dependency that isn't satisfied should block
     // completion — otherwise the dependency is decorative.
@@ -514,6 +516,7 @@ export async function bulkUpdate(req: AuthRequest, res: Response, next: NextFunc
     assertCan(ctx, 'core.task.update');
     const orgId = req.user!.orgId;
     const data = BulkSchema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['USER', data.assigneeUserId]]);
 
     // Scope is re-applied here rather than trusted from the client: a bulk
     // endpoint that takes ids and updates them is the classic way a

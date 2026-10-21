@@ -36,3 +36,31 @@ export async function assertEntityInOrg(entityType: string, entityId: string, or
   const record = model && await model.findFirst({ where: { id: entityId, orgId }, select: { id: true } });
   if (!record) throw new AppError(404, 'Not found');
 }
+
+// Models a request body may reference by id, beyond the polymorphic ones.
+// Prisma delegate names, resolved per call (kept out of the `TYPE: prisma.x`
+// shape above, which the attachments/tags tests read as the entity list).
+const EXTRA_REF_DELEGATE: Record<string, string> = { USER: 'user', CATEGORY: 'category', SLA_POLICY: 'slaPolicy' };
+const refModel = (type: string): { findFirst: (args: any) => Promise<any> } | undefined =>
+  EXTRA_REF_DELEGATE[type] ? (prisma as any)[EXTRA_REF_DELEGATE[type]] : ENTITY_MODEL[type];
+
+const REF_LABEL: Record<string, string> = {
+  USER: 'user', CATEGORY: 'category', SLA_POLICY: 'SLA policy', CONTACT: 'contact', ACCOUNT: 'account',
+  DEAL: 'deal', LEAD: 'lead', TICKET: 'ticket', TASK: 'task', EMPLOYEE: 'employee', QUOTE: 'quote',
+};
+
+/**
+ * Confirms every id a request body points at (contactId, accountId,
+ * assignedTo, categoryId, …) belongs to the caller's org. Creating or
+ * updating a record with another org's id used to store the cross-tenant
+ * link, and the record's own `include` then served the other org's contact /
+ * account / user details back on every read. Empty values are skipped.
+ */
+export async function assertRefsInOrg(orgId: string, refs: Array<[string, string | null | undefined]>): Promise<void> {
+  for (const [type, id] of refs) {
+    if (!id) continue;
+    const model = refModel(type);
+    const found = model && await model.findFirst({ where: { id, orgId }, select: { id: true } });
+    if (!found) throw new AppError(400, `That ${REF_LABEL[type] ?? 'record'} was not found in this organization`);
+  }
+}

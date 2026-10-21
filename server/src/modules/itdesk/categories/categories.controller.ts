@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 
@@ -23,6 +24,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CATEGORY', data.parentId], ['SLA_POLICY', data.slaPolicyId]]);
     const category = await prisma.category.create({ data: { ...data, orgId: req.user!.orgId }, include });
     res.status(201).json(category);
   } catch (err) { next(err); }
@@ -31,6 +33,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CATEGORY', data.parentId], ['SLA_POLICY', data.slaPolicyId]]);
     await prisma.category.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
     // Org-scoped read-back — see accounts.controller update().
     const category = await prisma.category.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });

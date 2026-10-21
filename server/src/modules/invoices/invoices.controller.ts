@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
+import { assertRefsInOrg } from '../../utils/entityAccess';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { logAction } from '../../utils/auditLog';
@@ -59,6 +60,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
   try {
     const orgId = req.user!.orgId;
     const { lines, ...data } = InvoiceSchema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId]]);
     if (data.quoteId && !(await prisma.quote.findFirst({ where: { id: data.quoteId, orgId }, select: { id: true } }))) {
       throw new AppError(400, 'Quote not found in this organization');
     }
@@ -93,6 +95,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { lines, quoteId: _quoteId, ...data } = InvoiceSchema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId]]);
     const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!invoice) throw new AppError(404, 'Invoice not found');
     if (invoice.status === 'PAID' || invoice.status === 'VOID') {

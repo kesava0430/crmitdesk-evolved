@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { runAiRules } from '../../../utils/ai-rules';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../../utils/pagination';
@@ -59,6 +60,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = ContactSchema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['ACCOUNT', data.accountId]]);
     const contact = await prisma.contact.create({ data: { ...data, orgId: req.user!.orgId, ownerId: req.user!.id }, include });
     logAction(req.user!.id, 'CREATE', 'Contact', contact.id, { name: contact.name, email: contact.email });
     res.status(201).json(contact);
@@ -91,6 +93,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = ContactSchema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['ACCOUNT', data.accountId]]);
     const contact = await prisma.contact.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
     if (contact.count === 0) throw new AppError(404, 'Contact not found');
     const updated = await prisma.contact.findUnique({ where: { id: req.params.id }, include });

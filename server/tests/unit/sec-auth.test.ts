@@ -126,3 +126,14 @@ test('Entra multi-tenant aliases are refused', () => {
   for (const v of ['common', 'Organizations', ' consumers ']) assert.equal(isMultiTenantAlias(v), true);
   for (const v of ['72f988bf-86f1-41af-91ab-2d7cd011db47', 'contoso.onmicrosoft.com']) assert.equal(isMultiTenantAlias(v), false);
 });
+
+test('assertRefsInOrg refuses ids from another org and skips empty values', async () => {
+  const { assertRefsInOrg } = require('../../src/utils/entityAccess');
+  const seen: any[] = [];
+  const { ENTITY_MODEL } = require('../../src/utils/entityAccess');
+  ENTITY_MODEL.CONTACT = { findFirst: async (a: any) => { seen.push(a.where); return a.where.id.startsWith('mine') ? { id: a.where.id } : null; } };
+  for (const m of ['user', 'category']) (prisma as any)[m] = { findFirst: async (a: any) => { seen.push(a.where); return a.where.id.startsWith('mine') ? { id: a.where.id } : null; } };
+  await assertRefsInOrg('orgA', [['CONTACT', 'mine1'], ['USER', undefined], ['CATEGORY', '']]);
+  assert.deepEqual(seen, [{ id: 'mine1', orgId: 'orgA' }]);
+  await assert.rejects(assertRefsInOrg('orgA', [['USER', 'theirs']]), (e: any) => e.statusCode === 400);
+});

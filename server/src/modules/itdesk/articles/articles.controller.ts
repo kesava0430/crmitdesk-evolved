@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { sanitizeRichText } from '../../../utils/sanitizeHtml';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../../utils/pagination';
@@ -47,6 +48,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CATEGORY', data.categoryId]]);
     data.body = sanitizeRichText(data.body);
     const article = await prisma.knowledgeArticle.create({
       data: { ...data, orgId: req.user!.orgId, authorId: req.user!.id, publishedAt: data.status === 'PUBLISHED' ? new Date() : undefined },
@@ -140,6 +142,7 @@ export async function suggest(req: AuthRequest, res: Response, next: NextFunctio
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CATEGORY', data.categoryId]]);
     if (data.body) data.body = sanitizeRichText(data.body);
     await prisma.knowledgeArticle.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data: { ...data, publishedAt: data.status === 'PUBLISHED' ? new Date() : undefined } });
     // Org-scoped read-back — see accounts.controller update().

@@ -3,6 +3,7 @@ import { runAiRules } from '../../../utils/ai-rules';
 import { z } from 'zod';
 import { sanitizeRichText } from '../../../utils/sanitizeHtml';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { sendMail, emailTemplates } from '../../../utils/mailer';
@@ -84,6 +85,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
   try {
     const orgId = req.user!.orgId;
     const raw = Schema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CATEGORY', raw.categoryId]]);
     raw.title = normalizeTicketTitle(raw.title)!;
     // Coerce empty string to undefined so Prisma receives null, not a bad FK
     const { requesterId: requestedRequesterId, contactId: requestedContactId, ...rest } = raw;
@@ -158,6 +160,7 @@ export async function getOne(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['CATEGORY', data.categoryId], ['USER', data.requesterId], ['CONTACT', data.contactId]]);
     if (data.body) data.body = sanitizeRichText(data.body);
     const orgId = req.user!.orgId;
     const existing = await prisma.ticket.findFirst({ where: { id: req.params.id, orgId } });
