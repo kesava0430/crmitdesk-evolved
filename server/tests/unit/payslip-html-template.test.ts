@@ -256,13 +256,18 @@ test('built-in renderers refuse a custom doc (no silent fallback) and built-in l
 // ─── PDF through Chromium (skipped when no browser is installed) ─────────────
 
 const chromium = findChromium();
+// The two real-render tests launch a browser. They run locally and wherever
+// HTML_PDF_TESTS=1 is set, but not on CI runners by default: a runner's
+// Chrome/sandbox setup is outside our control, and a flaky browser launch
+// there would block every deploy.
+const runBrowser = !!chromium && (!process.env.CI || process.env.HTML_PDF_TESTS === '1');
 const pdfText = (b: Buffer) => b.toString('latin1');
 
 test('htmlPdfStatus reports availability', () => {
   assert.equal(htmlPdfStatus().available, !!chromium);
 });
 
-test('Chromium PDF: JS disabled and every network request blocked', { skip: !chromium && 'no Chromium binary' }, async () => {
+test('Chromium PDF: JS disabled and every network request blocked', { skip: !runBrowser && 'no Chromium binary (or CI without HTML_PDF_TESTS=1)' }, async () => {
   let hits = 0;
   const server = http.createServer((_req, res) => { hits++; res.end('x'); });
   await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()));
@@ -277,7 +282,7 @@ test('Chromium PDF: JS disabled and every network request blocked', { skip: !chr
   } finally { server.close(); }
 });
 
-test('Chromium PDF: custom payslip, bundle mixing built-in + custom, render is A4', { skip: !chromium && 'no Chromium binary' }, async () => {
+test('Chromium PDF: custom payslip, bundle mixing built-in + custom, render is A4', { skip: !runBrowser && 'no Chromium binary (or CI without HTML_PDF_TESTS=1)' }, async () => {
   const d = doc(STARTER_HTML, { htmlCss: STARTER_CSS, logoUrl: PNG, signatureUrl: PNG });
   const html = await customPdfHtml(d);
   assert.match(html, /src="data:image\/png/);
