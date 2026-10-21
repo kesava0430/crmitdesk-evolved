@@ -218,7 +218,7 @@ export function recoveryEntriesFromLines(lines: SlipLine[], ctx: { orgId: string
 }
 
 /** Totals after appending loan lines to a computed payslip. */
-export function withLoanLines(base: { lines: SlipLine[]; totals: { earnings: number; deductions: number; reimbursements: number; employer: number; net: number } }, loanLines: SlipLine[]) {
+export function withLoanLines<T extends { earnings: number; deductions: number; reimbursements: number; employer: number; net: number }>(base: { lines: SlipLine[]; totals: T }, loanLines: SlipLine[]) {
   if (!loanLines.length) return base;
   const extra = round2(loanLines.reduce((s, l) => s + l.amount, 0));
   return {

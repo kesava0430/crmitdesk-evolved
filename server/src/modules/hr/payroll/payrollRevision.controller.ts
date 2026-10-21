@@ -128,14 +128,14 @@ async function rerunCore(orgId: string, runId: string, options: RerunOptions, le
     if (adj.length) {
       const a = applyAdjustments(c.lines, adj);
       lines = a.lines; kept = a.applied; dropped = a.missing;
-      totals = { earnings: a.totals.earnings, deductions: a.totals.deductions, reimbursements: a.totals.reimbursements, employer: a.totals.employer, net: a.totals.net };
+      totals = { earnings: a.totals.earnings, deductions: a.totals.deductions, reimbursements: a.totals.reimbursements, employer: a.totals.employer, net: a.totals.net, unrecovered: a.totals.unrecovered };
       // Re-applied adjustments change what's left for loan EMIs: recompute them so net pay stays ≥ 0.
-      if (lines.some(l => isLoanCode(l.code)) || a.totals.net < 0) {
+      if (lines.some(l => isLoanCode(l.code)) || a.totals.unrecovered > 0) {
         const r = await reapplyLoans(orgId, p.userId, runC, lines, p.id);
         lines = r.lines; loans = r.loans;
         const w = (c.fields.attendanceSummary.warnings ?? []).filter((x: string) => !/could be recovered without making net pay negative/.test(x));
         c.fields.attendanceSummary = { ...c.fields.attendanceSummary, warnings: [...w, ...r.loans.warnings] };
-        totals = { earnings: r.totals.earnings, deductions: r.totals.deductions, reimbursements: r.totals.reimbursements, employer: r.totals.employer, net: r.totals.net };
+        totals = { earnings: r.totals.earnings, deductions: r.totals.deductions, reimbursements: r.totals.reimbursements, employer: r.totals.employer, net: r.totals.net, unrecovered: r.totals.unrecovered };
       }
     }
     writes.push(prisma.payslip.update({

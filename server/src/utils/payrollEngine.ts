@@ -75,7 +75,7 @@ export interface Line {
 
 export interface PayslipComputation {
   lines: Line[];
-  totals: { earnings: number; deductions: number; reimbursements: number; employerContributions: number; gross: number; net: number };
+  totals: { earnings: number; deductions: number; reimbursements: number; employerContributions: number; gross: number; net: number; unrecovered: number };
   vars: Record<string, number>;
   warnings: string[];
 }
@@ -145,29 +145,52 @@ export function appliesTo(c: ComponentDef, e: EmployeeContext): boolean {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-function statutoryAmount(c: ComponentDef, vars: Record<string, number>, ctx: EmployeeContext): { amount: number; basis: string } {
+/**
+ * Net pay never goes below zero. Deductions that the period's pay can't cover
+ * are reported as `unrecovered` (shown on the payslip and the run review) —
+ * not silently dropped, and not a negative salary.
+ */
+export const unrecoveredWarning = (amount: number) =>
+  `Deductions exceed this period's pay by ${amount.toFixed(2)} — net pay is 0 and ${amount.toFixed(2)} is unrecovered (carried forward for HR to recover; not deducted automatically next period).`;
+
+export function netAndUnrecovered(rawNet: number): { net: number; unrecovered: number } {
+  const n = r2(rawNet);
+  return n < 0 ? { net: 0, unrecovered: r2(-n) } : { net: n, unrecovered: 0 };
+}
+
+/**
+ * Statutory deductions are computed on EARNED wages: what the period actually
+ * pays after loss of pay. `earned` maps a component code (or GROSS_EARNINGS) to
+ * its earned value — the paid amount in proration mode, the full amount ×
+ * paid-days fraction when LOP is a separate deduction line. Charging PF / PT on
+ * the full salary of someone who was on LOP the whole period produced a
+ * negative net pay (−657.09 in the regression run).
+ */
+function statutoryAmount(c: ComponentDef, vars: Record<string, number>, ctx: EmployeeContext, earned: (code: string) => number, earnedFactor: number): { amount: number; basis: string } {
   const cfg = { ...(STATUTORY_PRESETS[c.statutory!]?.defaults ?? {}), ...(c.statutoryConfig ?? {}) };
+  const onEarned = earnedFactor < 1 ? ' (earned, after loss of pay)' : '';
   switch (c.statutory) {
     case 'PF_EMP':
     case 'PF_EMPLOYER': {
-      const base = vars[cfg.base || 'BASIC'] ?? 0;
+      const base = earned(cfg.base || 'BASIC');
       const wages = cfg.onFullBasic ? base : Math.min(base, Number(cfg.wageCeiling ?? 15000) * (vars.PERIOD_FRACTION || 1));
-      return { amount: r2(wages * Number(cfg.rate) / 100), basis: `${cfg.rate}% of ${cfg.base || 'BASIC'}${cfg.onFullBasic ? '' : ` (ceiling ${cfg.wageCeiling})`}` };
+      return { amount: r2(wages * Number(cfg.rate) / 100), basis: `${cfg.rate}% of ${cfg.base || 'BASIC'}${onEarned}${cfg.onFullBasic ? '' : ` (ceiling ${cfg.wageCeiling})`}` };
     }
     case 'ESI_EMP':
     case 'ESI_EMPLOYER': {
+      // Eligibility on the rate of wages (full gross); contribution on wages earned.
       const gross = vars.GROSS_EARNINGS ?? 0;
       const threshold = Number(cfg.threshold ?? 21000) * (vars.PERIOD_FRACTION || 1);
       if (gross > threshold) return { amount: 0, basis: `not applicable (gross > ${threshold})` };
-      return { amount: r2(gross * Number(cfg.rate) / 100), basis: `${cfg.rate}% of gross` };
+      return { amount: r2(earned('GROSS_EARNINGS') * Number(cfg.rate) / 100), basis: `${cfg.rate}% of gross${onEarned}` };
     }
     case 'PT': {
-      const gross = vars.GROSS_EARNINGS ?? 0;
+      const gross = earned('GROSS_EARNINGS');
       const slabs: { upTo: number | null; amount: number }[] = (cfg.stateSlabs && ctx.state && cfg.stateSlabs[ctx.state]) || cfg.slabs || [];
       const monthlyGross = gross / (vars.PERIOD_FRACTION || 1);
       const slab = slabs.find(s => s.upTo === null || s.upTo === undefined || monthlyGross <= Number(s.upTo));
       const amt = r2(Number(slab?.amount ?? 0) * (vars.PERIOD_FRACTION || 1));
-      return { amount: amt, basis: `slab${ctx.state ? ` (${ctx.state})` : ''}` };
+      return { amount: amt, basis: `slab${ctx.state ? ` (${ctx.state})` : ''}${onEarned}` };
     }
     case 'TDS':
       return { amount: r2(Number(c.amount ?? 0)), basis: 'as entered' };
@@ -207,6 +230,10 @@ export function computePayslip(
   // selects the first; disabling it selects the second. Never both.
   const lopAsDeduction = active.some(c => c.code === 'LOP' && c.category === 'DEDUCTION');
   const prorationFactor = lopAsDeduction ? 1 : period.workingDays > 0 ? Math.min(1, Math.max(0, period.paidDays / period.workingDays)) : 1;
+  // Share of the period's pay actually earned. In proration mode the lines
+  // already pay only earned amounts (factor 1); with a LOP deduction line the
+  // earnings are shown in full, so wage-based deductions scale by this.
+  const earnedFactor = lopAsDeduction && period.workingDays > 0 ? Math.min(1, Math.max(0, 1 - period.lopDays / period.workingDays)) : 1;
   const vars: Record<string, number> = {
     PAID_DAYS: period.paidDays, WORKING_DAYS: period.workingDays, LOP_DAYS: period.lopDays, PRESENT_DAYS: period.presentDays,
     LEAVE_DAYS: period.leaveDays, HALF_DAYS: period.halfDays, OVERTIME_HOURS: period.overtimeHours,
@@ -240,14 +267,19 @@ export function computePayslip(
       if (dep) compute(dep); else if (!(d in vars)) { vars[d] = 0; warnings.push(`${c.code} references unknown ${d} — treated as 0`); }
     }
     let raw = 0, basis = '';
+    const earned = (code: string) => (code === 'GROSS_EARNINGS' ? vars.GROSS_EARNINGS : vars[code] ?? 0) * earnedFactor;
     if (c.statutory) {
-      const s = statutoryAmount(c, vars, ctx); raw = s.amount; basis = s.basis;
+      const s = statutoryAmount(c, vars, ctx, earned, earnedFactor); raw = s.amount; basis = s.basis;
     } else if (c.calcType === 'FIXED') {
       raw = Number(c.amount ?? 0); basis = 'fixed';
     } else if (c.calcType === 'PERCENT') {
       const baseCode = c.percentOf || 'BASIC';
-      const baseVal = baseCode === 'GROSS_EARNINGS' ? vars.GROSS_EARNINGS : (baseCode === 'BASIC' && unprorated.BASIC !== undefined ? unprorated.BASIC : vars[baseCode] ?? 0);
-      raw = baseVal * Number(c.percent ?? 0) / 100; basis = `${c.percent}% of ${baseCode}`;
+      // Earnings (HRA = 40% of Basic) are a share of the full rate and prorated
+      // themselves; a percentage DEDUCTION / contribution is on wages earned.
+      const wageBased = c.category === 'DEDUCTION' || c.category === 'EMPLOYER_CONTRIBUTION';
+      const baseVal = wageBased ? earned(baseCode)
+        : baseCode === 'GROSS_EARNINGS' ? vars.GROSS_EARNINGS : (baseCode === 'BASIC' && unprorated.BASIC !== undefined ? unprorated.BASIC : vars[baseCode] ?? 0);
+      raw = baseVal * Number(c.percent ?? 0) / 100; basis = `${c.percent}% of ${baseCode}${wageBased && earnedFactor < 1 ? ' (earned, after loss of pay)' : ''}`;
     } else if (c.calcType === 'FORMULA' && c.formula) {
       try { raw = evaluate(c.formula, vars); basis = `formula: ${c.formula}`; }
       catch (e: any) { warnings.push(`${c.code}: ${e.message}`); raw = 0; basis = 'formula error'; }
@@ -281,10 +313,12 @@ export function computePayslip(
   const sum = (cat: Category) => r2(lines.filter(l => l.category === cat).reduce((s, l) => s + l.amount, 0));
   const earnings = sum('EARNING'), deductions = sum('DEDUCTION'), reimbursements = sum('REIMBURSEMENT'), employerContributions = sum('EMPLOYER_CONTRIBUTION');
   vars.GROSS_EARNINGS = earnings; vars.TOTAL_DEDUCTIONS = deductions;
+  const floor = netAndUnrecovered(earnings + reimbursements - deductions);
+  if (floor.unrecovered > 0) warnings.push(unrecoveredWarning(floor.unrecovered));
   lines.sort((a, b) => a.displayOrder - b.displayOrder);
   return {
     lines,
-    totals: { earnings, deductions, reimbursements, employerContributions, gross: earnings, net: r2(earnings + reimbursements - deductions) },
+    totals: { earnings, deductions, reimbursements, employerContributions, gross: earnings, ...floor },
     vars, warnings,
   };
 }

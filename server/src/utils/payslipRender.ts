@@ -108,7 +108,7 @@ export interface PayslipDoc {
   reimbursements: DocLine[];
   deductions: DocLine[];
   employerContributions: DocLine[];
-  totals: { earnings: number; reimbursements: number; deductions: number; employer: number; net: number; ctcAnnual: number | null };
+  totals: { earnings: number; reimbursements: number; deductions: number; employer: number; net: number; ctcAnnual: number | null; unrecovered?: number };
   netInWords: string;
   /** Effective watermark (null = none) — see utils/payslipWatermark.ts */
   watermark: Watermark | null;
@@ -150,6 +150,7 @@ export function buildPayslipDoc(input: {
   const totals = {
     earnings: n(p.totalEarnings ?? p.grossPay), reimbursements: n(p.totalReimbursements), deductions: n(p.totalDeductions),
     employer: n(p.employerContributions), net: n(p.netPay), ctcAnnual: p.employeeSalary?.ctcAnnual != null ? n(p.employeeSalary.ctcAnnual) : null,
+    unrecovered: n(p.unrecoveredDeductions),
   };
   const cycle = p.payrollRun?.payrollCycle ?? null;
   const periodLabel = cycle && cycle.frequency !== 'MONTHLY' && p.periodStart && p.periodEnd
@@ -182,6 +183,12 @@ export function buildPayslipDoc(input: {
 }
 
 /** A sample document for template previews when no payslip exists yet. */
+/** Net pay is floored at 0; the remainder is stated next to the sum, not hidden. */
+export function unrecoveredNote(doc: { totals: { unrecovered?: number } }, fm: (n: number) => string): string {
+  const u = Number(doc.totals.unrecovered ?? 0);
+  return u > 0 ? ` · Unrecovered ${fm(u)} (net pay floored at 0; carried forward for HR to recover)` : '';
+}
+
 export function samplePayslipDoc(template: any, org: { name: string; currency: string }): PayslipDoc {
   const today = new Date(); const m = today.getMonth() || 12; const y = m === 12 ? today.getFullYear() - 1 : today.getFullYear();
   const mk = (code: string, name: string, category: string, amount: number, order: number, basis?: string) => ({ code, name, category, amount, displayOrder: order, showOnPayslip: true, basis });
@@ -349,7 +356,7 @@ export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {
     <div class="tbl solo">${doc.employerContributions.map(row).join('')}<div class="row tot"><span class="nm">Total</span><span class="am">${fm(doc.totals.employer)}</span></div></div></section>` : '';
 
   const reimb = doc.totals.reimbursements;
-  const eq = `Gross ${fm(doc.totals.earnings + reimb)} − Deductions ${fm(doc.totals.deductions)}`;
+  const eq = `Gross ${fm(doc.totals.earnings + reimb)} − Deductions ${fm(doc.totals.deductions)}${unrecoveredNote(doc, fm)}`;
 
   const css = `
     .ps{font-family:${font};font-size:${fs}px;line-height:1.45;color:#1f2937;background:#fff;max-width:760px;margin:0 auto;position:relative;container-type:inline-size;-webkit-text-size-adjust:100%}
@@ -825,7 +832,7 @@ function drawPayslipContent(pdf: PDFKit.PDFDocument, doc: PayslipDoc, assets: Pd
   // ── Net pay ──
   {
     const boxW = width - padX * 2, x = left + padX, valW = 190, textW = boxW - valW - 28;
-    const eq = clean(`Gross ${fm(doc.totals.earnings + doc.totals.reimbursements)} - Deductions ${fm(doc.totals.deductions)}`);
+    const eq = clean(`Gross ${fm(doc.totals.earnings + doc.totals.reimbursements)} - Deductions ${fm(doc.totals.deductions)}${unrecoveredNote(doc, fm)}`);
     const wordsH = F.amountInWords ? H(doc.netInWords, ital, fs - 0.3, textW) + 2 : 0;
     const eqH = H(eq, reg, small, textW);
     const inner = Math.max(small + 3 + wordsH + eqH, fs + 14);

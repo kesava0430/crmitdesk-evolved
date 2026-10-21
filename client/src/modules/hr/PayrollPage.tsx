@@ -34,6 +34,8 @@ interface Payslip {
   id: string; payslipNumber: string; month: number; year: number;
   basic: string; hra: string; allowances: string; grossPay: string;
   pf: string; professionalTax: string; otherDeductions: string; totalDeductions: string; netPay: string;
+  /** Deductions the period's pay couldn't cover (net pay is floored at 0). */
+  unrecoveredDeductions?: string | null;
   totalEarnings?: string | null; totalReimbursements?: string | null; employerContributions?: string | null;
   periodStart?: string | null; periodEnd?: string | null; paidDays?: string | null; workingDays?: string | null; lopDays?: string | null;
   presentDays?: string | null; leaveDays?: string | null; halfDays?: string | null; overtimeHours?: string | null;
@@ -72,10 +74,10 @@ function downloadRegister(run: PayrollRun) {
   const order = ['EARNING', 'REIMBURSEMENT', 'DEDUCTION', 'EMPLOYER_CONTRIBUTION'];
   codes.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
   const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const head = ['Employee', 'Payslip no.', 'Paid days', 'LOP days', ...codes.map(c => c.name), 'Loan recovery', 'Gross', 'Total deductions', 'Net pay', 'Status'];
+  const head = ['Employee', 'Payslip no.', 'Paid days', 'LOP days', ...codes.map(c => c.name), 'Loan recovery', 'Gross', 'Total deductions', 'Net pay', 'Unrecovered', 'Status'];
   const rows = slips.map(p => {
     const amt = (code: string) => { const l = p.lines?.find(x => x.code === code); return l ? Number(l.amount).toFixed(2) : ''; };
-    return [p.user.name, p.payslipNumber, p.paidDays ?? '', p.lopDays ?? '', ...codes.map(c => amt(c.code)), loanTotal(p).toFixed(2), Number(p.grossPay).toFixed(2), Number(p.totalDeductions).toFixed(2), Number(p.netPay).toFixed(2), p.status];
+    return [p.user.name, p.payslipNumber, p.paidDays ?? '', p.lopDays ?? '', ...codes.map(c => amt(c.code)), loanTotal(p).toFixed(2), Number(p.grossPay).toFixed(2), Number(p.totalDeductions).toFixed(2), Number(p.netPay).toFixed(2), Number(p.unrecoveredDeductions ?? 0).toFixed(2), p.status];
   });
   const sum = (i: number) => rows.reduce((s, r) => s + (Number(r[i]) || 0), 0).toFixed(2);
   const totalRow = head.map((_, i) => i === 0 ? 'Total' : i < 4 || i === head.length - 1 ? '' : sum(i));
@@ -211,6 +213,8 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
   useEffect(() => { setSummary(null); }, [run?.status, version]);
   const current = payslips.find(p => p.id === selected) ?? null;
   const sum = (k: 'grossPay' | 'totalDeductions' | 'netPay') => payslips.reduce((s, p) => s + Number(p[k]), 0);
+  // Deductions pay couldn't cover this run (net pay floored at 0) — carried forward for HR.
+  const totalUnrecovered = payslips.reduce((s, p) => s + Number(p.unrecoveredDeductions ?? 0), 0);
   const totalLop = payslips.reduce((s, p) => s + Number(p.lopDays ?? 0), 0);
   const totalLoans = payslips.reduce((s, p) => s + loanTotal(p), 0);
   const projected = payslips.reduce((s, p) => s + Number(p.attendanceSummary?.futureDaysAssumedPaid ?? 0), 0);
@@ -247,7 +251,7 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
         <div>
           {run && (
             <div className="flex flex-wrap gap-4 text-xs text-fg-muted mb-3 tabular-nums">
-              <span>{payslips.length} payslips</span><span>Gross {money(sum('grossPay'))}</span><span>Deductions {money(sum('totalDeductions'))}</span>{totalLoans > 0 && <span>incl. loan recovery {money(totalLoans)}</span>}<span className="font-semibold text-fg">Net {money(sum('netPay'))}</span>{fromAttendance && <span className={totalLop ? 'text-danger' : ''}>LOP {totalLop} day{totalLop === 1 ? '' : 's'}</span>}
+              <span>{payslips.length} payslips</span><span>Gross {money(sum('grossPay'))}</span><span>Deductions {money(sum('totalDeductions'))}</span>{totalLoans > 0 && <span>incl. loan recovery {money(totalLoans)}</span>}<span className="font-semibold text-fg">Net {money(sum('netPay'))}</span>{totalUnrecovered > 0 && <span className="text-warning">Unrecovered {money(totalUnrecovered)}</span>}{fromAttendance && <span className={totalLop ? 'text-danger' : ''}>LOP {totalLop} day{totalLop === 1 ? '' : 's'}</span>}
             </div>
           )}
           <DataTable<Payslip>
@@ -261,7 +265,7 @@ function RunReviewModal({ runId, onClose }: { runId: string; onClose: () => void
               { key: 'days', header: 'Paid days', align: 'right', hideBelow: 'sm', muted: true, cell: p => <span className={`tabular-nums ${Number(p.lopDays) > 0 ? 'text-danger' : ''}`}>{p.paidDays != null ? `${Number(p.paidDays)}/${Number(p.workingDays)}` : '—'}{Number(p.attendanceSummary?.futureDaysAssumedPaid ?? 0) > 0 && <span title={`${p.attendanceSummary!.futureDaysAssumedPaid} future days assumed paid`} className="text-warning"> ●</span>}</span> },
               { key: 'gross', header: 'Gross', align: 'right', cell: p => <span className="tabular-nums">{money(p.grossPay)}</span> },
               { key: 'deductions', header: 'Deductions', align: 'right', muted: true, hideBelow: 'sm', cell: p => <span className="tabular-nums">{money(p.totalDeductions)}</span> },
-              { key: 'net', header: 'Net Pay', align: 'right', cell: p => <span className="font-medium tabular-nums">{money(p.netPay)}</span> },
+              { key: 'net', header: 'Net Pay', align: 'right', cell: p => <span className="font-medium tabular-nums">{money(p.netPay)}{Number(p.unrecoveredDeductions ?? 0) > 0 && <span className="block text-[11px] font-normal text-warning">unrecovered {money(p.unrecoveredDeductions!)}</span>}</span> },
               { key: 'status', header: '', cell: p => <span className="inline-flex items-center gap-1"><StatusBadge value={p.status} map={PAYSLIP_STATUS_VARIANT} fallback="yellow" />{p.lines?.some(l => l.adjusted) && <span title="Has manual adjustments" className="text-warning">●</span>}</span> },
               { key: 'actions', header: '', align: 'right', cell: p => !isDraft ? (
                 <span className="inline-flex items-center">
@@ -418,6 +422,9 @@ function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose: () => 
               <p className="font-medium text-fg border-t border-line-subtle pt-2">Gross Pay</p><p className="text-right font-medium text-fg border-t border-line-subtle pt-2">{money(payslip.grossPay)}</p>
               <p className="text-fg-muted">Deductions</p><p className="text-right text-danger">-{money(payslip.totalDeductions)}</p>
               <p className="font-semibold text-fg border-t border-line pt-2">Net Pay</p><p className="text-right font-semibold text-fg border-t border-line pt-2">{money(payslip.netPay)}</p>
+              {Number(payslip.unrecoveredDeductions ?? 0) > 0 && (
+                <p className="col-span-2 text-[12px] text-warning">Unrecovered deductions {money(payslip.unrecoveredDeductions!)} — net pay is floored at 0; carried forward for HR to recover.</p>
+              )}
             </div>
           )}
           {payslip.paidDays != null && <p className="text-[11px] text-fg-subtle mt-2 tabular-nums">Paid days {Number(payslip.paidDays)} of {Number(payslip.workingDays)}{Number(payslip.lopDays) > 0 ? ` · LOP ${Number(payslip.lopDays)}` : ''}</p>}

@@ -4,7 +4,7 @@ import { prisma } from '../../../utils/prisma';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
-import { ensureDefaultComponents, computePayslip, periodFor, defaultPeriodInputs, inputsFromAttendance, type Overrides } from '../../../utils/payrollEngine';
+import { ensureDefaultComponents, computePayslip, netAndUnrecovered, periodFor, defaultPeriodInputs, inputsFromAttendance, type Overrides } from '../../../utils/payrollEngine';
 import { payrollSummary } from '../../../utils/attendanceRegister';
 import { ensureDefaultCycle, employeeContext, toDef } from './payrollConfig.controller';
 import { ensureDefaultTemplate } from './payslipTemplates.controller';
@@ -122,6 +122,12 @@ export async function nextPayslipNumber(orgId: string, year: number, month: numb
   return `${prefix}${String(nextSequence(rows.map(r => r.payslipNumber), prefix) + skip).padStart(4, '0')}`;
 }
 
+/** Payslip columns: net pay floored at 0, the uncovered remainder stored as unrecovered. */
+export function netAndUnrecoveredCols(rawNet: number) {
+  const { net, unrecovered } = netAndUnrecovered(rawNet);
+  return { netPay: net, unrecoveredDeductions: unrecovered };
+}
+
 export type RunForCompute = { id: string; periodStart: Date; periodEnd: Date; month: number; year: number; payrollCycleId: string | null; attendanceMode?: string | null };
 export type SalaryForCompute = { id: string; userId: string; overrides: any; ctcAnnual: any; currency: string };
 
@@ -187,7 +193,7 @@ export async function computeSlip(orgId: string, run: RunForCompute, es: SalaryF
   const ctx = await employeeContext(orgId, es.userId);
   const result = computePayslip(comps.map(toDef), (es.overrides ?? {}) as Overrides, ctx, inputs, es.ctcAnnual != null ? Number(es.ctcAnnual) : null);
   const baseLines: SlipLine[] = result.lines.map(l => ({ code: l.code, name: l.name, category: l.category, amount: l.amount, basis: l.basis, showOnPayslip: l.showOnPayslip, displayOrder: l.displayOrder }));
-  const baseTotals = { earnings: result.totals.earnings, deductions: result.totals.deductions, reimbursements: result.totals.reimbursements, employer: result.totals.employerContributions, net: result.totals.net };
+  const baseTotals = { earnings: result.totals.earnings, deductions: result.totals.deductions, reimbursements: result.totals.reimbursements, employer: result.totals.employerContributions, net: result.totals.net, unrecovered: result.totals.unrecovered };
   const loans = await loanRecoveriesFor(orgId, es.userId, run, baseTotals.net, payslipId);
   const { lines, totals } = withLoanLines({ lines: baseLines, totals: baseTotals }, loans.lines);
   return {
@@ -214,7 +220,9 @@ export function slipColumns(c: { lines: SlipLine[]; totals: { earnings: number; 
     basic: g('BASIC'), hra: g('HRA'), allowances: Math.max(0, t.earnings - g('BASIC') - g('HRA')),
     grossPay: t.earnings, pf: g('PF_EMP'), professionalTax: g('PT'),
     otherDeductions: Math.max(0, t.deductions - g('PF_EMP') - g('PT')),
-    totalDeductions: t.deductions, netPay: t.net,
+    // Net never below 0: whatever the pay can't cover is stored as unrecovered (computed
+    // from the lines here so every path — run, rerun, manual adjustment — agrees).
+    totalDeductions: t.deductions, ...netAndUnrecoveredCols(t.earnings + t.reimbursements - t.deductions),
     totalEarnings: t.earnings, totalReimbursements: t.reimbursements, employerContributions: t.employer,
   };
 }
@@ -314,7 +322,7 @@ async function applyAdjustment(payslipId: string, code: string, amount: number) 
     data: {
       basic: g('BASIC'), hra: g('HRA'), allowances: Math.max(0, earnings - g('BASIC') - g('HRA')), grossPay: earnings,
       pf: g('PF_EMP'), professionalTax: g('PT'), otherDeductions: Math.max(0, deductions - g('PF_EMP') - g('PT')),
-      totalDeductions: deductions, netPay: Math.round((earnings + reimb - deductions) * 100) / 100,
+      totalDeductions: deductions, ...netAndUnrecoveredCols(earnings + reimb - deductions),
       totalEarnings: earnings, totalReimbursements: reimb, employerContributions: employer,
     },
   });

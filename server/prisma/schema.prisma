@@ -2428,6 +2428,8 @@ model Payslip {
   otherDeductions   Decimal   @db.Decimal(12, 2) @map("other_deductions")
   totalDeductions   Decimal   @db.Decimal(12, 2) @map("total_deductions")
   netPay            Decimal   @db.Decimal(12, 2) @map("net_pay")
+  /// Deductions this period's pay couldn't cover (net pay is floored at 0) — shown on the payslip and run review
+  unrecoveredDeductions Decimal @default(0) @db.Decimal(12, 2) @map("unrecovered_deductions")
   status            String    @default("GENERATED") @map("status") // DRAFT | GENERATED | PAID
   paidAt            DateTime? @map("paid_at")
   createdAt         DateTime  @default(now()) @map("created_at")

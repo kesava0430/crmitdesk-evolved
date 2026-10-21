@@ -157,7 +157,7 @@ test('adjustments are re-applied on top of fresh lines and totals recomputed; va
   assert.equal(fresh[1].amount, 14000, 'input not mutated');
   assert.deepEqual(r.missing, ['OLD_BONUS']);
   assert.equal(r.applied, 1);
-  assert.deepEqual(r.totals, { earnings: 45000, deductions: 1800, reimbursements: 1000, employer: 0, net: 44200 });
+  assert.deepEqual(r.totals, { earnings: 45000, deductions: 1800, reimbursements: 1000, employer: 0, net: 44200, unrecovered: 0 });
 });
 
 // ─── Snapshot ────────────────────────────────────────────────────────────────

@@ -174,7 +174,9 @@ export function planRerun(input: {
 export function totalsOfLines(lines: SlipLine[]) {
   const sum = (cat: string) => round2(lines.filter(l => l.category === cat).reduce((s, l) => s + l.amount, 0));
   const earnings = sum('EARNING'), deductions = sum('DEDUCTION'), reimbursements = sum('REIMBURSEMENT'), employer = sum('EMPLOYER_CONTRIBUTION');
-  return { earnings, deductions, reimbursements, employer, net: round2(earnings + reimbursements - deductions) };
+  // Net pay is floored at 0; what the pay can't cover is reported as unrecovered (payrollEngine.netAndUnrecovered).
+  const raw = round2(earnings + reimbursements - deductions);
+  return { earnings, deductions, reimbursements, employer, net: Math.max(0, raw), unrecovered: raw < 0 ? round2(-raw) : 0 };
 }
 
 /** Re-apply manual adjustments to freshly computed lines. Codes no longer on the payslip are reported, not invented. */
