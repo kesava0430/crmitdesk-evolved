@@ -147,6 +147,10 @@ export async function createTicket(req: PortalRequest, res: Response, next: Next
     const { title, body, categoryId } = z.object({ title: z.string().min(1), body: z.string().min(1), categoryId: z.string().optional() }).parse(req.body);
     const orgId = req.portal!.orgId;
     const portalUserId = req.portal!.portalUserId;
+    // A category id from the customer must belong to this org.
+    if (categoryId && !(await prisma.category.findFirst({ where: { id: categoryId, orgId }, select: { id: true } }))) {
+      throw new AppError(400, 'Unknown category');
+    }
 
     // Use any org admin as the technical requesterId (required by schema)
     const adminUser = await prisma.user.findFirst({ where: { orgId, role: { in: ['SUPER_ADMIN', 'IT_MANAGER', 'IT_AGENT'] }, isActive: true } });
