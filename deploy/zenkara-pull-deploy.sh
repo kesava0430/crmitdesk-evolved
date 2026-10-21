@@ -89,6 +89,26 @@ else
   log "dependencies unchanged"
 fi
 
+# ── Headless Chromium for custom-HTML payslip PDFs ──────────────────────
+# Payslip templates written in HTML are printed to PDF by headless Chromium
+# (server/src/utils/htmlPdf.ts). Installed once per playwright-core version,
+# into a fixed, world-readable folder the API finds on its own; --with-deps
+# apt-installs the shared libraries it needs (this script runs as root).
+# Never fatal: if it fails, only PDFs of HTML templates answer 503 (with this
+# command in the message) and the next deploy tries again.
+PW_DIR=/opt/zenkara-pw
+PW_VER=$(node -p "require('$APP/node_modules/playwright-core/package.json').version" 2>/dev/null || true)
+if [ -n "$PW_VER" ] && { [ "$PW_VER" != "$(cat "$STATE/pw-version" 2>/dev/null)" ] || ! ls -d "$PW_DIR"/chromium_headless_shell-* >/dev/null 2>&1; }; then
+  log "installing Chromium headless shell for playwright-core $PW_VER (HTML payslip PDFs)"
+  if (cd "$APP" && PLAYWRIGHT_BROWSERS_PATH="$PW_DIR" npx --no-install playwright-core install --with-deps chromium-headless-shell); then
+    chmod -R a+rX "$PW_DIR"
+    echo "$PW_VER" > "$STATE/pw-version"
+    log "Chromium ready in $PW_DIR"
+  else
+    log "WARNING: Chromium install failed — PDFs of HTML payslip templates will fail until it succeeds (retried next deploy)"
+  fi
+fi
+
 # ── Apply ───────────────────────────────────────────────────────────────
 # git reset above restored the committed (unbuilt) tree, so the CI-built
 # output goes on top of it.

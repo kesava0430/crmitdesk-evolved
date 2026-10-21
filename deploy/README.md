@@ -149,6 +149,28 @@ aws s3 ls s3://zenkara-deploy/ --region eu-north-1
 
 ---
 
+### PDFs of HTML payslip templates (headless Chromium)
+
+Payslip templates written in HTML are printed to PDF by headless Chromium.
+The puller installs it by itself (once per `playwright-core` version) into
+`/opt/zenkara-pw`, including the system libraries. To install it by hand —
+e.g. right now, without waiting for a deploy — run on the instance:
+
+```bash
+cd /opt/zenkara-crm && sudo PLAYWRIGHT_BROWSERS_PATH=/opt/zenkara-pw npx --no-install playwright-core install --with-deps chromium-headless-shell
+sudo chmod -R a+rX /opt/zenkara-pw && sudo systemctl restart zenkara-crm-api
+```
+
+The API finds it there automatically. Optional env vars (server `.env`):
+`CHROMIUM_PATH` (use another Chromium/Chrome binary), `HTML_PDF_CONCURRENCY`
+(default 2 pages at once), `HTML_PDF_TIMEOUT_MS` (default 20000),
+`CHROMIUM_NO_SANDBOX=1` (skip trying Chromium's sandbox). Chromium starts on
+the first HTML-template PDF and exits after a minute idle (~150 MB while
+running). Built-in layouts never use it. Payroll → Payslip templates shows a
+"PDF unavailable" badge on HTML templates while it is missing.
+
+---
+
 ## Day to day
 
 ```bash
