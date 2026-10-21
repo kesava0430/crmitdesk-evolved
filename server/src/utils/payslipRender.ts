@@ -25,7 +25,7 @@ import { revisionNoteLines } from './payrollRevision';
 
 // ─── Layout registry ─────────────────────────────────────────────────────────
 
-export type LayoutKey = 'STANDARD' | 'MODERN' | 'MINIMAL' | 'DETAILED' | 'COMPACT' | 'CORPORATE' | 'BRANCH' | 'STATEMENT';
+export type LayoutKey = 'STANDARD' | 'MODERN' | 'MINIMAL' | 'DETAILED' | 'COMPACT' | 'CORPORATE' | 'BRANCH' | 'STATEMENT' | 'CUSTOM_HTML';
 
 export interface LayoutStyle {
   key: LayoutKey;
@@ -57,7 +57,20 @@ export const LAYOUTS: LayoutStyle[] = [
   { key: 'BRANCH',    name: 'Branch',     description: 'Branch / office address takes the header; ideal for multi-location orgs.', header: 'band',  columns: 2, density: 'normal',  bordered: false, defaults: { location: true, bankDetails: true }, branchHeader: true },
   { key: 'STATEMENT', name: 'Statement',  description: 'One statement-style table: earnings, then deductions, then net — like a bank statement.', header: 'line', columns: 1, density: 'normal', bordered: true, defaults: { amountInWords: true } },
 ];
-export const layoutFor = (key: string | null | undefined): LayoutStyle => LAYOUTS.find(l => l.key === key) ?? LAYOUTS[0];
+/**
+ * HR-authored HTML template (utils/payslipHtmlTemplate.ts). Deliberately NOT
+ * in LAYOUTS: those are the built-in style configs the PDFKit and HTML
+ * renderers draw, and a custom template must never be drawn by them (that
+ * would silently print a different layout). Every field defaults to on — the
+ * author decides what prints by writing placeholders; the Fields tab then
+ * works as a redaction switch (e.g. turn PAN off org-wide without editing code).
+ */
+export const CUSTOM_HTML_LAYOUT: LayoutStyle = {
+  key: 'CUSTOM_HTML', name: 'Custom HTML', description: 'Your own HTML and CSS with {{placeholders}} for every payslip value.',
+  header: 'line', columns: 2, density: 'normal', bordered: false,
+  defaults: { employeeCode: true, designation: true, department: true, location: true, joiningDate: true, costCenter: true, email: true, bankDetails: true, statutoryIds: true, daysSummary: true, employerContributions: true, ctc: true, amountInWords: true, signature: true, paidStamp: true, lineBasis: true },
+};
+export const layoutFor = (key: string | null | undefined): LayoutStyle => key === 'CUSTOM_HTML' ? CUSTOM_HTML_LAYOUT : LAYOUTS.find(l => l.key === key) ?? LAYOUTS[0];
 
 // ─── Field visibility ────────────────────────────────────────────────────────
 
@@ -116,6 +129,8 @@ export interface PayslipDoc {
   loans: PayslipLoanRow[];
   /** Set on a revised payslip (version ≥ 2) — prints a one-line "Revised" note; layouts are otherwise unchanged */
   revision: { version: number; supersedesIssuedAt: string | null; paidDifference: number | null } | null;
+  /** Set only for a CUSTOM_HTML template: the author's source (rendered by utils/payslipHtmlTemplate.ts, PDF via utils/htmlPdf.ts) */
+  custom?: { html: string; css: string | null } | null;
 }
 
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -179,6 +194,7 @@ export function buildPayslipDoc(input: {
     watermark: resolveWatermark(t),
     loans: (input.loans ?? []).map(l => ({ name: l.name, type: l.type, principal: n(l.principal), recoveredThisPeriod: n(l.recoveredThisPeriod), totalRecovered: n(l.totalRecovered), outstanding: n(l.outstanding), emiLabel: l.emiLabel ?? null })),
     revision: (p.version ?? 1) > 1 ? { version: p.version, supersedesIssuedAt: input.supersedesIssuedAt ?? null, paidDifference: p.paidDifference != null ? n(p.paidDifference) : null } : null,
+    custom: layout.key === 'CUSTOM_HTML' ? { html: t?.htmlBody ?? '', css: t?.htmlCss ?? null } : null,
   };
 }
 
@@ -212,7 +228,7 @@ export function samplePayslipDoc(template: any, org: { name: string; currency: s
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function fmtDate(d: any) { const x = new Date(d); return x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
+export function fmtDate(d: any) { const x = new Date(d); return x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
 export function money(v: number, currency: string, locale: string) {
   try { return new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2 }).format(v); }
   catch { return `${currency} ${v.toFixed(2)}`; }
@@ -319,7 +335,13 @@ export function dayTiles(doc: PayslipDoc): [string, string, boolean][] {
   return t;
 }
 
+/** Built-in renderers refuse a custom-HTML doc: drawing it as STANDARD would be a silent, wrong fallback. */
+function assertBuiltIn(doc: PayslipDoc) {
+  if (doc.custom) throw new Error('Custom HTML payslip passed to a built-in renderer — use utils/payslipOutput.ts');
+}
+
 export function renderPayslipHtml(doc: PayslipDoc, opts: { embed?: boolean } = {}): string {
+  assertBuiltIn(doc);
   const { layout: L, fields: F, brand: B } = doc;
   const fm = (v: number) => money(v, doc.currency, doc.locale);
   const an = (v: number) => amountText(v, doc.locale);
@@ -584,6 +606,7 @@ function drawFitted(pdf: PDFKit.PDFDocument, image: any, x: number, y: number, w
 function hex(c: string) { return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#2563eb'; }
 
 export async function renderPayslipPdf(doc: PayslipDoc, into?: PDFKit.PDFDocument): Promise<Buffer> {
+  assertBuiltIn(doc);
   const own = !into;
   const pdf = into ?? new PDFDocument({ size: 'A4', margin: 40, info: { Title: doc.payslip.number, Author: doc.company.name } });
   const chunks: Buffer[] = [];
@@ -598,6 +621,7 @@ export async function renderPayslipBundlePdf(docs: PayslipDoc[]): Promise<Buffer
   const pdf = new PDFDocument({ size: 'A4', margin: 40, autoFirstPage: false, info: { Title: 'Payslips' } });
   const chunks: Buffer[] = [];
   pdf.on('data', c => chunks.push(c));
+  docs.forEach(assertBuiltIn);
   for (const d of docs) { const assets = await loadPdfAssets(d); pdf.addPage(); drawPayslip(pdf, d, assets); }
   return new Promise(resolve => { pdf.on('end', () => resolve(Buffer.concat(chunks))); pdf.end(); });
 }

@@ -2487,7 +2487,12 @@ model PayslipTemplate {
   /// Several per org (phase 4): "Head office", "Contractors", …
   name           String   @default("Default")
   /// STANDARD | MODERN | MINIMAL | DETAILED | COMPACT | CORPORATE | BRANCH | STATEMENT — see utils/payslipRender.ts
+  /// | CUSTOM_HTML (htmlBody/htmlCss below — utils/payslipHtmlTemplate.ts)
   layout         String   @default("STANDARD")
+  /// CUSTOM_HTML: the HR manager's HTML with {{placeholders}} (sanitized on save and on every render)
+  htmlBody       String?  @map("html_body")
+  /// CUSTOM_HTML: optional CSS (placeholders allowed, e.g. {{brand.primaryColor}})
+  htmlCss        String?  @map("html_css")
   isDefault      Boolean  @default(true) @map("is_default")
   isActive       Boolean  @default(true) @map("is_active")
   companyName    String?  @map("company_name")
