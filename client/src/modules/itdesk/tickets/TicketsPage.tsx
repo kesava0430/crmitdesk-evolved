@@ -639,7 +639,7 @@ function TicketDetailModal({ id, users, categories, canEdit }: any) {
             }
           >
             <div className="mb-1.5"><AiGeneratedTag /></div>
-            <div className="max-h-40 overflow-y-auto"><RichText content={suggestedReply} className="text-sm" /></div>
+            <div className="max-h-40 overflow-y-auto"><RichText content={suggestedReply} className="text-sm" aiGenerated /></div>
           </Alert>
         )}
       </CardSection>
@@ -758,7 +758,7 @@ function TicketDetailModal({ id, users, categories, canEdit }: any) {
             </div>
             {/* Article body preview */}
             <div className="px-3.5 py-3 max-h-52 overflow-y-auto bg-surface">
-              <RichText content={aiKb.data.body} className="text-[12.5px] text-fg-muted" />
+              <RichText content={aiKb.data.body} className="text-[12.5px] text-fg-muted" aiGenerated />
             </div>
             {/* Action rail — save into the knowledge base, or copy out */}
             <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-line-subtle bg-surface-sunken">

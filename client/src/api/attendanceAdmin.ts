@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
+import { csvCell } from '../shared/csv';
 
 /** PENDING (not happened yet / in progress without punches) and NOT_EMPLOYED (before joining / after exit) are computed, never stored. */
 export type DayStatus = 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | 'LEAVE' | 'UNPAID_LEAVE' | 'WFH' | 'HOLIDAY' | 'WEEK_OFF' | 'LOP' | 'PENDING' | 'NOT_EMPLOYED';
@@ -78,7 +79,7 @@ export function useSetOptionalHoliday() { const qc = useQueryClient(); return us
 /** Register month as CSV (one row per person, one column per day + totals) — built client-side from what's on screen. */
 export function registerToCsv(rows: RegisterRow[]): string {
   const days = rows[0]?.days.map(d => d.date) ?? [];
-  const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const esc = csvCell;
   const header = ['Employee', 'Department', 'Policy', ...days, 'Working days', 'Paid days', 'LOP days', 'Present', 'WFH days', 'Half days', 'Leave', 'Absent', 'Late', 'OT hours'];
   const lines = rows.map(r => [
     r.user.name, r.user.department ?? '', r.policyGroup,

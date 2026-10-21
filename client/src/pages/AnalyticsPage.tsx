@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { can } from '../shared/permissions';
 import { saveOrShareBlob } from '../native/download';
 import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
+import { csvCell } from '../shared/csv';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,7 +25,7 @@ const shortDate = (s: string) => s.slice(5); // MM-DD from YYYY-MM-DD
 function downloadCsv(data: any[], filename: string) {
   if (!data.length) return;
   const keys = Object.keys(data[0]);
-  const rows = [keys.join(','), ...data.map(r => keys.map(k => String(r[k] ?? '')).join(','))];
+  const rows = [keys.map(csvCell).join(','), ...data.map(r => keys.map(k => csvCell(r[k])).join(','))];
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
   saveOrShareBlob(blob, filename).catch(() => {});
 }

@@ -20,6 +20,7 @@ import type { RenderedWidget, WidgetSpec, DataWidgetSpec, ForecastPayload, Metho
 import { formatCell } from '../AnalyticsAnswer';
 import { useChartTheme } from '../../chartTheme';
 import { Button } from '../Button';
+import { csvCell } from '../../csv';
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────
 
@@ -71,10 +72,7 @@ export function howCalculated(spec: WidgetSpec, r: RenderedWidget | undefined): 
 /** CSV of a widget's data (the rows the viewer was shown). */
 export function widgetCsv(r: RenderedWidget | undefined): string | null {
   if (!r || r.status !== 'ok') return null;
-  const esc = (v: unknown) => {
-    const s = v == null ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
+  const esc = csvCell;
   if (r.result) {
     const cols = r.result.columns.filter(c => !c.key.startsWith('__'));
     return [cols.map(c => esc(c.label)).join(','), ...r.result.rows.map(row => cols.map(c => esc(row[c.key])).join(','))].join('\n');

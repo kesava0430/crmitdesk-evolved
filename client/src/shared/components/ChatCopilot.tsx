@@ -184,7 +184,7 @@ export function ChatCopilot() {
                     ? 'bg-accent text-accent-fg'
                     : 'bg-surface-sunken border border-line-subtle text-fg'
                 }`}>
-                  {m.role === 'assistant' ? <RichText content={m.content} className="text-[12.5px]" /> : m.content}
+                  {m.role === 'assistant' ? <RichText content={m.content} className="text-[12.5px]" aiGenerated /> : m.content}
                   {m.analytics && m.analytics.status === 'answered' && (
                     <div className="mt-2 whitespace-normal"><AnalyticsAnswer view={m.analytics} compact hideText onPin={setPin} /></div>
                   )}

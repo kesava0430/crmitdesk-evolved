@@ -175,7 +175,9 @@ const AcceptSchema = z.object({
   // device where the pad genuinely doesn't work (e.g. no pointer events)
   // isn't blocked from accepting — the typed name + IP/timestamp trail
   // still applies either way.
-  signatureImage: z.string().startsWith('data:image/').optional(),
+  // PNG/JPEG only and bounded: this is an anonymous public endpoint, and
+  // `data:image/svg+xml` (a script-capable document) used to be accepted.
+  signatureImage: z.string().max(700_000).regex(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/, 'Signature must be a PNG image').optional(),
 });
 
 /**

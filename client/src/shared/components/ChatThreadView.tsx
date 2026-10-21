@@ -67,7 +67,7 @@ export function ChatThreadView({ threadId, compact = false }: { threadId: string
                     ? <div className="text-[13px] leading-relaxed whitespace-pre-wrap [&_p]:m-0">
                         <RichText content={m.body} className="text-[13px] !text-accent-fg [&_*]:!text-accent-fg" />
                       </div>
-                    : <RichText content={m.body} className="text-[13px]" />}
+                    : <RichText content={m.body} className="text-[13px]" aiGenerated={!!m.isAssistant} />}
                 </div>
               </div>
             );

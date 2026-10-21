@@ -19,6 +19,7 @@ import { usePayrollCycles, useEmployeeSalaries, type Line, type AttendanceBasis 
 import { useFormat } from '../../hooks/useFormat';
 import { useRunHistory, useFinalize, type RerunSummary } from '../../api/payrollRevision';
 import { RerunDialog, RerunResults, ReopenDialog, FinaliseDialog, RevisionNotices, VersionsSection, SettlementPanel, CompareModal, DeltaText } from './payroll/RunRevision';
+import { csvCellQuoted } from '../../shared/csv';
 
 
 /** Shared with the payroll-run and payslip chips: paid is settled (green),
@@ -73,7 +74,7 @@ function downloadRegister(run: PayrollRun) {
   for (const p of slips) for (const l of p.lines ?? []) if (!isLoanLine(l.code) && !codes.some(c => c.code === l.code)) codes.push({ code: l.code, name: l.name, category: l.category });
   const order = ['EARNING', 'REIMBURSEMENT', 'DEDUCTION', 'EMPLOYER_CONTRIBUTION'];
   codes.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
-  const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const q = csvCellQuoted;
   const head = ['Employee', 'Payslip no.', 'Paid days', 'LOP days', ...codes.map(c => c.name), 'Loan recovery', 'Gross', 'Total deductions', 'Net pay', 'Unrecovered', 'Status'];
   const rows = slips.map(p => {
     const amt = (code: string) => { const l = p.lines?.find(x => x.code === code); return l ? Number(l.amount).toFixed(2) : ''; };

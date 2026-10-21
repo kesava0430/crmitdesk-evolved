@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import { Modal, Button, Checkbox, Textarea, Field, Alert, Badge, Select, Toggle } from '../../../shared/components';
 import { RefreshCw, RotateCcw, Send, History, Scale, FileDown, ChevronDown, ChevronRight, X, GitCompare, Mail } from 'lucide-react';
 import { useFormat } from '../../../hooks/useFormat';
+import { csvCell } from '../../../shared/csv';
 import {
   useRerun, useReopen, useFinalize, useComparePayslip, useEmailRevised,
   type RerunSummary, type ChangeEntry, type Settlement, type VersionEntry, type RunHistory, type SlipFigures,
@@ -328,7 +329,7 @@ export function SettlementPanel({ settlement, runLabel }: { settlement: Settleme
   const t = settlement.totals;
   const rows = showAll ? settlement.rows : settlement.rows.filter(r => r.difference !== 0);
   const csv = () => {
-    const q = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const q = csvCell;
     const lines = [['Employee', 'Paid net', 'Revised net', 'Difference', 'Type', 'Settled'].join(','),
       ...settlement.rows.map(r => [r.name, r.paidNet ?? '', r.newNet ?? '', r.difference.toFixed(2), KIND_LABEL[r.kind] ?? r.kind, r.settled ? 'yes' : 'no'].map(q).join(','))];
     const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
