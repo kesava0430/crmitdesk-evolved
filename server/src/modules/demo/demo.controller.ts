@@ -175,10 +175,13 @@ export async function seedMissing(req: AuthRequest, res: Response, next: NextFun
     const secret = process.env.DEMO_RESET_SECRET;
     const provided = req.header('x-demo-reset-secret');
     const bySecret = secretsMatch(provided, secret);
-    const byAdmin = req.user?.role === 'SUPER_ADMIN' || req.user?.role === 'PLATFORM_ADMIN';
+    // Platform operators only. Any org's SUPER_ADMIN used to qualify — which
+    // includes the public demo login — so anyone could create demo orgs (with
+    // their well-known passwords) on a production server.
+    const byAdmin = req.user?.role === 'PLATFORM_ADMIN';
 
     if (!bySecret && !byAdmin) {
-      throw new AppError(403, 'Sign in as an admin, or send the demo reset secret.');
+      throw new AppError(403, 'Sign in as a platform admin, or send the demo reset secret.');
     }
 
     const result = await seedMissingDemoOrgs();
