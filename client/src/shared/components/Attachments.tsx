@@ -46,16 +46,31 @@ function extensionOf(name: string): string {
   return dot > 0 ? name.slice(dot).toLowerCase() : '';
 }
 
-/** Types a browser can render directly in a tab — these get a View action
- *  alongside Download; everything else (zip, docx, …) downloads only. */
-function isViewable(mimeType: string): boolean {
-  return (
-    mimeType.startsWith('image/') ||
-    mimeType === 'application/pdf' ||
-    mimeType.startsWith('text/') ||
-    mimeType.startsWith('video/') ||
-    mimeType.startsWith('audio/')
-  );
+/**
+ * The type a file is opened with in a tab, from its EXTENSION — or null when
+ * it must only be downloaded. Never the stored mimeType: that used to be
+ * whatever the uploader's browser (or a crafted request) claimed, and a blob:
+ * URL runs with this app's origin, so a `.txt` stored as text/html (or an
+ * SVG) opened via View would execute script with the viewer's session.
+ * Document-like text formats are shown as plain text for the same reason.
+ */
+const INLINE_TYPES: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+  '.pdf': 'application/pdf',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4',
+  '.txt': 'text/plain;charset=utf-8', '.md': 'text/plain;charset=utf-8', '.log': 'text/plain;charset=utf-8',
+  '.csv': 'text/plain;charset=utf-8', '.tsv': 'text/plain;charset=utf-8', '.json': 'text/plain;charset=utf-8',
+  '.xml': 'text/plain;charset=utf-8', '.ics': 'text/plain;charset=utf-8', '.eml': 'text/plain;charset=utf-8',
+};
+export function inlineTypeFor(fileName: string): string | null {
+  return INLINE_TYPES[extensionOf(fileName)] ?? null;
+}
+
+/** Files a browser can render directly in a tab get a View action alongside
+ *  Download; everything else (zip, docx, …) downloads only. */
+function isViewable(fileName: string): boolean {
+  return inlineTypeFor(fileName) !== null;
 }
 
 /**
@@ -178,7 +193,7 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
       setError('');
       try {
         const res = await api.get(`/attachments/${a.id}/download`, { responseType: 'blob' });
-        await saveOrShareBlob(new Blob([res.data], { type: a.mimeType }), a.fileName, { open: true });
+        await saveOrShareBlob(new Blob([res.data], { type: inlineTypeFor(a.fileName) ?? 'application/octet-stream' }), a.fileName, { open: true });
       } catch {
         setError('Could not open that file.');
       } finally {
@@ -194,7 +209,13 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
       const res = await api.get(`/attachments/${a.id}/download`, { responseType: 'blob' });
       // Re-wrap so the blob's type is the attachment's real mime type — that
       // is what makes the browser render it instead of downloading it.
-      const blob = new Blob([res.data], { type: a.mimeType });
+      const type = inlineTypeFor(a.fileName);
+      if (!type) { // not a renderable type — never open it as a page
+        if (tab) tab.close();
+        await saveOrShareBlob(new Blob([res.data], { type: 'application/octet-stream' }), a.fileName);
+        return;
+      }
+      const blob = new Blob([res.data], { type });
       const url = URL.createObjectURL(blob);
       if (tab) tab.location.href = url;
       else window.open(url, '_blank'); // popup was blocked; try direct
@@ -259,7 +280,7 @@ export function Attachments({ entityType, entityId }: AttachmentsProps) {
                     {formatSize(a.fileSize)} · {a.uploader?.name} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
                   </p>
                 </div>
-                {isViewable(a.mimeType) && (
+                {isViewable(a.fileName) && (
                   <IconButton
                     label={`View ${a.fileName}`}
                     icon={<Eye size={14} />}

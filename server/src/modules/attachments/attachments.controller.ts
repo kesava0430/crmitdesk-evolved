@@ -3,7 +3,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { assertEntityInOrg } from '../../utils/entityAccess';
-import { assertUploadAllowed, sanitiseFilename, UPLOAD_POLICY } from '../../utils/uploadPolicy';
+import { assertUploadAllowed, sanitiseFilename, mimeTypeFor, UPLOAD_POLICY } from '../../utils/uploadPolicy';
 import * as storage from '../../utils/storage';
 
 const include = { uploader: { select: { id: true, name: true, avatarUrl: true } } };
@@ -62,6 +62,8 @@ export async function upload(req: AuthRequest, res: Response, next: NextFunction
     // that is the only thing separating tenants in the shared bucket.
     const fileName = sanitiseFilename(file.originalname);
     assertUploadAllowed(fileName, file.size);
+    // From the extension, not file.mimetype (uploader-chosen) — see mimeTypeFor().
+    const mimeType = mimeTypeFor(fileName);
 
     // Uploads to wherever the org connected in Settings → Storage (Google
     // Drive today) — throws a clear 400 if nothing's connected yet, before
@@ -69,7 +71,7 @@ export async function upload(req: AuthRequest, res: Response, next: NextFunction
     const uploaded = await storage.uploadAttachment(req.user!.orgId, {
       buffer: file.buffer,
       filename: fileName,
-      mimeType: file.mimetype,
+      mimeType,
     });
 
     try {
@@ -83,7 +85,7 @@ export async function upload(req: AuthRequest, res: Response, next: NextFunction
           provider: uploaded.provider,
           providerFileId: uploaded.providerFileId,
           fileSize: file.size,
-          mimeType: file.mimetype,
+          mimeType,
         },
         include,
       });
@@ -111,7 +113,11 @@ export async function download(req: AuthRequest, res: Response, next: NextFuncti
     const attachment = await loadForOrg(req.params.id, req.user!.orgId);
 
     const buffer = await storage.downloadAttachment(req.user!.orgId, attachment.provider, attachment.providerFileId);
-    res.setHeader('Content-Type', attachment.mimeType);
+    // Re-derived on every download, so rows stored before mimeTypeFor()
+    // existed (with whatever type the uploader claimed) are served safely too.
+    res.setHeader('Content-Type', mimeTypeFor(attachment.fileName));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     // RFC 6266: a plain ASCII fallback plus the real UTF-8 name. The old
     // single percent-encoded `filename=` meant anyone downloading
     // "Q3 réport.pdf" got "Q3%20r%C3%A9port.pdf" saved literally.
