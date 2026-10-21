@@ -5,6 +5,7 @@ import { recordUsage } from './usageTracking';
 import { assertPlatformSendQuota, PlatformQuotaExceededError } from './licensing';
 import { getPlatformMailConfig, type PlatformMailConfig } from './platformSettings';
 import { enqueueJob, registerJobHandler } from './jobQueue';
+import { demoOrgMailBlocked } from './demoOrgs';
 
 interface MailOptions {
   to: string;
@@ -163,6 +164,11 @@ function withBrandHeader(html: string, branding: MailBranding): string {
  * one implementation instead of duplicating the branding/fallback logic.
  */
 async function performSendMail(opts: MailOptions): Promise<void> {
+  // Public demo orgs are driven by anonymous visitors — see utils/demoOrgs.ts.
+  if (await demoOrgMailBlocked(opts.orgId, opts.to)) {
+    console.log(`[Email suppressed — demo org, external recipient] org ${opts.orgId} | ${opts.subject}`);
+    return;
+  }
   if (opts.orgId) {
     try {
       const orgMailer = await getOrgMailer(opts.orgId);
