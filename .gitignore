@@ -8,6 +8,14 @@ node_modules.*/
 .env
 .env.local
 .env.*.local
+# .env.production, .env.staging, server/.env.bak … — anything but the example.
+.env.*
+!.env.example
+# Private keys / certificates / service-account bundles.
+*.pem
+*.p12
+*.pfx
+*-service-account*.json
 
 # Build output
 dist/
@@ -73,8 +81,12 @@ client/android/app/src/main/assets/capacitor.plugins.json
 client/ios/App/Pods/
 client/ios/App/App/public/
 
-# Deployment tarballs built for upload
+# Deployment tarballs built for upload — and source snapshots: three such
+# snapshots (_sync/, _to_delete/) were committed with a live server/.env
+# inside them, so archives never go into git.
 *.tar.gz
+*.tgz
+*.zip
 
 # ─── Android signing — NEVER commit these ────────────────────────────────
 # Losing the upload keystore is recoverable via Play App Signing, but a
