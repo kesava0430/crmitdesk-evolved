@@ -20,6 +20,11 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
   if ((err as any).status === 413 || (err as any).type === 'entity.too.large') {
     return res.status(413).json({ error: 'Payload too large' });
   }
+  // A malformed JSON body is the client's mistake: answer 400, and don't log
+  // it as a server error with the offending body fragment and a stack trace.
+  if ((err as any).type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Malformed JSON body' });
+  }
   // Multer throws its own error class, which carries no `status`, so an
   // oversized attachment used to fall through to the generic handler and come
   // back as a 500 "Internal server error" — the client had no way to tell a

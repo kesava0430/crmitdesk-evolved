@@ -224,6 +224,11 @@ app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/auth/google', authLimiter);
 app.use('/api/admin/users/invite', authLimiter);
+// Customer-portal magic links are "essential" mail (no platform quota), so
+// without this anyone could make the platform mail a portal user's inbox
+// 300 times a minute. Bootstrap guards a shared secret.
+app.use('/api/portal/request-access', authLimiter);
+app.use('/api/platform/bootstrap', authLimiter);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', async (_req, res) => {
