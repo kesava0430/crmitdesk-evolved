@@ -189,3 +189,13 @@ export async function testEntraTenant(tenantId: string): Promise<{ ok: boolean; 
     return { ok: false, error: err.message || 'Could not reach Microsoft Entra ID' };
   }
 }
+
+/**
+ * "common" / "organizations" / "consumers" accept accounts from any tenant.
+ * SSO for one org must be pinned to that org's own tenant, or a user of an
+ * attacker-made tenant (whose mail attribute the attacker controls) would be
+ * linked by email to this org's account.
+ */
+export function isMultiTenantAlias(tenantId: string | null | undefined): boolean {
+  return ['common', 'organizations', 'consumers'].includes(String(tenantId ?? '').trim().toLowerCase());
+}

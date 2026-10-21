@@ -94,6 +94,7 @@ function InputField({
 const SSO_ERRORS: Record<string, string> = {
   sso_not_found: "That sign-in link isn't recognized. Check the link with your admin.",
   sso_disabled: 'Single sign-on is currently turned off for your organization. Sign in with your password instead.',
+  sso_misconfigured: 'Single sign-on for your organization needs its Entra tenant ID set. Ask your admin, or sign in with your password.',
   sso_error: 'Something went wrong starting Microsoft sign-in. Please try again.',
 };
 

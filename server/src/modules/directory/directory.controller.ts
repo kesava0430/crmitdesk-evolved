@@ -4,7 +4,7 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { encryptSecret, secretsMatch } from '../../utils/crypto';
-import { entraRedirectUri, testEntraTenant } from '../../utils/entraAuth';
+import { entraRedirectUri, testEntraTenant, isMultiTenantAlias } from '../../utils/entraAuth';
 import { UserRole } from '@prisma/client';
 import { syncOrgDirectory, syncAllOrgs } from './directorySync';
 
@@ -16,7 +16,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const ROLE_VALUES = ['SUPER_ADMIN', 'CRM_MANAGER', 'SALES_REP', 'IT_MANAGER', 'IT_AGENT', 'EMPLOYEE'] as const;
 
 const ConfigSchema = z.object({
-  tenantId: z.string().min(1),
+  tenantId: z.string().trim().min(1).refine(v => !isMultiTenantAlias(v), 'Use your own Entra tenant ID, not a multi-tenant alias ("common", "organizations" or "consumers")'),
   clientId: z.string().min(1),
   // Blank means "keep the existing secret" — the form never round-trips the
   // real secret back to the client (see getConfig below), so a save that

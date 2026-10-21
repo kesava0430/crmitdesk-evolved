@@ -44,6 +44,7 @@ export function parseSsoDeepLink(url: string): { code?: string; error?: string }
 const SSO_ERROR_TEXT: Record<string, string> = {
   sso_not_found: "That sign-in ID isn't recognized. Check it with your admin.",
   sso_disabled: 'Single sign-on is currently turned off for your organization. Sign in with your password instead.',
+  sso_misconfigured: 'Single sign-on for your organization needs its Entra tenant ID set. Ask your admin, or sign in with your password.',
   sso_error: 'Something went wrong starting Microsoft sign-in. Please try again.',
 };
 export const ssoErrorText = (e: string) => SSO_ERROR_TEXT[e] ?? e;
