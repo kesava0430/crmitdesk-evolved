@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 
 const Schema = z.object({
@@ -30,6 +31,7 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['USER', data.notifyUserId]]);
     const policy = await prisma.slaPolicy.create({ data: { ...data, orgId: req.user!.orgId }, include });
     res.status(201).json(policy);
   } catch (err) { next(err); }
@@ -38,6 +40,7 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['USER', data.notifyUserId]]);
     await prisma.slaPolicy.updateMany({ where: { id: req.params.id, orgId: req.user!.orgId }, data });
     const policy = await prisma.slaPolicy.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId }, include });
     res.json(policy);

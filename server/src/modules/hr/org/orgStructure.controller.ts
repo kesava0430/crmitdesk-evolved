@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
@@ -90,6 +91,7 @@ export async function createDepartment(req: AuthRequest, res: Response, next: Ne
 
     const orgId = req.user!.orgId;
     const data = DepartmentSchema.parse(req.body);
+    await assertRefsInOrg(orgId, [['DEPARTMENT', data.parentId], ['EMPLOYEE', data.headId]]);
 
     const clash = await prisma.department.findFirst({ where: { orgId, name: data.name } });
     if (clash) throw new AppError(409, 'A department with that name already exists');
@@ -115,6 +117,7 @@ export async function updateDepartment(req: AuthRequest, res: Response, next: Ne
     if (!existing) throw new AppError(404, 'Department not found');
 
     const data = DepartmentSchema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEPARTMENT', data.parentId], ['EMPLOYEE', data.headId]]);
 
     if (data.parentId) {
       if (data.parentId === existing.id) throw new AppError(400, 'A department cannot be its own parent');
@@ -223,6 +226,7 @@ export async function createTeam(req: AuthRequest, res: Response, next: NextFunc
     assertCan(ctx, 'hr.team.create');
     const orgId = req.user!.orgId;
     const data = TeamSchema.parse(req.body);
+    await assertRefsInOrg(orgId, [['DEPARTMENT', data.departmentId], ['EMPLOYEE', data.leadId]]);
 
     const clash = await prisma.team.findFirst({ where: { orgId, name: data.name } });
     if (clash) throw new AppError(409, 'A team with that name already exists');
@@ -245,9 +249,11 @@ export async function updateTeam(req: AuthRequest, res: Response, next: NextFunc
     const existing = await prisma.team.findFirst({ where: { id: req.params.id, orgId: req.user!.orgId } });
     if (!existing) throw new AppError(404, 'Team not found');
 
+    const teamData = TeamSchema.partial().parse(req.body);
+    await assertRefsInOrg(req.user!.orgId, [['DEPARTMENT', teamData.departmentId], ['EMPLOYEE', teamData.leadId]]);
     const team = await prisma.team.update({
       where: { id: existing.id },
-      data: TeamSchema.partial().parse(req.body),
+      data: teamData,
       include: teamInclude,
     });
     invalidateAllPermCtx();

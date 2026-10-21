@@ -3,6 +3,7 @@ import { z } from 'zod';
 import https from 'https';
 import nodemailer from 'nodemailer';
 import { prisma } from '../../utils/prisma';
+import { assertRefsInOrg } from '../../utils/entityAccess';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { syncEmailAccount } from '../../utils/email-sync';
@@ -130,6 +131,7 @@ export async function updateConversation(req: AuthRequest, res: Response, next: 
 
     const conversation = await prisma.conversation.findFirst({ where: { id, orgId } });
     if (!conversation) throw new AppError(404, 'Conversation not found');
+    await assertRefsInOrg(orgId, [['USER', data.assignedTo]]);
 
     const updated = await prisma.conversation.update({ where: { id }, data });
     res.json(updated);

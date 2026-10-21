@@ -3,6 +3,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../utils/prisma';
+import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { logAction } from '../../../utils/auditLog';
@@ -226,6 +227,7 @@ export async function upsertEmployeeSalary(req: AuthRequest, res: Response, next
       if (!comps.some(c => c.code === code)) throw new AppError(400, `Unknown component ${code}`);
       if (o.formula) assertValidFormula(o.formula, comps);
     }
+    await assertRefsInOrg(orgId, [['PAYROLL_CYCLE', data.payrollCycleId]]);
     const cycleId = data.payrollCycleId ?? (await ensureDefaultCycle(orgId)).id;
     const [, row] = await prisma.$transaction([
       prisma.employeeSalary.updateMany({ where: { orgId, userId: data.userId, isActive: true }, data: { isActive: false } }),

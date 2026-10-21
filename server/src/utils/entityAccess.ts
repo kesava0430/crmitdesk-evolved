@@ -40,13 +40,14 @@ export async function assertEntityInOrg(entityType: string, entityId: string, or
 // Models a request body may reference by id, beyond the polymorphic ones.
 // Prisma delegate names, resolved per call (kept out of the `TYPE: prisma.x`
 // shape above, which the attachments/tags tests read as the entity list).
-const EXTRA_REF_DELEGATE: Record<string, string> = { USER: 'user', CATEGORY: 'category', SLA_POLICY: 'slaPolicy' };
+const EXTRA_REF_DELEGATE: Record<string, string> = { USER: 'user', CATEGORY: 'category', SLA_POLICY: 'slaPolicy', PAYROLL_CYCLE: 'payrollCycle' };
 const refModel = (type: string): { findFirst: (args: any) => Promise<any> } | undefined =>
   EXTRA_REF_DELEGATE[type] ? (prisma as any)[EXTRA_REF_DELEGATE[type]] : ENTITY_MODEL[type];
 
 const REF_LABEL: Record<string, string> = {
   USER: 'user', CATEGORY: 'category', SLA_POLICY: 'SLA policy', CONTACT: 'contact', ACCOUNT: 'account',
   DEAL: 'deal', LEAD: 'lead', TICKET: 'ticket', TASK: 'task', EMPLOYEE: 'employee', QUOTE: 'quote',
+  DEPARTMENT: 'department', PAYROLL_CYCLE: 'pay cycle',
 };
 
 /**

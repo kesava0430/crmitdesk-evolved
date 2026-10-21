@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
+import { assertRefsInOrg } from '../../utils/entityAccess';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../utils/pagination';
@@ -96,6 +97,7 @@ export async function createPolicy(req: AuthRequest, res: Response, next: NextFu
     const { steps, ...policy } = PolicySchema.parse(req.body);
 
     validateSteps(steps);
+    await assertRefsInOrg(orgId, steps.map(s => ['USER', s.approverUserId] as [string, string | null | undefined]));
 
     const created = await prisma.approvalPolicy.create({
       data: {
@@ -157,6 +159,7 @@ export async function updatePolicy(req: AuthRequest, res: Response, next: NextFu
 
     if (steps) {
       validateSteps(steps as z.infer<typeof StepSchema>[]);
+      await assertRefsInOrg(req.user!.orgId, (steps as z.infer<typeof StepSchema>[]).map(s => ['USER', s.approverUserId] as [string, string | null | undefined]));
       // Steps are replaced wholesale. In-flight requests are unaffected
       // because their steps were copied onto ApprovalRequestStep at creation
       // time — editing a policy never rewrites history.
