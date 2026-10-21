@@ -38,7 +38,8 @@ export default function BrandingPage() {
   });
 
   useEffect(() => {
-    if (data) setForm({ ...DEFAULT, ...data });
+    // Unset columns arrive as null: keep the form's '' / defaults so inputs stay controlled.
+    if (data) setForm({ ...DEFAULT, ...Object.fromEntries(Object.entries(data).filter(([, v]) => v != null)) } as Branding);
   }, [data]);
 
   const save = useMutation({
