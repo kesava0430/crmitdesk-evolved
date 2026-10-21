@@ -5,7 +5,7 @@ import { emailField } from '../../utils/zodHelpers';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma } from '../../utils/prisma';
-import { AuthRequest } from '../../middleware/authenticate';
+import { AuthRequest, forgetSession } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
 import { parsePagination, paginate } from '../../utils/pagination';
 import { logAction } from '../../utils/auditLog';
@@ -561,6 +561,7 @@ export async function revokeLogin(req: AuthRequest, res: Response, next: NextFun
     if (employee.userId === req.user!.id) throw new AppError(400, 'You cannot revoke your own access');
 
     await prisma.user.update({ where: { id: employee.userId }, data: { isActive: false } });
+    forgetSession(employee.userId);
     invalidatePermCtx(employee.userId);
     logAction(req.user!.id, 'UPDATE', 'EMPLOYEE', employee.id, { action: 'REVOKE_LOGIN' });
 
@@ -685,6 +686,7 @@ async function changeRole(
     });
   });
   invalidatePermCtx(employee.userId!);
+  forgetSession(employee.userId!);
   logAction(req.user!.id, 'UPDATE', 'EMPLOYEE', employee.id, { action: 'ROLE_CHANGE', roleId: role.id, role: legacyRole });
 }
 

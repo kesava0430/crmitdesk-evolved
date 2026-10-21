@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { runWithAiContext } from '../utils/aiContext';
 import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler';
+import { prisma } from '../utils/prisma';
 
 export interface AuthRequest extends Request {
   user?: { id: string; role: string; email: string; orgId: string };
@@ -50,10 +51,9 @@ export function authenticate(req: AuthRequest, _res: Response, next: NextFunctio
 
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) throw new AppError(401, 'Authentication required');
+  let payload: { id: string; role: string; email: string; orgId: string; iss?: string };
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as {
-      id: string; role: string; email: string; orgId: string; iss?: string;
-    };
+    payload = jwt.verify(token, process.env.JWT_SECRET!) as typeof payload;
     /* Several other JWTs are signed with the same JWT_SECRET — customer
        portal sessions ({sub, orgId, iss:'portal'}), OAuth `state` values
        ({orgId} / {userId}) that travel in public redirect URLs. None of
@@ -65,14 +65,54 @@ export function authenticate(req: AuthRequest, _res: Response, next: NextFunctio
     if (!payload || typeof payload.id !== 'string' || !payload.id || typeof payload.role !== 'string' || !payload.role || payload.iss === 'portal') {
       throw new Error('not an access token');
     }
+  } catch {
+    throw new AppError(401, 'Invalid or expired token');
+  }
+  sessionStillValid(payload).then(ok => {
+    if (!ok) return next(new AppError(401, 'Invalid or expired token'));
     req.user = payload;
     /* Everything downstream of this call runs inside the store, so
        utils/ai.ts can find the org without every AI helper taking an orgId
        parameter. See utils/aiContext.ts for why it is done this way. */
     runWithAiContext({ orgId: payload.orgId, userId: payload.id }, next);
-  } catch {
-    throw new AppError(401, 'Invalid or expired token');
+  }, next);
+}
+
+/* Access tokens are stateless, so on their own they kept working until
+   expiry (JWT_EXPIRES_IN, 15 minutes by default but configurable) after the
+   user was deactivated, had their login revoked, or changed role. Each token
+   is now also checked against the user row: still active, still in the org
+   and with the role the token claims. A mismatch answers 401, which the
+   client already treats as "refresh" — refresh re-reads the user, so a role
+   change simply yields a token with the new role, and a deactivated user is
+   signed out. Cached for SESSION_CHECK_TTL_MS per user (one indexed lookup
+   per user per 30 s, not per request). */
+const SESSION_CHECK_TTL_MS = 30_000;
+const sessionCache = new Map<string, { active: boolean; role: string; orgId: string; expires: number }>();
+
+/** Drop the cached state for a user (deactivation, role change) so it applies at once. */
+export function forgetSession(userId: string): void {
+  sessionCache.delete(userId);
+}
+
+/** Pure: does the token's claim still match the stored user? Exported for tests. */
+export function claimMatchesUser(
+  claim: { role: string; orgId: string },
+  user: { active: boolean; role: string; orgId: string } | null,
+): boolean {
+  return !!user && user.active && user.role === claim.role && (user.orgId ?? '') === (claim.orgId ?? '');
+}
+
+export async function sessionStillValid(claim: { id: string; role: string; orgId: string }): Promise<boolean> {
+  const now = Date.now();
+  let entry = sessionCache.get(claim.id);
+  if (!entry || entry.expires < now) {
+    const u = await prisma.user.findUnique({ where: { id: claim.id }, select: { isActive: true, role: true, orgId: true } });
+    entry = { active: !!u?.isActive, role: u?.role ?? '', orgId: u?.orgId ?? '', expires: now + SESSION_CHECK_TTL_MS };
+    if (sessionCache.size > 50_000) sessionCache.clear(); // bound memory
+    sessionCache.set(claim.id, entry);
   }
+  return claimMatchesUser(claim, entry);
 }
 
 /* The non-manager org roles. Used below to decide which requireRole() gates

@@ -1,12 +1,13 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { sseManager, SSEEvent } from '../../utils/sse';
+import { sessionStillValid } from '../../middleware/authenticate';
 
 const router = Router();
 
 // GET /api/events/stream?_t=<jwt>
 // EventSource cannot send headers, so we accept the JWT via query param.
-router.get('/stream', (req: Request, res: Response) => {
+router.get('/stream', async (req: Request, res: Response) => {
   const token = (req.query._t as string) || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token required' });
 
@@ -19,6 +20,14 @@ router.get('/stream', (req: Request, res: Response) => {
     if (!payload?.id || !payload?.role || (payload as any).iss === 'portal') throw new Error('not an access token');
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  // Same live check as authenticate(): no stream for a deactivated user or a
+  // token whose role is out of date.
+  try {
+    if (!(await sessionStillValid(payload))) return res.status(401).json({ error: 'Invalid token' });
+  } catch {
+    return res.status(503).json({ error: 'Try again shortly' });
   }
 
   const { id: userId, orgId } = payload;

@@ -98,3 +98,31 @@ test('fieldEscalations: a masked caller cannot hand out an unmasked role', () =>
   // HIDDEN is stricter than MASKED
   assert.deepEqual(fieldEscalations(new Map([['employee.taxId', 'HIDDEN']]), [{ resource: 'employee', field: 'taxId', access: 'MASKED' }]), ['employee.taxId']);
 });
+
+test('claimMatchesUser: deactivated, re-roled or moved users fail the live check', () => {
+  const { claimMatchesUser } = require('../../src/middleware/authenticate');
+  const claim = { role: 'IT_MANAGER', orgId: 'o1' };
+  assert.equal(claimMatchesUser(claim, { active: true, role: 'IT_MANAGER', orgId: 'o1' }), true);
+  assert.equal(claimMatchesUser(claim, { active: false, role: 'IT_MANAGER', orgId: 'o1' }), false);
+  assert.equal(claimMatchesUser(claim, { active: true, role: 'EMPLOYEE', orgId: 'o1' }), false);
+  assert.equal(claimMatchesUser(claim, { active: true, role: 'IT_MANAGER', orgId: 'o2' }), false);
+  assert.equal(claimMatchesUser(claim, null), false);
+  // Platform admins have no org: '' on both sides
+  assert.equal(claimMatchesUser({ role: 'PLATFORM_ADMIN', orgId: '' }, { active: true, role: 'PLATFORM_ADMIN', orgId: '' }), true);
+});
+
+test('TOTP throttle locks after 5 wrong codes and clears after the window', () => {
+  const { totpLocked, recordTotpFailure } = require('../../src/modules/core/auth/auth.controller');
+  const t0 = 1_000_000;
+  for (let i = 0; i < 4; i++) recordTotpFailure('uX', t0);
+  assert.equal(totpLocked('uX', t0), false);
+  recordTotpFailure('uX', t0);
+  assert.equal(totpLocked('uX', t0 + 1000), true);
+  assert.equal(totpLocked('uX', t0 + 16 * 60 * 1000), false);
+});
+
+test('Entra multi-tenant aliases are refused', () => {
+  const { isMultiTenantAlias } = require('../../src/utils/entraAuth');
+  for (const v of ['common', 'Organizations', ' consumers ']) assert.equal(isMultiTenantAlias(v), true);
+  for (const v of ['72f988bf-86f1-41af-91ab-2d7cd011db47', 'contoso.onmicrosoft.com']) assert.equal(isMultiTenantAlias(v), false);
+});

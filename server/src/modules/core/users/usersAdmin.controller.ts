@@ -7,7 +7,7 @@ import { optionalText, emailField } from '../../../utils/zodHelpers';
 import { prisma } from '../../../utils/prisma';
 import { parsePagination, paginate } from '../../../utils/pagination';
 import { sendMail } from '../../../utils/mailer';
-import { AuthRequest } from '../../../middleware/authenticate';
+import { AuthRequest, forgetSession } from '../../../middleware/authenticate';
 import { AppError } from '../../../middleware/errorHandler';
 import { assertSeatAvailable, assertSeatForTransition, withSeatLock } from '../../../utils/licensing';
 import { emailTemplates } from '../../../utils/mailer';
@@ -252,6 +252,7 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
       });
     });
     if (resolved) invalidatePermCtx(user.id);
+    forgetSession(user.id); // role / active changes apply to live tokens at once
 
     // Mirror the fields that exist on both records. If this user has no
     // employee (a service account, or one created before HR was set up), the
@@ -274,6 +275,7 @@ export async function deactivate(req: AuthRequest, res: Response, next: NextFunc
     if (!target) throw new AppError(404, 'User not found');
     assertCanManage(req.user!.role, target.role);
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } });
+    forgetSession(req.params.id);
     // Losing the login means the person has left. Reactivating deliberately
     // does not un-exit them — rehiring has its own dates and is an HR decision.
     await syncUserToEmployee(req.params.id, { isActive: false });

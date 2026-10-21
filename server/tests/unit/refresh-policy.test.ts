@@ -172,17 +172,24 @@ test('authenticate() accepts only staff access tokens, not other JWTs signed wit
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'unit-test-secret';
   const jwt = (await import('jsonwebtoken')).default;
   const { authenticate } = await import('../../src/middleware/authenticate');
-  const run = (token: string) => {
+  // authenticate() also checks the user row is still active with this role
+  // (SEC-AUTH); stub it as an active EMPLOYEE of o1.
+  const { prisma } = await import('../../src/utils/prisma');
+  (prisma as any).user = { findUnique: async () => ({ isActive: true, role: 'EMPLOYEE', orgId: 'o1' }) };
+  const run = async (token: string) => {
     const req: any = { headers: { authorization: `Bearer ${token}` } };
     let passed = false;
-    try { authenticate(req, {} as any, () => { passed = true; }); } catch { /* rejected */ }
+    try { authenticate(req, {} as any, (err?: any) => { if (!err) passed = true; }); } catch { /* rejected */ }
+    await new Promise(r => setImmediate(r));
     return { passed, user: req.user };
   };
   const secret = process.env.JWT_SECRET!;
-  const staff = run(jwt.sign({ id: 'u1', role: 'EMPLOYEE', email: 'a@b.c', orgId: 'o1' }, secret));
+  const staff = await run(jwt.sign({ id: 'u1', role: 'EMPLOYEE', email: 'a@b.c', orgId: 'o1' }, secret));
   assert.ok(staff.passed);
   assert.equal(staff.user.id, 'u1');
-  assert.equal(run(jwt.sign({ sub: 'p1', orgId: 'o1', iss: 'portal' }, secret)).passed, false, 'portal session');
-  assert.equal(run(jwt.sign({ orgId: 'o1' }, secret)).passed, false, 'OAuth state');
-  assert.equal(run(jwt.sign({ userId: 'u1' }, secret)).passed, false, 'calendar state');
+  assert.equal((await run(jwt.sign({ sub: 'p1', orgId: 'o1', iss: 'portal' }, secret))).passed, false, 'portal session');
+  assert.equal((await run(jwt.sign({ orgId: 'o1' }, secret))).passed, false, 'OAuth state');
+  assert.equal((await run(jwt.sign({ userId: 'u1' }, secret))).passed, false, 'calendar state');
+  // A token whose role no longer matches the stored user is refused.
+  assert.equal((await run(jwt.sign({ id: 'u1', role: 'SUPER_ADMIN', email: 'a@b.c', orgId: 'o1' }, secret))).passed, false, 'stale role');
 });
