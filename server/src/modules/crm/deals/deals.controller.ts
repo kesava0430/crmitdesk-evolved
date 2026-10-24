@@ -13,6 +13,7 @@ import { logAction } from '../../../utils/auditLog';
 import { ensureDefaultPipeline, normalizeStages } from '../pipelines/pipelines.service';
 import { purgeEntityChildren } from '../../../utils/entityCleanup';
 import { tagIdFilter } from '../../../utils/tagFilter';
+import { listWithFollowUps, parseListFilter, withFollowUps } from '../../../utils/followups/collect';
 
 const Schema = z.object({
   title: z.string().min(1),
@@ -67,10 +68,12 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
     // a relation on this model — see utils/tagFilter.ts.
     const byTag = await tagIdFilter(orgId, 'DEAL', tagId);
     if (byTag) Object.assign(where, byTag);
-    const [deals, total] = await Promise.all([
-      prisma.deal.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
-      prisma.deal.count({ where }),
-    ]);
+    // `followUp` per row, ?followUp= filter, ?sort=followup — see utils/followups/collect.ts.
+    const { rows: deals, total } = await listWithFollowUps({
+      orgId, kind: 'DEAL', delegate: prisma.deal, where, include, pag,
+      filter: parseListFilter(req.query.followUp), sort: req.query.sort as string | undefined,
+      closedStatuses: ['WON', 'LOST'],
+    });
     res.json(paginate(deals, total, pag));
   } catch (err) { next(err); }
 }
@@ -80,7 +83,7 @@ export async function pipeline(req: AuthRequest, res: Response, next: NextFuncti
     const orgId = req.user!.orgId;
     const p = await ensureDefaultPipeline(orgId);
     const stages = normalizeStages(p.stages);
-    const deals = await prisma.deal.findMany({ where: { orgId, status: 'OPEN' }, include, orderBy: { createdAt: 'desc' } });
+    const deals = await withFollowUps(orgId, 'DEAL', await prisma.deal.findMany({ where: { orgId, status: 'OPEN' }, include, orderBy: { createdAt: 'desc' } }));
     const grouped = stages.map(s => ({ stage: s.label, color: s.color, probability: s.probability, deals: deals.filter(d => d.stage === s.label) }));
     res.json({ pipeline: { ...p, stages }, columns: grouped });
   } catch (err) { next(err); }

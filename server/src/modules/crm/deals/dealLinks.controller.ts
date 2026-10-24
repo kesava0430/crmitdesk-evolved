@@ -187,6 +187,41 @@ function safeJson(s: string | null): unknown {
  * "no closed related deals" and cache hits cost nothing and work even with no
  * AI provider configured.
  */
+/**
+ * Everything up to (not including) the model call: the prompt and its cache
+ * key, or why there is nothing to ask. Shared with follow-up emails
+ * (utils/followups), which reuse an already-cached lessons checklist but
+ * never trigger a new lessons call.
+ */
+export async function lessonsRequest(ctx: PermCtx, deal: Awaited<ReturnType<typeof visibleDeal>>) {
+  const orgId = ctx.orgId;
+  const loaded = await loadRule(orgId);
+  if (!loaded) return { status: 'not_configured' as const };
+  const base = await matchableDeal(loaded.rule, deal);
+  const gathered = await gatherLessonDeals(ctx, loaded.rule, base);
+  if (!gathered) return { status: 'not_usable' as const, missing: missingLabels(loaded.described, base) };
+  if (!gathered.deals.length) return { status: 'no_history' as const };
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { currency: true } });
+  const prompt = buildLessonsPrompt({
+    title: deal.title, status: deal.status, stage: deal.stage, value: Number(deal.value),
+    sharedOn: await sharedOnLabels(orgId, loaded.described, base),
+  }, gathered.deals, org?.currency ?? 'USD');
+  return { status: 'ready' as const, gathered, prompt, cacheKey: `deal-lessons:${prompt.cacheKey}` };
+}
+
+/** The lessons checklist if it was already generated for the deal as it is now; null otherwise. No AI call. */
+export async function cachedLessonsChecklist(ctx: PermCtx, dealId: string): Promise<string[] | null> {
+  try {
+    const deal = await visibleDeal(ctx, dealId);
+    const r = await lessonsRequest(ctx, deal);
+    if (r.status !== 'ready') return null;
+    const hit = safeJson(await readPersistentCache(ctx.orgId, r.cacheKey)) as { result?: LessonsResult } | null;
+    return hit?.result ? hit.result.checklist.map(c => c.item) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function pastLessons(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = req.user!.orgId;
@@ -194,26 +229,16 @@ export async function pastLessons(req: AuthRequest, res: Response, next: NextFun
     if (await isModuleBlocked(orgId, 'crm')) throw new AppError(402, 'CRM is switched off for this organisation.');
     const ctx = await getPermCtx(req.user!);
     const deal = await visibleDeal(ctx, req.params.id);
-    const loaded = await loadRule(orgId);
-    if (!loaded) return res.json({ status: 'not_configured' });
-
-    const base = await matchableDeal(loaded.rule, deal);
-    const gathered = await gatherLessonDeals(ctx, loaded.rule, base);
-    if (!gathered) return res.json({ status: 'not_usable', missing: missingLabels(loaded.described, base) });
-    if (!gathered.deals.length) return res.json({ status: 'no_history' });
-
-    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { currency: true } });
-    const prompt = buildLessonsPrompt({
-      title: deal.title, status: deal.status, stage: deal.stage, value: Number(deal.value),
-      sharedOn: await sharedOnLabels(orgId, loaded.described, base),
-    }, gathered.deals, org?.currency ?? 'USD');
+    const r = await lessonsRequest(ctx, deal);
+    if (r.status === 'not_configured' || r.status === 'no_history') return res.json({ status: r.status });
+    if (r.status === 'not_usable') return res.json({ status: r.status, missing: r.missing });
+    const { gathered, prompt, cacheKey } = r;
     const basedOn = {
       lost: gathered.deals.filter(d => d.status === 'LOST').length,
       won: gathered.deals.filter(d => d.status === 'WON').length,
       notes: [...prompt.refs.values()].reduce((n, r) => n + r.notes.length, 0),
     };
 
-    const cacheKey = `deal-lessons:${prompt.cacheKey}`;
     const hit = req.body?.refresh ? null : await readPersistentCache(orgId, cacheKey);
     if (hit) {
       const stored = safeJson(hit) as { result: LessonsResult; generatedAt: string } | null;

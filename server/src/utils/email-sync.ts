@@ -1,6 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { prisma } from './prisma';
 import { decryptSecretOrPlain } from './crypto';
+import { matchFollowUpReply } from './followups/email';
 
 // ─── Inline types (avoids needing @types/mailparser) ─────────────────────────
 
@@ -20,6 +21,7 @@ interface ParsedMail {
   html?: string | boolean;
   date?: Date;
   references?: string | string[];
+  inReplyTo?: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -153,6 +155,15 @@ export async function syncEmailAccount(accountId: string): Promise<{ fetched: nu
               updatedAt: new Date(),
             },
           });
+
+          // A reply to a follow-up email sent from a lead/deal (its In-Reply-To
+          // or References names our Message-ID) is logged on that record and
+          // the owner is notified — see utils/followups/email.ts. Never lets
+          // a matching problem stop the sync.
+          await matchFollowUpReply(account.orgId, {
+            messageId, inReplyTo: parsed.inReplyTo ?? null, references: refs ?? null,
+            fromEmail: from.email, fromName: from.name, subject, text: parsed.text || '', date: parsed.date ?? new Date(),
+          }).catch(err => console.warn(`[email-sync] follow-up reply matching failed: ${err?.message || err}`));
 
           fetched++;
         } catch (msgErr: any) {

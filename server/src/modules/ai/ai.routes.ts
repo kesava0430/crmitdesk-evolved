@@ -6,6 +6,7 @@ import * as ai from './ai.controller';
 import * as studio from './aiStudio.controller';
 import * as solution from './solutionBuilder.controller';
 import { pastLessons } from '../crm/deals/dealLinks.controller';
+import * as followUps from '../crm/followups/followups.controller';
 import { recordUsage } from '../../utils/usageTracking';
 import { requireFeature } from '../../utils/licensing';
 import { aiConfigSource, AI_NOT_CONFIGURED_MESSAGE } from '../../utils/aiStatus';
@@ -45,9 +46,16 @@ aiRouter.get('/status', requireRole(...MANAGERS), ai.aiStatusHandler);
 
 // ── CRM AI (leads, deals, contacts) ──────────────────────────────────────────
 aiRouter.post('/lead/:id/score',           requireRole(...CRM_STAFF),    trackAiCall, ai.scoreLeadHandler); // Free
-aiRouter.post('/lead/:id/follow-up',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.leadFollowUpHandler);
+// Follow-up emails from the record's real context (utils/followups): like
+// past-lessons, usage is recorded in the handler only when the model is
+// called — cached drafts cost nothing — and it answers 503 itself when no
+// provider is configured (what trackAiCall would do).
+aiRouter.post('/lead/:id/follow-up',       requireRole(...CRM_STAFF),    aiAdvanced, followUps.draftEmail('LEAD'));
 aiRouter.post('/lead/:id/nurture-sequence',requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.nurtureSequenceHandler);
-aiRouter.post('/deal/:id/follow-up',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.dealFollowUpHandler);
+aiRouter.post('/deal/:id/follow-up',       requireRole(...CRM_STAFF),    aiAdvanced, followUps.draftEmail('DEAL'));
+// One suggested next follow-up (chip, never auto-created). Cached by context and
+// rate-limited per record; same usage accounting as above.
+aiRouter.post('/crm/next-step',            requireRole(...CRM_STAFF),    aiAdvanced, followUps.nextStep);
 aiRouter.post('/deal/:id/win-probability', requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.winProbabilityHandler);
 aiRouter.post('/deal/:id/close-date',      requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.dealCloseDateHandler);
 // Lessons from related deals: no trackAiCall — the handler records usage only

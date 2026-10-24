@@ -24,6 +24,20 @@ interface MailOptions {
    *  never held back by the platform send quota — nobody gets locked out of
    *  their account because their org sent a lot of campaign mail. */
   essential?: boolean;
+  /** Reply-To for mail that goes out via the platform account (CRM follow-ups: the sending user).
+   *  Not applied on the org-mailbox path, whose replies should return to that mailbox. */
+  replyTo?: string;
+  /** Explicit Message-ID (SMTP paths), so a reply's In-Reply-To can be matched back to the record. */
+  messageId?: string;
+  /** Display name for the From header (keeps the verified address). */
+  fromName?: string;
+}
+
+/** How a message actually left (or didn't) — returned by sendMailNow for callers that log it. */
+export interface MailDelivery {
+  via: 'ORG_MAILBOX' | 'PLATFORM' | 'SUPPRESSED_DEMO' | 'NOT_CONFIGURED';
+  from?: string;
+  messageId?: string;
 }
 
 const nodemailerAttachments = (opts: MailOptions) => opts.attachments?.map(a => ({ filename: a.filename, content: Buffer.from(a.contentBase64, 'base64'), contentType: a.contentType }));
@@ -163,20 +177,21 @@ function withBrandHeader(html: string, branding: MailBranding): string {
  * (registerJobHandler('send_email', ...) at the bottom of this file) share
  * one implementation instead of duplicating the branding/fallback logic.
  */
-async function performSendMail(opts: MailOptions): Promise<void> {
+async function performSendMail(opts: MailOptions): Promise<MailDelivery> {
   // Public demo orgs are driven by anonymous visitors — see utils/demoOrgs.ts.
   if (await demoOrgMailBlocked(opts.orgId, opts.to)) {
     console.log(`[Email suppressed — demo org, external recipient] org ${opts.orgId} | ${opts.subject}`);
-    return;
+    return { via: 'SUPPRESSED_DEMO' };
   }
   if (opts.orgId) {
     try {
       const orgMailer = await getOrgMailer(opts.orgId);
       if (orgMailer) {
-        await orgMailer.transport.sendMail({ from: orgMailer.from, to: opts.to, subject: opts.subject, html: opts.html, attachments: nodemailerAttachments(opts) });
+        const from = opts.fromName ? withDisplayName(opts.fromName, orgMailer.from) : orgMailer.from;
+        const info = await orgMailer.transport.sendMail({ from, to: opts.to, subject: opts.subject, html: opts.html, attachments: nodemailerAttachments(opts), ...(opts.messageId ? { messageId: opts.messageId } : {}) });
         console.log(`[Email sent via org SMTP] To: ${opts.to} | ${opts.subject}`);
         recordUsage(opts.orgId, 'EMAIL_SEND', 'OWN');
-        return;
+        return { via: 'ORG_MAILBOX', from, messageId: info?.messageId || opts.messageId };
       }
     } catch (err) {
       console.error('[Email error — org SMTP, falling back to platform mailer]', err);
@@ -199,9 +214,10 @@ async function performSendMail(opts: MailOptions): Promise<void> {
     getPlatformMailConfig(),
   ]);
   const platformFromAddress = cfg.resendFrom || cfg.smtpFrom || DEFAULT_FROM_ADDRESS;
-  const from = branding ? brandedFromAddress(branding.companyName, platformFromAddress) : platformFromAddress;
+  const brandedFrom = branding ? brandedFromAddress(branding.companyName, platformFromAddress) : platformFromAddress;
+  const from = opts.fromName ? withDisplayName(opts.fromName, brandedFrom) : brandedFrom;
   const html = branding ? withBrandHeader(opts.html, branding) : opts.html;
-  const replyTo = branding?.replyTo || undefined;
+  const replyTo = opts.replyTo || branding?.replyTo || undefined;
 
   if (cfg.resendApiKey) {
     // No try/catch here — a Resend failure propagates to the caller
@@ -210,7 +226,7 @@ async function performSendMail(opts: MailOptions): Promise<void> {
     await sendViaResend({ ...opts, html }, cfg.resendApiKey, from, replyTo);
     console.log(`[Email sent via Resend]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
     if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
-    return;
+    return { via: 'PLATFORM', from };
   }
 
   const transporter = buildPlatformTransporter(cfg);
@@ -218,11 +234,37 @@ async function performSendMail(opts: MailOptions): Promise<void> {
     // Not a failure — nothing is configured, so there's nothing a retry
     // would accomplish either. Same as before: log and no-op.
     console.log(`[Email skipped — no Resend key or SMTP configured] To: ${opts.to} | ${opts.subject}`);
-    return;
+    return { via: 'NOT_CONFIGURED' };
   }
-  await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html, attachments: nodemailerAttachments(opts) });
+  const info = await transporter.sendMail({ from, replyTo, to: opts.to, subject: opts.subject, html, attachments: nodemailerAttachments(opts), ...(opts.messageId ? { messageId: opts.messageId } : {}) });
   console.log(`[Email sent via SMTP]${branding ? ` (branded as "${branding.companyName}")` : ''} To: ${opts.to} | ${opts.subject}`);
   if (opts.orgId) recordUsage(opts.orgId, 'EMAIL_SEND', 'PLATFORM');
+  return { via: 'PLATFORM', from, messageId: info?.messageId || opts.messageId };
+}
+
+/** `"Name" <addr>` keeping the address of an existing From header. */
+function withDisplayName(name: string, fromHeader: string): string {
+  const match = fromHeader.match(/<([^>]+)>/);
+  const addr = match ? match[1] : fromHeader;
+  const safe = name.replace(/["\r\n<>]/g, '').trim();
+  return safe ? `"${safe}" <${addr}>` : fromHeader;
+}
+
+/**
+ * Send now and report how it went — for callers that must tell the user and
+ * log the result (CRM follow-up emails). Unlike sendMail() it throws on
+ * failure instead of queueing a silent retry: the person clicked Send and is
+ * waiting, so they see the error and can try again, and nothing is logged as
+ * sent that wasn't.
+ */
+export async function sendMailNow(opts: MailOptions): Promise<MailDelivery> {
+  return performSendMail(opts);
+}
+
+/** Is the org's own mailbox connected (Inbox → Settings)? Address only — no secrets. */
+export async function orgMailboxAddress(orgId: string): Promise<string | null> {
+  const acc = await prisma.emailAccount.findUnique({ where: { orgId }, select: { email: true } });
+  return acc?.email ?? null;
 }
 
 /**

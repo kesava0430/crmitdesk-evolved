@@ -5,6 +5,7 @@ import { assertRefsInOrg } from '../../../utils/entityAccess';
 import { AuthRequest } from '../../../middleware/authenticate';
 import { runWorkflows } from '../../../utils/workflow-engine';
 import { pushCalendarEvent } from '../../../utils/googleCalendar';
+import { parseDueInput } from '../../../utils/followups/time';
 
 const Schema = z.object({
   type: z.enum(['CALL','EMAIL','MEETING','TASK']),
@@ -16,11 +17,13 @@ const Schema = z.object({
   // call/email/task on a lead before converting it to a deal; this closes
   // that gap without a separate lead-only activity model.
   leadId: z.string().optional(),
-  dueAt: z.string().optional(),
+  dueAt: z.string().optional().nullable(),
   done: z.boolean().optional(),
+  // Who does it and gets the reminder; empty/null = the creator (utils/followups).
+  assignedTo: z.string().optional().nullable().transform(v => v || null),
 });
 
-const include = { createdByUser: { select: { id: true, name: true } } };
+const include = { createdByUser: { select: { id: true, name: true } }, assignee: { select: { id: true, name: true } } };
 
 export async function list(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -38,11 +41,12 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
 export async function create(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.parse(req.body);
-    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId], ['CONTACT', data.contactId], ['LEAD', data.leadId]]);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId], ['CONTACT', data.contactId], ['LEAD', data.leadId], ['USER', data.assignedTo ?? undefined]]);
     const activity = await prisma.activity.create({
       data: {
         ...data,
-        dueAt: data.dueAt ? new Date(data.dueAt) : undefined,
+        // "YYYY-MM-DD" stays a date-only follow-up; a picked time is kept as an instant.
+        dueAt: parseDueInput(data.dueAt) ?? undefined,
         createdBy: req.user!.id,
         orgId: req.user!.orgId,
       },
@@ -66,12 +70,18 @@ export async function create(req: AuthRequest, res: Response, next: NextFunction
 export async function update(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const data = Schema.partial().parse(req.body);
-    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId], ['CONTACT', data.contactId], ['LEAD', data.leadId]]);
+    await assertRefsInOrg(req.user!.orgId, [['DEAL', data.dealId], ['CONTACT', data.contactId], ['LEAD', data.leadId], ['USER', data.assignedTo ?? undefined]]);
     const orgId = req.user!.orgId;
     const existing = await prisma.activity.findFirst({ where: { id: req.params.id, orgId } });
+    const dueAt = data.dueAt === undefined ? undefined : parseDueInput(data.dueAt);
     await prisma.activity.updateMany({
       where: { id: req.params.id, orgId },
-      data: { ...data, dueAt: data.dueAt ? new Date(data.dueAt) : undefined },
+      data: {
+        ...data,
+        dueAt,
+        // A new due time (or reassignment) gets its own reminder.
+        ...((dueAt !== undefined && dueAt?.getTime() !== existing?.dueAt?.getTime()) || data.assignedTo !== undefined ? { remindedAt: null } : {}),
+      },
     });
     const activity = await prisma.activity.findFirst({ where: { id: req.params.id, orgId }, include });
     // Completing a lead follow-up is a meaningful automation trigger point

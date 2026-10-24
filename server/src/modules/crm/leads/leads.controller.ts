@@ -11,6 +11,7 @@ import { logAction } from '../../../utils/auditLog';
 import { ensureDefaultPipeline, normalizeStages } from '../pipelines/pipelines.service';
 import { purgeEntityChildren } from '../../../utils/entityCleanup';
 import { tagIdFilter } from '../../../utils/tagFilter';
+import { listWithFollowUps, parseListFilter } from '../../../utils/followups/collect';
 
 const Schema = z.object({
   contactId: z.string().optional().or(z.literal('')).transform(v => v || undefined),
@@ -54,10 +55,14 @@ export async function list(req: AuthRequest, res: Response, next: NextFunction) 
     // a relation on this model — see utils/tagFilter.ts.
     const byTag = await tagIdFilter(orgId, 'LEAD', tagId);
     if (byTag) Object.assign(where, byTag);
-    const [leads, total] = await Promise.all([
-      prisma.lead.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: pag.limit, skip: pag.skip }),
-      prisma.lead.count({ where }),
-    ]);
+    // Each row carries `followUp` (overdue / today / upcoming / none, in the
+    // org's timezone); ?followUp=overdue|today|none filters, ?sort=followup
+    // puts overdue first — see utils/followups/collect.ts.
+    const { rows: leads, total } = await listWithFollowUps({
+      orgId, kind: 'LEAD', delegate: prisma.lead, where, include, pag,
+      filter: parseListFilter(req.query.followUp), sort: req.query.sort as string | undefined,
+      closedStatuses: ['CONVERTED', 'UNQUALIFIED'],
+    });
     res.json(paginate(leads, total, pag));
   } catch (err) { next(err); }
 }

@@ -16,6 +16,7 @@ import { leadsRouter } from './modules/crm/leads/leads.routes';
 import { dealsRouter } from './modules/crm/deals/deals.routes';
 import { pipelinesRouter } from './modules/crm/pipelines/pipelines.routes';
 import { activitiesRouter } from './modules/crm/activities/activities.routes';
+import { followUpsRouter } from './modules/crm/followups/followups.routes';
 import { ticketsRouter } from './modules/itdesk/tickets/tickets.routes';
 import { categoriesRouter } from './modules/itdesk/categories/categories.routes';
 import { slaRouter } from './modules/itdesk/sla/sla.routes';
@@ -94,6 +95,7 @@ import { expireOverdueApprovals } from './utils/approvals';
 import { invoicesRouter } from './modules/invoices/invoices.routes';
 import { jobsRouter } from './modules/jobs/jobs.routes';
 import { startSchedulePoller } from './utils/scheduler';
+import { startFollowUpPoller } from './utils/followups/reminders';
 import { startOrphanReaper } from './utils/entityCleanup';
 import { startCustomModuleSyncPoller } from './utils/customModuleSync';
 import { startDateAutomationPoller } from './utils/dateAutomation';
@@ -306,6 +308,7 @@ app.use('/api/crm/leads', leadsRouter);
 app.use('/api/crm/deals', dealsRouter);
 app.use('/api/crm/pipelines', pipelinesRouter);
 app.use('/api/crm/activities', activitiesRouter);
+app.use('/api/crm/followups', followUpsRouter);
 app.use('/api/itdesk/tickets', ticketsRouter);
 app.use('/api/itdesk/categories', categoriesRouter);
 app.use('/api/itdesk/sla-policies', slaRouter);
@@ -453,6 +456,10 @@ setTimeout(() => {
 
 // Schedule reminders: check for due WhatsApp notifications every minute
 startSchedulePoller();
+
+// CRM follow-ups: due reminders (exactly once, no catch-up storms) and the
+// morning digest, every minute — see utils/followups/reminders.ts
+pollers.push(startFollowUpPoller());
 
 // Attachments whose parent record was deleted by a database-level cascade
 // (which no controller sees) still occupy the org's storage quota. Daily sweep.

@@ -34,6 +34,7 @@ model Organization {
   customScripts     CustomScript[]
   accounts          Account[]
   activities     Activity[]
+  followUpPrefs  FollowUpPrefs[]
   apiKeys        ApiKey[]
   assets         Asset[]
   campaigns      Campaign[]
@@ -324,6 +325,8 @@ model User {
   calendarConnection     CalendarConnection?
   ownedAccounts          Account[]          @relation("AccountOwner")
   activities             Activity[]
+  assignedActivities     Activity[]         @relation("ActivityAssignee")
+  followUpPrefs          FollowUpPrefs?
   apiKeys                ApiKey[]
   assignedAssets         Asset[]
   attachments            Attachment[]
@@ -753,17 +756,33 @@ model Activity {
   dueAt         DateTime?    @map("due_at")
   done          Boolean      @default(false)
   createdBy     String       @map("created_by")
+  /// Who should do it (and gets the reminder). Null = the creator — every
+  /// row written before this column existed keeps that meaning. See
+  /// utils/followups (responsibleUserId).
+  assignedTo    String?      @map("assigned_to")
+  /// Set when the due-reminder was sent (claimed before sending, so a restart
+  /// never sends it twice). Cleared when dueAt changes or it's snoozed.
+  remindedAt    DateTime?    @map("reminded_at")
+  /// Message-ID of an email sent from the app (or received as a reply) that
+  /// this EMAIL activity records — how replies are matched back to the record.
+  emailMessageId String?     @map("email_message_id")
+  /// { direction: OUTBOUND|INBOUND, to, from, via, aiDraft? } for emails sent/received via the app.
+  emailMeta     Json?        @map("email_meta")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   orgId         String       @map("org_id")
   contact       Contact?     @relation(fields: [contactId], references: [id])
   createdByUser User         @relation(fields: [createdBy], references: [id])
+  assignee      User?        @relation("ActivityAssignee", fields: [assignedTo], references: [id], onDelete: SetNull)
   deal          Deal?        @relation(fields: [dealId], references: [id])
   lead          Lead?        @relation(fields: [leadId], references: [id])
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
   @@index([leadId])
+  @@index([dealId])
+  @@index([orgId, done, dueAt])
+  @@index([emailMessageId])
   @@map("activities")
 }
 
@@ -3509,6 +3528,9 @@ model Task {
   recurrenceParentId String?   @map("recurrence_parent_id")
   recurrenceUntil    DateTime? @map("recurrence_until")
 
+  /// Due-reminder sent (CRM follow-up tasks only — utils/followups). Cleared when dueAt changes.
+  remindedAt         DateTime? @map("reminded_at")
+
   estimateMinutes Int?       @map("estimate_minutes")
   spentMinutes    Int?       @map("spent_minutes")
   source          TaskSource @default(MANUAL)
@@ -4439,4 +4461,24 @@ model DashboardHome {
 
   @@index([dashboardId])
   @@map("dashboard_homes")
+}
+
+/// Per-user follow-up reminder settings and digest bookkeeping (utils/followups).
+/// No row = defaults: in-app/push reminders on, WhatsApp off, digest on.
+model FollowUpPrefs {
+  userId        String   @id @map("user_id")
+  orgId         String   @map("org_id")
+  /// Also send due-reminders on WhatsApp (only if the org has WhatsApp
+  /// connected and the user verified their number with the assistant). Off by default.
+  whatsapp      Boolean  @default(false)
+  /// Morning "you have N follow-ups today" notification.
+  digest        Boolean  @default(true)
+  /// Org-local date ("YYYY-MM-DD") of the last digest sent — the once-a-day claim.
+  lastDigestOn  String?  @map("last_digest_on")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("followup_prefs")
 }

@@ -382,6 +382,8 @@ export async function update(req: AuthRequest, res: Response, next: NextFunction
         ...(data.priority !== undefined ? { priority: data.priority } : {}),
         ...(data.startAt !== undefined ? { startAt: toDate(data.startAt) ?? null } : {}),
         ...(data.dueAt !== undefined ? { dueAt: toDate(data.dueAt) ?? null } : {}),
+        // A new due time gets its own follow-up reminder (utils/followups/reminders.ts).
+        ...(data.dueAt !== undefined ? { remindedAt: null } : {}),
         ...(data.assigneeUserId !== undefined ? { assigneeUserId: data.assigneeUserId } : {}),
         ...(data.assigneeEmployeeId !== undefined ? { assigneeEmployeeId: data.assigneeEmployeeId } : {}),
         ...(data.checklist !== undefined ? { checklist: (data.checklist as any) ?? undefined } : {}),

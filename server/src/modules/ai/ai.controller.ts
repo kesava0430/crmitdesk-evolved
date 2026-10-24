@@ -9,7 +9,6 @@ import { prisma } from '../../utils/prisma';
 import { AuthRequest, IT_STAFF } from '../../middleware/authenticate';
 import {
   scoreLead,
-  generateFollowUp,
   analyzeTicketSentiment,
   suggestTicketReply,
   autoRouteTicket,
@@ -153,50 +152,11 @@ export async function scoreLeadHandler(req: AuthRequest, res: Response, next: Ne
   } catch (err: any) { if (!handleAIError(err, res)) next(err); }
 }
 
-// ─── Lead: Follow-up Email ────────────────────────────────────────────────────
+// ─── Lead / Deal: Follow-up Email ─────────────────────────────────────────────
 
-export async function leadFollowUpHandler(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const orgId = req.user!.orgId;
-    const lead = await prisma.lead.findFirst({
-      where: { id: req.params.id, orgId },
-      include: { contact: { select: { name: true, email: true } } },
-    });
-    if (!lead) return res.status(404).json({ error: 'Lead not found' });
-
-    const result = await generateFollowUp({
-      type: 'lead',
-      title: lead.contact?.name || 'Lead',
-      contactName: lead.contact?.name ?? undefined,
-      contactEmail: lead.contact?.email ?? undefined,
-      notes: lead.notes ?? undefined,
-    });
-    res.json(result);
-  } catch (err: any) { if (!handleAIError(err, res)) next(err); }
-}
-
-// ─── Deal: Follow-up Email ────────────────────────────────────────────────────
-
-export async function dealFollowUpHandler(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const orgId = req.user!.orgId;
-    const deal = await prisma.deal.findFirst({
-      where: { id: req.params.id, orgId },
-      include: { contact: { select: { name: true, email: true } } },
-    });
-    if (!deal) return res.status(404).json({ error: 'Deal not found' });
-
-    const result = await generateFollowUp({
-      type: 'deal',
-      title: deal.title,
-      stage: deal.stage,
-      contactName: deal.contact?.name ?? undefined,
-      contactEmail: deal.contact?.email ?? undefined,
-      value: Number(deal.value),
-    });
-    res.json(result);
-  } catch (err: any) { if (!handleAIError(err, res)) next(err); }
-}
+// Lead/deal follow-up emails moved to modules/crm/followups (draftEmail):
+// they now use the record's comments, activities, quote and plan, with a
+// server-side fact check, instead of just the title and stage.
 
 // ─── Ticket: Sentiment ────────────────────────────────────────────────────────
 

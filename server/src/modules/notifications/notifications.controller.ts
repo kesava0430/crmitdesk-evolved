@@ -78,12 +78,15 @@ export async function createNotification(params: {
   body?: string;
   entityType?: string;
   entityId?: string;
+  /** In-app path the push notification opens (e.g. '/my-work'); not stored. */
+  url?: string;
 }) {
-  const notification = await prisma.notification.create({ data: params });
+  const { url, ...data } = params;
+  const notification = await prisma.notification.create({ data });
   // Real browser push, on top of the in-app bell — see utils/webPush.ts.
   // Fire-and-forget: a push failure shouldn't fail whatever action
   // triggered this notification.
-  sendPushToUser(params.userId, { title: params.title, body: params.body }).catch(() => {});
+  sendPushToUser(params.userId, { title: params.title, body: params.body, ...(url ? { url } : {}) }).catch(() => {});
   return notification;
 }
 

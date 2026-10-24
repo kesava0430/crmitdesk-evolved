@@ -334,44 +334,6 @@ export async function scoreLead(lead: {
   };
 }
 
-// ─── Follow-up Email Generator ────────────────────────────────────────────────
-
-export async function generateFollowUp(context: {
-  type: 'lead' | 'deal';
-  title: string;
-  stage?: string;
-  contactName?: string;
-  contactEmail?: string;
-  notes?: string;
-  value?: number;
-}): Promise<{ subject: string; body: string }> {
-  const client = getClient();
-  if (!client) {
-    return {
-      subject: `Follow-up: ${context.title}`,
-      body: 'AI follow-up generation not configured — add OPENAI_API_KEY to .env',
-    };
-  }
-
-  const reply = await chat(
-    client,
-    'You are a professional sales email writer. Write concise, warm, personalized follow-up emails (3–5 short paragraphs). Respond ONLY with valid JSON: {"subject": "...", "body": "..."}',
-    `Write a follow-up email for this ${context.type}: ${JSON.stringify(context)}`,
-    // Shared by leads and deals, so the governance label follows the caller —
-    // otherwise both would collapse into one row on the cost-by-feature chart.
-    { feature: `${context.type}.followUp`, maxTokens: 1000 }
-  );
-
-  const parsed = safeJson(reply);
-  return {
-    subject: str(parsed?.subject, 200) ?? `Follow-up: ${context.title}`,
-    // Falling back to the raw reply is deliberate — a model that ignored the
-    // JSON instruction usually still wrote a usable email. But it goes through
-    // str() so a non-string can never reach the client as an email body.
-    body: str(parsed?.body, 8000) ?? str(reply, 8000) ?? '',
-  };
-}
-
 // ─── Ticket Sentiment Analysis ────────────────────────────────────────────────
 
 export type Sentiment = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'FRUSTRATED';
@@ -479,6 +441,22 @@ export async function analysePastDealsJson(system: string, user: string, maxToke
   const client = getClient();
   if (!client) return null;
   return chat(client, system, user, { feature: 'deal.pastLessons', json: true, temperature: 0, maxTokens });
+}
+
+/** Lead/deal follow-up email from the record's real context (utils/followups/email.ts) — JSON, every amount/date fact-checked by the caller. */
+export async function draftFollowUpEmailJson(kind: 'lead' | 'deal', system: string, user: string, maxTokens: number): Promise<string | null> {
+  const client = getClient();
+  if (!client) return null;
+  return kind === 'lead'
+    ? chat(client, system, user, { feature: 'lead.followUp', json: true, temperature: 0.4, maxTokens })
+    : chat(client, system, user, { feature: 'deal.followUp', json: true, temperature: 0.4, maxTokens });
+}
+
+/** One suggested next follow-up for a lead/deal (utils/followups/nextStep.ts) — JSON, validated and date-resolved by the caller. */
+export async function suggestNextStepJson(system: string, user: string, maxTokens: number): Promise<string | null> {
+  const client = getClient();
+  if (!client) return null;
+  return chat(client, system, user, { feature: 'crm.nextStep', json: true, temperature: 0, maxTokens });
 }
 
 /** Multi-query answers only: 1–2 sentences from aggregated results (numbers re-checked by the caller). */
