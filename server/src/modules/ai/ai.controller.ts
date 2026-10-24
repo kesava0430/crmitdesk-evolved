@@ -4,6 +4,7 @@ import { runAiRuleManually } from '../../utils/ai-rules';
 import { runAiRules } from '../../utils/ai-rules';
 import { complete } from '../../utils/aiGateway';
 import { aiConfigSource, explainAiError, testAiConnection } from '../../utils/aiStatus';
+import { readRateLimit, rateLimitResponse } from '../../utils/aiRateLimit';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest, IT_STAFF } from '../../middleware/authenticate';
@@ -47,16 +48,24 @@ import { exampleRequests } from '../../utils/assistantChannels/format';
 const usingGroq = !!process.env.GROQ_API_KEY;
 
 export function handleAIError(err: any, res: Response): boolean {
-  if (err?.status === 429 || err?.code === 'insufficient_quota') {
-    // Groq's free tier enforces per-minute/per-day request and token caps
-    // rather than a billing balance — a 429 there almost always means "wait
-    // for the rate limit to reset" or "usage cap hit", not "no money left",
-    // so the guidance differs meaningfully from OpenAI's quota model.
-    res.status(402).json({
-      error: usingGroq
-        ? 'Groq rate limit or usage cap reached. Check your usage at console.groq.com — this is usually temporary and clears within a minute, but a sustained cap means it\'s time to upgrade your Groq plan.'
-        : 'OpenAI quota exceeded. Add billing credits at platform.openai.com.',
-    });
+  if (err?.code === 'insufficient_quota' || err?.error?.code === 'insufficient_quota') {
+    res.status(402).json({ error: 'OpenAI quota exceeded. Add billing credits at platform.openai.com.' });
+    return true;
+  }
+  if (err?.status === 429) {
+    /* A provider rate limit (Groq's free tier: tokens per minute / per day
+       for the whole account). The gateway already waited if the reset was a
+       few seconds away; tell the user which window ran out and when it
+       frees up — "try again in ~8 seconds" and "resets in ~7 h" call for
+       very different reactions. 429 + Retry-After, not 402: this is not our
+       billing plan, and the client's 402 toast links to Billing. */
+    if (!err.providerKey && !err.rateLimit && usingGroq) err.providerKey = 'groq';
+    const info = readRateLimit(err)
+      ?? { window: 'unknown' as const, unit: null, waitSec: null, limit: null, provider: usingGroq ? 'groq' : null };
+    const r = rateLimitResponse(info);
+    console.warn('[ai] provider rate limit:', info.provider ?? '-', info.window, info.unit ?? '-', info.waitSec != null ? `${info.waitSec}s` : 'no reset time');
+    if (r.retryAfter != null) res.setHeader('Retry-After', String(r.retryAfter));
+    res.status(r.status).json(r.body);
     return true;
   }
   if (err?.status === 401) {

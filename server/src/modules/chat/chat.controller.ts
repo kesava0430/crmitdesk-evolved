@@ -34,6 +34,7 @@ import { executePlan } from '../../utils/aiActions/executor';
 import { planAsText } from '../../utils/aiActions/text';
 import { hasFeature, getEffectiveLicense } from '../../utils/licensing';
 import { entityTypeModule } from '../../utils/modules';
+import { readRateLimit, rateLimitMessage } from '../../utils/aiRateLimit';
 
 const RECORD_TYPES = ['TICKET', 'DEAL', 'LEAD', 'CONTACT', 'ACCOUNT', 'CUSTOM_MODULE_RECORD'] as const;
 
@@ -204,7 +205,11 @@ export async function postMessage(req: AuthRequest, res: Response, next: NextFun
     const text = plainText(clean);
     if (/^@ai\b/i.test(text)) {
       // Answer asynchronously; the human message is already delivered.
-      handleAiMention(orgId, req.user!, thread as any, text.replace(/^@ai\b[:,]?\s*/i, '')).catch(() => {});
+      handleAiMention(orgId, req.user!, thread as any, text.replace(/^@ai\b[:,]?\s*/i, '')).catch((err: any) => {
+        // A provider rate limit is worth telling the thread about ("try again in ~X"); anything else stays quiet as before.
+        const rl = readRateLimit(err);
+        if (rl) postAssistantMessage(orgId, thread as any, rateLimitMessage(rl)).catch(() => {});
+      });
     }
 
     res.status(201).json(message);

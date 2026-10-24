@@ -31,6 +31,19 @@ import type { PermCtx } from './permissions';
 import { getEffectiveLicense } from './licensing';
 import { getAiContext } from './aiContext';
 import { checkOutboundUrl, publicHttpAgent, publicHttpsAgent } from './safeHttp';
+import crypto from 'crypto';
+import {
+  estimateTokens, readRateLimit, rateLimitRetryDecision, pacerFor, tpmLimitFor, MAX_PACE_WAIT_MS, MAX_TOTAL_WAIT_MS,
+} from './aiRateLimit';
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/** Who to name in a rate-limit message: "groq", "openai" (the real API), or the row's key (named generically). */
+function providerLabel(m: Pick<ResolvedModel, 'providerKey' | 'baseUrl'>): string {
+  if (/groq/i.test(`${m.providerKey} ${m.baseUrl ?? ''}`)) return 'groq';
+  if (/openai/i.test(m.providerKey)) return !m.baseUrl || /api\.openai\.com/i.test(m.baseUrl) ? 'openai' : 'custom';
+  return m.providerKey;
+}
 
 // ─── Task types ───────────────────────────────────────────────────────────────
 
@@ -435,16 +448,37 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
   }
 
   let lastErr: any;
+  /* If one provider was rate-limited and the fallbacks failed too, the rate
+     limit ("try again in ~8 seconds") is the useful thing to report. */
+  let rateLimitErr: any = null;
+  /* Rate-limit waiting is shared across attempts AND providers, so one call
+     never holds the user longer than MAX_TOTAL_WAIT_MS in total. */
+  let waitedMs = 0;
+  const requestTokens = estimateTokens(opts.system.length + opts.user.length) + (opts.maxTokens ?? 800);
 
   for (const m of candidates) {
     const client = clientFor(m);
+    const pacer = pacerFor(`${m.providerKey}|${crypto.createHash('sha256').update(m.apiKey).digest('hex').slice(0, 12)}`, tpmLimitFor(m));
 
     let jsonMode = !!(opts.json && m.supportsJson);
+    let rateLimitRetries = 0;
+    let waitBeforeMs = 0;
+    let slot: number | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 2 ** attempt * 1000));
+      // A reservation left by a request that was rejected and re-sent (JSON / reasoning fallbacks).
+      if (pacer && slot != null) { pacer.settle(slot, null); slot = null; }
+      if (waitBeforeMs > 0) { await sleep(waitBeforeMs); waitedMs += waitBeforeMs; waitBeforeMs = 0; }
       try {
         let recovered: string | null = null;
         let res: any;
+        if (pacer) {
+          // Stay under the account's tokens-per-minute ourselves: a short
+          // queue beats a 429. Past the cap, send anyway and let the provider decide.
+          const paceMs = pacer.waitFor(requestTokens);
+          const hold = paceMs <= Math.min(MAX_PACE_WAIT_MS, MAX_TOTAL_WAIT_MS - waitedMs) ? paceMs : 0;
+          slot = pacer.reserve(requestTokens, hold);
+          if (hold > 0) { await sleep(hold); waitedMs += hold; }
+        }
         try {
           res = await client.chat.completions.create({
             model: m.model,
@@ -477,6 +511,7 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
         const text = recovered ?? res?.choices?.[0]?.message?.content?.trim() ?? '';
         const promptTokens = res?.usage?.prompt_tokens ?? 0;
         const completionTokens = res?.usage?.completion_tokens ?? 0;
+        if (pacer && slot != null) { pacer.settle(slot, promptTokens + completionTokens || null); slot = null; }
         // Groq/OpenAI report prompt-cache hits here; they are part of
         // prompt_tokens and billed at a discount.
         const cachedPromptTokens = res?.usage?.prompt_tokens_details?.cached_tokens ?? 0;
@@ -512,9 +547,27 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
       } catch (err: any) {
         lastErr = err;
         const status = err?.status;
+        if (pacer && slot != null) { pacer.settle(slot, null); slot = null; } // a rejected request isn't counted
+        if (status === 429) {
+          /* Wait only as long as the provider says, and only when that is
+             short; a per-day cap or a long wait fails fast (or moves on to
+             the next provider) so the user hears "try again in ~X" now. */
+          err.providerKey = err.providerKey ?? providerLabel(m);
+          const info = readRateLimit(err);
+          if (info) { err.rateLimit = info; rateLimitErr = rateLimitErr ?? err; }
+          if (info && info.window !== 'day' && info.waitSec != null && pacer) pacer.blockFor(info.waitSec * 1000);
+          const d = rateLimitRetryDecision(info, { rateLimitRetries, waitedMs });
+          if (!d.retry) break; // next provider
+          rateLimitRetries++;
+          waitBeforeMs = d.waitMs;
+          continue;
+        }
         // A timeout won't get better by waiting longer on the same provider;
         // move on to the next candidate (if any) instead.
-        if (status !== 429 && status !== 503) break; // next provider
+        if (status !== 503) break; // next provider
+        const backoff = 2 ** (attempt + 1) * 1000;
+        if (waitedMs + backoff > MAX_TOTAL_WAIT_MS) break;
+        waitBeforeMs = backoff;
       }
     }
   }
@@ -533,7 +586,7 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
     responsePreview: null,
   });
 
-  throw lastErr ?? new Error('All AI providers failed');
+  throw rateLimitErr ?? lastErr ?? new Error('All AI providers failed');
 }
 
 // ─── Embeddings ───────────────────────────────────────────────────────────────

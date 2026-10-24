@@ -22,6 +22,7 @@
 import crypto from 'crypto';
 import { prisma } from '../prisma';
 import { complete } from '../aiGateway';
+import { readRateLimit, rateLimitMessage } from '../aiRateLimit';
 import { tierFor, pickRelevant } from '../ai';
 import { getEffectiveLicense } from '../licensing';
 import { getPermCtx, type PermCtx } from '../permissions';
@@ -468,7 +469,9 @@ export async function planCommand(user: PlanUser, command: string, opts: { now?:
   catch (err: any) {
     if (err?.status === 402) throw err;
     console.error('[planCommand] model call failed:', err?.status, err?.message || err);
-    return summarisePlan([], { planId, interactionLogId: null, explanation: 'The AI request failed — try again in a moment.', confidence: 0, repaired: false });
+    // A provider rate limit says when to try again (in-app card, WhatsApp, Slack and team chat all show the explanation).
+    const rl = readRateLimit(err);
+    return summarisePlan([], { planId, interactionLogId: null, explanation: rl ? rateLimitMessage(rl) : 'The AI request failed — try again in a moment.', confidence: 0, repaired: false });
   }
   let parsed = parseModelPlan(first.text);
   let logId = first.logId;

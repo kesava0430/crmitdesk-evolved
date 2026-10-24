@@ -15,6 +15,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { AuthRequest } from '../../middleware/authenticate';
 import { AppError } from '../../middleware/errorHandler';
+import { handleAIError } from './ai.controller';
 
 // Use Groq via the OpenAI-compatible endpoint (same pattern as utils/ai.ts)
 function getAiClient(): OpenAI | null {
@@ -248,8 +249,7 @@ export async function runFunction(req: AuthRequest, res: Response, next: NextFun
 
     res.json({ output, raw });
   } catch (err: any) {
-    if (err?.status === 429) return res.status(402).json({ error: 'AI quota exceeded.' });
-    next(err);
+    if (!handleAIError(err, res)) next(err);
   }
 }
 

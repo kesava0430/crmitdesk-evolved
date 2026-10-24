@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getAiContext } from './aiContext';
 import { complete, logCacheHit } from './aiGateway';
 import { readPersistentCache, writePersistentCache } from './aiCache';
+import { readRateLimit, rateLimitRetryDecision } from './aiRateLimit';
 
 // ─── Client Factory ───────────────────────────────────────────────────────────
 
@@ -231,8 +232,9 @@ async function chat(
      work keeps running; it is simply not logged or budgeted. See
      utils/aiContext.ts for how to attach a context to such callers. */
   let lastErr: any;
+  let waitMs = 0, waitedMs = 0, rateLimitRetries = 0;
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+    if (waitMs > 0) { await new Promise(r => setTimeout(r, waitMs)); waitedMs += waitMs; waitMs = 0; }
     try {
       const res = await client.chat.completions.create({
         model,
@@ -254,7 +256,17 @@ async function chat(
     } catch (err: any) {
       lastErr = err;
       if (err?.status === 401 || err?.status === 402) throw err; // don't retry auth errors
-      if (err?.status !== 429 && err?.status !== 503) throw err; // only retry rate limits
+      if (err?.status === 429) {
+        // Same policy as the gateway: wait only for a short, provider-stated reset.
+        err.providerKey = err.providerKey ?? (process.env.GROQ_API_KEY ? 'groq' : process.env.OPENAI_BASE_URL ? 'custom' : 'openai');
+        const info = readRateLimit(err);
+        if (info) err.rateLimit = info;
+        const d = rateLimitRetryDecision(info, { rateLimitRetries, waitedMs });
+        if (!d.retry) throw err;
+        rateLimitRetries++; waitMs = d.waitMs; continue;
+      }
+      if (err?.status !== 503) throw err; // only retry rate limits / overload
+      waitMs = Math.pow(2, attempt + 1) * 1000;
     }
   }
   throw lastErr;
@@ -433,7 +445,9 @@ Use null if no clear match. Pick from the provided lists only.`,
 export async function interpretAnalyticsQuestion(system: string, user: string): Promise<string | null> {
   const client = getClient();
   if (!client) return null;
-  return chat(client, system, user, { feature: 'dashboard.query', json: true, temperature: 0, maxTokens: 900 });
+  // A plan is ~100–400 tokens; the rest is headroom for gpt-oss's low-effort
+  // reasoning. Was 900 — max_tokens counts against Groq's per-minute check.
+  return chat(client, system, user, { feature: 'dashboard.query', json: true, temperature: 0, maxTokens: 700 });
 }
 
 /** Deal → Lessons from related deals (utils/dealLinks): reasons quoted from past deals' notes — JSON, every quote re-checked by the caller. */
@@ -467,12 +481,12 @@ export async function narrateAnalyticsAnswer(system: string, user: string): Prom
 }
 
 /** Dashboards (utils/dashboards/propose.ts): a whole dashboard proposal, or one widget changed — JSON, validated by the caller. */
-export async function designDashboardJson(system: string, user: string, feature: 'dashboard.build' | 'dashboard.widgetEdit'): Promise<string | null> {
+export async function designDashboardJson(system: string, user: string, feature: 'dashboard.build' | 'dashboard.widgetEdit', maxTokens: number): Promise<string | null> {
   const client = getClient();
   if (!client) return null;
   return feature === 'dashboard.build'
-    ? chat(client, system, user, { feature: 'dashboard.build', json: true, temperature: 0, maxTokens: 2500 })
-    : chat(client, system, user, { feature: 'dashboard.widgetEdit', json: true, temperature: 0, maxTokens: 900 });
+    ? chat(client, system, user, { feature: 'dashboard.build', json: true, temperature: 0, maxTokens })
+    : chat(client, system, user, { feature: 'dashboard.widgetEdit', json: true, temperature: 0, maxTokens });
 }
 
 // ─── KB Article Generator ─────────────────────────────────────────────────────

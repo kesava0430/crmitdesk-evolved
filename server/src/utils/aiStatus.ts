@@ -10,6 +10,7 @@
  * fix — for the AI Governance page and for the per-request guard.
  */
 import OpenAI from 'openai';
+import { readRateLimit, rateLimitMessage } from './aiRateLimit';
 import { prisma } from './prisma';
 import { resolveModels, isGatewayConfigured, openAiTarget } from './aiGateway';
 
@@ -73,6 +74,9 @@ export function explainAiError(err: any, provider: string | null): { error: stri
     return { error: `The model was not found (HTTP 404).`, hint: 'The configured model name is retired or misspelled. Set AI_MODEL_FAST / AI_MODEL_SMART to current model names (Groq: openai/gpt-oss-20b and openai/gpt-oss-120b) and restart the API.' };
   }
   if (status === 429) {
+    // Name the window (per minute vs per day) and the reset time the provider gave.
+    const info = readRateLimit({ ...err, status: 429, message: err?.message, error: err?.error, headers: err?.headers, providerKey: err?.providerKey ?? provider });
+    if (info && info.window !== 'unknown') return { error: `Rate limit reached (HTTP 429, ${info.window === 'day' ? 'daily' : 'per-minute'} limit).`, hint: rateLimitMessage(info) };
     return { error: 'Rate limit or usage cap reached (HTTP 429).', hint: 'Usually clears within a minute. If it persists, check usage and plan limits in the provider console.' };
   }
   if (typeof status === 'number' && status >= 500) {

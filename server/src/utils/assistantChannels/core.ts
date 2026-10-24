@@ -23,6 +23,7 @@ import { routeChatTurn } from '../ai';
 import { runWithAiContext } from '../aiContext';
 import { getEffectiveLicense, featureNotIncludedMessage } from '../licensing';
 import { planCommand, reviewPlan, type ActionPlan, type PlanUser } from '../aiActions/planner';
+import { readRateLimit, rateLimitMessage } from '../aiRateLimit';
 import { executePlan } from '../aiActions/executor';
 import { answerQuestion } from '../analytics/ask';
 import { logAction } from '../auditLog';
@@ -66,6 +67,7 @@ export async function handleStaffMessage(msg: StaffMessage): Promise<string> {
   } catch (err: any) {
     console.error(`[assistant:${channel}] failed for user ${user.id}:`, err?.status ?? '', err?.message ?? err);
     if (err?.status === 402) return String(err.message || 'The AI allowance for this month is used up.');
+    if (err?.status === 429) { const rl = readRateLimit(err); return rl ? rateLimitMessage(rl) : 'The AI is busy right now. Try again in a minute.'; }
     return 'Sorry — something went wrong on my side and nothing was changed. Please try again in a moment.';
   }
 }
