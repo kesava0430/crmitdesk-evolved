@@ -1,6 +1,7 @@
 import { useModules } from '../../../shared/modules';
-import { useEffect, useState } from 'react';
-import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, ChevronUp, ChevronDown, AlertTriangle } from 'lucide-react';
 import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
 import { useContacts, useAccounts, usePipelines, useAddStage, useUpdateStage, useRemoveStage, useReorderStages } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
@@ -18,6 +19,9 @@ import { useLabels } from '../../../hooks/useLabels';
 import { useAiPrefill } from '../../../hooks/useAiPrefill';
 import { useFormat } from '../../../hooks/useFormat';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useDebounce } from '../../../hooks/useDebounce';
+import { useDealLinkRule, useRelatedPreview, useRelatedCounts } from '../../../api/dealLinks';
+import { RelatedDealsPanel } from './RelatedDeals';
 import { can } from '../../../shared/permissions';
 
 function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading, aiPrefill }: any) {
@@ -44,6 +48,13 @@ function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubm
   // not always a literal dollar sign, so that piece is built separately
   // from the overridable fallback rather than baked into it.
   const titleLabel = fieldLabel('deal', 'title', 'Deal Title');
+  // "2 earlier deals on this unit were lost" — once the matching fields are filled in.
+  const { data: linkRule } = useDealLinkRule();
+  // Debounced as a string: a fresh object every render would never settle.
+  const previewKey = useDebounce(linkRule?.rule
+    ? JSON.stringify({ excludeId: entityId, accountId: form.accountId || null, contactId: form.contactId || null, custom: customValues })
+    : '', 500);
+  const { data: related } = useRelatedPreview(previewKey ? JSON.parse(previewKey) : null);
   const valueLabel = `${fieldLabel('deal', 'value', 'Value')} (${symbol})`;
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit({ ...form, value: Number(form.value), probability: Number(form.probability), __customFieldValues: customValues }); }} className="space-y-3">
@@ -108,12 +119,17 @@ function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubm
         onChange={(key, value) => setCustomValues(p => ({ ...p, [key]: value }))}
         isNew={!entityId}
       />
+      {related?.configured && !!related.counts?.lost && (
+        <Alert tone="warning" title={`${related.counts.lost} earlier ${related.counts.lost === 1 ? 'deal' : 'deals'} with ${related.sharedOn?.join(' and ')} ${related.counts.lost === 1 ? 'was' : 'were'} lost`}>
+          <p className="text-xs">{related.counts.won ? `${related.counts.won} won. ` : ''}After saving, open this deal to see them and use “Analyse past deals” to see why.</p>
+        </Alert>
+      )}
       <FormActions><Button type="submit" loading={loading}>{initial ? 'Save Changes' : `Create ${singular}`}</Button></FormActions>
     </form>
   );
 }
 
-function DealCard({ deal, onDelete, onSelect }: any) {
+function DealCard({ deal, onDelete, onSelect, related, relatedLabel }: any) {
   const [dragging, setDragging] = useState(false);
   const { money } = useFormat();
   return (
@@ -151,6 +167,12 @@ function DealCard({ deal, onDelete, onSelect }: any) {
         <Avatar name={deal.assignee.name} size="xs" tone="accent" />
         <span className="text-xs text-fg-subtle truncate" title={deal.assignee.name}>{deal.assignee.name}</span>
       </div>}
+      {related?.lost > 0 && (
+        <button type="button" onClick={() => onSelect(deal)} className="mt-2 flex items-start gap-1 text-[11px] text-warning-fg text-left leading-snug">
+          <AlertTriangle size={11} className="text-warning shrink-0 mt-px" aria-hidden="true" />
+          <span>{related.lost} earlier {related.lost === 1 ? 'deal' : 'deals'} on this {relatedLabel} {related.lost === 1 ? 'was' : 'were'} lost</span>
+        </button>
+      )}
     </Card>
   );
 }
@@ -510,9 +532,11 @@ function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => 
 // invalidates ['deals', id] — previously the detail panel took `deal` as a
 // prop sourced from the pipeline column array, which only ever refreshed on
 // remount (close + reopen the modal).
-function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; pageSingular: string; onEdit: (deal: any) => void }) {
+function DealDetailModalContent({ id, pageSingular, onEdit, onOpenDeal, onTitle }: { id: string; pageSingular: string; onEdit: (deal: any) => void; onOpenDeal: (id: string, title: string) => void; onTitle: (title: string) => void }) {
   const { data: deal, isLoading } = useDeal(id);
   const { money } = useFormat();
+  // Opened from a link (?deal=…) the modal has no title yet.
+  useEffect(() => { if (deal?.title) onTitle(deal.title); }, [deal?.title]); // eslint-disable-line react-hooks/exhaustive-deps
   if (isLoading || !deal) {
     return (
       <div className="space-y-3" aria-hidden="true">
@@ -539,6 +563,10 @@ function DealDetailModalContent({ id, pageSingular, onEdit }: { id: string; page
         <StatTile tone="sunken" label="Contact" value={deal.contact?.name || '--'} />
         <StatTile tone="sunken" label="Assigned To" value={deal.assignee?.name || '--'} />
       </div>
+      {deal.status !== 'OPEN' && (
+        <Alert tone={deal.status === 'WON' ? 'success' : 'danger'} icon={null}>This deal is <strong>{deal.status === 'WON' ? 'won' : 'lost'}</strong>.</Alert>
+      )}
+      <RelatedDealsPanel dealId={deal.id} onOpenDeal={onOpenDeal} />
       <DealDetailPanel deal={deal} />
       <RecordTags entityType="DEAL" entityId={deal.id} />
       <CustomFieldsDisplay entityType="DEAL" entityId={deal.id} card />
@@ -561,8 +589,14 @@ export function DealsPage() {
   const canReadCrm = can.readCrm(role);
   const canReadReports = can.readCrmReports(role);
   const [modal, setModal] = useState(false);
-  const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // ?deal=<id> opens that deal (links from related deals, search, notifications).
+  const [selectedDealId, setSelectedDealIdRaw] = useState<string | null>(() => searchParams.get('deal'));
   const [selectedDealTitle, setSelectedDealTitle] = useState('');
+  function setSelectedDealId(id: string | null) {
+    setSelectedDealIdRaw(id);
+    if (!id && searchParams.has('deal')) { searchParams.delete('deal'); setSearchParams(searchParams, { replace: true }); }
+  }
   const [editingDeal, setEditingDeal] = useState<any>(null);
   const [view, setView] = useState<'kanban' | 'reports'>('kanban');
   const [pipelineHealthOpen, setPipelineHealthOpen] = useState(false);
@@ -578,6 +612,10 @@ export function DealsPage() {
   const del = useDeleteDeal();
   const saveCustomFields = useSaveCustomFieldValues();
   const { data: dealFieldDefs } = useCustomFieldDefs('DEAL');
+  const { data: linkRule } = useDealLinkRule(canReadCrm);
+  const boardIds = useMemo(() => (pipelineData?.columns ?? []).flatMap((c: any) => c.deals.map((d: any) => d.id)), [pipelineData]);
+  const { data: relatedCounts } = useRelatedCounts(boardIds, !!linkRule?.rule);
+  const relatedLabel = linkRule?.rule?.fields.map(f => f.label).join(' + ') ?? '';
 
   // Backend now returns stages as rich objects ({ label, color, probability, ... })
   // so the stage manager can rename/recolor them — this form only needs the labels.
@@ -670,7 +708,7 @@ export function DealsPage() {
                     <p className="text-xs text-fg-subtle text-center py-6 border border-dashed border-line rounded-card">Drop deals here</p>
                   )}
                   {deals.map((deal: any) => (
-                    <DealCard key={deal.id} deal={deal} onDelete={(id: string) => del.mutate(id)} onSelect={(d: any) => { setSelectedDealId(d.id); setSelectedDealTitle(d.title); }} />
+                    <DealCard key={deal.id} deal={deal} related={relatedCounts?.counts?.[deal.id]} relatedLabel={relatedLabel} onDelete={(id: string) => del.mutate(id)} onSelect={(d: any) => { setSelectedDealId(d.id); setSelectedDealTitle(d.title); }} />
                   ))}
                 </div>
               </div>
@@ -744,6 +782,8 @@ export function DealsPage() {
             id={selectedDealId}
             pageSingular={pageSingular}
             onEdit={(deal) => { setEditingDeal(deal); setSelectedDealId(null); }}
+            onOpenDeal={(id, title) => { setSelectedDealIdRaw(id); setSelectedDealTitle(title); }}
+            onTitle={setSelectedDealTitle}
           />
         )}
       </Modal>

@@ -2,6 +2,8 @@ import { useModules, joinWords } from '../shared/modules';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
+import { DealLinkRuleModal } from '../modules/crm/deals/RelatedDeals';
 import { Settings2, Plus, Pencil, Trash2 } from 'lucide-react';
 import {
   SearchableSelect, RowActions,
@@ -58,6 +60,10 @@ export default function CustomFieldsPage() {
   const modules = useModules();
   const ENTITY_MODULE: Record<string, string> = { TICKET: 'itdesk', CONTACT: 'crm', DEAL: 'crm', LEAD: 'crm' };
   const entityTypes = ENTITY_TYPES.filter(t => modules.isModuleOn(ENTITY_MODULE[t]));
+  // Related deals rule (match deals on e.g. a "Flat / Unit" field) — CRM admins.
+  const { user } = useAuth();
+  const canEditDealLinks = user?.role === 'SUPER_ADMIN' || user?.role === 'CRM_MANAGER';
+  const [dealLinksOpen, setDealLinksOpen] = useState(false);
   const [entityType, setEntityType] = useState(() => entityTypes[0] ?? 'TICKET');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<CustomField | null>(null);
@@ -225,6 +231,12 @@ export default function CustomFieldsPage() {
       />
 
       <PageBody width="wide">
+        {entityType === 'DEAL' && canEditDealLinks && (
+          <Alert tone="neutral" icon={null} actions={<Button size="sm" variant="secondary" onClick={() => setDealLinksOpen(true)}>Related deals rule</Button>}>
+            <span><strong>Related deals:</strong> choose which fields (for example a “Flat / Unit” field) make two deals related, so each deal shows earlier deals on the same unit and why they were lost.</span>
+          </Alert>
+        )}
+        <DealLinkRuleModal open={dealLinksOpen} onClose={() => setDealLinksOpen(false)} />
         <Card padding="none">
           <DataTable
             columns={columns}
