@@ -31,6 +31,7 @@ import { QuerySpecSchema, ForecastSpecSchema, zodIssues, PRESETS_TEXT, type Quer
 import { answerFor, forecastAnswer, chooseViz, buildWidgetSpec, checkNumbers, numbersOf, type VizType, type WidgetSpec } from './answer';
 import type { ResolvedDataset } from './types';
 import { parseDate } from './dates';
+import { estimateTokens } from '../aiRateLimit';
 
 // ─── Plan schema (what the model must return) ───────────────────────────────
 
@@ -131,7 +132,7 @@ const DATASET_HINTS: Record<string, string[]> = {
   change_requests: ['change request', 'change'],
   kb_articles: ['article', 'knowledge', 'kb'],
   csat: ['csat', 'satisfaction', 'rating', 'feedback', 'survey'],
-  employees: ['employee', 'staff', 'headcount', 'people', 'joiner', 'joined', 'department', 'team', 'hire', 'exit', 'attrition'],
+  employees: ['employee', ' hr ', 'staff', 'headcount', 'people', 'joiner', 'joined', 'department', 'team', 'hire', 'exit', 'attrition'],
   attendance: ['attendance', 'absent', 'present', 'late', 'leave today', 'on leave', 'check-in', 'check in', 'checked in', 'working days', 'wfh', 'work from home', 'overtime'],
   attendance_sessions: ['check-in', 'check in', 'session', 'hours worked', 'punch', 'overtime'],
   leave_requests: ['leave', 'vacation', 'holiday', 'time off', 'sick'],
@@ -170,8 +171,66 @@ export function relevantDatasets(catalog: ResolvedDataset[], question: string, m
   return picked;
 }
 
-export function buildSystemPrompt(actx: AnalyticsContext, question?: string): string {
-  const shown = question ? relevantDatasets(actx.catalog, question) : actx.catalog;
+// ─── Fitting the catalog into a token budget ────────────────────────────────
+
+/* When a question names nothing specific, show the datasets people ask about
+   most, across areas, before the long tail. */
+export const CATALOG_PRIORITY = [
+  'leads', 'deals', 'tickets', 'employees', 'attendance', 'invoices', 'tasks', 'leave_requests', 'activities',
+  'accounts', 'contacts', 'csat', 'assets', 'quotes', 'payslips', 'approvals', 'change_requests', 'kb_articles',
+  'campaigns', 'wfh_requests', 'attendance_sessions', 'payroll_runs', 'loans',
+];
+
+export function byPriority(catalog: ResolvedDataset[]): ResolvedDataset[] {
+  const rank = (d: ResolvedDataset) => { const i = CATALOG_PRIORITY.indexOf(d.def.key); return i < 0 ? 999 : i; };
+  return [...catalog].sort((a, b) => rank(a) - rank(b));
+}
+
+export interface PromptCatalog { shown: ResolvedDataset[]; others: ResolvedDataset[] }
+
+/**
+ * The ordered candidates that fit a token budget, in full; everything else
+ * by name only. At least one dataset is always shown in full.
+ */
+export function fitCatalog(all: ResolvedDataset[], ordered: ResolvedDataset[], budget: number): PromptCatalog {
+  const shown: ResolvedDataset[] = [];
+  let used = 0;
+  for (const d of ordered) {
+    if (shown.includes(d)) continue;
+    const t = estimateTokens(catalogSummary([d]).length + 1);
+    if (shown.length && used + t > budget) continue;
+    shown.push(d); used += t;
+  }
+  return { shown, others: all.filter(d => !shown.includes(d)) };
+}
+
+export function catalogText(pc: PromptCatalog): string {
+  return catalogSummary(pc.shown)
+    + (pc.others.length ? `\nAlso available (fields not listed; use only if essential): ${pc.others.map(d => d.def.key).join(', ')}` : '');
+}
+
+/** Catalog share of an Ask prompt (tokens); the "wide" retry gets more. */
+export const ASK_CATALOG_BUDGET = 1300;
+export const ASK_WIDE_CATALOG_BUDGET = 1700;
+
+/**
+ * Datasets an Ask prompt shows. Narrow: the relevant ones (or, with no
+ * match, the most-used ones within budget). Wide (the retry after "not
+ * answerable" from a narrow view): relevant first, then the rest by priority,
+ * within a larger budget — never the whole 25-dataset catalog, which alone
+ * was ~2.4k tokens of Groq's 8k-a-minute allowance.
+ */
+export function askCatalog(catalog: ResolvedDataset[], question?: string, wide = false): PromptCatalog {
+  const picked = question ? relevantDatasets(catalog, question, wide ? 10 : 6) : catalog;
+  const matched = picked.length < catalog.length;
+  const ordered = matched ? (wide ? [...picked, ...byPriority(catalog)] : picked) : byPriority(catalog);
+  // No match: the first call already gets the wide view, so a "not answerable" needs no second call.
+  return fitCatalog(catalog, ordered, wide || !matched ? ASK_WIDE_CATALOG_BUDGET : ASK_CATALOG_BUDGET);
+}
+
+export function buildSystemPrompt(actx: AnalyticsContext, question?: string, wide = false): string {
+  const pc = askCatalog(actx.catalog, question, wide);
+  const shown = pc.shown;
   const dow = WEEKDAYS[parseDate(actx.env.today).getUTCDay()];
   return [
     'You translate a business question into JSON query specs for an analytics engine. You never answer from your own knowledge, never invent datasets or fields, and never write SQL.',
@@ -195,7 +254,7 @@ export function buildSystemPrompt(actx: AnalyticsContext, question?: string): st
     `Presets: ${PRESETS_TEXT}`,
     '',
     'CATALOG',
-    catalogSummary(shown),
+    catalogText(pc),
     '',
     'EXAMPLES',
     examples(shown),
@@ -364,7 +423,7 @@ export async function answerQuestion(user: AnalyticsUser, question: string, opts
     if (!v.plan) {
       // One repair attempt with the exact problems.
       const repair = await interpretAnalyticsQuestion(system,
-        `Question: ${q}\n\nYour previous reply:\n${(first ?? '').slice(0, 3000)}\n\nIt was rejected because:\n- ${v.errors.join('\n- ')}\n\nReturn the corrected JSON object only.`);
+        `Question: ${q}\n\nYour previous reply:\n${(raw && typeof raw === 'object' ? JSON.stringify(raw) : (first ?? '')).slice(0, 2500)}\n\nIt was rejected because:\n- ${v.errors.slice(0, 8).map(e => e.replace(/\s*\((?:datasets|Datasets): [^)]*\)/g, '').slice(0, 300)).join('\n- ')}\n\nReturn the corrected JSON object only.`);
       modelCalls++;
       raw = safeJson(repair);
       v = validatePlan(actx, raw);
@@ -379,8 +438,8 @@ export async function answerQuestion(user: AnalyticsUser, question: string, opts
     // The model only saw the datasets that looked relevant. If it says "not
     // answerable" from that partial view, ask once more with everything so a
     // trimmed prompt can never cause a wrong refusal.
-    if (!plan.answerable && relevantDatasets(actx.catalog, q).length < actx.catalog.length) {
-      const full = await interpretAnalyticsQuestion(buildSystemPrompt(actx), `Question: ${q}`);
+    if (!plan.answerable && askCatalog(actx.catalog, q, true).shown.length > askCatalog(actx.catalog, q).shown.length) {
+      const full = await interpretAnalyticsQuestion(buildSystemPrompt(actx, q, true), `Question: ${q}`);
       modelCalls++;
       const vf = validatePlan(actx, safeJson(full));
       if (vf.plan) plan = vf.plan;

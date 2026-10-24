@@ -17,7 +17,8 @@ import { z } from 'zod';
 import { designDashboardJson } from '../ai';
 import { readPersistentCache, writePersistentCache } from '../aiCache';
 import { getAnalyticsContext, type AnalyticsContext, type AnalyticsUser } from '../analytics/executor';
-import { catalogSummary } from '../analytics/ask';
+import { relevantDatasets, fitCatalog, byPriority, catalogText, type PromptCatalog } from '../analytics/ask';
+import type { ResolvedDataset } from '../analytics/types';
 import { compileQuery } from '../analytics/compiler';
 import { PRESETS_TEXT, QuerySpecSchema, zodIssues } from '../analytics/spec';
 import { parseDate } from '../analytics/dates';
@@ -37,6 +38,8 @@ const ModelWidgetSchema = z.object({
   forecast: z.unknown().optional(),
   kpi: z.string().max(30).nullish(),
   noteFor: z.coerce.number().int().min(0).max(20).nullish(),
+  /** KPI tiles of a projection: reuse widget N's query + forecast instead of repeating them (keeps replies short). */
+  forecastOf: z.coerce.number().int().min(0).max(20).nullish(),
   text: z.string().max(4000).nullish(),
 });
 
@@ -116,6 +119,12 @@ export function convertModelWidget(raw: unknown, all: unknown[], c: CatalogEnv, 
     };
   }
   if (!(WIDGET_VIZ as readonly string[]).includes(viz)) return { spec: null, error: `viz "${w.viz}" is not one of ${[...WIDGET_VIZ, 'note'].join(', ')}.` };
+  if (w.forecastOf != null && (!w.query || !w.forecast)) {
+    const target = ModelWidgetSchema.safeParse(tidy(all[w.forecastOf]));
+    if (!target.success || !target.data.forecast || !target.data.query) return { spec: null, error: `forecastOf ${w.forecastOf} must point at a widget with a query and a forecast.` };
+    w.query = w.query ?? target.data.query;
+    w.forecast = w.forecast ?? target.data.forecast;
+  }
   const kpi = viz === 'kpi' ? parseKpi(w.kpi) : null;
   const usesForecast = viz === 'forecast' || (kpi && kpi.value !== 'total');
   let description = '';
@@ -236,89 +245,171 @@ export function salvage(check: ProposalCheck, raw: unknown): { proposal: Proposa
 }
 
 // ─── Prompts ────────────────────────────────────────────────────────────────
+//
+// Groq's free tier allows 8,000 tokens per minute for the whole account and
+// counts prompt + max_tokens per request up front. The first version of these
+// prompts sent the caller's ENTIRE catalog (~2.4k tokens for a full-access
+// admin) plus three worked examples, with max_tokens 2500: ~7.3k tokens for one
+// build and the same again for the repair call, so a build plus anything else
+// in the same minute was refused. Now the model reads only the datasets the
+// request is about (others by name only), examples for those datasets only,
+// a compact reply format (KPI tiles point at the forecast widget instead of
+// repeating it), and the repair call gets a small prompt of its own. Budgets
+// are asserted in tests/unit/dashboards.test.ts.
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const QUERY_SHAPE = 'QUERY = {"dataset":"<key>","mode":"aggregate"|"list","measures":[{"fn":"count"} or {"fn":"sum|avg|min|max|count_distinct","field":"<field>"}],"dimensions":[{"field":"<field>"} or {"field":"<date field>","bucket":"day|week|month|quarter|year"}],"fields":["<field>"],"filters":[{"field":"<field>","op":"eq|neq|in|not_in|gt|gte|lt|lte|between|contains|is_null|not_null","value":<value or [values]>}],"dateRange":{"field":"<date field>","preset":"<preset>"} or {"field":"<date field>","last":{"n":<number>,"unit":"day|week|month|quarter|year"},"includeCurrent":true|false},"compare":null|"previous_period","sort":{"by":"<measure key or field>","dir":"asc|desc"},"limit":<number>}';
+/** Output caps. A full 8-widget lead projection in the compact format is ~700 tokens (o200k);
+    gpt-oss also spends some of max_tokens on (low-effort) reasoning, hence the headroom. */
+export const BUILD_MAX_TOKENS = 1400;
+export const EDIT_MAX_TOKENS = 600;
+/** Catalog share of a build prompt; datasets beyond it are listed by name only. */
+export const BUILD_CATALOG_BUDGET = 950;
+const REPAIR_CATALOG_BUDGET = 900;
+const EDIT_CATALOG_BUDGET = 700;
 
-function examples(actx: AnalyticsContext): string {
-  const has = (k: string) => actx.catalog.some(d => d.def.key === k);
-  const ex: string[] = [];
+/** Datasets a dashboard request is about (relevant first, then the most-used ones), within budget. */
+export function dashboardCatalog(catalog: ResolvedDataset[], request: string, budget = BUILD_CATALOG_BUDGET): PromptCatalog {
+  const picked = relevantDatasets(catalog, request, 6);
+  return fitCatalog(catalog, picked.length < catalog.length ? picked : byPriority(catalog), budget);
+}
+
+const QUERY_SHAPE = 'QUERY = {"dataset":"<key>","mode":"aggregate"|"list","measures":[{"fn":"count"} or {"fn":"sum|avg|min|max|count_distinct","field":"<field>"}],"dimensions":[{"field":"<field>"} or {"field":"<date field>","bucket":"day|week|month|quarter|year"}],"fields":["<field>"],"filters":[{"field":"<field>","op":"eq|neq|in|not_in|gt|gte|lt|lte|between|contains|is_null|not_null","value":<value or [values]>}],"dateRange":{"field":"<date field>","preset":"<preset>"} or {"field":"<date field>","last":{"n":<number>,"unit":"day|week|month|quarter|year"},"includeCurrent":true|false},"compare":null|"previous_period","sort":{"by":"<measure key or field>","dir":"asc|desc"},"limit":<number>}';
+const WIDGET_SHAPE = 'WIDGET = {"title":"short title","viz":"kpi|line|area|bar|hbar|stacked_bar|pie|donut|table|leaderboard|funnel|forecast|note","query":QUERY,"forecast":null|FORECAST,"kpi":"total|projected|derived:<i>|rate:<i>","forecastOf":<index of the forecast widget, for projection KPI tiles, instead of query+forecast>,"noteFor":<index of a forecast widget, only for viz note>}';
+const FORECAST_SHAPE = 'FORECAST = {"horizon":<buckets ahead>,"growthPctPerMonth":null|number,"cumulative":true,"derived":[{"label":"...","numerator":{"dataset":"<key>","measure":{"fn":"count"},"filters":[...]},"denominator":{"dataset":"<key>","measure":{"fn":"count"},"filters":[...]},"of":<earlier derived index, optional>,"format":"number|money"}]}';
+
+type Example = { keys: string[]; text: string };
+
+/** Worked examples for the datasets the model is shown (never for one it can't see). */
+function exampleList(shown: ResolvedDataset[]): Example[] {
+  const has = (k: string) => shown.some(d => d.def.key === k);
+  const ex: Example[] = [];
   if (has('leads')) {
     const derived = [
       '{"label":"Projected conversions","numerator":{"dataset":"leads","measure":{"fn":"count"},"filters":[{"field":"status","op":"eq","value":"CONVERTED"}]},"denominator":{"dataset":"leads","measure":{"fn":"count"}}}',
       ...(has('deals') ? ['{"label":"Projected revenue","numerator":{"dataset":"deals","measure":{"fn":"sum","field":"value"},"filters":[{"field":"status","op":"eq","value":"WON"}]},"denominator":{"dataset":"deals","measure":{"fn":"count"},"filters":[{"field":"status","op":"eq","value":"WON"}]},"of":0,"format":"money"}'] : []),
     ];
-    const f = `{"horizon":30,"growthPctPerMonth":null,"cumulative":true,"derived":[${derived.join(',')}]}`;
-    const series = '{"dataset":"leads","measures":[{"fn":"count"}],"dimensions":[{"field":"createdAt","bucket":"day"}]}';
-    ex.push(`Request: Dashboard projecting our leads for the next month\n{"title":"Lead projection","description":"Lead trend and where we will be in 30 days if things continue","widgets":[`
-      + `{"title":"Leads — last 30 days","viz":"kpi","kpi":"total","query":{"dataset":"leads","measures":[{"fn":"count"}],"dateRange":{"field":"createdAt","preset":"last_30_days"},"compare":"previous_period"}},`
-      + `{"title":"Projected leads — next 30 days","viz":"kpi","kpi":"projected","query":${series},"forecast":${f}},`
-      + `{"title":"Projected conversions","viz":"kpi","kpi":"derived:0","query":${series},"forecast":${f}},`
-      + (has('deals') ? `{"title":"Projected revenue","viz":"kpi","kpi":"derived:1","query":${series},"forecast":${f}},` : '')
-      + `{"title":"Leads per day and 30-day projection","viz":"forecast","query":${series},"forecast":${f}},`
-      + `{"title":"Leads by source","viz":"hbar","query":{"dataset":"leads","measures":[{"fn":"count"}],"dimensions":[{"field":"source"}],"dateRange":{"field":"createdAt","preset":"last_90_days"},"sort":{"by":"count","dir":"desc"},"limit":8}},`
-      + `{"title":"Lead status funnel","viz":"funnel","query":{"dataset":"leads","measures":[{"fn":"count"}],"dimensions":[{"field":"status"}],"dateRange":{"field":"createdAt","preset":"last_90_days"}}},`
-      + `{"title":"How the projection works","viz":"note","noteFor":${has('deals') ? 4 : 3}}]}`);
+    const fi = has('deals') ? 4 : 3;
+    ex.push({ keys: ['leads', 'deals'], text: `Request: Dashboard projecting our leads for the next month\n{"title":"Lead projection","description":"Lead trend and where we will be in 30 days if things continue","widgets":[`
+      + '{"title":"Leads — last 30 days","viz":"kpi","kpi":"total","query":{"dataset":"leads","measures":[{"fn":"count"}],"dateRange":{"field":"createdAt","preset":"last_30_days"},"compare":"previous_period"}},'
+      + `{"title":"Projected leads — next 30 days","viz":"kpi","kpi":"projected","forecastOf":${fi}},`
+      + `{"title":"Projected conversions","viz":"kpi","kpi":"derived:0","forecastOf":${fi}},`
+      + (has('deals') ? `{"title":"Projected revenue","viz":"kpi","kpi":"derived:1","forecastOf":${fi}},` : '')
+      + `{"title":"Leads per day and 30-day projection","viz":"forecast","query":{"dataset":"leads","measures":[{"fn":"count"}],"dimensions":[{"field":"createdAt","bucket":"day"}]},"forecast":{"horizon":30,"growthPctPerMonth":null,"cumulative":true,"derived":[${derived.join(',')}]}},`
+      + '{"title":"Leads by source","viz":"hbar","query":{"dataset":"leads","measures":[{"fn":"count"}],"dimensions":[{"field":"source"}],"dateRange":{"field":"createdAt","preset":"last_90_days"},"sort":{"by":"count","dir":"desc"},"limit":8}},'
+      + '{"title":"Lead status funnel","viz":"funnel","query":{"dataset":"leads","measures":[{"fn":"count"}],"dimensions":[{"field":"status"}],"dateRange":{"field":"createdAt","preset":"last_90_days"}}},'
+      + `{"title":"How the projection works","viz":"note","noteFor":${fi}}]}` });
   }
-  if (has('attendance') || has('employees')) {
+  if (has('attendance') || has('employees') || has('leave_requests')) {
     const w: string[] = [];
     if (has('employees')) w.push('{"title":"Headcount by department","viz":"hbar","query":{"dataset":"employees","measures":[{"fn":"count"}],"dimensions":[{"field":"department"}],"filters":[{"field":"employmentStatus","op":"neq","value":"EXITED"}]}}');
     if (has('attendance')) w.push('{"title":"Attendance per week","viz":"stacked_bar","query":{"dataset":"attendance","measures":[{"fn":"count"}],"dimensions":[{"field":"date","bucket":"week"},{"field":"status"}],"filters":[{"field":"status","op":"in","value":["PRESENT","LATE","ABSENT","WFH"]}],"dateRange":{"field":"date","last":{"n":8,"unit":"week"}}}}');
     if (has('leave_requests')) w.push('{"title":"Approved leave days by type","viz":"donut","query":{"dataset":"leave_requests","measures":[{"fn":"sum","field":"days"}],"dimensions":[{"field":"leaveType"}],"filters":[{"field":"status","op":"eq","value":"APPROVED"}],"dateRange":{"field":"startDate","preset":"this_year"}}}');
-    ex.push(`Request: HR overview\n{"title":"HR overview","description":"Headcount, attendance and leave","widgets":[${w.join(',')}]}`);
+    ex.push({ keys: ['employees', 'attendance', 'leave_requests'], text: `Request: HR overview\n{"title":"HR overview","description":"Headcount, attendance and leave","widgets":[${w.join(',')}]}` });
   }
   if (has('tickets')) {
-    ex.push('Request: Help desk dashboard\n{"title":"Help desk","description":"Ticket volume and agents","widgets":['
+    ex.push({ keys: ['tickets'], text: 'Request: Help desk dashboard\n{"title":"Help desk","description":"Ticket volume and agents","widgets":['
       + '{"title":"Open tickets","viz":"kpi","kpi":"total","query":{"dataset":"tickets","measures":[{"fn":"count"}],"filters":[{"field":"isOpen","op":"eq","value":true}]}},'
       + '{"title":"Tickets per week","viz":"line","query":{"dataset":"tickets","measures":[{"fn":"count"}],"dimensions":[{"field":"createdAt","bucket":"week"}],"dateRange":{"field":"createdAt","last":{"n":12,"unit":"week"}}}},'
-      + '{"title":"Top agents by resolved tickets","viz":"leaderboard","query":{"dataset":"tickets","measures":[{"fn":"count"}],"dimensions":[{"field":"assignee"}],"filters":[{"field":"status","op":"in","value":["RESOLVED","CLOSED"]}],"dateRange":{"field":"resolvedAt","preset":"this_month"},"sort":{"by":"count","dir":"desc"},"limit":5}}]}');
+      + '{"title":"Top agents by resolved tickets","viz":"leaderboard","query":{"dataset":"tickets","measures":[{"fn":"count"}],"dimensions":[{"field":"assignee"}],"filters":[{"field":"status","op":"in","value":["RESOLVED","CLOSED"]}],"dateRange":{"field":"resolvedAt","preset":"this_month"},"sort":{"by":"count","dir":"desc"},"limit":5}}]}' });
   }
-  return ex.join('\n\n');
+  if (!ex.length && shown.length) {
+    // Nothing above applies: one tiny example on the first dataset shown.
+    const d = shown[0];
+    const date = d.def.defaultDate;
+    ex.push({ keys: [d.def.key], text: `Request: ${d.def.label} overview\n{"title":"${d.def.label}","description":"${d.def.label} over time","widgets":[`
+      + `{"title":"${d.def.label} — last 30 days","viz":"kpi","kpi":"total","query":{"dataset":"${d.def.key}","measures":[{"fn":"count"}],"dateRange":{"field":"${date}","preset":"last_30_days"},"compare":"previous_period"}},`
+      + `{"title":"${d.def.label} per month","viz":"line","query":{"dataset":"${d.def.key}","measures":[{"fn":"count"}],"dimensions":[{"field":"${date}","bucket":"month"}],"dateRange":{"field":"${date}","last":{"n":12,"unit":"month"}}}}]}` });
+  }
+  return ex;
 }
 
-function header(actx: AnalyticsContext): string[] {
+/** At most two examples: those for the datasets shown first (i.e. most relevant). */
+function examples(shown: ResolvedDataset[]): string {
+  const order = (e: Example) => { const i = shown.findIndex(d => e.keys.includes(d.def.key)); return i < 0 ? 999 : i; };
+  return exampleList(shown).sort((a, b) => order(a) - order(b)).slice(0, 2).map(e => e.text).join('\n\n');
+}
+
+function header(actx: AnalyticsContext, pc: PromptCatalog): string[] {
   const dow = WEEKDAYS[parseDate(actx.env.today).getUTCDay()];
   return [
     `Today is ${actx.env.today} (${dow}), time zone ${actx.env.timezone}; money is in ${actx.currency}.`,
-    '',
-    'WIDGET = {"title":"short title","viz":"kpi|line|area|bar|hbar|stacked_bar|pie|donut|table|leaderboard|funnel|forecast|note","query":QUERY,"forecast":null|FORECAST,"kpi":"total|projected|derived:<i>|rate:<i>","noteFor":<index of a forecast widget, only for viz note>}',
+    WIDGET_SHAPE,
     QUERY_SHAPE,
-    'FORECAST = {"horizon":<number of buckets ahead>,"growthPctPerMonth":null|number,"cumulative":true,"derived":[{"label":"...","numerator":{"dataset":"<key>","measure":{"fn":"count"},"filters":[...]},"denominator":{"dataset":"<key>","measure":{"fn":"count"},"filters":[...]},"of":<index of an earlier derived entry, optional>,"format":"number|money"}]}',
-    '',
+    FORECAST_SHAPE,
     'Rules:',
-    '- Use ONLY the datasets and fields in the catalog; copy enum values exactly.',
-    '- kpi: one number. "total" = the query total (aggregate, no dimensions; add "compare":"previous_period" to show the change). "projected" / "derived:<i>" / "rate:<i>" = a figure from the widget\'s FORECAST (then the query is the forecast series).',
-    '- line / area: one date dimension with a bucket. bar / hbar / pie / donut / leaderboard / funnel: one non-date dimension. stacked_bar: a date bucket + one more dimension. table: anything (mode "list" for records).',
-    '- Projections ("project", "forecast", "if it continues", "where will we be", "next N days") → viz "forecast": query = ONE measure + ONE date dimension with a bucket and NO dateRange; FORECAST.horizon = buckets ahead. Add KPI tiles for the projected total and the derived values, and a note with "noteFor" pointing at the forecast widget.',
-    '- Projected conversions/revenue only via FORECAST.derived as in the example, and only when those datasets are in the catalog.',
-    '- Funnel: group by a status/stage enum field.',
-    '- Relative periods use presets or "last"; never invent dates.',
-    '- No free-text notes; the only note is {"viz":"note","noteFor":<i>}.',
+    '- Use ONLY catalog datasets and fields; copy enum values exactly. Relative periods use presets or "last"; never invent dates.',
+    '- kpi = one number: "total" = the query total (aggregate, no dimensions; "compare":"previous_period" shows the change); "projected" / "derived:<i>" / "rate:<i>" = a figure from a forecast → give "forecastOf":<forecast widget index>.',
+    '- line/area: one date dimension with a bucket. bar/hbar/pie/donut/leaderboard/funnel: one non-date dimension (funnel: a status/stage enum). stacked_bar: a date bucket + one dimension. table: anything (mode "list" for records).',
+    '- Projections ("project", "forecast", "if it continues", "where will we be", "next N days") → viz "forecast": query = ONE measure + ONE date dimension with a bucket and NO dateRange; FORECAST.horizon = buckets ahead. Add KPI tiles for the projected total and derived values, and {"viz":"note","noteFor":<forecast index>}.',
+    '- Projected conversions/revenue only via FORECAST.derived as in the example, and only with those datasets in the catalog.',
+    '- No free-text notes. Compact JSON, no comments.',
     `Presets: ${PRESETS_TEXT}`,
-    '',
     'CATALOG',
-    catalogSummary(actx.catalog),
+    catalogText(pc),
   ];
 }
 
-export function buildProposalPrompt(actx: AnalyticsContext): string {
+export function buildProposalPrompt(actx: AnalyticsContext, request = ''): string {
+  const pc = dashboardCatalog(actx.catalog, request);
   return [
-    'You design analytics dashboards. You translate a request into JSON widget specs for an analytics engine. You never invent data, datasets or fields, never write numbers or SQL.',
+    'You design analytics dashboards: translate a request into JSON widget specs for an analytics engine. Never invent data, datasets or fields; never write numbers or SQL.',
     'Return ONE JSON object: {"title":"dashboard title","description":"one sentence","widgets":[WIDGET, …3 to 8 widgets]}',
-    ...header(actx),
-    '',
+    ...header(actx, pc),
     'EXAMPLES',
-    examples(actx),
+    examples(pc.shown),
   ].join('\n');
 }
 
-export function buildWidgetEditPrompt(actx: AnalyticsContext): string {
+/** Datasets a widget (or a model reply) refers to, in the caller's catalog. */
+function datasetsIn(catalog: ResolvedDataset[], v: unknown): ResolvedDataset[] {
+  const keys = new Set<string>();
+  const walk = (x: unknown) => {
+    if (Array.isArray(x)) x.forEach(walk);
+    else if (x && typeof x === 'object') for (const [k, y] of Object.entries(x)) { if (k === 'dataset' && typeof y === 'string') keys.add(y); else walk(y); }
+  };
+  walk(v);
+  return catalog.filter(d => keys.has(d.def.key));
+}
+
+export function buildWidgetEditPrompt(actx: AnalyticsContext, current?: DashboardWidgetSpec, instruction = ''): string {
+  // The widget's own datasets first, then whatever the change request mentions.
+  const own = current ? datasetsIn(actx.catalog, current) : [];
+  const mentioned = instruction ? relevantDatasets(actx.catalog, instruction, 3) : [];
+  const ordered = [...own, ...(mentioned.length < actx.catalog.length ? mentioned : [])];
+  const pc = ordered.length ? fitCatalog(actx.catalog, ordered, EDIT_CATALOG_BUDGET) : dashboardCatalog(actx.catalog, instruction, EDIT_CATALOG_BUDGET);
   return [
-    'You modify one dashboard widget. You translate the change request into the widget\'s new JSON spec for an analytics engine. Keep everything the request doesn\'t mention. You never invent datasets or fields, never write numbers or SQL.',
-    'Return ONE JSON object: WIDGET.',
-    ...header(actx),
+    'You modify one dashboard widget: translate the change request into the widget\'s new JSON spec for an analytics engine. Keep everything the request doesn\'t mention. Never invent datasets or fields; never write numbers or SQL.',
+    'Return ONE JSON object: WIDGET (with its own "query" and "forecast"; no "forecastOf").',
+    ...header(actx, pc),
   ].join('\n');
+}
+
+/**
+ * The repair call: NOT the whole build prompt again. The model gets the
+ * format, the errors and its own previous reply, and the catalog of only the
+ * datasets that reply used — widened to the request's relevant datasets when
+ * it used one it can't have or produced nothing usable.
+ */
+export function buildRepairPrompt(actx: AnalyticsContext, request: string, previous: unknown): string {
+  const used = datasetsIn(actx.catalog, previous);
+  const relevant = dashboardCatalog(actx.catalog, request, REPAIR_CATALOG_BUDGET).shown;
+  const pc = fitCatalog(actx.catalog, [...used, ...relevant], REPAIR_CATALOG_BUDGET);
+  return [
+    'You fix a rejected analytics-dashboard proposal. Return the corrected JSON object only, same format: {"title":"...","description":"...","widgets":[WIDGET, …]}. Keep the widgets that were fine; fix or drop the rejected ones. Never invent datasets or fields.',
+    ...header(actx, pc),
+  ].join('\n');
+}
+
+/** Repair errors without the long dataset lists some validators append (the catalog is in the prompt). */
+export function compactErrors(errors: string[], max = 8): string[] {
+  return errors.slice(0, max).map(e => e.replace(/\s*\((?:datasets|Datasets): [^)]*\)/g, '').slice(0, 300));
+}
+
+/** The previous reply for the repair call: re-serialised compactly when it parsed. */
+export function previousReply(raw: unknown, text: string | null, maxChars = 5000): string {
+  const s = raw && typeof raw === 'object' ? JSON.stringify(raw) : (text ?? '');
+  return s.slice(0, maxChars);
 }
 
 // ─── Pipelines ──────────────────────────────────────────────────────────────
@@ -367,14 +458,14 @@ export async function proposeDashboard(user: AnalyticsUser, prompt: string): Pro
     if (chk.proposal) return { status: 'proposed', proposal: chk.proposal, warnings: chk.warnings, cached: true, modelCalls: 0 };
   }
 
-  const system = buildProposalPrompt(actx);
-  const first = await designDashboardJson(system, `Request: ${q}`, 'dashboard.build');
+  const system = buildProposalPrompt(actx, q);
+  const first = await designDashboardJson(system, `Request: ${q}`, 'dashboard.build', BUILD_MAX_TOKENS);
   let modelCalls = 1;
   let raw = safeJson(first);
   let chk = checkProposal(c, raw, q);
   if (!chk.proposal) {
-    const repair = await designDashboardJson(system,
-      `Request: ${q}\n\nYour previous reply:\n${(first ?? '').slice(0, 6000)}\n\nIt was rejected because:\n- ${chk.errors.slice(0, 12).join('\n- ')}\n\nReturn the corrected JSON object only.`, 'dashboard.build');
+    const repair = await designDashboardJson(buildRepairPrompt(actx, q, raw),
+      `Request: ${q}\n\nYour previous reply:\n${previousReply(raw, first)}\n\nIt was rejected because:\n- ${compactErrors(chk.errors).join('\n- ')}\n\nReturn the corrected JSON object only.`, 'dashboard.build', BUILD_MAX_TOKENS);
     modelCalls++;
     const raw2 = safeJson(repair);
     const chk2 = checkProposal(c, raw2, q);
@@ -408,8 +499,8 @@ export async function modifyWidget(user: AnalyticsUser, current: DashboardWidget
   if (current.kind === 'note') return { status: 'failed', spec: null, message: 'Notes are edited directly — the AI doesn’t write notes.', modelCalls: 0 };
   const actx = await getAnalyticsContext(user);
   const c: CatalogEnv = { catalog: actx.catalog, env: actx.env };
-  const system = buildWidgetEditPrompt(actx);
-  const ask = (extra = '') => designDashboardJson(system, `Current widget: ${JSON.stringify(widgetToModel(current))}\nChange: ${instruction.trim().slice(0, 500)}${extra}`, 'dashboard.widgetEdit');
+  const system = buildWidgetEditPrompt(actx, current, instruction);
+  const ask = (extra = '') => designDashboardJson(system, `Current widget: ${JSON.stringify(widgetToModel(current))}\nChange: ${instruction.trim().slice(0, 500)}${extra}`, 'dashboard.widgetEdit', EDIT_MAX_TOKENS);
   const attempt = (reply: string | null) => {
     const raw = safeJson(reply);
     if (!raw || typeof raw !== 'object') return { spec: null, errors: ['The reply was not a JSON object.'] };
@@ -423,7 +514,7 @@ export async function modifyWidget(user: AnalyticsUser, current: DashboardWidget
   let v = attempt(first);
   let modelCalls = 1;
   if (!v.spec) {
-    const second = await ask(`\n\nYour previous reply:\n${(first ?? '').slice(0, 3000)}\n\nIt was rejected because:\n- ${v.errors.slice(0, 8).join('\n- ')}\n\nReturn the corrected JSON object only.`);
+    const second = await ask(`\n\nYour previous reply:\n${previousReply(safeJson(first), first, 2500)}\n\nIt was rejected because:\n- ${compactErrors(v.errors).join('\n- ')}\n\nReturn the corrected JSON object only.`);
     modelCalls++;
     v = attempt(second);
   }

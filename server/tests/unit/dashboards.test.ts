@@ -427,3 +427,90 @@ test('normalise: a time series drops a leftover top-N sort/limit', () => {
   const bar = parseWidgetSpec({ title: 't', viz: { type: 'hbar' }, query: { dataset: 'leads', dimensions: [{ field: 'source' }], sort: { by: 'count', dir: 'desc' }, limit: 8 } }).spec as DataWidgetSpec;
   assert.equal(bar.query.limit, 8, 'top N on groups is kept');
 });
+
+// ─── Request budgets (Groq free tier: 8,000 tokens/minute, prompt + max_tokens counted up front) ──
+
+import {
+  buildRepairPrompt, buildWidgetEditPrompt, dashboardCatalog, compactErrors, previousReply,
+  BUILD_MAX_TOKENS, EDIT_MAX_TOKENS,
+} from '../../src/utils/dashboards/propose';
+import { estimateTokens } from '../../src/utils/aiRateLimit';
+
+const fullActx = () => ({ catalog: adminCat(), env: ENV, currency: 'INR' } as unknown as AnalyticsContext);
+const OWNER_REQUEST = 'Create a dashboard projecting our leads for the upcoming days — if the business continues the same way, where will we be?';
+const catalogPart = (p: string) => p.slice(p.indexOf('\nCATALOG\n'), p.indexOf('\nEXAMPLES\n') > 0 ? p.indexOf('\nEXAMPLES\n') : undefined);
+
+test('budget: the owner\'s lead projection reads only leads + deals and stays well under 4k tokens per request', () => {
+  const p = buildProposalPrompt(fullActx(), OWNER_REQUEST);
+  const cat = catalogPart(p);
+  assert.match(cat, /\n- leads:/); assert.match(cat, /\n- deals:/);
+  assert.ok(!/\n- (tickets|employees|payslips|attendance):/.test(cat), 'unrelated datasets are named only');
+  assert.match(cat, /Also available[^\n]*tickets/);
+  assert.match(p, /"forecastOf":4/, 'the example uses the compact KPI format');
+  const total = estimateTokens(p.length + OWNER_REQUEST.length) + BUILD_MAX_TOKENS;
+  assert.ok(total <= 3500, `lead projection request ≈ ${total} tokens`);
+});
+
+test('budget: a request that names nothing still fits (most-used datasets within budget, the rest by name)', () => {
+  for (const q of ['Give me an executive overview of the whole business', 'HR overview with attendance and leave', 'Help desk performance this month', '']) {
+    const p = buildProposalPrompt(fullActx(), q);
+    const total = estimateTokens(p.length + q.length) + BUILD_MAX_TOKENS;
+    assert.ok(total <= 4100, `"${q}" ≈ ${total} tokens`);
+  }
+  const shown = dashboardCatalog(adminCat(), 'Give me an executive overview').shown.map(d => d.def.key);
+  assert.deepEqual(shown.slice(0, 3), ['leads', 'deals', 'tickets']);
+  assert.deepEqual(dashboardCatalog(adminCat(), 'HR overview with attendance and leave').shown.map(d => d.def.key).sort(), ['attendance', 'employees', 'leave_requests']);
+});
+
+test('budget: widget edit reads the widget\'s own dataset; repair is a small prompt with the datasets the reply used', () => {
+  const s = parseWidgetSpec({ title: 'Tickets by priority', viz: { type: 'bar' }, query: { dataset: 'tickets', dimensions: [{ field: 'priority' }] } }).spec!;
+  const edit = buildWidgetEditPrompt(fullActx(), s, 'make it a pie chart');
+  assert.match(catalogPart(edit), /\n- tickets:/);
+  assert.ok(!/\n- leads:/.test(catalogPart(edit)));
+  assert.ok(estimateTokens(edit.length + 400) + EDIT_MAX_TOKENS <= 2200, 'widget edit request');
+  const reply = { title: 'Mood', widgets: [{ title: 'By mood', viz: 'pie', query: { dataset: 'tickets', dimensions: [{ field: 'mood' }] } }] };
+  const repair = buildRepairPrompt(fullActx(), 'Ticket mood dashboard', reply);
+  assert.match(catalogPart(repair), /\n- tickets:/);
+  assert.ok(!/EXAMPLES/.test(repair), 'no worked examples in the repair prompt');
+  const user = `Request: Ticket mood dashboard\n\nYour previous reply:\n${previousReply(reply, null)}\n\nIt was rejected because:\n- ${compactErrors(['widgets.0: query: Unknown field "mood" on Tickets (for grouping).']).join('\n- ')}`;
+  assert.ok(estimateTokens(repair.length + user.length) + BUILD_MAX_TOKENS <= 3200, 'repair request');
+  // A reply using a dataset the request didn't mention gets that dataset's fields in the repair.
+  assert.match(catalogPart(buildRepairPrompt(fullActx(), 'Ticket mood dashboard', { widgets: [{ query: { dataset: 'assets' } }] })), /\n- assets:/);
+});
+
+test('repair input: dataset lists are stripped from errors and the previous reply is re-serialised compactly', () => {
+  assert.deepEqual(compactErrors(['widgets.1: query: dataset "foo" is not available (datasets: leads, deals, tickets).', 'x (Datasets: a, b)']),
+    ['widgets.1: query: dataset "foo" is not available.', 'x']);
+  assert.equal(compactErrors(Array(20).fill('e')).length, 8);
+  assert.equal(previousReply({ a: [1, 2] }, '{\n  "a": [1, 2]\n}'), '{"a":[1,2]}');
+  assert.equal(previousReply(null, 'not json'), 'not json');
+});
+
+test('compact format: KPI tiles with "forecastOf" validate exactly like the full format', () => {
+  const full = ownerExample();
+  const compact = JSON.parse(JSON.stringify(full));
+  for (const w of compact.widgets) if (w.viz === 'kpi' && w.kpi !== 'total') { delete w.query; delete w.forecast; w.forecastOf = 4; }
+  const a = checkProposal({ catalog: adminCat(), env: ENV }, full, 'q');
+  const b = checkProposal({ catalog: adminCat(), env: ENV }, compact, 'q');
+  assert.deepEqual(b.errors, []);
+  assert.equal(b.proposal!.widgets.length, 8);
+  // Same query + forecast on every projection tile as the forecast widget itself.
+  const fc = b.proposal!.widgets[4] as DataWidgetSpec;
+  for (const i of [1, 2, 3]) {
+    const w = b.proposal!.widgets[i] as DataWidgetSpec;
+    assert.deepEqual(w.query, fc.query); assert.deepEqual(w.forecast, fc.forecast);
+  }
+  assert.deepEqual(b.proposal!.widgets.map(w => w.kind === 'data' ? w.options.kpi?.value ?? w.viz.type : 'note'), a.proposal!.widgets.map(w => w.kind === 'data' ? w.options.kpi?.value ?? w.viz.type : 'note'));
+  // forecastOf must point at a forecast.
+  const bad = { widgets: [{ title: 'K', viz: 'kpi', kpi: 'projected', forecastOf: 1 }, { title: 'B', viz: 'bar', query: { dataset: 'leads', dimensions: [{ field: 'source' }] } }] };
+  assert.match(checkProposal({ catalog: adminCat(), env: ENV }, bad, 'q').errors.join(), /forecastOf 1 must point at a widget with a query and a forecast/);
+});
+
+test('output caps: an 8-widget compact proposal fits BUILD_MAX_TOKENS with room for reasoning', () => {
+  const compact = JSON.parse(JSON.stringify(ownerExample()));
+  for (const w of compact.widgets) if (w.viz === 'kpi' && w.kpi !== 'total') { delete w.query; delete w.forecast; w.forecastOf = 4; }
+  const compactTokens = estimateTokens(JSON.stringify(compact).length);
+  const fullTokens = estimateTokens(JSON.stringify(ownerExample()).length);
+  assert.ok(compactTokens * 2 <= BUILD_MAX_TOKENS, `compact ≈ ${compactTokens}`);
+  assert.ok(fullTokens * 1.25 <= BUILD_MAX_TOKENS, `even the repeated (old) format ≈ ${fullTokens} fits`);
+});

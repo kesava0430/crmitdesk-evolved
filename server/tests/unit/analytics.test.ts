@@ -506,3 +506,23 @@ test('boolean filters read as words, not "Label: yes"', () => {
   assert.equal(booleanPhrase('Overdue', false), 'not overdue');
   assert.equal(booleanPhrase('SLA breached', true), 'SLA breached');
 });
+
+import { askCatalog, ASK_CATALOG_BUDGET, ASK_WIDE_CATALOG_BUDGET } from '../../src/utils/analytics/ask';
+import { estimateTokens } from '../../src/utils/aiRateLimit';
+
+test('ask budget: never the whole catalog; a narrow view gets a wider (still bounded) retry, no-match needs none', () => {
+  const a = actxFor(ctx('SUPER_ADMIN', ALL_READ));
+  const sz = (q?: string, wide = false) => estimateTokens(buildSystemPrompt(a, q, wide).length) + 700;
+  assert.ok(sz('How many leads did we get each week for the last 12 weeks?') <= 2600);
+  assert.ok(sz('tell me something interesting') <= 3800);
+  assert.ok(sz('How many leads did we get each week?', true) <= 3800);
+  assert.ok(sz() <= 3800, 'no question: bounded too');
+  const narrow = askCatalog(a.catalog, 'weekly leads');
+  const wide = askCatalog(a.catalog, 'weekly leads', true);
+  assert.ok(wide.shown.length > narrow.shown.length, 'the "not answerable" retry really sees more');
+  assert.ok(wide.others.length > 0, 'and still not everything');
+  const none = 'tell me something interesting';
+  assert.equal(askCatalog(a.catalog, none).shown.length, askCatalog(a.catalog, none, true).shown.length, 'no match: one call already has the wide view');
+  assert.match(buildSystemPrompt(a, 'weekly leads'), /Also available \(fields not listed; use only if essential\): .*tickets/);
+  assert.ok(ASK_WIDE_CATALOG_BUDGET > ASK_CATALOG_BUDGET);
+});
