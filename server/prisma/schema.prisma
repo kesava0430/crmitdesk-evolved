@@ -130,6 +130,7 @@ model Organization {
   attendanceAudits        AttendanceAudit[]
   // Staff assistant over WhatsApp/Slack (utils/assistantChannels)
   assistantChannelConfig  AssistantChannelConfig?
+  dealLinkRule      DealLinkRule?
   assistantWhatsAppLinks  AssistantWhatsAppLink[]
   slackUserLinks          SlackUserLink[]
   assistantLinkCodes      AssistantLinkCode[]
@@ -715,6 +716,26 @@ model DealHistory {
   deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
 
   @@map("deal_history")
+}
+
+// "Related deals" rule (Deal → Related deals panel). Which fields two deals
+// must share to count as being about the same thing — e.g. the same flat in a
+// construction company, matched on a DEAL custom field "Flat / Unit". One row
+// per org; no row = not set up (the panel explains how). `fields` is a
+// validated JSON list (utils/dealLinks/match.ts LinkRuleSchema) of
+// { kind: 'custom', fieldId } | { kind: 'account' | 'contact' | 'pipeline' }.
+model DealLinkRule {
+  id        String       @id @default(cuid())
+  orgId     String       @unique @map("org_id")
+  fields    Json
+  /// ALL = every chosen field must match; ANY = at least one.
+  mode      String       @default("ALL")
+  updatedBy String?      @map("updated_by")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("deal_link_rules")
 }
 
 model Activity {

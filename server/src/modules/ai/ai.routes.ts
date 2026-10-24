@@ -5,6 +5,7 @@ import { authenticate, requireRole, AuthRequest,
 import * as ai from './ai.controller';
 import * as studio from './aiStudio.controller';
 import * as solution from './solutionBuilder.controller';
+import { pastLessons } from '../crm/deals/dealLinks.controller';
 import { recordUsage } from '../../utils/usageTracking';
 import { requireFeature } from '../../utils/licensing';
 import { aiConfigSource, AI_NOT_CONFIGURED_MESSAGE } from '../../utils/aiStatus';
@@ -49,6 +50,9 @@ aiRouter.post('/lead/:id/nurture-sequence',requireRole(...CRM_STAFF),    aiAdvan
 aiRouter.post('/deal/:id/follow-up',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.dealFollowUpHandler);
 aiRouter.post('/deal/:id/win-probability', requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.winProbabilityHandler);
 aiRouter.post('/deal/:id/close-date',      requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.dealCloseDateHandler);
+// Lessons from related deals: no trackAiCall — the handler records usage only
+// when it actually calls the model (not set up / no history / cache hit are free).
+aiRouter.post('/deal/:id/past-lessons',    requireRole(...CRM_STAFF),    aiAdvanced, pastLessons);
 aiRouter.post('/pipeline/health',          requireRole(...CRM_MANAGERS), aiAdvanced, trackAiCall, ai.pipelineHealthHandler);
 aiRouter.post('/contact/:id/churn-risk',   requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.churnRiskHandler);
 aiRouter.post('/contact/:id/health',       requireRole(...CRM_STAFF),    aiAdvanced, trackAiCall, ai.contactHealthHandler);

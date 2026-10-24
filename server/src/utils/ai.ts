@@ -474,6 +474,13 @@ export async function interpretAnalyticsQuestion(system: string, user: string): 
   return chat(client, system, user, { feature: 'dashboard.query', json: true, temperature: 0, maxTokens: 900 });
 }
 
+/** Deal → Lessons from related deals (utils/dealLinks): reasons quoted from past deals' notes — JSON, every quote re-checked by the caller. */
+export async function analysePastDealsJson(system: string, user: string, maxTokens: number): Promise<string | null> {
+  const client = getClient();
+  if (!client) return null;
+  return chat(client, system, user, { feature: 'deal.pastLessons', json: true, temperature: 0, maxTokens });
+}
+
 /** Multi-query answers only: 1–2 sentences from aggregated results (numbers re-checked by the caller). */
 export async function narrateAnalyticsAnswer(system: string, user: string): Promise<string | null> {
   const client = getClient();

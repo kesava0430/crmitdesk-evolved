@@ -241,6 +241,16 @@ export const AI_FEATURES: AiFeature[] = [
     tier: 'paid',
   },
   {
+    id: 'deal.pastLessons',
+    name: 'Lessons from related deals',
+    does: 'Reads the notes and comments on earlier deals that share this deal\u2019s matching fields (for example the same flat or unit) and lists why the lost ones were lost, what worked on the won ones, and what to check before proceeding \u2014 each point quoting the note it came from.',
+    sends: 'Up to 8 related won/lost deals you are allowed to see: their titles, status, value, dates, stage path, latest quote total and discount, and the text of their comments, activity notes, lead notes and quote notes (trimmed, newest first). Deals you cannot open are never sent.',
+    effect: 'advisory',
+    tier: 'paid',
+    fallback: 'When there are no related won or lost deals, says so without calling the AI.',
+    caveat: 'Only reasons whose quoted words are actually found in the recorded notes are shown; a lost deal whose notes don\u2019t say why is listed as unexplained.',
+  },
+  {
     id: 'competitors.detect',
     name: 'Competitor mentions',
     does: 'Spots competitors named in a piece of text and how they were talked about.',
