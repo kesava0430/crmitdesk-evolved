@@ -150,8 +150,13 @@ export async function gatherContext(ctx: PermCtx, kind: CtxKind, id: string, opt
   ]);
   for (const c of comments) notes.push({ kind: 'comment', date: c.createdAt, author: c.author?.name, text: c.body });
   for (const a of acts) {
-    const dir = (a.emailMeta as any)?.direction === 'INBOUND' ? 'email received' : a.type === 'EMAIL' ? 'email sent' : a.type.toLowerCase();
-    notes.push({ kind: dir, date: a.dueAt && a.dueAt < a.updatedAt ? a.dueAt : a.updatedAt, author: a.createdByUser?.name, text: [a.title, a.body].filter(Boolean).join(': ') });
+    const direction = (a.emailMeta as any)?.direction;
+    const dir = direction === 'INBOUND' ? 'email received' : a.type === 'EMAIL' ? 'email sent' : a.type.toLowerCase();
+    // An email sent from the app contributes only its subject: its body may
+    // carry a figure someone sent despite a fact-check flag, and feeding it
+    // back would turn that figure into a "fact found in the deal".
+    const text = direction === 'OUTBOUND' ? `${a.title} (sent from the app)` : [a.title, a.body].filter(Boolean).join(': ');
+    notes.push({ kind: dir, date: a.dueAt && a.dueAt < a.updatedAt ? a.dueAt : a.updatedAt, author: a.createdByUser?.name, text });
   }
   const planned: CtxPlanned[] = (open.get(id) ?? []).map(it => ({
     type: it.type, title: it.title, dueAt: it.dueAt,

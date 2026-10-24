@@ -24,7 +24,7 @@ import { myFollowUps, loadActionableFollowUp, orgTimeZone } from '../../../utils
 import { parseDueInput, isDateOnly } from '../../../utils/followups/time';
 import { gatherContext, CtxKind } from '../../../utils/followups/context';
 import {
-  DraftOptionsSchema, buildEmailPrompt, parseEmailReply, factCheck, EMAIL_MAX_TOKENS,
+  DraftOptionsSchema, buildEmailPrompt, parseEmailReply, factCheck,
   SendSchema, sendFollowUpEmail, sendChannel, sendTarget,
 } from '../../../utils/followups/email';
 import { buildNextStepPrompt, parseNextStep, cooldownLeft, NEXT_STEP_MAX_TOKENS, defaultDue, NextStepSuggestion } from '../../../utils/followups/nextStep';
@@ -172,12 +172,12 @@ export function draftEmail(kind: CtxKind) {
       }
       recordUsage(orgId, 'AI_CALL');
       const feature = kind === 'LEAD' ? 'lead' : 'deal';
-      const first = await draftFollowUpEmailJson(feature, prompt.system, prompt.user, EMAIL_MAX_TOKENS);
+      const first = await draftFollowUpEmailJson(feature, prompt.system, prompt.user, prompt.maxTokens);
       let parsed = parseEmailReply(first);
       if (!parsed.ok) {
         const repair = await draftFollowUpEmailJson(feature, prompt.system,
           `${prompt.user}\n\nYour previous reply:\n${(first ?? '').slice(0, 1500)}\n\nIt was rejected because:\n- ${parsed.problems.join('\n- ')}\n\nReturn the corrected JSON object only.`,
-          EMAIL_MAX_TOKENS);
+          prompt.maxTokens);
         parsed = parseEmailReply(repair);
       }
       if (!parsed.ok) return res.status(502).json({ error: 'The AI couldn’t produce a usable email. Try again in a minute.' });

@@ -52,6 +52,8 @@ export type DraftOptions = z.infer<typeof DraftOptionsSchema>;
 
 /** Output budget. Rendered context ≤ EMAIL_CONTEXT_CHARS (~2.3k tokens) + system (~350) + this ⇒ ≈ 3.4k tokens total. */
 export const EMAIL_MAX_TOKENS = 700;
+/** Hindi/Telugu text costs several times more tokens per word than English — a larger cap so the JSON isn't cut off (≈3.7k total worst case). */
+export const EMAIL_MAX_TOKENS_INDIC = 1100;
 export const EMAIL_PROMPT_VERSION = 'followup-email-v1';
 
 export const EMAIL_SYSTEM = `You write short follow-up emails for a salesperson, using ONLY the facts in CONTEXT.
@@ -63,7 +65,7 @@ Rules:
 - 70 to 170 words, plain text (no markdown), short paragraphs.
 Reply ONLY with JSON: {"subject": "...", "body": "..."}`;
 
-export interface BuiltEmailPrompt { system: string; user: string; contextText: string; estRequestTokens: number; cacheKey: string; notesShown: number; notesTotal: number }
+export interface BuiltEmailPrompt { system: string; user: string; contextText: string; estRequestTokens: number; maxTokens: number; cacheKey: string; notesShown: number; notesTotal: number }
 
 export function buildEmailPrompt(c: FollowUpContext, o: DraftOptions): BuiltEmailPrompt {
   const r = renderContext(c, { budget: EMAIL_CONTEXT_CHARS, noteCap: NOTE_CAP_EMAIL });
@@ -73,9 +75,10 @@ LANGUAGE: write the subject and body in ${LANGUAGES[o.language]}; keep names, am
 
 CONTEXT:
 ${r.text}`;
-  const estRequestTokens = estimateTokens(EMAIL_SYSTEM.length + user.length) + EMAIL_MAX_TOKENS;
+  const maxTokens = o.language === 'en' ? EMAIL_MAX_TOKENS : EMAIL_MAX_TOKENS_INDIC;
+  const estRequestTokens = estimateTokens(EMAIL_SYSTEM.length + user.length) + maxTokens;
   const cacheKey = crypto.createHash('sha256').update(`${EMAIL_PROMPT_VERSION}|${c.kind}|${c.id}|${EMAIL_SYSTEM}|${user}`).digest('hex');
-  return { system: EMAIL_SYSTEM, user, contextText: r.text, estRequestTokens, cacheKey, notesShown: r.notesShown, notesTotal: r.notesTotal };
+  return { system: EMAIL_SYSTEM, user, contextText: r.text, estRequestTokens, maxTokens, cacheKey, notesShown: r.notesShown, notesTotal: r.notesTotal };
 }
 
 const ReplySchema = z.object({ subject: z.string().trim().min(1).max(200), body: z.string().trim().min(20).max(6000) });
@@ -139,7 +142,7 @@ export async function sendTarget(ctx: PermCtx, kind: 'LEAD' | 'DEAL', id: string
     select: { id: true, title: true, assignedTo: true, contactId: true, contact: { select: { name: true, email: true } } },
   });
   if (!deal || !can(ctx, 'crm.deal.read')) throw new AppError(404, 'Deal not found');
-  return { owner: deal.assignedTo, contactId: deal.contactId, name: deal.title, email: deal.contact?.email ?? null };
+  return { owner: deal.assignedTo, contactId: deal.contactId, name: deal.contact?.name ?? deal.title, email: deal.contact?.email ?? null };
 }
 
 /** Where a send from the app goes: what the UI shows before confirming. */
