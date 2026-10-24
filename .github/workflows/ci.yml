@@ -60,7 +60,7 @@ jobs:
       # dependencies — dev-chain advisories (vite etc.) are reported by the
       # non-blocking step below instead, so they inform without blocking.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: node .github/scripts/audit-gate.mjs
 
       - name: Audit all dependencies (informational)
         run: npm audit || true
