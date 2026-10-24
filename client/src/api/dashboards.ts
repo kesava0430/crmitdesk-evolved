@@ -201,12 +201,13 @@ export const useDuplicateWidget = () => useDashMutation(({ id, widgetId }: { id:
   api.post(`/dashboards/${id}/widgets/${widgetId}/duplicate`, {}).then(r => r.data as { widgetId: string; dashboard: Dashboard }));
 export const useSetHome = () => useDashMutation((b: { dashboardId: string | null; replaceBuiltIn?: boolean }) => api.put('/dashboards/home', b).then(r => r.data));
 
+// _silent: both screens show the failure inline (AiErrorAlert), so no toast on top.
 export function proposeDashboard(prompt: string): Promise<ProposeResponse> {
-  return api.post('/dashboards/ai/propose', { prompt }).then(r => r.data);
+  return api.post('/dashboards/ai/propose', { prompt }, { _silent: true }).then(r => r.data);
 }
 
 export function aiModifyWidget(spec: WidgetSpec, instruction: string): Promise<{ status: 'modified' | 'failed'; spec: WidgetSpec | null; message?: string }> {
-  return api.post('/dashboards/ai/modify-widget', { spec, instruction }).then(r => r.data);
+  return api.post('/dashboards/ai/modify-widget', { spec, instruction }, { _silent: true }).then(r => r.data);
 }
 
 /** Readable error from an axios failure. */

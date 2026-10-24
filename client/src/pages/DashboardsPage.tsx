@@ -9,7 +9,8 @@ import { useLicense } from '../api/billing';
 import { useAnalyticsCatalog } from '../api/analytics';
 import { useAuth } from '../contexts/AuthContext';
 import { useModules } from '../shared/modules';
-import { Alert, Badge, Button, Card, EmptyState, Input, PageBody, PageHeader, Tabs, Textarea, AiNote } from '../shared/components';
+import { Alert, AiErrorAlert, Badge, Button, Card, EmptyState, Input, PageBody, PageHeader, Tabs, Textarea, AiNote } from '../shared/components';
+import { aiErrorInfo, aiMessage, type AiErrorInfo } from '../shared/ai/aiError';
 import { RowActions } from '../shared/components/RowActions';
 import { addToast } from '../shared/components/toastStore';
 import { PlanFeatureNotice } from '../shared/components/PlanFeatureNotice';
@@ -30,7 +31,7 @@ const SUGGESTIONS: Array<{ q: string; area: 'crm' | 'itdesk' | 'hr'; dataset: st
 function AiBuilder({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: boolean } }) {
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AiErrorInfo | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [preview, setPreview] = useState<RenderResponse | null>(null);
@@ -49,11 +50,11 @@ function AiBuilder({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: bool
     setPrompt(q); setBusy(true); setError(null); setProposal(null); setPreview(null); setWarnings([]);
     try {
       const r = await proposeDashboard(q.trim());
-      if (r.status !== 'proposed' || !r.proposal) { setError(r.message ?? 'The AI couldn’t build that dashboard.'); return; }
+      if (r.status !== 'proposed' || !r.proposal) { setError(aiMessage(r.message ?? 'The AI couldn’t build that dashboard.')); return; }
       setProposal(r.proposal); setWarnings(r.warnings); setTitle(r.proposal.title);
       // Preview with real numbers — rendered by the server as you.
       setPreview(await renderSpecs(r.proposal.widgets));
-    } catch (e) { setError(apiError(e, 'AI request failed.')); } finally { setBusy(false); }
+    } catch (e) { setError(aiErrorInfo(e, apiError(e, 'AI request failed.'))); } finally { setBusy(false); }
   };
 
   const save = (thenEdit: boolean) => {
@@ -89,7 +90,7 @@ function AiBuilder({ areas }: { areas: { crm: boolean; itdesk: boolean; hr: bool
           </div>
         )}
         {busy && <p className="text-[13px] text-accent animate-pulse flex items-center gap-2"><Sparkles size={13} /> Designing it from your data…</p>}
-        {error && <Alert tone="danger" onDismiss={() => setError(null)}>{error}</Alert>}
+        <AiErrorAlert error={error} onDismiss={() => setError(null)} onRetry={() => build(prompt)} />
         {proposal && (
           <div className="space-y-3 min-w-0" data-testid="ai-dashboard-proposal">
             <div className="flex flex-col sm:flex-row sm:items-end gap-3">

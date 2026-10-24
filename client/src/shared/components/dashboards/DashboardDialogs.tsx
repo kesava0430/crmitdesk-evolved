@@ -16,6 +16,8 @@ import { Modal } from '../Modal';
 import { Button } from '../Button';
 import { Field, Input, Select, Checkbox, Textarea } from '../Field';
 import { Alert } from '../Alert';
+import { AiErrorAlert } from '../AiErrorAlert';
+import { aiErrorInfo, aiMessage, type AiErrorInfo } from '../../ai/aiError';
 import { addToast } from '../toastStore';
 import { WidgetView, HowCalculated, widgetCsv } from './WidgetView';
 
@@ -122,7 +124,7 @@ export function AiChangeWidgetDialog({ spec, open, onClose, onApply, applying }:
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AiErrorInfo | null>(null);
   const [next, setNext] = useState<{ spec: WidgetSpec; r?: RenderedWidget; currency: string } | null>(null);
   useEffect(() => { if (open) { setText(''); setError(null); setNext(null); } }, [open]);
 
@@ -131,10 +133,10 @@ export function AiChangeWidgetDialog({ spec, open, onClose, onApply, applying }:
     setBusy(true); setError(null); setNext(null);
     try {
       const res = await aiModifyWidget(spec, text.trim());
-      if (res.status !== 'modified' || !res.spec) { setError(res.message ?? 'The AI couldn’t make that change.'); return; }
+      if (res.status !== 'modified' || !res.spec) { setError(aiMessage(res.message ?? 'The AI couldn’t make that change.')); return; }
       const preview = await renderSpecs([res.spec]);
       setNext({ spec: res.spec, r: preview.widgets[0], currency: preview.currency });
-    } catch (e) { setError(apiError(e)); } finally { setBusy(false); }
+    } catch (e) { setError(aiErrorInfo(e, apiError(e))); } finally { setBusy(false); }
   };
   return (
     <Modal open={open} onClose={onClose} title="Ask AI to change this widget" icon={<Sparkles size={16} className="text-accent" />} size="lg"
@@ -146,7 +148,7 @@ export function AiChangeWidgetDialog({ spec, open, onClose, onApply, applying }:
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); } }} />
           <Button onClick={ask} loading={busy} disabled={!text.trim()} icon={<Sparkles size={13} />} className="sm:self-start">Preview</Button>
         </div>
-        {error && <Alert tone="danger">{error}</Alert>}
+        <AiErrorAlert error={error} onRetry={ask} />
         {next && (
           <div className="rounded-card border border-line p-3 space-y-2 min-w-0">
             <p className="text-[12.5px] font-semibold text-fg truncate">{next.spec.title}</p>

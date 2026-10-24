@@ -26,6 +26,7 @@ export * from './Badge';            // Badge, StatusBadge, humanise, *Variant ma
 export * from './Avatar';
 export * from './EmptyState';
 export * from './Alert';            // Alert, FormError
+export * from './AiErrorAlert';     // AI failures incl. provider rate limits ("try again in ~X")
 
 // ── Feedback ──────────────────────────────────────────────────────────
 export * from './Spinner';          // Spinner, InlineSpinner

@@ -328,7 +328,10 @@ api.interceptors.response.use(
     } else if (status === 422) {
       addToast(serverMsg || 'Validation failed — check your inputs.', 'warning');
     } else if (status === 429) {
-      addToast('Too many requests — please slow down.', 'warning');
+      /* An AI provider rate limit: the server's sentence already says which
+         limit and when to try again ("…Try again in ~8 seconds"). */
+      if (error.response?.data?.code === 'AI_RATE_LIMITED' && serverMsg) addToast(serverMsg, 'warning', { duration: 10000 });
+      else addToast(serverMsg || 'Too many requests — please slow down.', 'warning');
     } else if (status && status >= 500) {
       addToast(
         serverMsg ? `Server error: ${serverMsg}` : 'A server error occurred. Try again in a moment.',
