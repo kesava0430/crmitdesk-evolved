@@ -80,8 +80,8 @@ export const useDeleteLead = () => {
 };
 
 // ─── Deals ───────────────────────────────────────────────────────────────────
-export const useDeals = (params?: Record<string, string>) =>
-  useQuery({ queryKey: ['deals', params], queryFn: () => api.get('/crm/deals', { params }).then(unwrap) });
+export const useDeals = (params?: Record<string, string>, enabled = true) =>
+  useQuery({ queryKey: ['deals', params], queryFn: () => api.get('/crm/deals', { params }).then(unwrap), enabled });
 
 // CRM_STAFF-only on the server — see useContacts.
 export const usePipeline = (enabled = true) =>

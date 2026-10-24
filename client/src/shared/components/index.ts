@@ -47,6 +47,10 @@ export * from './RecordTemplatePicker';
 export * from './ScheduleReminderPanel';
 export * from './RecordTasks';   // tasks attached to any record
 export * from './RecordTags';    // tags attached to any record
+export * from './followups/FollowUpStatus';        // CRM follow-up status pill, filters
+export * from './followups/FollowUpEmailComposer'; // AI/manual follow-up email + send
+export * from './followups/NextStepChip';          // AI suggested next follow-up
+export * from './followups/ToneCheckResult';
 export * from './AccessDenied';
 export * from './ErrorBoundary';
 export * from './RelatedRecords';  // universal "everything under this record" panel

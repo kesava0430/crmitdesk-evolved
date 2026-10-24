@@ -1,14 +1,16 @@
 import { useModules } from '../../../shared/modules';
 import { useState, useEffect } from 'react';
-import { Target, Plus, ArrowRight, Trash2, CheckCircle2, Sparkles, Mail, Copy, Check, Zap, Calendar, Pencil, ListTodo, Circle, Phone, Users as UsersIcon, ClipboardList } from 'lucide-react';
+import { Target, Plus, ArrowRight, Trash2, CheckCircle2, Sparkles, Mail, Zap, Calendar, Pencil, ListTodo, Circle, Phone, Users as UsersIcon, ClipboardList, ArrowDownUp, Inbox as InboxIcon } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useLeads, useCreateLead, useUpdateLead, useConvertLead, useDeleteLead, useLead, useCreateActivity, useUpdateActivity, useDeleteActivity, usePipeline } from '../../../api/crm';
-import { useScoreLead, useLeadFollowUp, useNurtureSequence } from '../../../api/ai';
+import { useScoreLead, useNurtureSequence } from '../../../api/ai';
+import { useLicense } from '../../../api/billing';
 import {
   PageHeader, PageBody, Toolbar, Button, Modal, Badge, StatusBadge, humanise, leadStatusVariant,
   SearchInput, EmptyState, Spinner, SearchableSelect, RowActions,
   CustomFieldsFormFields, RecordTemplatePicker, Card, DataTable, Alert, IconButton, Field, Input,
-  Textarea, Select, Label, Avatar, FormGrid, FormActions, AiInfo, AiNote, AiGeneratedTag, RecordTasks, RecordTags,
-  AccessDenied} from '../../../shared/components';
+  Textarea, Select, Label, Avatar, FormGrid, FormActions, AiInfo, AiNote, RecordTasks, RecordTags,
+  AccessDenied, FollowUpStatusIcon, FOLLOWUP_FILTERS, FollowUpEmailComposer, NextStepChip, followUpDueText} from '../../../shared/components';
 import type { Column } from '../../../shared/components';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
 import { useUsers } from '../../../api/users';
@@ -193,76 +195,18 @@ function ConvertLeadModal({ lead, onClose }: { lead: any; onClose: () => void })
   );
 }
 
-function FollowUpModal({ lead, onClose }: { lead: any; onClose: () => void }) {
-  const followUp = useLeadFollowUp();
-  const [result, setResult] = useState<{ subject: string; body: string } | null>(null);
-  const [copied, setCopied] = useState<'subject' | 'body' | null>(null);
-
-  async function generate() {
-    const data = await followUp.mutateAsync(lead.id);
-    setResult(data);
-  }
-
-  function copy(text: string, field: 'subject' | 'body') {
-    navigator.clipboard.writeText(text);
-    setCopied(field);
-    setTimeout(() => setCopied(null), 2000);
-  }
-
+/** AI / manual follow-up email for a lead, with send + log (shared composer). */
+function FollowUpModal({ lead, aiEnabled }: { lead: any; aiEnabled: boolean }) {
+  const [sentCount, setSentCount] = useState(0);
   return (
     <div className="space-y-4">
-      <Alert tone="accent" icon={<Sparkles size={18} />} className="items-center">
+      <Alert tone="accent" icon={<Mail size={18} />} className="items-center">
         <p className="font-semibold text-fg">{lead.contact?.name || 'Lead'}</p>
-        <p className="text-xs text-fg-muted">{lead.contact?.email} · {lead.source || 'Unknown source'}</p>
+        <p className="text-xs text-fg-muted">{lead.contact?.email || 'No email on file'} · {lead.source || 'Unknown source'}</p>
       </Alert>
-
-      <AiNote id="lead.followUp" />
-
-      {!result ? (
-        <div className="text-center py-6">
-          <Button icon={<Sparkles size={15} />} onClick={generate} loading={followUp.isPending}>
-            Generate Follow-up Email
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <AiGeneratedTag />
-          <Card padding="none" flat className="overflow-hidden">
-            <div className="bg-surface-sunken px-4 py-2 flex items-center justify-between border-b border-line-subtle">
-              <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Subject</span>
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => copy(result.subject, 'subject')}
-                icon={copied === 'subject' ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-              >
-                {copied === 'subject' ? 'Copied' : 'Copy'}
-              </Button>
-            </div>
-            <p className="px-4 py-3 text-sm font-medium text-fg">{result.subject}</p>
-          </Card>
-
-          <Card padding="none" flat className="overflow-hidden">
-            <div className="bg-surface-sunken px-4 py-2 flex items-center justify-between border-b border-line-subtle">
-              <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Email Body</span>
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => copy(result.body, 'body')}
-                icon={copied === 'body' ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-              >
-                {copied === 'body' ? 'Copied' : 'Copy'}
-              </Button>
-            </div>
-            <pre className="px-4 py-3 text-sm text-fg-muted whitespace-pre-wrap font-sans leading-relaxed max-h-64 overflow-y-auto">{result.body}</pre>
-          </Card>
-
-          <div className="flex justify-between pt-1">
-            <Button variant="secondary" icon={<Sparkles size={14} />} onClick={generate} loading={followUp.isPending}>Regenerate</Button>
-            <Button icon={<Mail size={14} />} onClick={() => { copy(result.body, 'body'); onClose(); }}>Copy &amp; Close</Button>
-          </div>
-        </div>
-      )}
+      {aiEnabled && <AiNote id="lead.followUp" />}
+      <FollowUpEmailComposer kind="LEAD" recordId={lead.id} aiEnabled={aiEnabled} onSent={() => setSentCount(n => n + 1)} />
+      <NextStepChip kind="LEAD" recordId={lead.id} contactId={lead.contactId ?? lead.contact?.id} aiEnabled={aiEnabled} trigger={sentCount} />
     </div>
   );
 }
@@ -313,29 +257,69 @@ function NurtureSequenceModal({ lead, onClose }: { lead: any; onClose: () => voi
 const ACTIVITY_TYPES = ['CALL', 'EMAIL', 'MEETING', 'TASK'] as const;
 const ACTIVITY_ICON: Record<string, any> = { CALL: Phone, EMAIL: Mail, MEETING: UsersIcon, TASK: ClipboardList };
 
-function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
-  const { date } = useFormat();
+/** "today" in the org timezone, as YYYY-MM-DD. */
+function orgToday(tz: string) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+/** Wall-clock date + time in the org timezone → ISO instant. */
+function zonedIso(date: string, time: string, tz: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  const offset = (t: number) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(t)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)]));
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute) - t;
+  };
+  let t = guess - offset(guess);
+  t = guess - offset(t);
+  return new Date(t).toISOString();
+}
+
+/** Due state of one open follow-up, in the org timezone (mirrors server utils/followups/time.ts). */
+function dueState(a: any, tz: string): 'OVERDUE' | 'TODAY' | 'UPCOMING' | null {
+  if (!a.dueAt || a.done) return null;
+  const d = new Date(a.dueAt);
+  const dateOnly = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
+  const today = orgToday(tz);
+  const day = dateOnly ? a.dueAt.slice(0, 10) : new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  if (dateOnly) return day < today ? 'OVERDUE' : day === today ? 'TODAY' : 'UPCOMING';
+  if (d.getTime() < Date.now()) return 'OVERDUE';
+  return day === today ? 'TODAY' : 'UPCOMING';
+}
+
+function FollowUpsModal({ lead, onClose, aiEnabled }: { lead: any; onClose: () => void; aiEnabled: boolean }) {
+  const { timezone } = useFormat();
+  const { user } = useAuth();
   const { data: fresh, isLoading } = useLead(lead.id);
   const activities = fresh?.activities ?? [];
   const createActivity = useCreateActivity();
   const updateActivity = useUpdateActivity();
   const deleteActivity = useDeleteActivity();
-  const [form, setForm] = useState({ type: 'CALL' as typeof ACTIVITY_TYPES[number], title: '', dueAt: '' });
+  const { data: orgUsers } = useUsers();
+  const assigneeOptions = (orgUsers ?? []).filter((u: any) => LEAD_ASSIGNEE_ROLES.has(u.role)).map((u: any) => ({ value: u.id, label: u.name }));
+  const blank = { type: 'CALL' as typeof ACTIVITY_TYPES[number], title: '', dueAt: '', time: '', assignedTo: '' };
+  const [form, setForm] = useState(blank);
+  const [saved, setSaved] = useState(0);
+  const contact = fresh?.contact ?? lead.contact;
 
   function addFollowUp(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title.trim()) return;
+    // A date alone stays a date-only follow-up (reminded at the start of the
+    // working day); with a time it's that moment in the org's timezone.
+    const dueAt = form.dueAt ? (form.time ? zonedIso(form.dueAt, form.time, timezone) : form.dueAt) : undefined;
     createActivity.mutate(
-      { leadId: lead.id, contactId: lead.contactId ?? lead.contact?.id, type: form.type, title: form.title.trim(), dueAt: form.dueAt || undefined },
-      { onSuccess: () => setForm({ type: 'CALL', title: '', dueAt: '' }) }
+      { leadId: lead.id, contactId: lead.contactId ?? lead.contact?.id, type: form.type, title: form.title.trim(), dueAt, assignedTo: form.assignedTo || undefined },
+      { onSuccess: () => { setForm(blank); setSaved(n => n + 1); } }
     );
   }
 
   return (
     <div className="space-y-4">
       <Alert tone="info" icon={<ListTodo size={18} />}>
-        <p className="font-semibold text-fg">{lead.contact?.name || 'Lead'}</p>
-        <p className="text-xs text-fg-muted">Scheduled calls, emails, meetings and tasks for this lead — separate from deal-side activity once it converts.</p>
+        <p className="font-semibold text-fg">{contact?.name || 'Lead'}</p>
+        <p className="text-xs text-fg-muted">Scheduled calls, emails, meetings and tasks for this lead. You get a reminder when one falls due (date-only ones at the start of the working day).</p>
       </Alert>
 
       {isLoading ? <Spinner /> : activities.length === 0 ? (
@@ -343,24 +327,32 @@ function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
       ) : (
         <div className="space-y-2 max-h-72 overflow-y-auto">
           {activities.map((a: any) => {
-            const Icon = ACTIVITY_ICON[a.type] || ClipboardList;
+            const Icon = a.type === 'EMAIL' && a.emailMeta?.direction === 'INBOUND' ? InboxIcon : (ACTIVITY_ICON[a.type] || ClipboardList);
+            const state = dueState(a, timezone);
+            const d = a.dueAt ? new Date(a.dueAt) : null;
+            const dateOnly = !!d && d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
             return (
-              <Card key={a.id} padding="sm" flat tone={a.done ? 'sunken' : 'default'} className="flex items-start gap-2.5">
+              <Card key={a.id} padding="sm" flat tone={a.done ? 'sunken' : 'default'} className={`flex items-start gap-2.5 ${state === 'OVERDUE' ? 'border-danger/40' : state === 'TODAY' ? 'border-warning/40' : ''}`}>
                 <IconButton
                   size="xs"
                   tone={a.done ? 'success' : 'default'}
-                  onClick={() => updateActivity.mutate({ id: a.id, done: !a.done })}
+                  onClick={() => updateActivity.mutate({ id: a.id, done: !a.done }, { onSuccess: () => { if (!a.done) setSaved(n => n + 1); } })}
                   className={a.done ? 'text-success' : ''}
                   label={a.done ? 'Mark as not done' : 'Mark as done'}
                   icon={a.done ? <CheckCircle2 size={16} /> : <Circle size={16} />}
                 />
                 <Icon size={14} className="text-fg-subtle mt-1.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${a.done ? 'text-fg-subtle line-through' : 'text-fg'}`}>{a.title}</p>
-                  {a.body && <p className="text-xs text-fg-muted mt-0.5">{a.body}</p>}
-                  <div className="flex items-center gap-2 mt-1">
-                    {a.dueAt && <span className="text-[11px] text-fg-subtle">Due {date(a.dueAt)}</span>}
-                    {a.createdByUser?.name && <span className="text-[11px] text-fg-subtle">· {a.createdByUser.name}</span>}
+                  <p className={`text-sm font-medium break-words ${a.done ? 'text-fg-subtle line-through' : 'text-fg'}`}>{a.title}</p>
+                  {a.body && <p className="text-xs text-fg-muted mt-0.5 line-clamp-3 whitespace-pre-line">{a.body}</p>}
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {d && (
+                      <span className={`text-[11px] ${state === 'OVERDUE' ? 'text-danger font-medium' : state === 'TODAY' ? 'text-warning-fg font-medium' : 'text-fg-subtle'}`}>
+                        {state === 'OVERDUE' ? 'Overdue · ' : state === 'TODAY' ? 'Due today · ' : a.done ? '' : 'Due '}{followUpDueText({ dueAt: a.dueAt, dateOnly }, timezone)}
+                      </span>
+                    )}
+                    {(a.assignee?.name || a.createdByUser?.name) && <span className="text-[11px] text-fg-subtle">· {a.assignee?.name || a.createdByUser.name}</span>}
+                    {a.emailMeta?.direction === 'OUTBOUND' && <span className="text-[11px] text-fg-subtle">· sent from the app</span>}
                   </div>
                 </div>
                 <IconButton
@@ -376,6 +368,8 @@ function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
         </div>
       )}
 
+      <NextStepChip kind="LEAD" recordId={lead.id} contactId={lead.contactId ?? lead.contact?.id} aiEnabled={aiEnabled} trigger={saved} />
+
       <form onSubmit={addFollowUp} className="border-t border-line-subtle pt-3 space-y-2">
         <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Schedule a follow-up</p>
         <div className="flex flex-wrap gap-2">
@@ -387,7 +381,13 @@ function FollowUpsModal({ lead, onClose }: { lead: any; onClose: () => void }) {
             options={ACTIVITY_TYPES.map(t => ({ value: t, label: t[0] + t.slice(1).toLowerCase() }))}
           />
           <Input aria-label="Follow-up title" className="order-first basis-full sm:order-none sm:basis-0 flex-1 min-w-[160px]" placeholder="e.g. Call to discuss pricing" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
-          <Input aria-label="Follow-up due date" type="date" className="w-40" value={form.dueAt} onChange={e => setForm(p => ({ ...p, dueAt: e.target.value }))} />
+          <Input aria-label="Follow-up due date" type="date" className="w-40" min={orgToday(timezone)} value={form.dueAt} onChange={e => setForm(p => ({ ...p, dueAt: e.target.value }))} />
+          <Input aria-label="Follow-up time (optional)" type="time" className="w-28" value={form.time} disabled={!form.dueAt} onChange={e => setForm(p => ({ ...p, time: e.target.value }))} />
+          {assigneeOptions.length > 1 && (
+            <div className="w-44">
+              <SearchableSelect ariaLabel="Follow-up assigned to" value={form.assignedTo} onChange={v => setForm(p => ({ ...p, assignedTo: v }))} options={assigneeOptions} placeholder={`Me (${user?.name?.split(' ')[0] ?? 'you'})`} />
+            </div>
+          )}
           <Button type="submit" size="sm" icon={<Plus size={13} />} loading={createActivity.isPending}>Add</Button>
         </div>
       </form>
@@ -405,8 +405,26 @@ export function LeadsPage() {
   const canReadCrm = can.readCrm(user?.role);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Follow-up filter / "overdue first" sort run on the server, in the org's timezone.
+  const [followUpFilter, setFollowUpFilter] = useState('');
+  const [sortFollowUp, setSortFollowUp] = useState(false);
   const [modal, setModal] = useState<null | 'create' | { type: 'edit'; lead: any } | { type: 'convert'; lead: any } | { type: 'followup'; lead: any } | { type: 'nurture'; lead: any } | { type: 'followups'; lead: any }>(null);
-  const { data: leads, isLoading } = useLeads({ ...(search && { search }), ...(statusFilter && { status: statusFilter }) }, canReadCrm);
+  const { data: leads, isLoading } = useLeads({
+    ...(search && { search }), ...(statusFilter && { status: statusFilter }),
+    ...(followUpFilter && { followUp: followUpFilter }), ...(sortFollowUp && { sort: 'followup' }),
+  }, canReadCrm);
+  const { timezone } = useFormat();
+  const { data: lic } = useLicense(canReadCrm);
+  const aiEnabled = !!lic?.features.includes('ai_advanced');
+  // ?followups=<leadId> (from a reminder, My Work, or the dashboard) opens that lead's follow-ups.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get('followups');
+    if (!id) return;
+    setModal({ type: 'followups', lead: { id } });
+    searchParams.delete('followups');
+    setSearchParams(searchParams, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const create = useCreateLead();
   const update = useUpdateLead();
   const del = useDeleteLead();
@@ -475,6 +493,11 @@ export function LeadsPage() {
     </span>
   );
 
+  const leadClosed = (lead: any) => lead.status === 'CONVERTED' || lead.status === 'UNQUALIFIED';
+  const followUpPill = (lead: any, size: 'compact' | 'full') => (
+    <FollowUpStatusIcon summary={lead.followUp} closed={leadClosed(lead)} timezone={timezone} size={size} onClick={() => setModal({ type: 'followups', lead })} />
+  );
+
   const leadColumns: Column<any>[] = [
     {
       key: 'name',
@@ -483,8 +506,14 @@ export function LeadsPage() {
         <div className="flex items-center gap-2 min-w-0">
           <Avatar name={lead.contact?.name || '?'} size="sm" />
           <span className="font-medium text-fg truncate" title={lead.contact?.name || undefined}>{lead.contact?.name || '--'}</span>
+          {/* Phones: the follow-up pill rides on the card title, where it's always visible. */}
+          {!isDesktop && followUpPill(lead, 'compact')}
         </div>
       ),
+    },
+    {
+      key: 'followUp', header: 'Follow-up', hideBelow: 'md', mobile: 'hidden',
+      cell: (lead: any) => followUpPill(lead, 'full'),
     },
     {
       key: 'email', header: 'Email', hideBelow: 'sm', muted: true,
@@ -552,7 +581,7 @@ export function LeadsPage() {
           />
           {isDesktop && convertCell(lead)}
           <RowActions items={[
-            { label: 'AI follow-up email', icon: <Mail size={14} />, onClick: () => setModal({ type: 'followup', lead }) },
+            { label: aiEnabled ? 'Follow-up email (AI)' : 'Follow-up email', icon: <Mail size={14} />, onClick: () => setModal({ type: 'followup', lead }) },
             { label: 'AI nurture sequence', icon: <Calendar size={14} />, onClick: () => setModal({ type: 'nurture', lead }) },
             { label: 'Edit lead', icon: <Pencil size={14} />, onClick: () => setModal({ type: 'edit', lead }) },
             { label: 'Delete lead', icon: <Trash2 size={14} />, onClick: () => del.mutate(lead.id), variant: 'danger' },
@@ -562,7 +591,7 @@ export function LeadsPage() {
     },
   ];
 
-  const filtersActive = Boolean(search || statusFilter);
+  const filtersActive = Boolean(search || statusFilter || followUpFilter);
 
   return (
     <div className="animate-fade-in">
@@ -581,6 +610,24 @@ export function LeadsPage() {
               options={STATUSES.map(s => ({ value: s, label: humanise(s) }))}
               className="w-40"
             />
+            <Select
+              aria-label="Filter by follow-up"
+              value={followUpFilter}
+              onChange={e => setFollowUpFilter(e.target.value)}
+              placeholder="All follow-ups"
+              options={FOLLOWUP_FILTERS}
+              className="w-48"
+            />
+            <Button
+              variant={sortFollowUp ? 'primary' : 'secondary'}
+              size="md"
+              icon={<ArrowDownUp size={14} />}
+              aria-pressed={sortFollowUp}
+              onClick={() => setSortFollowUp(v => !v)}
+              title="Sort by follow-up: overdue first, then due today, upcoming, none"
+            >
+              Overdue first
+            </Button>
           </Toolbar>
         }
       />
@@ -601,7 +648,7 @@ export function LeadsPage() {
                   ? 'Nothing matches your search or status filter. Try broadening or clearing them.'
                   : `Capture your first ${singular.toLowerCase()} to start building your pipeline. AI can score and nurture it from here.`}
                 action={filtersActive ? undefined : { label: `New ${singular}`, onClick: () => setModal('create') }}
-                secondaryAction={filtersActive ? { label: 'Clear filters', onClick: () => { setSearch(''); setStatusFilter(''); } } : undefined}
+                secondaryAction={filtersActive ? { label: 'Clear filters', onClick: () => { setSearch(''); setStatusFilter(''); setFollowUpFilter(''); } } : undefined}
               />
             }
           />
@@ -639,10 +686,11 @@ export function LeadsPage() {
       <Modal
         open={typeof modal === 'object' && modal !== null && (modal as any).type === 'followup'}
         onClose={() => setModal(null)}
-        title="AI Follow-up Email"
+        title="Follow-up email"
+        size="lg"
       >
         {modal && typeof modal === 'object' && (modal as any).type === 'followup' && (
-          <FollowUpModal lead={(modal as any).lead} onClose={() => setModal(null)} />
+          <FollowUpModal lead={(modal as any).lead} aiEnabled={aiEnabled} />
         )}
       </Modal>
 
@@ -662,7 +710,7 @@ export function LeadsPage() {
         title="Follow-up Activities"
       >
         {modal && typeof modal === 'object' && (modal as any).type === 'followups' && (
-          <FollowUpsModal lead={(modal as any).lead} onClose={() => setModal(null)} />
+          <FollowUpsModal lead={(modal as any).lead} onClose={() => setModal(null)} aiEnabled={aiEnabled} />
         )}
       </Modal>
     </div>

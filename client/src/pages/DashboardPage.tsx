@@ -9,11 +9,12 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Ticket, TrendingUp, Users, Target, AlertCircle,
   CheckCircle, DollarSign, Clock, Sparkles, Send,
-  ArrowUpRight, ArrowRight, Plus, BarChart2, FileText, CalendarCheck, Wallet, Home,
+  ArrowUpRight, ArrowRight, Plus, BarChart2, FileText, CalendarCheck, Wallet, Home, AlarmClock,
 } from 'lucide-react';
 import { useDealReports } from '../api/crm';
 import { useContacts, useLeads } from '../api/crm';
 import { useTicketReports } from '../api/itdesk';
+import { useMyFollowUps } from '../api/followups';
 import { useNLQuery } from '../api/ai';
 import {
   AiGeneratedTag, AiInfo, AiNote,
@@ -345,6 +346,8 @@ export function DashboardPage() {
   const { data: contacts } = useContacts(undefined, showCrm);
   const { data: leads } = useLeads(undefined, showCrm);
   const { data: ticketReports, isLoading: ticketsLoading } = useTicketReports(showItDesk);
+  // The signed-in user's own overdue / due-today CRM follow-ups (permission-filtered server-side).
+  const { data: myFollowUps } = useMyFollowUps(showCrm);
 
   /* POST /ai/query and POST /ai/insights are both MANAGERS-only — and they
      only know CRM and help-desk numbers, so an org without either (HR only)
@@ -431,12 +434,14 @@ export function DashboardPage() {
         {home && !builtIn && <HomeDashboard id={home.dashboardId} replaceBuiltIn />}
         {builtIn && <>
         {/* Needs attention */}
-        {!ticketsLoading && ticketReports && (
+        {((!ticketsLoading && ticketReports) || myFollowUps) && (
           (() => {
             const attention = [
-              { key: 'sla', count: ticketReports.slaBreached ?? 0, label: 'SLA-breached tickets', icon: AlertCircle, tone: 'danger' as const, to: '/itdesk/tickets' },
-              { key: 'open', count: ticketReports.open ?? 0, label: 'Open tickets awaiting action', icon: Ticket, tone: 'info' as const, to: '/itdesk/tickets' },
-              { key: 'leads', count: showCrm ? (activeLeads ?? 0) : 0, label: 'Leads awaiting follow-up', icon: Target, tone: 'warning' as const, to: '/crm/leads' },
+              { key: 'fu-overdue', count: myFollowUps?.overdue ?? 0, label: 'Your overdue follow-ups', icon: AlarmClock, tone: 'danger' as const, to: '/my-work' },
+              { key: 'fu-today', count: myFollowUps?.today ?? 0, label: 'Your follow-ups due today', icon: Clock, tone: 'warning' as const, to: '/my-work' },
+              { key: 'sla', count: ticketReports?.slaBreached ?? 0, label: 'SLA-breached tickets', icon: AlertCircle, tone: 'danger' as const, to: '/itdesk/tickets' },
+              { key: 'open', count: ticketReports?.open ?? 0, label: 'Open tickets awaiting action', icon: Ticket, tone: 'info' as const, to: '/itdesk/tickets' },
+              { key: 'leads', count: showCrm && ticketReports ? (activeLeads ?? 0) : 0, label: 'Leads awaiting follow-up', icon: Target, tone: 'warning' as const, to: '/crm/leads' },
             ].filter(a => a.count > 0);
             return attention.length ? (
               <section>

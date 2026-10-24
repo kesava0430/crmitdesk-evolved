@@ -17,6 +17,8 @@ import {
 import { CheckSquare, Plus, AlertTriangle, Calendar, Clock, Inbox, Check, X, ChevronRight } from 'lucide-react';
 import { useFormat } from '../../hooks/useFormat';
 import { useAuth } from '../../contexts/AuthContext';
+import { useMyFollowUps } from '../../api/followups';
+import { MyFollowUps } from './MyFollowUps';
 
 /**
  * "My Work" (§2, §47) — one cross-module queue per person.
@@ -381,9 +383,20 @@ export default function MyWorkPage() {
   // Name only the areas the org has (Platform Admin → Areas).
   const modules = useModules();
   const areaNames = joinWords([modules.isAreaOn('crm') && 'CRM', modules.isAreaOn('itdesk') && 'IT Desk', modules.isAreaOn('hr') && 'HR']);
-  const { data, isLoading } = useMyWork();
+  const { data: raw, isLoading } = useMyWork();
   const [newOpen, setNewOpen] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
+  // CRM follow-ups (overdue + today) get their own section at the top; the CRM
+  // tasks among them are not repeated in the buckets below.
+  const crmOn = modules.isModuleOn('crm');
+  const { data: fu } = useMyFollowUps(crmOn);
+  const shownAsFollowUp = new Set((fu?.items ?? []).filter(i => i.source === 'TASK').map(i => i.id));
+  const drop = (list: Task[]) => list.filter(t => !shownAsFollowUp.has(t.id));
+  const data = raw && {
+    ...raw,
+    overdue: drop(raw.overdue), today: drop(raw.today),
+    counts: { ...raw.counts, overdue: drop(raw.overdue).length + (fu?.overdue ?? 0), today: drop(raw.today).length + (fu?.today ?? 0) },
+  };
 
   const empty =
     !isLoading &&
@@ -393,7 +406,8 @@ export default function MyWorkPage() {
     !data.thisWeek.length &&
     !data.later.length &&
     !data.noDate.length &&
-    !data.approvals.length;
+    !data.approvals.length &&
+    !(fu?.items.length);
 
   return (
     <div className="flex flex-col h-full">
@@ -433,6 +447,8 @@ export default function MyWorkPage() {
                   />
                 ))}
               </div>
+
+              <MyFollowUps enabled={crmOn} />
 
               {!!data.approvals.length && (
                 <Card padding="none" className="overflow-hidden">

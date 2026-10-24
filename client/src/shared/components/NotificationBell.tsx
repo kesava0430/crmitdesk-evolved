@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPopover, popoverStyle } from './useAnchoredPopover';
-import { Bell, BellRing, BellOff, X, Ticket, MessageSquare, Target, CheckCircle } from 'lucide-react';
+import { Bell, BellRing, BellOff, X, Ticket, MessageSquare, Target, CheckCircle, AlarmClock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useSSE, setSSEToastHandler, type SSEEventType } from '../../hooks/useSSE';
@@ -17,6 +18,18 @@ interface Notification {
   body: string;
   readAt: string | null;
   createdAt: string;
+  entityType?: string | null;
+  entityId?: string | null;
+}
+
+/** Where a follow-up notification leads (reminders, replies, the morning summary). Others don't navigate. */
+function followUpTarget(n: Notification): string | null {
+  if (!n.type?.startsWith('FOLLOWUP_')) return null;
+  if (n.type === 'FOLLOWUP_DIGEST' || !n.entityId) return '/my-work';
+  if (n.entityType === 'LEAD') return `/crm/leads?followups=${encodeURIComponent(n.entityId)}`;
+  if (n.entityType === 'DEAL') return `/crm/deals?deal=${encodeURIComponent(n.entityId)}`;
+  if (n.entityType === 'CONTACT') return `/crm/contacts/${encodeURIComponent(n.entityId)}`;
+  return '/my-work';
 }
 
 interface Toast {
@@ -70,6 +83,7 @@ export function NotificationBell() {
   const push = usePushSubscription();
 
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   /* Portaled: this 320px panel hangs off the top bar, which lives inside the
      shell's `overflow-hidden` wrapper, so on a narrow screen it was clipped
@@ -125,6 +139,7 @@ export function NotificationBell() {
   }
 
   function notifIcon(type: string) {
+    if (type?.startsWith('FOLLOWUP_')) return <AlarmClock size={13} className="text-warning" />;
     if (type?.includes('TICKET')) return <Ticket size={13} className="text-accent" />;
     if (type?.includes('INBOX') || type?.includes('MESSAGE')) return <MessageSquare size={13} className="text-cyan-500" />;
     if (type?.includes('LEAD')) return <Target size={13} className="text-violet-500" />;
@@ -183,7 +198,7 @@ export function NotificationBell() {
                 </div>
               ) : (
                 notifications.slice(0, 20).map(n => (
-                  <button key={n.id} onClick={() => markRead(n.id)}
+                  <button key={n.id} onClick={() => { markRead(n.id); const to = followUpTarget(n); if (to) { setOpen(false); navigate(to); } }}
                     className={`w-full text-left flex items-start gap-3 px-4 py-3 hover:bg-surface-hover transition-colors ${!n.readAt ? 'bg-accent-soft/40' : ''}`}>
                     <div className="mt-0.5 flex-shrink-0">{notifIcon(n.type)}</div>
                     <div className="flex-1 min-w-0">

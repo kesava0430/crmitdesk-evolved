@@ -1,17 +1,19 @@
 import { useModules } from '../../../shared/modules';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { TrendingUp, Plus, Trash2, Sparkles, Activity, Copy, Check, Mail, Pencil, Settings, GripVertical, ChevronUp, ChevronDown, AlertTriangle } from 'lucide-react';
-import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports } from '../../../api/crm';
+import { TrendingUp, Plus, Trash2, Sparkles, Activity, Mail, Pencil, Settings, GripVertical, ChevronUp, ChevronDown, AlertTriangle, ArrowDownUp } from 'lucide-react';
+import { usePipeline, useDeal, useCreateDeal, useUpdateDeal, useMoveDealStage, useDeleteDeal, useDealReports, useDeals } from '../../../api/crm';
+import { useLicense } from '../../../api/billing';
 import { useContacts, useAccounts, usePipelines, useAddStage, useUpdateStage, useRemoveStage, useReorderStages } from '../../../api/crm';
 import { useUsers } from '../../../api/users';
 import { useDepartments } from '../../../api/people';
-import { useWinProbability, usePipelineHealth, useDealFollowUp, useToneCheck } from '../../../api/ai';
+import { useWinProbability, usePipelineHealth } from '../../../api/ai';
 import {
   PageHeader, PageBody, Button, Modal, SearchableSelect, CustomFieldsFormFields, CustomFieldsDisplay,
   RecordTemplatePicker, ScheduleReminderPanel, Card, StatTile, Tabs, Alert, IconButton, Field, Input,
-  Label, FormGrid, FormActions, Avatar, AiInfo, AiNote, AiGeneratedTag, RecordTasks, RecordTags,
-  AccessDenied} from '../../../shared/components';
+  Label, FormGrid, FormActions, Avatar, AiInfo, AiNote, RecordTasks, RecordTags, Select, DataTable, StatusBadge, dealStatusVariant,
+  AccessDenied, FollowUpStatusIcon, FOLLOWUP_FILTERS, matchesFollowUpFilter, FollowUpEmailComposer, NextStepChip} from '../../../shared/components';
+import type { Column } from '../../../shared/components';
 import { Comments } from '../../../shared/components/Comments';
 import { Attachments } from '../../../shared/components/Attachments';
 import { useCustomFieldDefs, useCustomFieldValues, useSaveCustomFieldValues, toValuesPayload, fromValueRecords } from '../../../api/customFields';
@@ -23,6 +25,7 @@ import { useDebounce } from '../../../hooks/useDebounce';
 import { useDealLinkRule, useRelatedPreview, useRelatedCounts } from '../../../api/dealLinks';
 import { RelatedDealsPanel } from './RelatedDeals';
 import { can } from '../../../shared/permissions';
+import { useMediaQuery, MD_UP } from '../../../hooks/useMediaQuery';
 
 function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubmit, loading, aiPrefill }: any) {
   const [form, setForm] = useState(initial || { title: '', value: '', stage: stages?.[0] || '', probability: 20, contactId: '', accountId: '', assignedTo: '', departmentId: '', closeDate: '', ...aiPrefill });
@@ -131,7 +134,7 @@ function DealForm({ initial, entityId, contacts, accounts, users, stages, onSubm
 
 function DealCard({ deal, onDelete, onSelect, related, relatedLabel }: any) {
   const [dragging, setDragging] = useState(false);
-  const { money } = useFormat();
+  const { money, timezone } = useFormat();
   return (
     <Card
       padding="sm"
@@ -163,6 +166,11 @@ function DealCard({ deal, onDelete, onSelect, related, relatedLabel }: any) {
         {deal.contact && <span className="text-xs text-fg-subtle truncate" title={deal.contact.name}>{deal.contact.name}</span>}
         <span className="text-xs text-fg-subtle ml-auto tabular-nums shrink-0">{deal.probability}%</span>
       </div>
+      {deal.followUp && (
+        <div className="mt-2">
+          <FollowUpStatusIcon summary={deal.followUp} closed={deal.status !== 'OPEN'} timezone={timezone} onClick={() => onSelect(deal)} />
+        </div>
+      )}
       {deal.assignee && <div className="mt-2 flex items-center gap-1.5 min-w-0">
         <Avatar name={deal.assignee.name} size="xs" tone="accent" />
         <span className="text-xs text-fg-subtle truncate" title={deal.assignee.name}>{deal.assignee.name}</span>
@@ -177,94 +185,8 @@ function DealCard({ deal, onDelete, onSelect, related, relatedLabel }: any) {
   );
 }
 
-/**
- * Tone check result.
- *
- * The server returns { tone, score, issues[], suggestions[], approved }
- * (see `checkEmailTone` in server/src/utils/ai.ts). This used to be dumped
- * through JSON.stringify, so the user was shown raw braces and quotes; the
- * fields are rendered properly now. A plain string is still handled, since an
- * older/failed response can come back that way.
- */
-function ToneCheckResult({ data }: { data: any }) {
-  if (typeof data === 'string') {
-    return (
-      <Alert tone="accent" title="Tone Analysis">
-        <p className="text-xs leading-relaxed">{data}</p>
-      </Alert>
-    );
-  }
-
-  /* The server now fails CLOSED: when AI is unavailable or the reply was
-     malformed it returns checked:false rather than approved:true. Surfacing
-     that distinction matters — an unchecked email must not look like one that
-     passed review. Older servers omit `checked`; treat that as checked. */
-  if (data?.checked === false) {
-    return (
-      <Alert tone="warning" title="Tone not checked">
-        <p className="text-xs leading-relaxed">
-          The tone check could not run, so this email has not been reviewed. Check that an AI
-          provider is configured, then try again.
-        </p>
-      </Alert>
-    );
-  }
-
-  const tone: string | undefined = data?.tone;
-  const score: number | undefined = typeof data?.score === 'number' ? data.score : undefined;
-  const issues: string[] = Array.isArray(data?.issues) ? data.issues : [];
-  const suggestions: string[] = Array.isArray(data?.suggestions) ? data.suggestions : [];
-  const alertTone = score == null ? 'accent' : score >= 75 ? 'success' : score >= 50 ? 'warning' : 'danger';
-
-  return (
-    <Alert tone={alertTone} title="Tone Analysis">
-      <div className="flex items-center gap-2 flex-wrap mb-1.5">
-        {tone && <span className="text-xs font-semibold capitalize">{tone}</span>}
-        {score != null && <span className="text-xs opacity-80">{score}/100</span>}
-        {data?.approved === false && <span className="text-xs font-medium">Needs a rewrite</span>}
-      </div>
-      {issues.length > 0 && (
-        <div className="mb-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider opacity-80 mb-0.5">Issues</p>
-          <ul className="space-y-1">
-            {issues.map((issue, i) => (
-              <li key={i} className="text-xs flex items-start gap-1.5">
-                <span className="opacity-60 mt-0.5 flex-shrink-0">&#8226;</span>{issue}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {suggestions.length > 0 && (
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider opacity-80 mb-0.5">Suggestions</p>
-          <ul className="space-y-1">
-            {suggestions.map((s, i) => (
-              <li key={i} className="text-xs flex items-start gap-1.5">
-                <span className="opacity-60 mt-0.5 flex-shrink-0">&#8226;</span>{s}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {!tone && score == null && issues.length === 0 && suggestions.length === 0 && (
-        <p className="text-xs leading-relaxed">No tone issues were reported.</p>
-      )}
-    </Alert>
-  );
-}
-
-function DealDetailPanel({ deal }: { deal: any }) {
+function DealDetailPanel({ deal, aiEnabled, onSaved }: { deal: any; aiEnabled: boolean; onSaved: () => void }) {
   const winProb = useWinProbability();
-  const followUp = useDealFollowUp();
-  const toneCheck = useToneCheck();
-  const [copied, setCopied] = useState<'subject' | 'body' | null>(null);
-
-  function copy(text: string, field: 'subject' | 'body') {
-    navigator.clipboard.writeText(text);
-    setCopied(field);
-    setTimeout(() => setCopied(null), 2000);
-  }
 
   const probTone = winProb.data
     ? winProb.data.probability >= 70 ? 'success' : winProb.data.probability >= 40 ? 'warning' : 'danger'
@@ -305,63 +227,13 @@ function DealDetailPanel({ deal }: { deal: any }) {
         )}
       </div>
 
-      {/* Follow-up Email */}
+      {/* Follow-up Email: from the deal's real notes/quote/plan, fact-checked, sent + logged */}
       <div className="border-t border-line pt-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-fg flex items-center gap-1.5">
-            <Mail size={14} className="text-accent" /> Follow-up Email
-          </p>
-          <Button size="sm" variant="secondary" icon={<Sparkles size={12} />} onClick={() => followUp.mutate(deal.id)} loading={followUp.isPending}>
-            {followUp.data ? 'Regenerate' : 'Generate'}
-          </Button>
-        </div>
-        <AiNote id="deal.followUp" className="mb-2" />
-        {followUp.data && (
-          <div className="space-y-2">
-            <AiGeneratedTag />
-            <Card padding="none" flat className="overflow-hidden">
-              <div className="bg-surface-sunken px-3 py-2 flex items-center justify-between border-b border-line-subtle">
-                <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Subject</span>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => copy(followUp.data!.subject, 'subject')}
-                  icon={copied === 'subject' ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-                >
-                  {copied === 'subject' ? 'Copied' : 'Copy'}
-                </Button>
-              </div>
-              <p className="px-3 py-2 text-sm font-medium text-fg">{followUp.data.subject}</p>
-            </Card>
-            <Card padding="none" flat className="overflow-hidden">
-              <div className="bg-surface-sunken px-3 py-2 flex items-center justify-between border-b border-line-subtle">
-                <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Email Body</span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => toneCheck.mutate({ subject: followUp.data!.subject, body: followUp.data!.body })}
-                    disabled={toneCheck.isPending}
-                    icon={<Sparkles size={11} />}
-                  >
-                    {toneCheck.isPending ? 'Checking...' : 'Tone Check'}
-                  </Button>
-                  <AiInfo id="deal.toneCheck" align="left" />
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => copy(followUp.data!.body, 'body')}
-                    icon={copied === 'body' ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-                  >
-                    {copied === 'body' ? 'Copied' : 'Copy'}
-                  </Button>
-                </div>
-              </div>
-              <pre className="px-3 py-2 text-sm text-fg whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">{followUp.data.body}</pre>
-            </Card>
-            {toneCheck.data && <ToneCheckResult data={toneCheck.data} />}
-          </div>
-        )}
+        <p className="text-sm font-medium text-fg flex items-center gap-1.5 mb-2">
+          <Mail size={14} className="text-accent" /> Follow-up Email
+        </p>
+        {aiEnabled && <AiNote id="deal.followUp" className="mb-2" />}
+        <FollowUpEmailComposer kind="DEAL" recordId={deal.id} aiEnabled={aiEnabled} onSent={onSaved} />
       </div>
     </div>
   );
@@ -532,9 +404,12 @@ function PipelineStagesModal({ open, onClose }: { open: boolean; onClose: () => 
 // invalidates ['deals', id] — previously the detail panel took `deal` as a
 // prop sourced from the pipeline column array, which only ever refreshed on
 // remount (close + reopen the modal).
-function DealDetailModalContent({ id, pageSingular, onEdit, onOpenDeal, onTitle }: { id: string; pageSingular: string; onEdit: (deal: any) => void; onOpenDeal: (id: string, title: string) => void; onTitle: (title: string) => void }) {
+function DealDetailModalContent({ id, pageSingular, onEdit, onOpenDeal, onTitle, aiEnabled, followUp }: { id: string; pageSingular: string; onEdit: (deal: any) => void; onOpenDeal: (id: string, title: string) => void; onTitle: (title: string) => void; aiEnabled: boolean; followUp?: any }) {
   const { data: deal, isLoading } = useDeal(id);
-  const { money } = useFormat();
+  const { money, timezone } = useFormat();
+  // Bumped when a note is posted or an email sent — the next-step chip then asks once.
+  const [saved, setSaved] = useState(0);
+  const bump = () => setSaved(n => n + 1);
   // Opened from a link (?deal=…) the modal has no title yet.
   useEffect(() => { if (deal?.title) onTitle(deal.title); }, [deal?.title]); // eslint-disable-line react-hooks/exhaustive-deps
   if (isLoading || !deal) {
@@ -566,14 +441,73 @@ function DealDetailModalContent({ id, pageSingular, onEdit, onOpenDeal, onTitle 
       {deal.status !== 'OPEN' && (
         <Alert tone={deal.status === 'WON' ? 'success' : 'danger'} icon={null}>This deal is <strong>{deal.status === 'WON' ? 'won' : 'lost'}</strong>.</Alert>
       )}
+      <div className="space-y-2">
+        {followUp && followUp.status !== 'NONE' && (
+          <div className="flex items-center gap-2 flex-wrap text-xs text-fg-muted">
+            <FollowUpStatusIcon summary={followUp} closed={deal.status !== 'OPEN'} timezone={timezone} />
+            <span className="min-w-0 break-words">{followUp.label}</span>
+          </div>
+        )}
+        {followUp?.status === 'NONE' && deal.status === 'OPEN' && (
+          <p className="text-xs text-fg-subtle">No follow-up planned — add a task below{aiEnabled ? ' or ask for a suggestion' : ''}.</p>
+        )}
+        <NextStepChip kind="DEAL" recordId={deal.id} aiEnabled={aiEnabled} trigger={saved} />
+      </div>
       <RelatedDealsPanel dealId={deal.id} onOpenDeal={onOpenDeal} />
-      <DealDetailPanel deal={deal} />
+      <DealDetailPanel deal={deal} aiEnabled={aiEnabled} onSaved={bump} />
       <RecordTags entityType="DEAL" entityId={deal.id} />
       <CustomFieldsDisplay entityType="DEAL" entityId={deal.id} card />
       <ScheduleReminderPanel entityType="DEAL" entityId={deal.id} />
-      <Comments entityType="DEAL" entityId={deal.id} />
+      <Comments entityType="DEAL" entityId={deal.id} onPosted={bump} />
       <Attachments entityType="DEAL" entityId={deal.id} />
             <RecordTasks entityType="DEAL" entityId={deal.id} />
+    </div>
+  );
+}
+
+/** Deals as a table, with the follow-up filter and "overdue first" sort done on the server (org timezone). */
+function DealsListView({ onOpen }: { onOpen: (d: any) => void }) {
+  const { money, timezone } = useFormat();
+  const isDesktop = useMediaQuery(MD_UP);
+  const [status, setStatus] = useState('OPEN');
+  const [followUp, setFollowUp] = useState('');
+  const [sortFollowUp, setSortFollowUp] = useState(true);
+  const { data: rows, isLoading } = useDeals({
+    limit: '200', ...(status && { status }), ...(followUp && { followUp }), ...(sortFollowUp && { sort: 'followup' }),
+  });
+  const pill = (d: any, size: 'compact' | 'full') => (
+    <FollowUpStatusIcon summary={d.followUp} closed={d.status !== 'OPEN'} timezone={timezone} size={size} onClick={() => onOpen(d)} />
+  );
+  const columns: Column<any>[] = [
+    {
+      key: 'title', header: 'Deal',
+      cell: (d: any) => (
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-fg truncate" title={d.title}>{d.title}</span>
+          {!isDesktop && pill(d, 'compact')}
+        </div>
+      ),
+    },
+    { key: 'followUp', header: 'Follow-up', hideBelow: 'md', mobile: 'hidden', cell: (d: any) => pill(d, 'full') },
+    { key: 'stage', header: 'Stage', muted: true, cell: (d: any) => d.stage },
+    { key: 'value', header: 'Value', align: 'right', cell: (d: any) => <span className="tabular-nums">{money(d.value)}</span> },
+    { key: 'contact', header: 'Contact', hideBelow: 'md', muted: true, cell: (d: any) => d.contact?.name || '--' },
+    { key: 'assignee', header: 'Assigned to', hideBelow: 'lg', muted: true, cell: (d: any) => d.assignee?.name || '--' },
+    { key: 'status', header: 'Status', hideBelow: 'sm', cell: (d: any) => <StatusBadge value={d.status} map={dealStatusVariant} dot /> },
+  ];
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <Select aria-label="Filter by status" value={status} onChange={e => setStatus(e.target.value)} placeholder="All statuses"
+          options={[{ value: 'OPEN', label: 'Open' }, { value: 'WON', label: 'Won' }, { value: 'LOST', label: 'Lost' }]} className="w-36" />
+        <Select aria-label="Filter by follow-up" value={followUp} onChange={e => setFollowUp(e.target.value)} placeholder="All follow-ups" options={FOLLOWUP_FILTERS} className="w-48" />
+        <Button variant={sortFollowUp ? 'primary' : 'secondary'} icon={<ArrowDownUp size={14} />} aria-pressed={sortFollowUp} onClick={() => setSortFollowUp(v => !v)}
+          title="Sort by follow-up: overdue first, then due today, upcoming, none">Overdue first</Button>
+      </div>
+      <Card padding="none" className="overflow-hidden">
+        <DataTable columns={columns} rows={rows ?? []} rowKey={(d: any) => d.id} onRowClick={onOpen} minWidth={640} loading={isLoading}
+          empty={<p className="text-sm text-fg-subtle text-center py-8">No deals match these filters.</p>} />
+      </Card>
     </div>
   );
 }
@@ -598,7 +532,11 @@ export function DealsPage() {
     if (!id && searchParams.has('deal')) { searchParams.delete('deal'); setSearchParams(searchParams, { replace: true }); }
   }
   const [editingDeal, setEditingDeal] = useState<any>(null);
-  const [view, setView] = useState<'kanban' | 'reports'>('kanban');
+  const [view, setView] = useState<'kanban' | 'list' | 'reports'>('kanban');
+  // Board filter: the board already holds every open deal with its follow-up status.
+  const [boardFollowUp, setBoardFollowUp] = useState('');
+  const { data: lic } = useLicense(canReadCrm);
+  const aiEnabled = !!lic?.features.includes('ai_advanced');
   const [pipelineHealthOpen, setPipelineHealthOpen] = useState(false);
   const [stagesOpen, setStagesOpen] = useState(false);
   const { data: pipelineData, isLoading } = usePipeline(canReadCrm);
@@ -614,6 +552,7 @@ export function DealsPage() {
   const { data: dealFieldDefs } = useCustomFieldDefs('DEAL');
   const { data: linkRule } = useDealLinkRule(canReadCrm);
   const boardIds = useMemo(() => (pipelineData?.columns ?? []).flatMap((c: any) => c.deals.map((d: any) => d.id)), [pipelineData]);
+  const boardById = useMemo(() => new Map<string, any>((pipelineData?.columns ?? []).flatMap((c: any) => c.deals.map((d: any) => [d.id, d]))), [pipelineData]);
   const { data: relatedCounts } = useRelatedCounts(boardIds, !!linkRule?.rule);
   const relatedLabel = linkRule?.rule?.fields.map(f => f.label).join(' + ') ?? '';
 
@@ -654,14 +593,15 @@ export function DealsPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             {/* No Reports tab for roles that can't read /crm/deals/reports. */}
-            {canReadReports && (
-              <Tabs
-                aria-label="Pipeline view"
-                variant="segmented"
-                value={view}
-                onChange={setView}
-                items={[{ key: 'kanban', label: 'Board' }, { key: 'reports', label: 'Reports' }]}
-              />
+            <Tabs
+              aria-label="Pipeline view"
+              variant="segmented"
+              value={view}
+              onChange={setView}
+              items={[{ key: 'kanban', label: 'Board' }, { key: 'list', label: 'List' }, ...(canReadReports ? [{ key: 'reports' as const, label: 'Reports' }] : [])]}
+            />
+            {view === 'kanban' && (
+              <Select aria-label="Filter board by follow-up" value={boardFollowUp} onChange={e => setBoardFollowUp(e.target.value)} placeholder="All follow-ups" options={FOLLOWUP_FILTERS} className="w-48" />
             )}
             <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setPipelineHealthOpen(true)}>Pipeline Health</Button>
             <Button variant="secondary" icon={<Settings size={14} />} onClick={() => setStagesOpen(true)}>Manage Stages</Button>
@@ -681,9 +621,12 @@ export function DealsPage() {
             </div>
           ))}
         </div>
+      ) : view === 'list' ? (
+        <DealsListView onOpen={(d: any) => { setSelectedDealId(d.id); setSelectedDealTitle(d.title); }} />
       ) : (view === 'kanban' || !canReadReports) ? (
         <div className="flex gap-3 md:gap-4 overflow-x-auto pb-4 flex-1 -mx-1 px-1 snap-x snap-mandatory scroll-px-1 overscroll-x-contain md:snap-none">
-          {pipelineData?.columns?.map(({ stage, color, deals }: any) => {
+          {pipelineData?.columns?.map(({ stage, color, deals: allDeals }: any) => {
+            const deals = boardFollowUp ? allDeals.filter((d: any) => matchesFollowUpFilter(d.followUp, boardFollowUp)) : allDeals;
             const total = deals.reduce((s: number, d: any) => s + Number(d.value), 0);
             // Stage colors now come from the pipeline's own stage config
             // (customizable via Manage Stages) rather than a hardcoded map —
@@ -784,6 +727,8 @@ export function DealsPage() {
             onEdit={(deal) => { setEditingDeal(deal); setSelectedDealId(null); }}
             onOpenDeal={(id, title) => { setSelectedDealIdRaw(id); setSelectedDealTitle(title); }}
             onTitle={setSelectedDealTitle}
+            aiEnabled={aiEnabled}
+            followUp={boardById.get(selectedDealId)?.followUp}
           />
         )}
       </Modal>

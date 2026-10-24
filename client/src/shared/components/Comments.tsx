@@ -11,11 +11,13 @@ import { SearchableSelect } from './SearchableSelect';
 import { can } from '../permissions';
 
 interface CommentsProps {
-  entityType: 'DEAL' | 'TICKET' | 'CONTACT';
+  entityType: 'DEAL' | 'TICKET' | 'CONTACT' | 'LEAD';
   entityId: string;
+  /** Called after a note is posted (e.g. to ask for a suggested next step). */
+  onPosted?: () => void;
 }
 
-export function Comments({ entityType, entityId }: CommentsProps) {
+export function Comments({ entityType, entityId, onPosted }: CommentsProps) {
   const [body, setBody] = useState('');
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -37,7 +39,7 @@ export function Comments({ entityType, entityId }: CommentsProps) {
 
   const create = useMutation({
     mutationFn: () => api.post(`/comments/${entityType}/${entityId}`, { body }).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: key }); setBody(''); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: key }); setBody(''); onPosted?.(); },
   });
 
   const remove = useMutation({
